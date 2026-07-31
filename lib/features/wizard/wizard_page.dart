@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/theme.dart';
 import '../../models/library_item.dart';
 import '../../models/task_metadata.dart';
+import '../../models/tool.dart';
 import '../../state/providers.dart';
 
 /// Core 2: 6-step foolproof processing wizard.
@@ -96,8 +99,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
             child: Center(
               child: Text(
                 'Step ${_step + 1}/6',
-                style:
-                    t.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.primary),
+                style: t.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.primary),
               ),
             ),
           ),
@@ -209,7 +212,8 @@ class _Progress extends StatelessWidget {
               label: Text(titles[i],
                   style: TextStyle(
                       color: active ? color : Colors.grey, fontSize: 12)),
-              backgroundColor: active ? color.withOpacity(0.12) : Colors.transparent,
+              backgroundColor:
+                  active ? color.withOpacity(0.12) : Colors.transparent,
             ),
           );
         }),
@@ -217,6 +221,8 @@ class _Progress extends StatelessWidget {
     );
   }
 }
+
+// ===================== Step 1 · 解析任务 =====================
 
 class _StepParse extends StatelessWidget {
   final TaskMetadata? task;
@@ -238,10 +244,13 @@ class _StepParse extends StatelessWidget {
         Text('任务：${task!.name}'),
         Text('尺寸：${task!.widthMm} × ${task!.heightMm} mm'),
         Text('切深：${task!.depthMm} mm'),
+        Text('板材厚：${task!.boardThicknessMm} mm'),
       ],
     );
   }
 }
+
+// ===================== Step 2 · 材质防呆 =====================
 
 class _StepMaterial extends StatelessWidget {
   final TextEditingController controller;
@@ -257,8 +266,17 @@ class _StepMaterial extends StatelessWidget {
         Text('Step 2 · 材质防呆', style: t.titleMedium),
         const SizedBox(height: 8),
         if (task?.recommendedSpindleRpm != null)
-          Text('云端推荐：主轴 ${task!.recommendedSpindleRpm} rpm · '
-              '进给 ${task!.recommendedFeedRate} mm/min'),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppTheme.brandCyanLight.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+                '云端注入最佳参数：主轴 ${task!.recommendedSpindleRpm} rpm · '
+                '进给 ${task!.recommendedFeedRate} mm/min',
+                style: TextStyle(fontSize: 12, color: AppTheme.brandCyanLight)),
+          ),
         const SizedBox(height: 8),
         TextField(
           controller: controller,
@@ -273,27 +291,57 @@ class _StepMaterial extends StatelessWidget {
   }
 }
 
-class _StepAtc extends StatelessWidget {
+// ===================== Step 3 · ATC 映射（刀仓传感器实时态）=====================
+
+class _StepAtc extends ConsumerStatefulWidget {
   const _StepAtc();
+
+  @override
+  ConsumerState<_StepAtc> createState() => _StepAtcState();
+}
+
+class _StepAtcState extends ConsumerState<_StepAtc> {
+  // 模拟刀仓传感器读取：T1-T3 已就位并锁定，T4 空槽
+  final List<Tool> _slots = const [
+    Tool(index: 1, name: '3.175 平底刀', material: '钨钢', lengthMm: 30, installed: true),
+    Tool(index: 2, name: '1.5 球刀', material: '钨钢', lengthMm: 22, installed: true),
+    Tool(index: 3, name: '0.8 尖刀', material: '硬质合金', lengthMm: 25, installed: true),
+    Tool(index: 4, name: '—', installed: false),
+  ];
+  bool _synced = false;
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
+    final hw = ref.read(hardwareServiceProvider);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('Step 3 · ATC 映射', style: t.titleMedium),
         const SizedBox(height: 8),
-        const Text('确认 T1-T4 刀仓，闲置刀具可免拔出。'),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          children: List.generate(
-            4,
-            (i) => Chip(
-              avatar: const Icon(Icons.circle, size: 12, color: Colors.green),
-              label: Text('T${i + 1} 已就位'),
-            ),
+        const Text('刀仓传感器实时状态：绿环=已就位并锁定，红环=未检测到刀具。'
+            '请对照红/绿定位环核对，闲置刀具可免拔出。',
+            style: TextStyle(fontSize: 12, color: Colors.grey)),
+        const SizedBox(height: 14),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: _slots.map((tool) => _ToolSlot(tool: tool)).toList(),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _synced
+                ? null
+                : () {
+                    hw.updateToolMap(_slots);
+                    setState(() => _synced = true);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('刀仓映射已同步到机器')),
+                    );
+                  },
+            icon: Icon(_synced ? Icons.check : Icons.sync),
+            label: Text(_synced ? '已同步到机器' : '确认映射并同步到机器'),
           ),
         ),
       ],
@@ -301,50 +349,256 @@ class _StepAtc extends StatelessWidget {
   }
 }
 
-class _StepOrigin extends StatelessWidget {
+class _ToolSlot extends StatelessWidget {
+  final Tool tool;
+  const _ToolSlot({required this.tool});
+
+  @override
+  Widget build(BuildContext context) {
+    final seated = tool.installed;
+    final ring = seated ? Colors.green : Colors.red;
+    return Column(
+      children: [
+        Container(
+          width: 62,
+          height: 62,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: ring, width: 3),
+            color: ring.withOpacity(0.12),
+          ),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text('T${tool.index}',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                Icon(seated ? Icons.check_circle : Icons.error_outline,
+                    color: ring, size: 18),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(seated ? '已就位' : '空槽',
+            style: TextStyle(fontSize: 11, color: ring)),
+        if (seated)
+          SizedBox(
+            width: 64,
+            child: Text(tool.name,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 9, color: Colors.grey)),
+          ),
+      ],
+    );
+  }
+}
+
+// ===================== Step 4 · 定原点防撞（3020 底板矢量）=====================
+
+class _StepOrigin extends StatefulWidget {
   final TextEditingController xCtrl;
   final TextEditingController yCtrl;
   final TaskMetadata? task;
-  const _StepOrigin(
-      {required this.xCtrl, required this.yCtrl, this.task});
+  const _StepOrigin({required this.xCtrl, required this.yCtrl, this.task});
+
+  @override
+  State<_StepOrigin> createState() => _StepOriginState();
+}
+
+class _StepOriginState extends State<_StepOrigin>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _walk = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 2),
+  )..addListener(() => setState(() {}));
+  bool _walking = false;
+
+  @override
+  void dispose() {
+    _walk.dispose();
+    super.dispose();
+  }
+
+  double get _x => double.tryParse(widget.xCtrl.text) ?? 0;
+  double get _y => double.tryParse(widget.yCtrl.text) ?? 0;
+  double get _w => widget.task?.widthMm ?? 90;
+  double get _h => widget.task?.heightMm ?? 90;
+
+  void _runWalk() {
+    if (_walking) return;
+    setState(() => _walking = true);
+    _walk.forward(from: 0).whenComplete(() => setState(() => _walking = false));
+  }
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
+    const bedW = 300.0;
+    const bedH = 200.0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('Step 4 · 定原点与防撞', style: t.titleMedium),
         const SizedBox(height: 8),
-        const Text('在 3020 等比例底板上微调并设置 G54 工件零点。'),
-        const SizedBox(height: 8),
+        const Text('在 3020 等比例底板上微调并设置 G54 工件零点；可点“走边框”预览加工范围是否越界。',
+            style: TextStyle(fontSize: 12, color: Colors.grey)),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceVariant,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            children: [
+              AspectRatio(
+                aspectRatio: bedW / bedH,
+                child: CustomPaint(
+                  painter: _BedPainter(
+                    bedW: bedW,
+                    bedH: bedH,
+                    partW: _w,
+                    partH: _h,
+                    x: _x,
+                    y: _y,
+                    walk: _walk.value,
+                    walking: _walking,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('工件 ${_w.toInt()}×${_h.toInt()}mm',
+                      style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                  Text('原点 (${_x.toInt()}, ${_y.toInt()})',
+                      style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
         Row(
           children: [
             Expanded(
               child: TextField(
-                controller: xCtrl,
+                controller: widget.xCtrl,
                 keyboardType: TextInputType.number,
+                onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(labelText: 'X 偏移 (mm)'),
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: TextField(
-                controller: yCtrl,
+                controller: widget.yCtrl,
                 keyboardType: TextInputType.number,
+                onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(labelText: 'Y 偏移 (mm)'),
               ),
             ),
           ],
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: _walking ? null : _runWalk,
+            icon: const Icon(Icons.route),
+            label: Text(_walking ? '走边框中…' : '走边框预览'),
+          ),
         ),
       ],
     );
   }
 }
 
+class _BedPainter extends CustomPainter {
+  final double bedW, bedH, partW, partH, x, y, walk;
+  final bool walking;
+  const _BedPainter({
+    required this.bedW,
+    required this.bedH,
+    required this.partW,
+    required this.partH,
+    required this.x,
+    required this.y,
+    required this.walk,
+    required this.walking,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final sx = size.width / bedW;
+    final sy = size.height / bedH;
+
+    // 底板
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Paint()..color = const Color(0xFF0d0d0d),
+    );
+    // 网格（每 50mm）
+    final grid = Paint()..color = Colors.white.withOpacity(0.06)..strokeWidth = 1;
+    for (double g = 0; g <= bedW + 0.1; g += 50) {
+      canvas.drawLine(Offset(g * sx, 0), Offset(g * sx, size.height), grid);
+    }
+    for (double g = 0; g <= bedH + 0.1; g += 50) {
+      canvas.drawLine(Offset(0, g * sy), Offset(size.width, g * sy), grid);
+    }
+
+    // 工件包围框（限制在底板内）
+    final px = (x * sx).clamp(0.0, size.width);
+    final py = (y * sy).clamp(0.0, size.height);
+    final pw = (partW * sx).clamp(0.0, size.width - px);
+    final ph = (partH * sy).clamp(0.0, size.height - py);
+
+    canvas.drawRect(Rect.fromLTWH(px, py, pw, ph),
+        Paint()..color = AppTheme.brandCyan.withOpacity(0.18));
+    canvas.drawRect(Rect.fromLTWH(px, py, pw, ph),
+        Paint()..color = AppTheme.brandCyan..strokeWidth = 2);
+
+    // 工件零点（激光点）
+    canvas.drawCircle(Offset(px, py), 5, Paint()..color = Colors.red);
+
+    // 走边框激光轨迹
+    if (walking && pw > 1 && ph > 1) {
+      final per = 2 * (pw + ph);
+      final d = walk * per;
+      Offset pt;
+      if (d <= pw) {
+        pt = Offset(px + d, py);
+      } else if (d <= pw + ph) {
+        pt = Offset(px + pw, py + (d - pw));
+      } else if (d <= 2 * pw + ph) {
+        pt = Offset(px + pw - (d - pw - ph), py + ph);
+      } else {
+        pt = Offset(px, py + ph - (d - 2 * pw - ph));
+      }
+      canvas.drawCircle(pt, 6, Paint()..color = Colors.greenAccent);
+    }
+
+    // 外框
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height),
+        Paint()..color = Colors.white24..strokeWidth = 1);
+  }
+
+  @override
+  bool shouldRepaint(covariant _BedPainter old) =>
+      old.x != x ||
+      old.y != y ||
+      old.partW != partW ||
+      old.partH != partH ||
+      old.walk != walk ||
+      old.walking != walking;
+}
+
+// ===================== Step 5 · 智能调平 =====================
+
 class _StepLeveling extends StatelessWidget {
   const _StepLeveling();
-
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
@@ -353,7 +607,8 @@ class _StepLeveling extends StatelessWidget {
       children: [
         Text('Step 5 · 智能调平', style: t.titleMedium),
         const SizedBox(height: 8),
-        const Text('基于加工面积自动匹配探测点（6 / 9 / 12 点网格）。'),
+        const Text('基于加工面积自动匹配探测点（6 / 9 / 12 点网格）。',
+            style: TextStyle(fontSize: 12, color: Colors.grey)),
         const SizedBox(height: 8),
         Wrap(
           spacing: 8,
@@ -368,9 +623,17 @@ class _StepLeveling extends StatelessWidget {
   }
 }
 
-class _StepTakeoff extends StatelessWidget {
+// ===================== Step 6 · 全自动起飞（预检流水线 + 2D 轨迹）=====================
+
+class _StepTakeoff extends StatefulWidget {
   const _StepTakeoff();
 
+  @override
+  State<_StepTakeoff> createState() => _StepTakeoffState();
+}
+
+class _StepTakeoffState extends State<_StepTakeoff>
+    with SingleTickerProviderStateMixin {
   static const _checks = [
     '锁门',
     '测刀长',
@@ -380,24 +643,219 @@ class _StepTakeoff extends StatelessWidget {
     '负压确认',
     '安全区校验',
   ];
+  List<String> _status = List.filled(7, 'pending'); // pending | running | done
+  Timer? _timer;
+  bool _running = false;
+
+  late final AnimationController _head = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 4),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _head.dispose();
+    super.dispose();
+  }
+
+  void _start() {
+    if (_running) return;
+    setState(() {
+      _running = true;
+      _status = List.filled(7, 'pending');
+    });
+    var i = 0;
+    void step() {
+      if (i >= _checks.length) {
+        if (mounted) setState(() => _running = false);
+        return;
+      }
+      setState(() => _status[i] = 'running');
+      _timer = Timer(const Duration(milliseconds: 500), () {
+        if (!mounted) return;
+        setState(() => _status[i] = 'done');
+        i++;
+        step();
+      });
+    }
+
+    step();
+  }
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
+    final allDone = _status.every((s) => s == 'done');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('Step 6 · 全自动起飞', style: t.titleMedium),
         const SizedBox(height: 8),
-        const Text('7 项无人值守预检流水线：'),
-        const SizedBox(height: 8),
-        ..._checks.map((c) => ListTile(
-              leading: const Icon(Icons.check_circle, color: Colors.green),
-              title: Text(c),
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-            )),
+        const Text('7 项无人值守预检流水线：',
+            style: TextStyle(fontSize: 12, color: Colors.grey)),
+        const SizedBox(height: 10),
+        ...List.generate(_checks.length, (i) {
+          final s = _status[i];
+          final color = s == 'done'
+              ? Colors.green
+              : s == 'running'
+                  ? AppTheme.brandCyan
+                  : Colors.grey;
+          final icon = s == 'done'
+              ? Icons.check_circle
+              : s == 'running'
+                  ? Icons.autorenew
+                  : Icons.circle_outlined;
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Row(
+              children: [
+                if (s == 'running')
+                  SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: color),
+                  )
+                else
+                  Icon(icon, color: color, size: 18),
+                const SizedBox(width: 10),
+                Text(_checks[i],
+                    style: TextStyle(
+                        fontSize: 13, color: s == 'pending' ? Colors.grey : null)),
+                const Spacer(),
+                if (s == 'done')
+                  const Text('完成', style: TextStyle(fontSize: 11, color: Colors.green)),
+              ],
+            ),
+          );
+        }),
+        const SizedBox(height: 14),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceVariant,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('2D 矢量实时轨迹',
+                  style: TextStyle(fontSize: 12, color: Colors.grey)),
+              const SizedBox(height: 8),
+              AspectRatio(
+                aspectRatio: 3 / 2,
+                child: AnimatedBuilder(
+                  animation: _head,
+                  builder: (c, _) =>
+                      CustomPaint(painter: _TrajectoryPainter(progress: _head.value)),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _running ? null : _start,
+            icon: Icon(_running ? Icons.hourglass_top : Icons.play_arrow),
+            label: Text(_running ? '预检中…' : (allDone ? '重新预检' : '开始预检')),
+          ),
+        ),
       ],
     );
   }
+}
+
+class _TrajectoryPainter extends CustomPainter {
+  final double progress; // 0..1
+  static const _pts = [
+    Offset(20, 20),
+    Offset(180, 20),
+    Offset(180, 100),
+    Offset(60, 100),
+    Offset(60, 160),
+    Offset(180, 160),
+    Offset(180, 240),
+    Offset(20, 240),
+    Offset(20, 20),
+  ];
+  const _TrajectoryPainter({required this.progress});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final sx = size.width / 200;
+    final sy = size.height / 260;
+    Offset toPix(Offset p) => Offset(p.dx * sx, p.dy * sy);
+
+    // 完整路径（淡）
+    final path = Path()..moveTo(toPix(_pts[0]).dx, toPix(_pts[0]).dy);
+    for (var i = 1; i < _pts.length; i++) {
+      path.lineTo(toPix(_pts[i]).dx, toPix(_pts[i]).dy);
+    }
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = AppTheme.brandCyan.withOpacity(0.25)
+        ..strokeWidth = 2
+        ..style = PaintingStyle.stroke,
+    );
+
+    // 分段长度
+    final segLens = <double>[];
+    var total = 0.0;
+    for (var i = 1; i < _pts.length; i++) {
+      final a = toPix(_pts[i - 1]);
+      final b = toPix(_pts[i]);
+      final l = (b - a).distance;
+      segLens.add(l);
+      total += l;
+    }
+
+    // 已走路径（亮）
+    final tp = Path()..moveTo(toPix(_pts[0]).dx, toPix(_pts[0]).dy);
+    var target = progress * total;
+    for (var i = 1; i < _pts.length; i++) {
+      final a = toPix(_pts[i - 1]);
+      final b = toPix(_pts[i]);
+      final l = segLens[i - 1];
+      if (target >= l) {
+        tp.lineTo(b.dx, b.dy);
+        target -= l;
+      } else {
+        final f = l == 0 ? 0.0 : target / l;
+        tp.lineTo(a.dx + (b.dx - a.dx) * f, a.dy + (b.dy - a.dy) * f);
+        break;
+      }
+    }
+    canvas.drawPath(
+      tp,
+      Paint()
+        ..color = AppTheme.brandCyan
+        ..strokeWidth = 2.5
+        ..style = PaintingStyle.stroke,
+    );
+
+    // 刀头
+    var tt = progress * total;
+    var seg = 0;
+    while (seg < segLens.length && tt > segLens[seg]) {
+      tt -= segLens[seg];
+      seg++;
+    }
+    final Offset head;
+    if (seg >= segLens.length) {
+      head = toPix(_pts.last);
+    } else {
+      final a = toPix(_pts[seg]);
+      final b = toPix(_pts[seg + 1]);
+      final f = segLens[seg] == 0 ? 0.0 : tt / segLens[seg];
+      head = Offset(a.dx + (b.dx - a.dx) * f, a.dy + (b.dy - a.dy) * f);
+    }
+    canvas.drawCircle(head, 4, Paint()..color = Colors.greenAccent);
+  }
+
+  @override
+  bool shouldRepaint(covariant _TrajectoryPainter old) => old.progress != progress;
 }
