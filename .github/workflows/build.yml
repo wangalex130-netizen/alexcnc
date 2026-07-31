@@ -79,3 +79,14 @@ jobs:
         with:
           name: alexcnc-app
           path: build/app/outputs/flutter-apk/app-release.apk
+
+      # Publish a stable, easy-to-share download link as a GitHub Release.
+      - name: Publish APK release
+        if: success()
+        run: |
+          gh release create "apk-${{ github.sha }}" \
+            build/app/outputs/flutter-apk/app-release.apk \
+            --title "Smart CNC Pro APK" \
+            --notes "Automated build from ${{ github.sha }}"
+        env:
+          GH_TOKEN: ${{ github.token }}
