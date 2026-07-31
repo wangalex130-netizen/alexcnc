@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'app/theme.dart';
-import 'app/theme_mode_controller.dart';
-import 'features/shell/app_shell.dart';
+import 'theme.dart';
+import 'theme_mode_controller.dart';
+import '../features/shell/app_shell.dart';
 
 /// Root application widget.
 class AlexCncApp extends ConsumerWidget {

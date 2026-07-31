@@ -282,7 +282,7 @@ class _AtcCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: Colors.black.withOpacity(0.3),
                   borderRadius: BorderRadius.circular(8),
-                  border: const Border.all(color: Color(0xFF333333)),
+                  border: Border.all(color: const Color(0xFF333333)),
                 ),
                 child: const Text('管理刀仓 ❯',
                     style: TextStyle(
@@ -345,7 +345,7 @@ class _JobContent extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.black.withOpacity(0.3),
           borderRadius: BorderRadius.circular(8),
-          border: const BorderSide(color: Color(0xFF333333)),
+          border: Border.all(color: const Color(0xFF333333)),
         ),
         child: Column(
           children: [
