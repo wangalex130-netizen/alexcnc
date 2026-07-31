@@ -24,6 +24,23 @@ class MockCloudService implements CloudService {
     await Future.delayed(const Duration(milliseconds: 200));
     // Stand-in: synthesize task metadata for the selected model. The real
     // cloud returns the actual dimensions/material parameters uploaded from PC.
+    // 对齐 Step 4 原稿 GlobalState：复古木雕花纹板 145×95 松木 3.0mm rpm10000 feed1500
+    final isRetro = id == 'insp-hero' ||
+        id.contains('retro') ||
+        id.contains('wood') ||
+        id.contains('复古');
+    if (isRetro) {
+      return TaskMetadata(
+        id: id,
+        name: '复古木雕花纹板',
+        widthMm: 145,
+        heightMm: 95,
+        depthMm: 3,
+        boardThicknessMm: 3,
+        recommendedSpindleRpm: 10000,
+        recommendedFeedRate: 1500,
+      );
+    }
     final isAcrylic = id.contains('acrylic');
     return TaskMetadata(
       id: id,

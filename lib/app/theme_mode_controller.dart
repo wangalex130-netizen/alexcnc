@@ -9,7 +9,8 @@ final themeModeProvider =
 );
 
 class ThemeModeController extends StateNotifier<ThemeMode> {
-  ThemeModeController() : super(ThemeMode.system) {
+  // 默认进入纯暗色（对齐 HTML 原稿的指挥中心风格）。
+  ThemeModeController() : super(ThemeMode.dark) {
     _load();
   }
 
@@ -23,7 +24,7 @@ class ThemeModeController extends StateNotifier<ThemeMode> {
         ? ThemeMode.light
         : v == 'dark'
             ? ThemeMode.dark
-            : ThemeMode.system;
+            : ThemeMode.dark; // 原稿为纯暗色指挥中心风格，默认 dark
   }
 
   Future<void> set(ThemeMode mode) async {

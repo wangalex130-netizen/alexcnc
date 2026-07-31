@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import '../../app/theme.dart';
 
 /// Core 5: personal hub & device manager.
-/// Every settings entry opens a bottom sheet (per the design spec).
+/// Strictly aligned to 我的页面.html —— 荧光绿 #00ff7f / 纯黑底 / emoji 图标 / 原名。
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
 
@@ -31,41 +31,41 @@ class _ProfilePageState extends State<ProfilePage> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
       children: [
-        // 用户信息头
+        // 用户信息头（蓝 U 头像）
         Container(
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                AppTheme.brandCyanLight.withOpacity(0.18),
-                Theme.of(context).colorScheme.surface,
-              ],
-            ),
+            color: CncColors.panelAlt,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Theme.of(context).dividerColor),
+            border: Border.all(color: CncColors.border),
           ),
           child: Row(
             children: [
               CircleAvatar(
                 radius: 30,
-                backgroundColor: AppTheme.brandCyanLight,
-                child: const Text('U', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
+                backgroundColor: CncColors.blue,
+                child: const Text('U',
+                    style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white)),
               ),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('User_9527', style: t.titleLarge),
+                    Text('User_9527',
+                        style: t.titleLarge
+                            ?.copyWith(color: CncColors.textMain)),
                     const SizedBox(height: 4),
-                    Text('Cloud ID: CNC-A8F9-2026',
-                        style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                    const Text('Cloud ID: CNC-A8F9-2026',
+                        style: TextStyle(
+                            fontSize: 11, color: CncColors.textSub)),
                   ],
                 ),
               ),
-              const Icon(Icons.settings_outlined, color: Colors.grey, size: 22),
+              const Text('⚙️', style: TextStyle(fontSize: 22)),
             ],
           ),
         ),
@@ -76,19 +76,26 @@ class _ProfilePageState extends State<ProfilePage> {
         _MenuGroup(
           children: [
             _MenuItem(
-              icon: Icons.wifi,
+              emoji: '📡',
               title: '网络配对与连接',
-              trailing: const Text('已连 Wi-Fi', style: TextStyle(fontSize: 12, color: AppTheme.brandCyanLight)),
+              trailing: const Text('已连 Wi-Fi',
+                  style: TextStyle(fontSize: 12, color: CncColors.primary)),
               onTap: () => _openSheet(const _PairingSheet()),
             ),
             _MenuItem(
-              icon: Icons.system_update,
+              emoji: '⬆️',
               title: '固件 OTA 升级',
               trailing: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                 decoration: BoxDecoration(
-                  color: AppTheme.danger, borderRadius: BorderRadius.circular(10)),
-                child: const Text('有新版本', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white)),
+                    color: CncColors.danger,
+                    borderRadius: BorderRadius.circular(10)),
+                child: const Text('有新版本',
+                    style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white)),
               ),
               onTap: () => _openSheet(const _OtaSheet()),
             ),
@@ -96,39 +103,44 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
 
         // 模块 2：消息与告警
-        _SectionTitle('消息与告警 (Notification)'),
+        _SectionTitle('消息与告警'),
         _MenuGroup(
           children: [
             _MenuItem(
-              icon: Icons.notifications,
+              emoji: '🔔',
               title: '系统消息与历史告警',
-              trailing: const Text('2 条未读', style: TextStyle(fontSize: 12, color: AppTheme.danger)),
+              trailing: const Text('2 条未读',
+                  style: TextStyle(fontSize: 12, color: CncColors.danger)),
               onTap: () => _openSheet(const _MessagesSheet()),
             ),
             _MenuItem(
-              icon: Icons.check_circle_outline,
+              emoji: '✅',
               title: '允许推送设备完成状态',
-              trailing: _Switch(value: _pushComplete, onChanged: (v) => setState(() => _pushComplete = v)),
+              trailing: _Switch(
+                  value: _pushComplete,
+                  onChanged: (v) => setState(() => _pushComplete = v)),
             ),
             _MenuItem(
-              icon: Icons.warning_amber_outlined,
+              emoji: '⚠️',
               title: '允许推送硬件异常告警',
-              trailing: _Switch(value: _pushAlert, onChanged: (v) => setState(() => _pushAlert = v)),
+              trailing: _Switch(
+                  value: _pushAlert,
+                  onChanged: (v) => setState(() => _pushAlert = v)),
             ),
           ],
         ),
 
         // 模块 3：支持与诊断
-        _SectionTitle('支持与诊断 (Support)'),
+        _SectionTitle('支持与诊断'),
         _MenuGroup(
           children: [
             _MenuItem(
-              icon: Icons.health_and_safety,
+              emoji: '🩺',
               title: '智能诊断与日志提取',
               onTap: () => _openSheet(const _DiagSheet()),
             ),
             _MenuItem(
-              icon: Icons.headset_mic,
+              emoji: '🎧',
               title: '在线售后客服',
               onTap: () {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -152,7 +164,8 @@ class _SectionTitle extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
         child: Text(text.toUpperCase(),
-            style: const TextStyle(fontSize: 11, color: Colors.grey, letterSpacing: 0.5)),
+            style: const TextStyle(
+                fontSize: 11, color: CncColors.textSub, letterSpacing: 0.5)),
       );
 }
 
@@ -162,20 +175,24 @@ class _MenuGroup extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
+          color: CncColors.card,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Theme.of(context).dividerColor),
+          border: Border.all(color: CncColors.border),
         ),
         child: Column(children: children),
       );
 }
 
 class _MenuItem extends StatelessWidget {
-  final IconData icon;
+  final String emoji;
   final String title;
   final Widget? trailing;
   final VoidCallback? onTap;
-  const _MenuItem({required this.icon, required this.title, this.trailing, this.onTap});
+  const _MenuItem(
+      {required this.emoji,
+      required this.title,
+      this.trailing,
+      this.onTap});
 
   @override
   Widget build(BuildContext context) => InkWell(
@@ -183,14 +200,31 @@ class _MenuItem extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
           decoration: BoxDecoration(
-            border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor)),
+            border: Border(
+                bottom: BorderSide(color: CncColors.border)),
           ),
           child: Row(
             children: [
-              SizedBox(width: 24, child: Icon(icon, size: 18, color: AppTheme.brandCyanLight)),
+              SizedBox(
+                  width: 24,
+                  child: Text(emoji,
+                      style: const TextStyle(fontSize: 18),
+                      textAlign: TextAlign.center)),
               const SizedBox(width: 12),
-              Expanded(child: Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500))),
-              if (trailing != null) ...[trailing!, const SizedBox(width: 6), if (onTap != null) const Icon(Icons.chevron_right, color: Colors.grey)],
+              Expanded(
+                  child: Text(title,
+                      style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: CncColors.textMain))),
+              if (trailing != null)
+                ...[
+                  trailing!,
+                  const SizedBox(width: 6),
+                  if (onTap != null)
+                    const Icon(Icons.chevron_right,
+                        color: CncColors.textSub),
+                ],
             ],
           ),
         ),
@@ -210,11 +244,12 @@ class _Switch extends StatelessWidget {
           height: 20,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
-            color: value ? AppTheme.brandCyan : Colors.grey,
+            color: value ? CncColors.primary : CncColors.border,
           ),
           child: AnimatedAlign(
             duration: const Duration(milliseconds: 200),
-            alignment: value ? Alignment.centerRight : Alignment.centerLeft,
+            alignment:
+                value ? Alignment.centerRight : Alignment.centerLeft,
             child: Container(
               width: 16,
               height: 16,
@@ -239,11 +274,13 @@ class _SheetFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
+          color: CncColors.card,
+          borderRadius:
+              const BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border(top: BorderSide(color: CncColors.border)),
         ),
-        constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.82),
+        constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.82),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -252,15 +289,20 @@ class _SheetFrame extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text(title,
+                      style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: CncColors.textMain)),
                   IconButton(
-                    icon: const Icon(Icons.close, color: Colors.grey, size: 22),
+                    icon: const Icon(Icons.close,
+                        color: CncColors.textSub, size: 22),
                     onPressed: () => Navigator.pop(context),
                   ),
                 ],
               ),
             ),
-            const Divider(height: 1),
+            const Divider(height: 1, color: CncColors.border),
             Flexible(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(20),
@@ -287,9 +329,15 @@ class _PairingSheet extends StatelessWidget {
                 children: [
                   Text('📡', style: TextStyle(fontSize: 40)),
                   SizedBox(height: 10),
-                  Text('当前连接：Smart_Studio_5G', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                  Text('当前连接：Smart_Studio_5G',
+                      style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: CncColors.textMain)),
                   SizedBox(height: 4),
-                  Text('IP: 192.168.1.105', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                  Text('IP: 192.168.1.105',
+                      style: TextStyle(
+                          fontSize: 11, color: CncColors.textSub)),
                 ],
               ),
             ),
@@ -297,13 +345,16 @@ class _PairingSheet extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(15),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceVariant,
+                color: CncColors.bg,
                 borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: CncColors.border),
               ),
-              child: Column(
+              child: const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text('重新配置网络 (蓝牙模式)', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                children: [
+                  Text('重新配置网络 (蓝牙模式)',
+                      style: TextStyle(
+                          fontSize: 12, color: CncColors.textSub)),
                   SizedBox(height: 8),
                   _PasswordField(),
                 ],
@@ -321,11 +372,26 @@ class _PasswordField extends StatelessWidget {
   @override
   Widget build(BuildContext context) => TextField(
         obscureText: true,
+        style: const TextStyle(color: CncColors.textMain),
         decoration: InputDecoration(
           hintText: '输入新 Wi-Fi 密码...',
+          hintStyle: const TextStyle(color: CncColors.textSub),
           filled: true,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          fillColor: CncColors.bg,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(color: CncColors.border),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(color: CncColors.border),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(color: CncColors.primary),
+          ),
         ),
       );
 }
@@ -360,12 +426,15 @@ class _SendConfigButtonState extends State<_SendConfigButton> {
         child: FilledButton(
           onPressed: _onTap,
           style: FilledButton.styleFrom(
-            backgroundColor: AppTheme.brandCyan,
+            backgroundColor: CncColors.primary,
             foregroundColor: Colors.black,
             padding: const EdgeInsets.symmetric(vertical: 14),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12)),
           ),
-          child: Text(_label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+          child: Text(_label,
+              style: const TextStyle(
+                  fontSize: 14, fontWeight: FontWeight.bold)),
         ),
       );
 }
@@ -383,26 +452,40 @@ class _OtaSheet extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(15),
               decoration: BoxDecoration(
-                color: AppTheme.brandCyanLight.withOpacity(0.1),
+                color: CncColors.primary.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.brandCyanLight.withOpacity(0.3)),
+                border: Border.all(
+                    color: CncColors.primary.withOpacity(0.3)),
               ),
               child: Column(
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: const [
-                      Text('当前版本: v1.2.0', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                      Text('新版本: v1.3.5', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.brandCyanLight)),
+                      Text('当前版本: v1.2.0',
+                          style: TextStyle(
+                              fontSize: 12, color: CncColors.textSub)),
+                      Text('新版本: v1.3.5',
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: CncColors.primary)),
                     ],
                   ),
                   const SizedBox(height: 8),
-                  const Text('更新日志：', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                  const Text('更新日志：',
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: CncColors.textMain)),
                   const SizedBox(height: 4),
                   const Text('• 优化了 ATC 抓刀算法，换刀速度提升 15%\n'
                       '• 修复了长时间雕刻时偶发的 Z 轴丢步报错\n'
                       '• 新增支持 14 种新耗材预设参数',
-                      style: TextStyle(fontSize: 11, color: Colors.grey, height: 1.6)),
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: CncColors.textSub,
+                          height: 1.6)),
                 ],
               ),
             ),
@@ -410,7 +493,8 @@ class _OtaSheet extends StatelessWidget {
             const _OtaProgressButton(),
             const SizedBox(height: 6),
             const Text('升级期间机器将重启，请勿断开主电源',
-                style: TextStyle(fontSize: 10, color: Colors.grey), textAlign: TextAlign.center),
+                style: TextStyle(fontSize: 10, color: CncColors.textSub),
+                textAlign: TextAlign.center),
           ],
         ),
       );
@@ -437,9 +521,16 @@ class _OtaProgressButtonState extends State<_OtaProgressButton> {
           showDialog(
             context: context,
             builder: (_) => AlertDialog(
-              title: const Text('固件已刷入'),
-              content: const Text('机器正在重启，请稍候...'),
-              actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('好的'))],
+              backgroundColor: CncColors.card,
+              title: const Text('固件已刷入',
+                  style: TextStyle(color: CncColors.textMain)),
+              content: const Text('机器正在重启，请稍候...',
+                  style: TextStyle(color: CncColors.textSub)),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('好的'))
+              ],
             ),
           );
           Future.delayed(const Duration(milliseconds: 600), () {
@@ -458,8 +549,8 @@ class _OtaProgressButtonState extends State<_OtaProgressButton> {
               padding: const EdgeInsets.only(bottom: 12),
               child: LinearProgressIndicator(
                 value: _progress / 100,
-                backgroundColor: Theme.of(context).colorScheme.surfaceVariant,
-                color: AppTheme.brandCyan,
+                backgroundColor: CncColors.bg,
+                color: CncColors.primary,
                 minHeight: 8,
                 borderRadius: BorderRadius.circular(4),
               ),
@@ -469,13 +560,17 @@ class _OtaProgressButtonState extends State<_OtaProgressButton> {
             child: FilledButton(
               onPressed: _running ? null : _start,
               style: FilledButton.styleFrom(
-                backgroundColor: AppTheme.brandCyan,
+                backgroundColor: CncColors.primary,
                 foregroundColor: Colors.black,
+                disabledBackgroundColor: CncColors.border,
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
               ),
-              child: Text(_running ? '刷入中 ${_progress.toInt()}%' : '一键下载并刷入机器',
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+              child: Text(
+                  _running ? '刷入中 ${_progress.toInt()}%' : '一键下载并刷入机器',
+                  style: const TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.bold)),
             ),
           ),
         ],
@@ -487,9 +582,19 @@ class _OtaProgressButtonState extends State<_OtaProgressButton> {
 class _MessagesSheet extends StatelessWidget {
   const _MessagesSheet();
   static const _msgs = [
-    _Msg(title: '🚨 加工异常中断', time: '今天 15:30', desc: '检测到加工过程中机箱防护门被物理打开。为保障安全，主轴已急停。请检查并复位机器。', error: true),
-    _Msg(title: '✅ 雕刻任务已完成', time: '今天 11:20', desc: '工程包“定制化_父亲节底座_V2”已成功完成加工。延时摄影视频已保存至云端相册。'),
-    _Msg(title: '🔧 刀具保养提醒', time: '昨天 09:10', desc: 'T1 槽位 3.175 平底刀累计切削时长已达 50 小时，建议检查刃口磨损情况。'),
+    _Msg(
+        title: '🚨 加工异常中断',
+        time: '今天 15:30',
+        desc: '检测到加工过程中机箱防护门被物理打开。为保障安全，主轴已急停。请检查并复位机器。',
+        error: true),
+    _Msg(
+        title: '✅ 雕刻任务已完成',
+        time: '今天 11:20',
+        desc: '工程包“定制化_父亲节底座_V2”已成功完成加工。延时摄影视频已保存至云端相册。'),
+    _Msg(
+        title: '🔧 刀具保养提醒',
+        time: '昨天 09:10',
+        desc: 'T1 槽位 3.175 平底刀累计切削时长已达 50 小时，建议检查刃口磨损情况。'),
   ];
   @override
   Widget build(BuildContext context) => _SheetFrame(
@@ -500,18 +605,33 @@ class _MessagesSheet extends StatelessWidget {
                     margin: const EdgeInsets.only(bottom: 10),
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surfaceVariant,
+                      color: CncColors.bg,
                       borderRadius: BorderRadius.circular(6),
-                      border: Border(left: BorderSide(color: m.error ? AppTheme.danger : AppTheme.brandCyan, width: 3)),
+                      border: Border(
+                          left: BorderSide(
+                              color: m.error
+                                  ? CncColors.danger
+                                  : CncColors.primary,
+                              width: 3)),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(m.title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                        Text(m.title,
+                            style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: CncColors.textMain)),
                         const SizedBox(height: 4),
-                        Text(m.time, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                        Text(m.time,
+                            style: const TextStyle(
+                                fontSize: 10, color: CncColors.textSub)),
                         const SizedBox(height: 6),
-                        Text(m.desc, style: const TextStyle(fontSize: 11, color: Colors.grey, height: 1.4)),
+                        Text(m.desc,
+                            style: const TextStyle(
+                                fontSize: 11,
+                                color: CncColors.textSub,
+                                height: 1.4)),
                       ],
                     ),
                   ))
@@ -525,7 +645,11 @@ class _Msg {
   final String time;
   final String desc;
   final bool error;
-  const _Msg({required this.title, required this.time, required this.desc, this.error = false});
+  const _Msg(
+      {required this.title,
+      required this.time,
+      required this.desc,
+      this.error = false});
 }
 
 // ===================== 抽屉 4：诊断日志 =====================
@@ -541,7 +665,8 @@ class _DiagSheet extends StatelessWidget {
             const Text(
               '当机器出现不可恢复的异常（如异响、持续报错）时，可一键提取主板底层运行日志'
               '（含最近 5 次加工的 G-Code 轨迹与传感器快照），发送给售后工程师协助分析。',
-              style: TextStyle(fontSize: 12, color: Colors.grey, height: 1.5),
+              style: TextStyle(
+                  fontSize: 12, color: CncColors.textSub, height: 1.5),
             ),
             const SizedBox(height: 16),
             const _DiagProgressButton(),
@@ -569,7 +694,8 @@ class _DiagProgressButtonState extends State<_DiagProgressButton> {
         timer.cancel();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('日志打包完成，已发送至云端客服工单系统')),
+            const SnackBar(
+                content: Text('日志打包完成，已发送至云端客服工单系统')),
           );
           Future.delayed(const Duration(milliseconds: 600), () {
             if (mounted) Navigator.pop(context);
@@ -587,8 +713,8 @@ class _DiagProgressButtonState extends State<_DiagProgressButton> {
               padding: const EdgeInsets.only(bottom: 12),
               child: LinearProgressIndicator(
                 value: _progress / 100,
-                backgroundColor: Theme.of(context).colorScheme.surfaceVariant,
-                color: AppTheme.brandCyanLight,
+                backgroundColor: CncColors.bg,
+                color: CncColors.primary,
                 minHeight: 8,
                 borderRadius: BorderRadius.circular(4),
               ),
@@ -598,16 +724,19 @@ class _DiagProgressButtonState extends State<_DiagProgressButton> {
             child: FilledButton(
               onPressed: _running ? null : _start,
               style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.surfaceVariant,
-                foregroundColor: AppTheme.brandCyanLight,
+                backgroundColor: CncColors.bg,
+                foregroundColor: CncColors.primary,
+                disabledBackgroundColor: CncColors.border,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
-                  side: BorderSide(color: Theme.of(context).dividerColor),
+                  side: BorderSide(color: CncColors.border),
                 ),
               ),
-              child: Text(_running ? '打包中 ${_progress.toInt()}%' : '📤 一键打包提取机器日志',
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+              child: Text(
+                  _running ? '打包中 ${_progress.toInt()}%' : '📤 一键打包提取机器日志',
+                  style: const TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.bold)),
             ),
           ),
         ],

@@ -1,113 +1,108 @@
 import 'package:flutter/material.dart';
 
-/// Premium theme definitions for Smart CNC Pro.
-/// Brand language: deep cyan + teal accent on neutral surfaces, with a
-/// careful typographic scale and low-elevation bordered cards.
+/// Smart CNC Pro 设计令牌 —— 严格对齐「Smart CNC APP 视觉模拟 v2」原稿。
+///
+/// 配色：纯黑底 + 荧光绿 #00ff7f 指挥中心风格。
+class CncColors {
+  CncColors._();
+
+  // 背景 / 面板 / 卡片
+  static const Color bg = Color(0xFF000000); // 纯黑底
+  static const Color panel = Color(0xFF181818); // 顶栏 / 底部动作条
+  static const Color panelAlt = Color(0xFF121212); // 库/我的页面顶区
+  static const Color card = Color(0xFF1a1a1a); // 卡片
+
+  // 招牌色与辅助色
+  static const Color primary = Color(0xFF00ff7f); // 荧光绿（绿底配黑字）
+  static const Color warning = Color(0xFFff9800); // 橙
+  static const Color danger = Color(0xFFf44336); // 红
+  static const Color blue = Color(0xFF2196f3); // 蓝
+  static const Color laser = Color(0xFFff2a2a); // 激光点红
+
+  // 文字
+  static const Color textMain = Color(0xFFFFFFFF);
+  static const Color textSub = Color(0xFF888888);
+
+  // 边框
+  static const Color border = Color(0xFF333333);
+}
+
+/// ThemeData 封装。dark = 原稿设计；light = 同语言浅色备用。
 class AppTheme {
   AppTheme._();
 
-  // ---- Brand palette -------------------------------------------------------
-  static const Color brandCyan = Color(0xFF0096C7);
-  static const Color brandCyanLight = Color(0xFF48CAE4);
-  static const Color brandTeal = Color(0xFF2EC4B6);
-  static const Color danger = Color(0xFFEF476F);
-  static const Color warn = Color(0xFFFFD166);
-  static const Color ok = Color(0xFF06D6A0);
-
-  // ---- Light theme ---------------------------------------------------------
-  static final ThemeData light = ThemeData(
-    useMaterial3: true,
-    brightness: Brightness.light,
-    colorScheme: ColorScheme.fromSeed(
-      seedColor: brandCyan,
-      brightness: Brightness.light,
-      surface: const Color(0xFFFFFFFF),
-      background: const Color(0xFFF4F7FA),
-      secondary: brandTeal,
-      error: danger,
-    ),
-    scaffoldBackgroundColor: const Color(0xFFF4F7FA),
-    cardTheme: CardTheme(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: Colors.black.withOpacity(0.06)),
-      ),
-    ),
-    appBarTheme: const AppBarTheme(
-      centerTitle: false,
-      elevation: 0,
-      backgroundColor: Colors.transparent,
-      foregroundColor: Color(0xFF0B1B24),
-    ),
-    navigationBarTheme: NavigationBarThemeData(
-      elevation: 0,
-      backgroundColor: Colors.white.withOpacity(0.9),
-      indicatorColor: brandCyan.withOpacity(0.15),
-      labelTextStyle: WidgetStateProperty.all(
-        const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-      ),
-    ),
-    filledButtonTheme: FilledButtonThemeData(
-      style: FilledButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    ),
-    textTheme: _textTheme(Brightness.light),
-  );
-
-  // ---- Dark theme ----------------------------------------------------------
   static final ThemeData dark = ThemeData(
     useMaterial3: true,
     brightness: Brightness.dark,
-    colorScheme: ColorScheme.fromSeed(
-      seedColor: brandCyanLight,
-      brightness: Brightness.dark,
-      surface: const Color(0xFF141A21),
-      background: const Color(0xFF0B0F14),
-      secondary: brandTeal,
-      error: danger,
+    scaffoldBackgroundColor: CncColors.bg,
+    colorScheme: ColorScheme.dark(
+      primary: CncColors.primary,
+      secondary: CncColors.blue,
+      background: CncColors.bg,
+      surface: CncColors.card,
+      error: CncColors.danger,
     ),
-    scaffoldBackgroundColor: const Color(0xFF0B0F14),
-    cardTheme: CardTheme(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: Colors.white.withOpacity(0.08)),
-      ),
-    ),
+    cardColor: CncColors.card,
+    dividerColor: CncColors.border,
+    canvasColor: CncColors.bg,
     appBarTheme: const AppBarTheme(
-      centerTitle: false,
+      backgroundColor: CncColors.panel,
+      foregroundColor: CncColors.textMain,
       elevation: 0,
-      backgroundColor: Colors.transparent,
-      foregroundColor: Color(0xFFE6F2F7),
     ),
     navigationBarTheme: NavigationBarThemeData(
-      elevation: 0,
-      backgroundColor: const Color(0xFF141A21).withOpacity(0.9),
-      indicatorColor: brandCyanLight.withOpacity(0.18),
+      backgroundColor: CncColors.panel.withOpacity(0.95),
+      indicatorColor: CncColors.primary.withOpacity(0.18),
       labelTextStyle: WidgetStateProperty.all(
-        const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+        const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
       ),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
+        backgroundColor: CncColors.primary,
+        foregroundColor: Colors.black,
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: CncColors.card,
+        foregroundColor: CncColors.textMain,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     ),
     textTheme: _textTheme(Brightness.dark),
   );
 
-  // ---- Typographic scale ---------------------------------------------------
+  /// 浅色备用主题（默认进入为 dark，见 theme_mode_controller）。
+  static final ThemeData light = ThemeData(
+    useMaterial3: true,
+    brightness: Brightness.light,
+    scaffoldBackgroundColor: const Color(0xFFF4F7FA),
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: CncColors.primary,
+      brightness: Brightness.light,
+      secondary: CncColors.blue,
+      error: CncColors.danger,
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        backgroundColor: CncColors.primary,
+        foregroundColor: Colors.black,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    ),
+    textTheme: _textTheme(Brightness.light),
+  );
+
   static TextTheme _textTheme(Brightness b) {
     final base = b == Brightness.light
         ? const Color(0xFF0B1B24)
-        : const Color(0xFFE6F2F7);
+        : CncColors.textMain;
     final muted = b == Brightness.light
         ? const Color(0xFF5B6B75)
-        : const Color(0xFF9DB0BC);
+        : CncColors.textSub;
     return TextTheme(
       displaySmall: TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: base, letterSpacing: -0.5),
       titleLarge: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: base),
