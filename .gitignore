@@ -1,0 +1,35 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+.flutter-plugins
+
+# Android
+android/.gradle/
+android/app/debug/
+android/app/profile/
+android/app/release/
+android/gradlew.bat
+*.jks
+*.keystore
+key.properties
+local.properties
+
+# iOS / macOS
+ios/Flutter/Flutter.framework/
+ios/Flutter/Flutter.podspec
+macos/Flutter/Flutter.framework/
+
+# Local storage
+*.local
