@@ -8,6 +8,8 @@ import '../models/task_metadata.dart';
 /// cloud pushes the actual sliced file straight to the MCU over LAN/MQTT.
 abstract class CloudService {
   Future<TaskMetadata?> getActiveTask();
+  /// Fetch the task metadata for a specific library item (entered via wizard).
+  Future<TaskMetadata?> getTaskById(String id);
   Future<List<LibraryItem>> getInspiration({int page = 0});
   Future<List<LibraryItem>> getMySpace();
   Future<void> pushDiagnostics(String log);

@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../models/library_item.dart';
 import '../../models/task_metadata.dart';
 import '../../state/providers.dart';
 
 /// Core 2: 6-step foolproof processing wizard.
+///
+/// This is NOT a bottom-nav page. It is pushed full-screen when a model is
+/// opened from 模型库 (LibraryPage -> WizardPage(item)). It receives the
+/// selected LibraryItem, then fetches that item's TaskMetadata from the cloud.
 class WizardPage extends ConsumerStatefulWidget {
-  const WizardPage({super.key});
+  final LibraryItem item;
+  const WizardPage({super.key, required this.item});
 
   @override
   ConsumerState<WizardPage> createState() => _WizardPageState();
@@ -37,7 +43,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   }
 
   Future<void> _loadTask() async {
-    final task = await ref.read(cloudServiceProvider).getActiveTask();
+    final task =
+        await ref.read(cloudServiceProvider).getTaskById(widget.item.id);
     if (!mounted) return;
     setState(() {
       _task = task;
@@ -65,51 +72,75 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   Future<void> _takeoff() async {
     await ref.read(hardwareServiceProvider).startJob();
     if (!mounted) return;
+    Navigator.of(context).pop();
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已下发全自动起飞指令')),
+      const SnackBar(content: Text('已下发全自动起飞指令，回到控制台查看进度')),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        _Progress(step: _step, titles: _titles),
-        const SizedBox(height: 16),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: _loadingTask
-                ? const Center(child: CircularProgressIndicator())
-                : _stepContent(),
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          tooltip: '取消',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: const Text('雕刻向导'),
+        centerTitle: false,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Center(
+              child: Text(
+                'Step ${_step + 1}/6',
+                style:
+                    t.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.primary),
+              ),
+            ),
           ),
-        ),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            if (_step > 0)
-              OutlinedButton(
-                onPressed: () => setState(() => _step--),
-                child: const Text('上一步'),
-              ),
-            const Spacer(),
-            if (_step < 5)
-              FilledButton(
-                onPressed: _canProceed ? () => setState(() => _step++) : null,
-                child: const Text('下一步'),
-              )
-            else
-              FilledButton(
-                onPressed: _canProceed ? _takeoff : null,
-                child: const Text('一键开切'),
-              ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        if (!_canProceed) _guardHint(t),
-      ],
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _Progress(step: _step, titles: _titles),
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: _loadingTask
+                  ? const Center(child: CircularProgressIndicator())
+                  : _stepContent(),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              if (_step > 0)
+                OutlinedButton(
+                  onPressed: () => setState(() => _step--),
+                  child: const Text('上一步'),
+                ),
+              const Spacer(),
+              if (_step < 5)
+                FilledButton(
+                  onPressed: _canProceed ? () => setState(() => _step++) : null,
+                  child: const Text('下一步'),
+                )
+              else
+                FilledButton(
+                  onPressed: _canProceed ? _takeoff : null,
+                  child: const Text('一键开切'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (!_canProceed) _guardHint(t),
+        ],
+      ),
     );
   }
 
@@ -131,7 +162,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   Widget _stepContent() {
     switch (_step) {
       case 0:
-        return _StepParse(task: _task);
+        return _StepParse(task: _task, item: widget.item);
       case 1:
         return _StepMaterial(
           controller: _thicknessCtrl,
@@ -189,7 +220,8 @@ class _Progress extends StatelessWidget {
 
 class _StepParse extends StatelessWidget {
   final TaskMetadata? task;
-  const _StepParse({this.task});
+  final LibraryItem item;
+  const _StepParse({this.task, required this.item});
 
   @override
   Widget build(BuildContext context) {
@@ -202,6 +234,7 @@ class _StepParse extends StatelessWidget {
       children: [
         Text('Step 1 · 解析任务', style: t.titleMedium),
         const SizedBox(height: 8),
+        Text('模型：${item.title}（${item.isPublic ? '灵感共享库' : '我的云端空间'}）'),
         Text('任务：${task!.name}'),
         Text('尺寸：${task!.widthMm} × ${task!.heightMm} mm'),
         Text('切深：${task!.depthMm} mm'),

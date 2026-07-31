@@ -20,6 +20,24 @@ class MockCloudService implements CloudService {
   }
 
   @override
+  Future<TaskMetadata?> getTaskById(String id) async {
+    await Future.delayed(const Duration(milliseconds: 200));
+    // Stand-in: synthesize task metadata for the selected model. The real
+    // cloud returns the actual dimensions/material parameters uploaded from PC.
+    final isAcrylic = id.contains('acrylic');
+    return TaskMetadata(
+      id: id,
+      name: id.startsWith('insp') ? '灵感作品' : '我的工程包',
+      widthMm: 90,
+      heightMm: 90,
+      depthMm: 3,
+      boardThicknessMm: 8,
+      recommendedSpindleRpm: isAcrylic ? 14000 : 12000,
+      recommendedFeedRate: 600,
+    );
+  }
+
+  @override
   Future<List<LibraryItem>> getInspiration({int page = 0}) async {
     await Future.delayed(const Duration(milliseconds: 200));
     return List.generate(

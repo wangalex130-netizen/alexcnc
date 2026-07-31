@@ -6,9 +6,11 @@ import '../../state/providers.dart';
 import '../console/console_page.dart';
 import '../library/library_page.dart';
 import '../profile/profile_page.dart';
-import '../wizard/wizard_page.dart';
 
-/// Bottom-navigation shell hosting the four core modules.
+/// Bottom-navigation shell hosting the core modules.
+///
+/// NOTE: 加工向导 is NOT a tab — it is launched as a full-screen flow when a
+/// model is opened from 模型库 (see LibraryPage -> WizardPage).
 final navIndexProvider = StateProvider<int>((ref) => 0);
 
 class AppShell extends ConsumerWidget {
@@ -16,12 +18,11 @@ class AppShell extends ConsumerWidget {
 
   static const _pages = <Widget>[
     ConsolePage(),
-    WizardPage(),
     LibraryPage(),
     ProfilePage(),
   ];
 
-  static const _titles = ['控制台', '加工向导', '模型库', '我的'];
+  static const _titles = ['控制台', '模型库', '我的'];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -48,11 +49,6 @@ class AppShell extends ConsumerWidget {
             icon: Icon(Icons.dashboard_outlined),
             selectedIcon: Icon(Icons.dashboard),
             label: '控制台',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.construction_outlined),
-            selectedIcon: Icon(Icons.construction),
-            label: '向导',
           ),
           NavigationDestination(
             icon: Icon(Icons.explore_outlined),
