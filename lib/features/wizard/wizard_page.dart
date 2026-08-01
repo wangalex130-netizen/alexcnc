@@ -36,7 +36,10 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   Offset _origin = const Offset(15, 15); // 工件零点 (mm, 底板 300x200)
   bool _originSet = false;
   int _leveling = 1; // 0 不调平 / 1 标准 / 2 精细
-  bool _atcConfirmed = false;
+  // ---- 工序刀序 ↔ 物理刀兜 映射（解耦）----
+  // _procSlot[工序index] = 物理刀兜号；_procConfirmed 存已实物确认的工序 index。
+  Map<int, int> _procSlot = {};
+  Set<int> _procConfirmed = {};
   bool _chkThick = false; // 实物厚度与设置一致
   bool _chkClamp = false; // 压板已物理锁紧
   bool _safetyChecked = false; // Step4 轨迹落在耗材内且避开压板
@@ -66,16 +69,67 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       _loading = false;
       _materialKey = task?.defaultMaterialKey ?? 'pine';
       _thickness = (task?.boardThicknessMm ?? 3).toStringAsFixed(1);
+      // 默认把工序①→T1、工序②→T2… 写入共享刀表（与控制台同步）。
+      // 用户可在 Step3 自由调整刀兜，机器按工序顺序换刀而非写死 T1→T2。
+      _procSlot = {};
+      _procConfirmed = {};
+      final req = task?.requiredTools ?? [];
+      if (req.isNotEmpty) {
+        final mag = {...ref.read(toolMagazineProvider)};
+        for (var i = 0; i < req.length; i++) {
+          _procSlot[i] = i + 1;
+          final tid = req[i].toolId;
+          for (final k in mag.keys) {
+            if (mag[k] == tid) mag[k] = null; // 避免同一把刀落在两个兜
+          }
+          mag[i + 1] = tid;
+        }
+        ref.read(toolMagazineProvider.notifier).state = mag;
+      }
     });
   }
 
   double get _minThickness => _task?.boardThicknessMm ?? 3.0;
   double get _thicknessVal => double.tryParse(_thickness) ?? 0;
 
-  // 必需刀位（参考 step3.html：任务需 T1+T2 就位）
-  bool get _slotsReady {
-    final m = ref.read(toolMagazineProvider);
-    return m[1] != null && m[2] != null;
+  /// 刀仓映射是否就绪：每把工序刀都分配到不同刀兜，且逐兜实物确认完成。
+  bool get _atcReady {
+    final req = _task?.requiredTools ?? [];
+    if (req.isEmpty) return false;
+    if (_procSlot.length < req.length) return false;
+    final usedSlots = _procSlot.values.toSet();
+    if (usedSlots.length != req.length) return false; // 同一兜被两个工序占用
+    for (final p in _procSlot.keys) {
+      if (!_procConfirmed.contains(p)) return false;
+    }
+    return true;
+  }
+
+  /// 把工序 p 映射到物理刀兜 slot，并写穿到共享刀表。
+  void _assignProcSlot(int p, int slot) {
+    final req = _task?.requiredTools ?? [];
+    if (p >= req.length) return;
+    final tid = req[p].toolId;
+    setState(() {
+      _procSlot[p] = slot;
+      final mag = {...ref.read(toolMagazineProvider)};
+      for (final k in mag.keys) {
+        if (mag[k] == tid) mag[k] = null; // 防止重复入兜
+      }
+      mag[slot] = tid;
+      ref.read(toolMagazineProvider.notifier).state = mag;
+      _procConfirmed.remove(p); // 刀兜变动，实物确认需重做
+    });
+  }
+
+  void _toggleProcConfirm(int p) {
+    setState(() {
+      if (_procConfirmed.contains(p)) {
+        _procConfirmed.remove(p);
+      } else {
+        _procConfirmed.add(p);
+      }
+    });
   }
 
   bool get _canProceed {
@@ -86,7 +140,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
             _chkThick &&
             _chkClamp;
       case 2:
-        return _slotsReady && _atcConfirmed;
+        return _atcReady;
       case 3:
         return _originSet && _safetyChecked;
       case 4:
@@ -191,9 +245,13 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           ? '板材厚度需 ≥ ${_minThickness.toStringAsFixed(1)}mm（模型默认板厚），防止穿底伤床。'
           : '请完成实物核验勾选项。';
     } else if (_step == 2) {
-      msg = _slotsReady
-          ? '请在刀仓中选择「确认映射并同步到机器」。'
-          : '刀仓 T1、T2 需装入对应刀具（红环/绿环）后方可继续。';
+      final req = _task?.requiredTools ?? [];
+      final dup = _procSlot.values.length != _procSlot.values.toSet().length;
+      msg = dup
+          ? '两把工序刀不能放入同一个刀兜，请分别选择不同刀兜。'
+          : (_procConfirmed.length < req.length
+              ? '请逐一确认每个刀兜的实物环色一致。'
+              : '请点击「确认映射并同步到机器」。');
     } else if (_step == 3) {
       msg = _originSet
           ? '请勾选「红点轨迹已落在耗材内，且避开了压板」。'
@@ -228,7 +286,16 @@ class _WizardPageState extends ConsumerState<WizardPage> {
         );
       case 2:
         return _StepAtc(
-          onConfirmed: () => setState(() => _atcConfirmed = true),
+          requiredTools: _task?.requiredTools ?? [],
+          procSlot: _procSlot,
+          confirmed: _procConfirmed,
+          onAssign: _assignProcSlot,
+          onToggleConfirm: _toggleProcConfirm,
+          onSync: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('刀仓映射已同步到机器')),
+            );
+          },
         );
       case 3:
         return _StepOrigin(
@@ -248,7 +315,11 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           onGuard: (v) => setState(() => _guardChecked = v),
         );
       case 5:
-        return _StepTakeoff(materialKey: _materialKey);
+        return _StepTakeoff(
+          materialKey: _materialKey,
+          requiredTools: _task?.requiredTools ?? [],
+          procSlot: _procSlot,
+        );
       default:
         return const SizedBox();
     }
@@ -611,23 +682,37 @@ class _CheckTile extends StatelessWidget {
 // ===================== Step 3 · 刀仓映射（与控制台刀库同步）=====================
 
 class _StepAtc extends ConsumerStatefulWidget {
-  final void Function() onConfirmed;
-  const _StepAtc({required this.onConfirmed});
+  final List<RequiredTool> requiredTools;
+  final Map<int, int> procSlot; // 工序 index → 物理刀兜
+  final Set<int> confirmed; // 已实物确认的工序 index
+  final void Function(int p, int slot) onAssign;
+  final void Function(int p) onToggleConfirm;
+  final VoidCallback onSync;
+  const _StepAtc({
+    required this.requiredTools,
+    required this.procSlot,
+    required this.confirmed,
+    required this.onAssign,
+    required this.onToggleConfirm,
+    required this.onSync,
+  });
 
   @override
   ConsumerState<_StepAtc> createState() => _StepAtcState();
 }
 
 class _StepAtcState extends ConsumerState<_StepAtc> {
-  int? _pickerSlot; // 正在选择刀具的刀位
-
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
     final magazine = ref.watch(toolMagazineProvider);
     final hw = ref.read(hardwareServiceProvider);
-    final slotsReady =
-        magazine[1] != null && magazine[2] != null;
+    final req = widget.requiredTools;
+    final usedSlots = widget.procSlot.values.toSet();
+    final ready = req.isNotEmpty &&
+        widget.procSlot.length == req.length &&
+        usedSlots.length == req.length &&
+        widget.confirmed.length == req.length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -635,43 +720,136 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
         Text('Step 3 · 刀仓映射',
             style: t.titleMedium?.copyWith(color: CncColors.textMain)),
         const SizedBox(height: 6),
-        const Text('本刀仓与「控制台 → 管理刀仓」共用同一份刀库（本地同步）。'
-            '请为每个刀位选择/填入对应刀具，并对照红/绿定位环。',
+        const Text('模型需按工序顺序使用以下刀具。为每把工序刀选择物理刀兜'
+            '（默认 工序①→T1、工序②→T2，可自由调整）。机器按工序顺序自动换刀，而非固定 T1→T2。',
             style: TextStyle(fontSize: 12, color: CncColors.textSub)),
         const SizedBox(height: 14),
-        // 4 个刀位
+        // 有序工序刀具 → 选兜 + 实物确认
+        ...req.asMap().entries.map((e) {
+          final p = e.key;
+          final rt = e.value;
+          final def = toolById(rt.toolId);
+          final slot = widget.procSlot[p];
+          final dup = slot != null &&
+              usedSlots.where((s) => s == slot).length > 1;
+          return Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: CncColors.card,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: CncColors.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: CncColors.primary.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text('工序 ${p + 1}',
+                          style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: CncColors.primary)),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(rt.role,
+                          style: const TextStyle(
+                              fontSize: 12, color: CncColors.textSub)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Text(ringEmoji(def.ring),
+                        style: const TextStyle(fontSize: 20)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(def.name,
+                              style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: CncColors.textMain)),
+                          Text(
+                              '${def.type} · ${def.diameterMm}mm · ${def.desc}',
+                              style: const TextStyle(
+                                  fontSize: 10, color: CncColors.textSub)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                const Text('选择物理刀兜',
+                    style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+                const SizedBox(height: 6),
+                Row(
+                  children: [1, 2, 3, 4]
+                      .map((s) => Expanded(
+                            child: Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 3),
+                              child: _SlotChip(
+                                slot: s,
+                                selected: slot == s,
+                                danger: dup && slot == s,
+                                onTap: () => widget.onAssign(p, s),
+                              ),
+                            ),
+                          ))
+                      .toList(),
+                ),
+                if (slot != null) ...[
+                  const SizedBox(height: 8),
+                  _CheckTile(
+                    value: widget.confirmed.contains(p),
+                    onChanged: (_) => widget.onToggleConfirm(p),
+                    label:
+                        '我已确认 T$slot 实物环色为 ${ringEmoji(def.ring)} ${def.name}',
+                  ),
+                ],
+                if (dup)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                        '⚠️ T$slot 被多个工序占用，请为每个工序选择不同刀兜',
+                        style: const TextStyle(
+                            fontSize: 11, color: CncColors.danger)),
+                  ),
+              ],
+            ),
+          );
+        }).toList(),
+        const SizedBox(height: 10),
+        const Text('当前刀表（刀兜 ↔ 刀具，与控制台同步）',
+            style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+        const SizedBox(height: 8),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [1, 2, 3, 4]
-              .map((slot) => _Slot(
-                    slot: slot,
-                    defId: magazine[slot],
-                    onTap: () => setState(() => _pickerSlot = slot),
+              .map((s) => _Slot(
+                    slot: s,
+                    defId: magazine[s],
+                    onTap: () {},
                   ))
               .toList(),
         ),
         const SizedBox(height: 14),
-        // 工具选择抽屉
-        if (_pickerSlot != null)
-          _ToolPicker(
-            slot: _pickerSlot!,
-            current: magazine[_pickerSlot],
-            onPick: (defId) {
-              ref
-                  .read(toolMagazineProvider.notifier)
-                  .assign(_pickerSlot!, defId);
-              setState(() => _pickerSlot = null);
-            },
-            onClear: () {
-              ref.read(toolMagazineProvider.notifier).assign(_pickerSlot!, null);
-              setState(() => _pickerSlot = null);
-            },
-          ),
-        const SizedBox(height: 10),
         SizedBox(
           width: double.infinity,
           child: FilledButton.icon(
-            onPressed: slotsReady
+            onPressed: ready
                 ? () {
                     final tools = [1, 2, 3, 4].map((slot) {
                       final id = magazine[slot];
@@ -686,16 +864,12 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                       );
                     }).toList();
                     hw.updateToolMap(tools);
-                    widget.onConfirmed();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('刀仓映射已同步到机器')),
-                    );
+                    widget.onSync();
                   }
                 : null,
-            icon: Icon(slotsReady ? Icons.sync : Icons.block,
-                color: Colors.black),
+            icon: Icon(ready ? Icons.sync : Icons.block, color: Colors.black),
             label: Text(
-                slotsReady ? '确认映射并同步到机器' : 'T1/T2 需先装入刀具',
+                ready ? '确认映射并同步到机器' : '请完成刀位分配与实物确认',
                 style: const TextStyle(
                     fontSize: 14, fontWeight: FontWeight.bold)),
           ),
@@ -703,6 +877,51 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
       ],
     );
   }
+}
+
+class _SlotChip extends StatelessWidget {
+  final int slot;
+  final bool selected;
+  final bool danger;
+  final VoidCallback onTap;
+  const _SlotChip(
+      {required this.slot,
+      required this.selected,
+      required this.danger,
+      required this.onTap});
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            color: danger
+                ? CncColors.danger.withOpacity(0.15)
+                : selected
+                    ? CncColors.primary.withOpacity(0.15)
+                    : CncColors.bg,
+            border: Border.all(
+              color: danger
+                  ? CncColors.danger
+                  : selected
+                      ? CncColors.primary
+                      : CncColors.border,
+            ),
+          ),
+          child: Center(
+            child: Text('T$slot',
+                style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: danger
+                        ? CncColors.danger
+                        : selected
+                            ? CncColors.primary
+                            : CncColors.textMain)),
+          ),
+        ),
+      );
 }
 
 class _Slot extends StatelessWidget {
@@ -763,97 +982,6 @@ class _Slot extends StatelessWidget {
       ),
     );
   }
-}
-
-class _ToolPicker extends StatelessWidget {
-  final int slot;
-  final String? current;
-  final void Function(String?) onPick;
-  final VoidCallback onClear;
-  const _ToolPicker(
-      {required this.slot,
-      required this.current,
-      required this.onPick,
-      required this.onClear});
-
-  @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: CncColors.bg,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: CncColors.primary.withOpacity(0.4)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('为 T$slot 选择刀具（刀库）',
-                style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: CncColors.textMain)),
-            const SizedBox(height: 8),
-            ...toolCatalog.map((def) => GestureDetector(
-                  onTap: () => onPick(def.id),
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: CncColors.card,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: current == def.id
-                            ? CncColors.primary
-                            : CncColors.border,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Text(ringEmoji(def.ring),
-                            style: const TextStyle(fontSize: 18)),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(def.name,
-                                  style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.bold,
-                                      color: CncColors.textMain)),
-                              Text('${def.type} · ${def.diameterMm}mm · ${def.desc}',
-                                  style: const TextStyle(
-                                      fontSize: 10,
-                                      color: CncColors.textSub)),
-                            ],
-                          ),
-                        ),
-                        if (current == def.id)
-                          const Icon(Icons.check,
-                              color: CncColors.primary, size: 18),
-                      ],
-                    ),
-                  ),
-                )),
-            GestureDetector(
-              onTap: onClear,
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: CncColors.bg,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: CncColors.border),
-                ),
-                child: const Text('清空此刀位',
-                    style: TextStyle(
-                        fontSize: 12, color: CncColors.textSub)),
-              ),
-            ),
-          ],
-        ),
-      );
 }
 
 // ===================== Step 4 · 定原点防撞（激光找原点，按原稿）=====================
@@ -1435,7 +1563,13 @@ class _SensorRow extends StatelessWidget {
 
 class _StepTakeoff extends ConsumerStatefulWidget {
   final String materialKey;
-  const _StepTakeoff({required this.materialKey});
+  final List<RequiredTool> requiredTools;
+  final Map<int, int> procSlot;
+  const _StepTakeoff({
+    required this.materialKey,
+    required this.requiredTools,
+    required this.procSlot,
+  });
 
   @override
   ConsumerState<_StepTakeoff> createState() => _StepTakeoffState();
@@ -1453,15 +1587,28 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff>
   int _total = 750; // 12:30
   bool _paused = false;
 
-  static const _checks = [
-    '防护罩电子门磁锁止',
-    '自动开启 ATC 刀仓防护盖',
-    '自动装载 1 号刀具 (🔴 红环平底刀)',
-    '移动至刀仓固定测头对刀 (Z-Offset)',
-    '关闭 ATC 刀仓防护盖',
-    '运行 6 点曲面网格调平扫描',
-    '主轴离心风压建立，移动至原点开切',
-  ];
+  /// 全自动预检流水线：防护罩 → 开盖 → 按工序顺序逐把自动换刀 → 对刀 →
+  /// 合盖 → 曲面调平 → 开切。刀位与顺序来自用户在 Step3 的映射（解耦），
+  /// 而非写死 T1→T2。
+  List<String> get _checks {
+    final req = widget.requiredTools;
+    final out = <String>[
+      '防护罩电子门磁锁止',
+      '自动开启 ATC 刀仓防护盖',
+    ];
+    for (var p = 0; p < req.length; p++) {
+      final def = toolById(req[p].toolId);
+      final slot = widget.procSlot[p];
+      out.add('自动装载 T${slot ?? '?'} 号刀具 (${ringEmoji(def.ring)} ${def.name})');
+    }
+    out.addAll([
+      '移动至刀仓固定测头对刀 (Z-Offset)',
+      '关闭 ATC 刀仓防护盖',
+      '运行 6 点曲面网格调平扫描',
+      '主轴离心风压建立，移动至原点开切',
+    ]);
+    return out;
+  }
 
   @override
   void dispose() {
@@ -1474,7 +1621,7 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff>
     if (_phase != 0) return;
     setState(() {
       _phase = 1;
-      _status = List.filled(7, 'pending');
+      _status = List.filled(_checks.length, 'pending');
     });
     var i = 0;
     void step() {
@@ -1560,13 +1707,22 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff>
     final t = Theme.of(context).textTheme;
     final mat = materialByKey(widget.materialKey);
     final magazine = ref.watch(toolMagazineProvider);
-    final slot1 = magazine[1] != null ? toolById(magazine[1]!) : null;
+    final req = widget.requiredTools;
+    final firstSlot = req.isNotEmpty ? widget.procSlot[0] : null;
+    final runTool = (firstSlot != null && magazine[firstSlot] != null)
+        ? toolById(magazine[firstSlot]!)
+        : null;
 
     if (_phase == 0) {
-      return _ReadyPhase(mat: mat, slot1: slot1, onStart: _start);
+      return _ReadyPhase(
+        mat: mat,
+        requiredTools: req,
+        procSlot: widget.procSlot,
+        onStart: _start,
+      );
     }
     if (_phase == 1) {
-      return _PipelinePhase(status: _status);
+      return _PipelinePhase(status: _status, checks: _checks);
     }
     // phase 2
     final prog = _elapsed / _total;
@@ -1662,7 +1818,9 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff>
             _Telem('主轴实时转速', '${mat.rpm} RPM', CncColors.primary),
             _Telem('云端最佳进给', '${mat.feed} mm/min', CncColors.blue),
             _Telem('当前运行刀具',
-                slot1 != null ? '${ringEmoji(slot1.ring)} T1 ${slot1.name}' : 'T1 —',
+                runTool != null && firstSlot != null
+                    ? '${ringEmoji(runTool.ring)} T$firstSlot ${runTool.name}'
+                    : 'T —',
                 CncColors.danger),
             _Telem('实时 Z 轴坐标',
                 '${(-1.0 - (DateTime.now().millisecond % 80) / 100).toStringAsFixed(3)} mm',
@@ -1728,10 +1886,15 @@ String _fmt(int s) {
 
 class _ReadyPhase extends StatelessWidget {
   final MaterialSpec mat;
-  final ToolDef? slot1;
+  final List<RequiredTool> requiredTools;
+  final Map<int, int> procSlot;
   final VoidCallback onStart;
-  const _ReadyPhase(
-      {required this.mat, required this.slot1, required this.onStart});
+  const _ReadyPhase({
+    required this.mat,
+    required this.requiredTools,
+    required this.procSlot,
+    required this.onStart,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1755,8 +1918,14 @@ class _ReadyPhase extends StatelessWidget {
               _Param('主轴转速', '${mat.rpm} RPM'),
               _Param('进给速度', '${mat.feed} mm/min'),
               _Param('下刀速度', '${mat.plunge} mm/min'),
-              _Param('运行刀具',
-                  slot1 != null ? '${ringEmoji(slot1!.ring)} T1 ${slot1!.name}' : 'T1 —'),
+              ...requiredTools.asMap().entries.map((e) {
+                final p = e.key;
+                final rt = e.value;
+                final def = toolById(rt.toolId);
+                final slot = procSlot[p];
+                return _Param('工序刀具 ${p + 1}',
+                    slot != null ? 'T$slot · ${ringEmoji(def.ring)} ${def.name}' : '未分配');
+              }),
               _Param('预估总耗时', '约 12 分 30 秒'),
             ],
           ),
@@ -1791,19 +1960,11 @@ class _ReadyPhase extends StatelessWidget {
 
 class _PipelinePhase extends StatelessWidget {
   final List<String> status;
-  const _PipelinePhase({required this.status});
+  final List<String> checks;
+  const _PipelinePhase({required this.status, required this.checks});
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
-    const checks = [
-      '防护罩电子门磁锁止',
-      '自动开启 ATC 刀仓防护盖',
-      '自动装载 1 号刀具 (🔴 红环平底刀)',
-      '移动至刀仓固定测头对刀 (Z-Offset)',
-      '关闭 ATC 刀仓防护盖',
-      '运行 6 点曲面网格调平扫描',
-      '主轴离心风压建立，移动至原点开切',
-    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

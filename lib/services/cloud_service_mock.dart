@@ -41,6 +41,11 @@ class MockCloudService implements CloudService {
         recommendedFeedRate: 1500,
         defaultMaterialKey: 'pine', // Step1 默认雕刻材料：松木
         defaultToolId: 't_flat_3175', // Step1 默认刀具：3.175 平底刀
+        // 有序工序刀具：先粗雕（平底刀）后精雕（V 型刀），与物理刀兜解耦
+        requiredTools: const [
+          RequiredTool('t_flat_3175', '粗雕 / 轮廓'),
+          RequiredTool('t_v60', '精雕 / 刻线'),
+        ],
       );
     }
     final isAcrylic = id.contains('acrylic');
@@ -56,6 +61,15 @@ class MockCloudService implements CloudService {
       recommendedFeedRate: isAcrylic ? 800 : 1500,
       defaultMaterialKey: matKey,
       defaultToolId: matKey == 'acrylic' ? 't_o_single_3175' : 't_flat_3175',
+      requiredTools: matKey == 'acrylic'
+          ? const [
+              RequiredTool('t_o_single_3175', '亚克力粗雕'),
+              RequiredTool('t_v60', '精雕 / 刻线'),
+            ]
+          : const [
+              RequiredTool('t_flat_3175', '粗雕 / 轮廓'),
+              RequiredTool('t_v60', '精雕 / 刻线'),
+            ],
     );
   }
 
