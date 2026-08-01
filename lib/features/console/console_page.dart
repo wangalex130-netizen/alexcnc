@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme.dart';
+import '../../data/tool_library.dart';
 import '../../models/machine_status.dart';
 import '../../models/tool.dart';
 import '../../state/providers.dart';
@@ -31,13 +32,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   bool _timelapse = false;
   bool _spindleOn = false;
   int _rpm = 12000;
-
-  // ATC 刀仓（与 HTML 一致）
-  final List<Tool> _tools = const [
-    Tool(index: 1, name: '🔴 3.175 平底刀', lengthMm: 12, installed: true),
-    Tool(index: 2, name: '🟢 60° V型刀', lengthMm: 10, installed: true),
-    Tool(index: 3, name: '未挂载刀具 (空位)', installed: false),
-  ];
 
   @override
   void dispose() {
@@ -286,9 +280,20 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (_) => _AtcSheet(
-        tools: _tools,
         onSync: () {
-          hw.updateToolMap(_tools);
+          final magazine = ref.read(toolMagazineProvider);
+          final tools = [1, 2, 3, 4].map((slot) {
+            final id = magazine[slot];
+            final def = id != null ? toolById(id) : null;
+            return Tool(
+              index: slot,
+              name: def != null ? '${ringEmoji(def.ring)} ${def.name}' : '空位',
+              material: def != null ? def.material : null,
+              installed: def != null,
+              defId: id,
+            );
+          }).toList();
+          hw.updateToolMap(tools);
           Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('✓ 同步到机器')),
@@ -559,50 +564,69 @@ class _SpindleCard extends StatelessWidget {
 }
 
 // ===================== ATC 入口 + 抽屉 =====================
+// 与向导 Step3 共用 toolMagazineProvider：任一处修改，另一处立即同步。
 
-class _AtcEntry extends StatelessWidget {
+class _AtcEntry extends ConsumerWidget {
   final VoidCallback onOpen;
   const _AtcEntry({required this.onOpen});
   @override
-  Widget build(BuildContext context) => GestureDetector(
-        onTap: onOpen,
-        child: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: _cardDeco(),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text('ATC 自动换刀系统', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
-                  SizedBox(height: 2),
-                  Text('当前主轴: T1 (🔴3.175平底刀)', style: TextStyle(fontSize: 10, color: Color(0xFF666666))),
-                ],
+  Widget build(BuildContext context, WidgetRef ref) {
+    final magazine = ref.watch(toolMagazineProvider);
+    final t1 = magazine[1] != null ? toolById(magazine[1]!) : null;
+    final sub = t1 != null
+        ? '当前主轴 T1: ${ringEmoji(t1.ring)} ${t1.name}'
+        : '当前主轴: 空';
+    return GestureDetector(
+      onTap: onOpen,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: _cardDeco(),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('ATC 自动换刀系统', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                const SizedBox(height: 2),
+                Text(sub, style: const TextStyle(fontSize: 10, color: Color(0xFF666666))),
+              ],
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF222222),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: CncColors.border),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF222222),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: CncColors.border),
-                ),
-                child: const Text('管理刀仓 ❯', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: CncColors.blue)),
-              ),
-            ],
-          ),
+              child: const Text('管理刀仓 ❯', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: CncColors.blue)),
+            ),
+          ],
         ),
-      );
+      ),
+    );
+  }
 }
 
-class _AtcSheet extends StatelessWidget {
-  final List<Tool> tools;
+class _AtcSheet extends ConsumerStatefulWidget {
   final VoidCallback onSync;
-  const _AtcSheet({required this.tools, required this.onSync});
+  const _AtcSheet({required this.onSync});
 
   @override
-  Widget build(BuildContext context) => Container(
-        height: 400,
+  ConsumerState<_AtcSheet> createState() => _AtcSheetState();
+}
+
+class _AtcSheetState extends ConsumerState<_AtcSheet> {
+  int? _pickerSlot; // 正在选择刀具的卡槽
+
+  @override
+  Widget build(BuildContext context) {
+    final magazine = ref.watch(toolMagazineProvider);
+
+    if (_pickerSlot != null) {
+      // 刀具选择面板（从刀库选择填入该刀位）
+      return Container(
+        height: 460,
         decoration: const BoxDecoration(
           color: Color(0xFF151515),
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -614,9 +638,12 @@ class _AtcSheet extends StatelessWidget {
               padding: const EdgeInsets.all(20),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: const [
-                  Text('配置 ATC 刀具映射表', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: CncColors.textMain)),
-                  Text('×', style: TextStyle(fontSize: 22, color: Color(0xFF666666))),
+                children: [
+                  Text('选择刀具 → T$_pickerSlot', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                  GestureDetector(
+                    onTap: () => setState(() => _pickerSlot = null),
+                    child: const Text('×', style: TextStyle(fontSize: 22, color: Color(0xFF666666))),
+                  ),
                 ],
               ),
             ),
@@ -624,59 +651,164 @@ class _AtcSheet extends StatelessWidget {
               child: ListView(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 children: [
-                  const Text('选择物理卡槽对应的实际刀具，同步后机器将自动更新设定。',
-                      style: TextStyle(fontSize: 10, color: CncColors.textSub)),
-                  const SizedBox(height: 10),
-                  ...tools.map((t) => Container(
+                  ...toolCatalog.map((def) => Container(
                         margin: const EdgeInsets.only(bottom: 10),
                         padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
                         decoration: _cardDeco(),
                         child: Row(
                           children: [
-                            Text('T${t.index}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF555555))),
+                            Text(ringEmoji(def.ring), style: const TextStyle(fontSize: 18)),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(t.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                                  Text(def.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: CncColors.textMain)),
                                   const SizedBox(height: 2),
-                                  Text(t.installed ? '刃长: ${t.lengthMm}mm / 适合粗雕' : '空位',
+                                  Text('${def.type} · ⌀${def.diameterMm}mm · ${def.flutes}刃 · ${def.material}',
                                       style: const TextStyle(fontSize: 10, color: Color(0xFF666666))),
+                                  const SizedBox(height: 2),
+                                  Text(def.desc, style: const TextStyle(fontSize: 9, color: CncColors.textSub)),
                                 ],
                               ),
                             ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: t.installed ? CncColors.blue.withOpacity(0.1) : CncColors.primary.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(6),
+                            GestureDetector(
+                              onTap: () {
+                                ref.read(toolMagazineProvider.notifier).assign(_pickerSlot!, def.id);
+                                setState(() => _pickerSlot = null);
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: CncColors.primary.withOpacity(0.12),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: CncColors.primary.withOpacity(0.5)),
+                                ),
+                                child: const Text('填入', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.primary)),
                               ),
-                              child: Text(t.installed ? '更换 ❯' : '添加 +',
-                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold,
-                                      color: t.installed ? CncColors.blue : CncColors.primary)),
                             ),
                           ],
                         ),
                       )),
+                  const SizedBox(height: 8),
+                  GestureDetector(
+                    onTap: () {
+                      ref.read(toolMagazineProvider.notifier).assign(_pickerSlot!, null);
+                      setState(() => _pickerSlot = null);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: CncColors.danger.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: CncColors.danger.withOpacity(0.4)),
+                      ),
+                      child: const Center(
+                        child: Text('清空此刀位 (空)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.danger)),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-              child: SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: onSync,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: CncColors.primary,
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  child: const Text('✓ 同步到机器', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      );
+    }
+
+    // 主映射表
+    return Container(
+      height: 460,
+      decoration: const BoxDecoration(
+        color: Color(0xFF151515),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        border: Border(top: BorderSide(color: CncColors.border)),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: const [
+                Text('配置 ATC 刀具映射表', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                Text('×', style: TextStyle(fontSize: 22, color: Color(0xFF666666))),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              children: [
+                const Text('选择物理卡槽对应的实际刀具（刀库与向导共用，任一处修改自动同步）。',
+                    style: TextStyle(fontSize: 10, color: CncColors.textSub)),
+                const SizedBox(height: 10),
+                for (final slot in [1, 2, 3, 4]) ...[
+                  Builder(builder: (c) {
+                    final id = magazine[slot];
+                    final def = id != null ? toolById(id) : null;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
+                      decoration: _cardDeco(),
+                      child: Row(
+                        children: [
+                          Text('T$slot', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF555555))),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(def != null ? '${ringEmoji(def.ring)} ${def.name}' : '未挂载刀具 (空位)',
+                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                                const SizedBox(height: 2),
+                                Text(def != null ? '${def.type} · ⌀${def.diameterMm}mm · ${def.desc}' : '点击添加刀具',
+                                    style: const TextStyle(fontSize: 10, color: Color(0xFF666666))),
+                              ],
+                            ),
+                          ),
+                          GestureDetector(
+                            onTap: () => setState(() => _pickerSlot = slot),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: def != null ? CncColors.blue.withOpacity(0.1) : CncColors.primary.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(def != null ? '更换 ❯' : '添加 +',
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold,
+                                      color: def != null ? CncColors.blue : CncColors.primary)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: widget.onSync,
+                style: FilledButton.styleFrom(
+                  backgroundColor: CncColors.primary,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
+                child: const Text('✓ 同步到机器', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
             ),
           ],
         ),

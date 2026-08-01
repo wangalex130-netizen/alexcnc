@@ -39,9 +39,12 @@ class MockCloudService implements CloudService {
         boardThicknessMm: 3,
         recommendedSpindleRpm: 10000,
         recommendedFeedRate: 1500,
+        defaultMaterialKey: 'pine', // Step1 默认雕刻材料：松木
+        defaultToolId: 't_flat_3175', // Step1 默认刀具：3.175 平底刀
       );
     }
     final isAcrylic = id.contains('acrylic');
+    final matKey = isAcrylic ? 'acrylic' : 'pine';
     return TaskMetadata(
       id: id,
       name: id.startsWith('insp') ? '灵感作品' : '我的工程包',
@@ -50,7 +53,9 @@ class MockCloudService implements CloudService {
       depthMm: 3,
       boardThicknessMm: 8,
       recommendedSpindleRpm: isAcrylic ? 14000 : 12000,
-      recommendedFeedRate: 600,
+      recommendedFeedRate: isAcrylic ? 800 : 1500,
+      defaultMaterialKey: matKey,
+      defaultToolId: matKey == 'acrylic' ? 't_o_single_3175' : 't_flat_3175',
     );
   }
 
