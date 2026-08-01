@@ -25,7 +25,7 @@ class TaskMetadata {
   /// 模型默认雕刻材质 key（见 material_db.dart）—— Step1 展示 & Step2 预选。
   final String defaultMaterialKey;
   /// 模型默认刀具 defId（见 tool_library.dart）—— Step1 展示。
-  final String? defaultToolId,
+  final String? defaultToolId;
   /// 模型推荐的有序工序刀具列表（刀序由设计固定，与物理刀兜 T1~T4 解耦）。
   final List<RequiredTool> requiredTools;
 
