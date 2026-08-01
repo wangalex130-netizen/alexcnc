@@ -884,7 +884,7 @@ class _StepOriginState extends State<_StepOrigin>
     with SingleTickerProviderStateMixin {
   static const double _bedW = 300;
   static const double _bedH = 200;
-  int _jogStep = 1; // 0.1 / 1 / 10 mm
+  double _jogStep = 1; // 0.1 / 1 / 10 mm
   late final AnimationController _walk =
       AnimationController(vsync: this, duration: const Duration(seconds: 2))
         ..addListener(() => setState(() {}));
@@ -1441,7 +1441,8 @@ class _StepTakeoff extends ConsumerStatefulWidget {
   ConsumerState<_StepTakeoff> createState() => _StepTakeoffState();
 }
 
-class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
+class _StepTakeoffState extends ConsumerState<_StepTakeoff>
+    with SingleTickerProviderStateMixin {
   int _phase = 0; // 0 准备 1 预检 2 加工
   List<String> _status = List.filled(7, 'pending');
   Timer? _timer;
@@ -1755,7 +1756,7 @@ class _ReadyPhase extends StatelessWidget {
               _Param('进给速度', '${mat.feed} mm/min'),
               _Param('下刀速度', '${mat.plunge} mm/min'),
               _Param('运行刀具',
-                  slot1 != null ? '${ringEmoji(slot1!.ring)} T1 ${slot1.name}' : 'T1 —'),
+                  slot1 != null ? '${ringEmoji(slot1!.ring)} T1 ${slot1!.name}' : 'T1 —'),
               _Param('预估总耗时', '约 12 分 30 秒'),
             ],
           ),
@@ -1892,7 +1893,7 @@ List<Offset> modelContour(double w, double h) {
     ..add(const Offset(0, 0))
     ..add(Offset(w, 0))
     ..add(Offset(w, h))
-    ..add(const Offset(0, h))
+    ..add(Offset(0, h))
     ..add(const Offset(0, 0));
   // 居中八角星
   final cx = w / 2, cy = h / 2;

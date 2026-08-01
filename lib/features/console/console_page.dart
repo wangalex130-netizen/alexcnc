@@ -809,11 +809,6 @@ class _AtcSheetState extends ConsumerState<_AtcSheet> {
     );
   }
 }
-            ),
-          ],
-        ),
-      );
-}
 
 // ===================== 底部动作 =====================
 
