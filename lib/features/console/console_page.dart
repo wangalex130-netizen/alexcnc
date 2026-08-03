@@ -358,19 +358,50 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     bg: CncColors.danger.withOpacity(0.15),
                     border: CncColors.danger,
                     onTap: () {
-                      hw.stopJob();
-                      ref.read(activeJobProvider.notifier).clear();
+                      showDialog(
+                        context: context,
+                        builder: (_) => AlertDialog(
+                          backgroundColor: CncColors.card,
+                          title: const Text('确认停止雕刻吗？',
+                              style: TextStyle(color: CncColors.danger)),
+                          content: const Text('停止后主轴将刹停，本次加工会中断。',
+                              style: TextStyle(color: CncColors.textMain)),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              child: const Text('取消',
+                                  style: TextStyle(color: CncColors.textMain)),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                hw.stopJob();
+                                ref.read(activeJobProvider.notifier).clear();
+                                Navigator.of(context).pop();
+                              },
+                              child: const Text('确认停止',
+                                  style: TextStyle(color: CncColors.danger)),
+                            ),
+                          ],
+                        ),
+                      );
                     },
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: _ActionBtn(
-                    label: '⏸️ 暂停',
+                    label: status.state == MachineState.paused ? '▶️ 继续' : '⏸️ 暂停',
                     fg: CncColors.textMain,
                     bg: const Color(0xFF222222),
                     border: CncColors.border,
-                    onTap: () => busy ? hw.pauseJob() : hw.resumeJob(),
+                    onTap: () {
+                      // 暂停/继续状态来自机器（与监控页共享同一状态源，自动同步）
+                      if (status.state == MachineState.paused) {
+                        hw.resumeJob();
+                      } else {
+                        hw.pauseJob();
+                      }
+                    },
                   ),
                 ),
               ],

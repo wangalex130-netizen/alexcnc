@@ -180,8 +180,26 @@ class ActiveJobNotifier extends StateNotifier<ActiveJob?> {
 }
 
 final activeJobProvider = StateNotifierProvider<ActiveJobNotifier, ActiveJob?>(
-  (ref) => ActiveJobNotifier(
-    onSelfCheckDone: () => ref.read(hardwareServiceProvider).startJob(),
-    onCleared: () => ref.read(hardwareServiceProvider).stopJob(),
-  ),
+  (ref) {
+    final notifier = ActiveJobNotifier(
+      onSelfCheckDone: () => ref.read(hardwareServiceProvider).startJob(),
+      onCleared: () => ref.read(hardwareServiceProvider).stopJob(),
+    );
+    // 全局监听机器状态：仅当机器真正完成（state==idle 且 progress>=1）时标记
+    // completed，与当前停留在哪个页面无关，确保控制台/监控页完成态一致同步；
+    // 暂停(state==paused)或手动停止(progress 归零)不会误判为完成。
+    final sub = ref
+        .watch(machineStatusProvider.stream)
+        .listen((status) {
+      final job = notifier.state;
+      if (job != null &&
+          !job.completed &&
+          status.state == MachineState.idle &&
+          status.progress >= 1.0) {
+        notifier.markCompleted();
+      }
+    });
+    ref.onDispose(sub.cancel);
+    return notifier;
+  },
 );

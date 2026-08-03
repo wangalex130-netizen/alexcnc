@@ -29,16 +29,17 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
         ..repeat();
   Timer? _pollTimer;
   int _elapsed = 0;
-  bool _paused = false;
   bool _doneShown = false;
-  bool _wasBusy = false; // 用于检测机器从 busy → idle 的完成瞬间
 
   @override
   void initState() {
     super.initState();
     _pollTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       final completed = ref.read(activeJobProvider)?.completed ?? false;
-      if (!completed && !_paused && mounted) setState(() => _elapsed++);
+      final st = ref.read(machineStatusProvider).value?.state ?? MachineState.idle;
+      if (!completed && st != MachineState.paused && mounted) {
+        setState(() => _elapsed++);
+      }
     });
   }
 
@@ -65,17 +66,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
     // 根据真实机器状态驱动进度与计时；加工完成后锁定 100%
     final rawProg = status.progress.clamp(0.0, 1.0);
     final completed = job?.completed ?? false;
-
-    // 检测机器从 busy 变为 idle（或 progress 达到 1）即视为加工完成
-    final isBusy = status.state == MachineState.busy;
-    final justFinished =
-        (_wasBusy && !isBusy) || (rawProg >= 1.0 && status.state == MachineState.idle);
-    if (job != null && !completed && justFinished) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ref.read(activeJobProvider.notifier).markCompleted();
-      });
-    }
-    _wasBusy = isBusy;
+    final paused = status.state == MachineState.paused;
 
     final prog = completed ? 1.0 : rawProg;
     final remain = completed ? 0 : max(0, (_totalTime * (1 - prog)).round());
@@ -280,7 +271,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
                         border: Border.all(color: CncColors.warning),
                       ),
                       child: Center(
-                        child: Text(_paused ? '▶️ 继续' : '⏸️ 暂停',
+                        child: Text(paused ? '▶️ 继续' : '⏸️ 暂停',
                             style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.bold,
@@ -293,7 +284,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
               const SizedBox(width: 10),
               Expanded(
                 child: GestureDetector(
-                  onTap: _estop,
+                  onTap: _confirmStop,
                   child: Container(
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     decoration: BoxDecoration(
@@ -351,39 +342,43 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
   void _togglePause() {
     final hw = ref.read(hardwareServiceProvider);
-    setState(() {
-      _paused = !_paused;
-      if (_paused) {
-        hw.pauseJob();
-      } else {
-        hw.resumeJob();
-      }
-    });
+    // 暂停/继续状态来自机器（与控制台共享同一状态源，自动同步）
+    if (ref.read(machineStatusProvider).value?.state == MachineState.paused) {
+      hw.resumeJob();
+    } else {
+      hw.pauseJob();
+    }
   }
 
-  void _estop() {
-    final hw = ref.read(hardwareServiceProvider);
-    hw.stopJob();
-    ref.read(activeJobProvider.notifier).clear();
-    _head.stop();
+  void _confirmStop() {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: CncColors.card,
-        title: const Text('🚨 已停止',
+        title: const Text('确认停止雕刻吗？',
             style: TextStyle(color: CncColors.danger)),
-        content: const Text('加工已停止，主轴刹停。',
+        content: const Text('停止后主轴将刹停，本次加工会中断。',
             style: TextStyle(color: CncColors.textMain)),
         actions: [
           TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消', style: TextStyle(color: CncColors.textMain)),
+          ),
+          TextButton(
             onPressed: () {
+              final hw = ref.read(hardwareServiceProvider);
+              hw.stopJob();
+              ref.read(activeJobProvider.notifier).clear();
+              _head.stop();
               Navigator.of(context).pop();
+              // 确认停止后回到控制台（而非模型库）
+              ref.read(navIndexProvider.notifier).state = 1;
               Navigator.of(context).pushAndRemoveUntil(
                 MaterialPageRoute(builder: (_) => const AppShell()),
                 (route) => false,
               );
             },
-            child: const Text('好', style: TextStyle(color: CncColors.danger)),
+            child: const Text('确认停止', style: TextStyle(color: CncColors.danger)),
           ),
         ],
       ),
@@ -405,6 +400,8 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
           TextButton(
             onPressed: () {
               Navigator.of(context).pop();
+              // 完成后回到控制台，便于查看「加工已完成」状态
+              ref.read(navIndexProvider.notifier).state = 1;
               Navigator.of(context).pushAndRemoveUntil(
                 MaterialPageRoute(builder: (_) => const AppShell()),
                 (route) => false,
