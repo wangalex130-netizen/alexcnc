@@ -151,7 +151,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     hw.setAux('light', _light);
                   }),
               _ToggleBtn(
-                  icon: Symbols.center_focus,
+                  icon: Symbols.gps_fixed,
                   label: '红点激光',
                   active: _laser,
                   onTap: () {
