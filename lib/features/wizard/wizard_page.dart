@@ -36,6 +36,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   late String _materialKey; // Step1 模型默认材质 → Step2 预选
   late String _thickness; // 板材厚度（默认=模型默认板厚）
   late TextEditingController _thicknessCtl; // Step2 厚度输入（稳定 controller，避免无法删除）
+  late FocusNode _thicknessFocus; // 失去焦点时吸附到最小板厚
   Offset _origin = const Offset(15, 15); // 工件零点 (mm, 底板 300x200)
   bool _originSet = false;
   int _leveling = 1; // 0 不调平 / 1 标准 / 2 精细
@@ -61,6 +62,17 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   @override
   void initState() {
     super.initState();
+    _thicknessFocus = FocusNode();
+    _thicknessFocus.addListener(() {
+      if (!_thicknessFocus.hasFocus) {
+        final parsed = double.tryParse(_thicknessCtl.text);
+        if (parsed != null && parsed < _minThickness) {
+          final snapped = _minThickness.toStringAsFixed(1);
+          _thicknessCtl.text = snapped;
+          setState(() => _thickness = snapped);
+        }
+      }
+    });
     _load();
   }
 
@@ -170,6 +182,13 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   }
 
   @override
+  void dispose() {
+    _thicknessFocus.dispose();
+    _thicknessCtl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
     return Scaffold(
@@ -258,7 +277,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       final req = _task?.requiredTools ?? [];
       final dup = _procSlot.values.length != _procSlot.values.toSet().length;
       msg = dup
-          ? '两把工序刀不能放入同一个刀兜，请分别选择不同刀兜。'
+          ? '不同工序不能共用同一个刀兜，请为每把工序刀选择独立刀兜。'
           : (_procConfirmed.length < req.length
               ? '请逐一确认每个刀兜的实物环色一致。'
               : '请点击「确认映射并同步到机器」。');
@@ -289,6 +308,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           minThickness: _minThickness,
           defaultKey: _task?.defaultMaterialKey ?? 'pine',
           controller: _thicknessCtl,
+          focusNode: _thicknessFocus,
           chkThick: _chkThick,
           chkMatch: _chkMatch,
           onMaterial: (k) => setState(() => _materialKey = k),
@@ -391,9 +411,11 @@ class _StepParse extends StatelessWidget {
           style: TextStyle(color: CncColors.textSub));
     }
     final mat = materialByKey(task!.defaultMaterialKey);
-    final tool = task!.defaultToolId != null
-        ? toolById(task!.defaultToolId!)
-        : null;
+    // 模型默认刀具：优先按工序列表 requiredTools 展示（1~3 把），
+    // 无工序列表时 fallback 到单把 defaultToolId。
+    final defaultTools = task!.requiredTools.isNotEmpty
+        ? task!.requiredTools.map((rt) => toolById(rt.toolId)).toList()
+        : (task!.defaultToolId != null ? [toolById(task!.defaultToolId!)] : <ToolDef>[]);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -430,32 +452,62 @@ class _StepParse extends StatelessWidget {
                           color: CncColors.primary)),
                 ],
               ),
-              if (tool != null) ...[
+              if (defaultTools.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 const Divider(color: CncColors.border),
                 const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Text(ringEmoji(tool.ring),
-                        style: const TextStyle(fontSize: 22)),
-                    const SizedBox(width: 10),
-                    const Text('模型默认刀具',
-                        style: TextStyle(fontSize: 12, color: CncColors.textSub)),
-                    const Spacer(),
-                    Text(tool.name,
-                        style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
-                            color: CncColors.textMain)),
-                  ],
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('模型默认刀具',
+                      style: TextStyle(fontSize: 12, color: CncColors.textSub)),
                 ),
-                const SizedBox(height: 4),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: Text('${tool.type} · ${tool.diameterMm}mm · ${tool.desc}',
-                      style: const TextStyle(
-                          fontSize: 11, color: CncColors.textSub)),
-                ),
+                const SizedBox(height: 8),
+                ...defaultTools.asMap().entries.map((e) {
+                  final i = e.key;
+                  final tool = e.value;
+                  final isLast = i == defaultTools.length - 1;
+                  return Padding(
+                    padding: EdgeInsets.only(bottom: isLast ? 0 : 8),
+                    child: Row(
+                      children: [
+                        Text(ringEmoji(tool.ring),
+                            style: const TextStyle(fontSize: 22)),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(tool.name,
+                                  style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold,
+                                      color: CncColors.textMain)),
+                              Text(
+                                  '${tool.type} · ${tool.diameterMm}mm · ${tool.desc}',
+                                  style: const TextStyle(
+                                      fontSize: 11,
+                                      color: CncColors.textSub)),
+                            ],
+                          ),
+                        ),
+                        if (defaultTools.length > 1)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: CncColors.primary.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text('工序 ${i + 1}',
+                                style: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: CncColors.primary)),
+                          ),
+                      ],
+                    ),
+                  );
+                }).toList(),
               ],
             ],
           ),
@@ -494,6 +546,7 @@ class _StepMaterial extends StatelessWidget {
   final String thickness;
   final double minThickness;
   final TextEditingController controller; // 稳定 controller（可正常删除/编辑）
+  final FocusNode focusNode; // 失去焦点时父级吸附到最小板厚
   final bool chkThick;
   final bool chkMatch; // 材质/尺寸厚度与实物完全一致
   final void Function(String) onMaterial;
@@ -506,6 +559,7 @@ class _StepMaterial extends StatelessWidget {
     required this.thickness,
     required this.minThickness,
     required this.controller,
+    required this.focusNode,
     required this.chkThick,
     required this.chkMatch,
     required this.onMaterial,
@@ -521,28 +575,10 @@ class _StepMaterial extends StatelessWidget {
     final def = materialByKey(defaultKey);
     final th = double.tryParse(controller.text) ?? 0;
     final tooThin = th > 0 && th < minThickness;
-    // 输入框处理：允许自由编辑/删除；若输入有效数值且小于最小板厚，
-    // 自动吸附到最小板厚（客户只能填写 ≥ 默认厚度的尺寸）。
-    void onChanged(String v) {
-      if (v.isEmpty) {
-        onThickness('');
-        return;
-      }
-      final parsed = double.tryParse(v);
-      if (parsed == null) {
-        onThickness(v); // 中间态（如 "3."）暂不约束
-        return;
-      }
-      if (parsed < minThickness) {
-        final snapped = minThickness.toStringAsFixed(1);
-        controller.text = snapped;
-        controller.selection = TextSelection.fromPosition(
-            TextPosition(offset: snapped.length));
-        onThickness(snapped);
-        return;
-      }
-      onThickness(v);
-    }
+    // 输入框处理：输入过程中自由编辑/删除，不在 onChanged 中强制吸附，
+    // 避免用户输入 "10" 时因先输入 "1" 而被误判为小于最小厚度。
+    // 真正吸附在父级 FocusNode 失去焦点时完成。
+    void onChanged(String v) => onThickness(v);
     // 材料库列表：默认材质排第一位。
     final ordered = [def, ...materials.where((m) => m.key != def.key)];
     final selectedIsDefault = materialKey == defaultKey;
@@ -700,12 +736,15 @@ class _StepMaterial extends StatelessWidget {
         const SizedBox(height: 14),
         TextField(
           controller: controller,
-          keyboardType: TextInputType.number,
+          focusNode: focusNode,
+          keyboardType:
+              const TextInputType.numberWithOptions(decimal: true),
           onChanged: onChanged,
+          onSubmitted: (_) => focusNode.unfocus(),
           style: const TextStyle(color: CncColors.textMain),
           decoration: InputDecoration(
             labelText:
-                '板材厚度 (mm)　最小板材厚度 ${minThickness.toStringAsFixed(1)} mm（与模型默认厚度同步）',
+                '板材厚度 (mm)　最小板材厚度 ${minThickness.toStringAsFixed(1)} mm',
             hintText: '只能填写 ≥ ${minThickness.toStringAsFixed(1)} mm',
             labelStyle: const TextStyle(color: CncColors.textSub),
             hintStyle: const TextStyle(color: CncColors.textSub),
