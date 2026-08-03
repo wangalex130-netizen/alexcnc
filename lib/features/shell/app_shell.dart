@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
 import '../console/console_page.dart';
@@ -16,7 +17,6 @@ final navIndexProvider = StateProvider<int>((ref) => 0);
 class AppShell extends ConsumerWidget {
   const AppShell({super.key});
 
-  // 与原稿一致：💡图库 / ⚙️控制台 / 👤我的
   static const _pages = <Widget>[
     LibraryPage(),
     ConsolePage(),
@@ -24,15 +24,18 @@ class AppShell extends ConsumerWidget {
   ];
 
   static const _labels = ['图库', '控制台', '我的'];
-  static const _icons = ['💡', '⚙️', '👤'];
+  // 统一线性图标（Material Symbols Outlined）
+  static const _icons = [Symbols.apps, Symbols.tune, Symbols.person];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final idx = ref.watch(navIndexProvider);
     return Scaffold(
-      body: IndexedStack(
-        index: idx,
-        children: _pages,
+      body: SafeArea(
+        child: IndexedStack(
+          index: idx,
+          children: _pages,
+        ),
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: idx,
@@ -41,9 +44,9 @@ class AppShell extends ConsumerWidget {
         destinations: [
           for (var i = 0; i < _labels.length; i++)
             NavigationDestination(
-              icon: Text(_icons[i], style: const TextStyle(fontSize: 22)),
-              selectedIcon: Text(_icons[i],
-                  style: const TextStyle(fontSize: 22, color: CncColors.primary)),
+              icon: Icon(_icons[i], size: 24, color: CncColors.textSub),
+              selectedIcon: Icon(_icons[i],
+                  size: 24, color: CncColors.primary),
               label: _labels[i],
             ),
         ],
