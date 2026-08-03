@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/theme.dart';
 import '../../data/material_db.dart';
 import '../../data/tool_library.dart';
+import '../../widgets/material_icon.dart';
+import '../../widgets/tool_icon.dart';
 import '../../models/library_item.dart';
 import '../../models/task_metadata.dart';
 import '../../models/tool.dart';
@@ -41,7 +43,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   Map<int, int> _procSlot = {};
   Set<int> _procConfirmed = {};
   bool _chkThick = false; // 实物厚度与设置一致
-  bool _chkClamp = false; // 压板已物理锁紧
+  bool _chkMatch = false; // 材质/尺寸厚度与实物完全一致
   bool _safetyChecked = false; // Step4 轨迹落在耗材内且避开压板
   bool _guardChecked = false; // Step5 防护罩已合上
 
@@ -138,7 +140,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
         return _thicknessVal >= _minThickness &&
             _thicknessVal > 0 &&
             _chkThick &&
-            _chkClamp;
+            _chkMatch;
       case 2:
         return _atcReady;
       case 3:
@@ -277,12 +279,13 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           materialKey: _materialKey,
           thickness: _thickness,
           minThickness: _minThickness,
+          defaultKey: _task?.defaultMaterialKey ?? 'pine',
           chkThick: _chkThick,
-          chkClamp: _chkClamp,
+          chkMatch: _chkMatch,
           onMaterial: (k) => setState(() => _materialKey = k),
           onThickness: (v) => setState(() => _thickness = v),
           onChkThick: (v) => setState(() => _chkThick = v),
-          onChkClamp: (v) => setState(() => _chkClamp = v),
+          onChkMatch: (v) => setState(() => _chkMatch = v),
         );
       case 2:
         return _StepAtc(
@@ -405,7 +408,7 @@ class _StepParse extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Text(mat.icon, style: const TextStyle(fontSize: 22)),
+                  MaterialIcon(visual: mat.visual, swatch: mat.swatch, size: 26),
                   const SizedBox(width: 10),
                   const Text('模型默认雕刻材料',
                       style: TextStyle(fontSize: 12, color: CncColors.textSub)),
@@ -477,81 +480,160 @@ class _Row extends StatelessWidget {
 
 class _StepMaterial extends StatelessWidget {
   final String materialKey;
+  final String defaultKey; // 模型默认材质 key（排在第一位、标注「模型默认」）
   final String thickness;
   final double minThickness;
   final bool chkThick;
-  final bool chkClamp;
+  final bool chkMatch; // 材质/尺寸厚度与实物完全一致
   final void Function(String) onMaterial;
   final void Function(String) onThickness;
   final void Function(bool) onChkThick;
-  final void Function(bool) onChkClamp;
+  final void Function(bool) onChkMatch;
   const _StepMaterial({
     required this.materialKey,
+    required this.defaultKey,
     required this.thickness,
     required this.minThickness,
     required this.chkThick,
-    required this.chkClamp,
+    required this.chkMatch,
     required this.onMaterial,
     required this.onThickness,
     required this.onChkThick,
-    required this.onChkClamp,
+    required this.onChkMatch,
   });
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
     final mat = materialByKey(materialKey);
+    final def = materialByKey(defaultKey);
     final th = double.tryParse(thickness) ?? 0;
     final tooThin = th > 0 && th < minThickness;
+    // 材料库列表：默认材质排第一位。
+    final ordered = [def, ...materials.where((m) => m.key != def.key)];
+    final selectedIsDefault = materialKey == defaultKey;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('Step 2 · 材质确认',
             style: t.titleMedium?.copyWith(color: CncColors.textMain)),
         const SizedBox(height: 6),
-        Text('耗材材质（默认「${mat.name}」来自模型；可切换，雕刻参数自动联动）',
+        Text('耗材材质（默认「${def.name}」来自模型；可切换，雕刻参数自动联动）',
             style: const TextStyle(fontSize: 12, color: CncColors.textSub)),
-        const SizedBox(height: 10),
-        GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 10,
-          crossAxisSpacing: 10,
-          childAspectRatio: 2.4,
-          children: List.generate(materials.length, (i) {
-            final m = materials[i];
-            final sel = materialKey == m.key;
-            return GestureDetector(
-              onTap: () => onMaterial(m.key),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: sel
-                      ? CncColors.primary.withOpacity(0.12)
-                      : CncColors.bg,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                      color: sel ? CncColors.primary : CncColors.border),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+        const SizedBox(height: 12),
+
+        // 模型默认材料卡（标注「模型默认」，排第一）
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: CncColors.primary.withOpacity(0.10),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: CncColors.primary.withOpacity(0.4)),
+          ),
+          child: Row(
+            children: [
+              MaterialIcon(visual: def.visual, swatch: def.swatch, size: 44),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(m.icon, style: const TextStyle(fontSize: 20)),
-                    const SizedBox(width: 8),
-                    Text(m.name,
+                    Row(
+                      children: [
+                        Text(def.name,
+                            style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: CncColors.textMain)),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: CncColors.primary,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text('模型默认',
+                              style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    const Text('模型库自带材质，建议优先使用（点下方可换其它材料）',
                         style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: sel
-                                ? CncColors.primary
-                                : CncColors.textMain)),
+                            fontSize: 11, color: CncColors.textSub)),
                   ],
                 ),
               ),
-            );
-          }),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // 选择其它材料（材料库下拉；默认排第一并标记）
+        const Text('更换为其它材料（材料库）',
+            style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+        const SizedBox(height: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: CncColors.bg,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: CncColors.border),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: materialKey,
+              isExpanded: true,
+              dropdownColor: CncColors.card,
+              icon: const Icon(Icons.arrow_drop_down,
+                  color: CncColors.primary),
+              style: const TextStyle(
+                  color: CncColors.textMain, fontSize: 14),
+              onChanged: (k) {
+                if (k != null) onMaterial(k);
+              },
+              items: ordered
+                  .map((m) => DropdownMenuItem(
+                        value: m.key,
+                        child: Row(
+                          children: [
+                            MaterialIcon(
+                                visual: m.visual, swatch: m.swatch, size: 28),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(m.name,
+                                  style: const TextStyle(
+                                      fontSize: 14,
+                                      color: CncColors.textMain)),
+                            ),
+                            if (m.key == defaultKey)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color:
+                                      CncColors.primary.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Text('默认',
+                                    style: TextStyle(
+                                        fontSize: 10,
+                                        color: CncColors.primary)),
+                              ),
+                          ],
+                        ),
+                      ))
+                  .toList(),
+            ),
+          ),
         ),
         const SizedBox(height: 14),
+
         // 自动联动参数
         Container(
           padding: const EdgeInsets.all(12),
@@ -570,11 +652,14 @@ class _StepMaterial extends StatelessWidget {
               _Param('进给速度', '${mat.feed} mm/min'),
               _Param('下刀速度', '${mat.plunge} mm/min'),
               const SizedBox(height: 6),
-              Text('推荐刀具：${mat.toolIds.map((id) => toolById(id).name).join('、')}',
-                  style: const TextStyle(fontSize: 11, color: CncColors.blue)),
+              Text(
+                  '推荐刀具：${mat.toolIds.map((id) => toolById(id).name).join('、')}',
+                  style: const TextStyle(
+                      fontSize: 11, color: CncColors.blue)),
               const SizedBox(height: 4),
               Text(mat.note,
-                  style: const TextStyle(fontSize: 10, color: CncColors.textSub)),
+                  style: const TextStyle(
+                      fontSize: 10, color: CncColors.textSub)),
             ],
           ),
         ),
@@ -586,7 +671,7 @@ class _StepMaterial extends StatelessWidget {
           style: const TextStyle(color: CncColors.textMain),
           decoration: InputDecoration(
             labelText: '板材厚度 (mm)',
-            hintText: '需 ≥ ${minThickness.toStringAsFixed(1)}',
+            hintText: '需 ≥ ${minThickness.toStringAsFixed(1)}（模型默认板厚）',
             labelStyle: const TextStyle(color: CncColors.textSub),
             hintStyle: const TextStyle(color: CncColors.textSub),
             errorText: tooThin
@@ -611,9 +696,11 @@ class _StepMaterial extends StatelessWidget {
           label: '实物厚度与设置一致',
         ),
         _CheckTile(
-          value: chkClamp,
-          onChanged: onChkClamp,
-          label: '压板已物理锁紧',
+          value: chkMatch,
+          onChanged: onChkMatch,
+          label: selectedIsDefault
+              ? '材质/尺寸厚度与实物完全一致'
+              : '材质/尺寸厚度与实物完全一致（已切换材料，请确认）',
         ),
       ],
     );
@@ -769,8 +856,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Text(ringEmoji(def.ring),
-                        style: const TextStyle(fontSize: 20)),
+                    ToolIcon(def: def, size: 40),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Column(
@@ -1914,7 +2000,7 @@ class _ReadyPhase extends StatelessWidget {
           ),
           child: Column(
             children: [
-              _Param('匹配材质', '${mat.icon} ${mat.name}'),
+              _Param('匹配材质', '${mat.name}'),
               _Param('主轴转速', '${mat.rpm} RPM'),
               _Param('进给速度', '${mat.feed} mm/min'),
               _Param('下刀速度', '${mat.plunge} mm/min'),
@@ -2046,28 +2132,43 @@ class _Telem extends StatelessWidget {
 // ===================== 模型轮廓 2D 轨迹（必须是模型本身）=====================
 
 /// 生成模型轮廓路径点（mm，模型局部坐标 0..w, 0..h）。
-/// 外框 + 居中的对称八角星花纹，代表「复古木雕花纹板」的雕刻图案。
+/// 严格还原 step6.html 设计稿的「战神徽章矢量图」：镜头/眼形外框
+/// （M15 45 Q67.5 5 120 45 Q67.5 85 15 45 Z）+ 内圆 r20。
 List<Offset> modelContour(double w, double h) {
   final pts = <Offset>[];
-  // 外框
-  pts
-    ..add(const Offset(0, 0))
-    ..add(Offset(w, 0))
-    ..add(Offset(w, h))
-    ..add(Offset(0, h))
-    ..add(const Offset(0, 0));
-  // 居中八角星
-  final cx = w / 2, cy = h / 2;
-  final R = min(w, h) * 0.34;
-  final r = R * 0.45;
-  final star = <Offset>[];
-  for (var i = 0; i < 16; i++) {
-    final ang = -pi / 2 + i * pi / 8;
-    final rad = i.isEven ? R : r;
-    star.add(Offset(cx + cos(ang) * rad, cy + sin(ang) * rad));
+  // SVG viewBox 135 x 90 → 局部坐标等比展开
+  final sx = w / 135, sy = h / 90;
+  Offset v(double x, double y) => Offset(x * sx, y * sy);
+  final p0 = v(15, 45);
+  final c1 = v(67.5, 5); // 上控制点
+  final p1 = v(120, 45);
+  final c2 = v(67.5, 85); // 下控制点
+  // 第一段二次贝塞尔 p0 → p1（控制 c1）
+  const n1 = 48;
+  for (var i = 0; i <= n1; i++) {
+    final t = i / n1, mt = 1 - t;
+    pts.add(Offset(
+      mt * mt * p0.dx + 2 * mt * t * c1.dx + t * t * p1.dx,
+      mt * mt * p0.dy + 2 * mt * t * c1.dy + t * t * p1.dy,
+    ));
   }
-  star.add(star.first);
-  pts.addAll(star);
+  // 第二段二次贝塞尔 p1 → p0（控制 c2），闭合回 p0
+  const n2 = 48;
+  for (var i = 0; i <= n2; i++) {
+    final t = i / n2, mt = 1 - t;
+    pts.add(Offset(
+      mt * mt * p1.dx + 2 * mt * t * c2.dx + t * t * p0.dx,
+      mt * mt * p1.dy + 2 * mt * t * c2.dy + t * t * p0.dy,
+    ));
+  }
+  // 内圆（用 x 比例保证各向同性，渲染为正圆）
+  final cc = v(67.5, 45);
+  final r = 20 * sx;
+  const nc = 56;
+  for (var i = 0; i <= nc; i++) {
+    final a = i / nc * 2 * pi;
+    pts.add(Offset(cc.dx + cos(a) * r, cc.dy + sin(a) * r));
+  }
   return pts;
 }
 

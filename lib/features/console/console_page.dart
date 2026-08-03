@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme.dart';
 import '../../data/tool_library.dart';
+import '../../widgets/tool_icon.dart';
 import '../../models/machine_status.dart';
 import '../../models/tool.dart';
 import '../../state/providers.dart';
@@ -657,7 +658,7 @@ class _AtcSheetState extends ConsumerState<_AtcSheet> {
                         decoration: _cardDeco(),
                         child: Row(
                           children: [
-                            Text(ringEmoji(def.ring), style: const TextStyle(fontSize: 18)),
+                            ToolIcon(def: def, size: 38),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Column(
@@ -751,15 +752,18 @@ class _AtcSheetState extends ConsumerState<_AtcSheet> {
                       margin: const EdgeInsets.only(bottom: 10),
                       padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
                       decoration: _cardDeco(),
-                      child: Row(
+                        child: Row(
                         children: [
-                          Text('T$slot', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF555555))),
+                          Opacity(
+                            opacity: def != null ? 1 : 0.28,
+                            child: ToolIcon(def: def ?? toolCatalog.first, size: 40, showRing: def != null),
+                          ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(def != null ? '${ringEmoji(def.ring)} ${def.name}' : '未挂载刀具 (空位)',
+                                Text(def != null ? 'T$slot · ${def.name}' : 'T$slot · 未挂载刀具 (空位)',
                                     style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: CncColors.textMain)),
                                 const SizedBox(height: 2),
                                 Text(def != null ? '${def.type} · ⌀${def.diameterMm}mm · ${def.desc}' : '点击添加刀具',
