@@ -30,8 +30,9 @@ class MockHardwareService implements HardwareService {
         position: _current.position.copyWith(z: _current.position.z + 0.01),
       );
       if (p >= 1) {
+        // 自然加工完成：保留 100% 进度，便于 UI 显示「加工完成」
         _current = _current.copyWith(
-          state: MachineState.idle, progress: 0, eta: null,
+          state: MachineState.idle, progress: 1.0, eta: null,
         );
       }
     }

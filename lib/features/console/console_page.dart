@@ -185,9 +185,13 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   builder: (context, ref, child) {
                     final job = ref.watch(activeJobProvider);
                     if (job == null) return const SizedBox.shrink();
+                    final completed = job.completed;
+                    final progress = completed
+                        ? 100
+                        : (status.progress.clamp(0.0, 1.0) * 100).round();
                     return GestureDetector(
                       onTap: () {
-                        if (job.selfCheckDone) {
+                        if (completed || job.selfCheckDone) {
                           Navigator.of(context).push(
                             MaterialPageRoute(
                                 builder: (_) => const JobMonitorPage()),
@@ -208,10 +212,14 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                         margin: const EdgeInsets.only(bottom: 12),
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: CncColors.warning.withOpacity(0.1),
+                          color: completed
+                              ? CncColors.primary.withOpacity(0.1)
+                              : CncColors.warning.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(10),
-                          border:
-                              Border.all(color: CncColors.warning.withOpacity(0.4)),
+                          border: Border.all(
+                              color: completed
+                                  ? CncColors.primary.withOpacity(0.4)
+                                  : CncColors.warning.withOpacity(0.4)),
                         ),
                         child: Row(
                           children: [
@@ -219,21 +227,33 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                               width: 36,
                               height: 36,
                               decoration: BoxDecoration(
-                                color: CncColors.warning.withOpacity(0.15),
+                                color: completed
+                                    ? CncColors.primary.withOpacity(0.15)
+                                    : CncColors.warning.withOpacity(0.15),
                                 shape: BoxShape.circle,
                               ),
-                              child: const Icon(Icons.router,
-                                  color: CncColors.warning, size: 18),
+                              child: Icon(
+                                  completed ? Icons.check_circle : Icons.router,
+                                  color: completed
+                                      ? CncColors.primary
+                                      : CncColors.warning,
+                                  size: 18),
                             ),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('当前加工中',
-                                      style: TextStyle(
-                                          fontSize: 10,
-                                          color: CncColors.warning)),
+                                  Text(
+                                    completed
+                                        ? '加工已完成'
+                                        : '当前加工中 · $progress%',
+                                    style: TextStyle(
+                                        fontSize: 10,
+                                        color: completed
+                                            ? CncColors.primary
+                                            : CncColors.warning),
+                                  ),
                                   Text(job.item.title,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,

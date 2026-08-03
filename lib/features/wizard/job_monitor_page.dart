@@ -31,12 +31,14 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
   int _elapsed = 0;
   bool _paused = false;
   bool _doneShown = false;
+  bool _wasBusy = false; // 用于检测机器从 busy → idle 的完成瞬间
 
   @override
   void initState() {
     super.initState();
     _pollTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!_paused && mounted) setState(() => _elapsed++);
+      final completed = ref.read(activeJobProvider)?.completed ?? false;
+      if (!completed && !_paused && mounted) setState(() => _elapsed++);
     });
   }
 
@@ -60,14 +62,31 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
         ? toolById(magazine[firstSlot]!)
         : null;
 
-    // 根据真实机器状态驱动进度与计时
-    final prog = status.progress.clamp(0.0, 1.0);
-    final remain = max(0, (_totalTime * (1 - prog)).round());
+    // 根据真实机器状态驱动进度与计时；加工完成后锁定 100%
+    final rawProg = status.progress.clamp(0.0, 1.0);
+    final completed = job?.completed ?? false;
 
-    // 加工完成或空闲时自动清理并提示（放到帧尾，避免在 build 中调 setState）
-    if (status.state == MachineState.idle && prog >= 1.0 && job != null && !_doneShown) {
-      _doneShown = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _onDone(context));
+    // 检测机器从 busy 变为 idle（或 progress 达到 1）即视为加工完成
+    final isBusy = status.state == MachineState.busy;
+    final justFinished =
+        (_wasBusy && !isBusy) || (rawProg >= 1.0 && status.state == MachineState.idle);
+    if (job != null && !completed && justFinished) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.read(activeJobProvider.notifier).markCompleted();
+      });
+    }
+    _wasBusy = isBusy;
+
+    final prog = completed ? 1.0 : rawProg;
+    final remain = completed ? 0 : max(0, (_totalTime * (1 - prog)).round());
+
+    // 加工完成后停止动画头并弹出完成提示（仅一次）
+    if (completed) {
+      if (_head.isAnimating) _head.stop();
+      if (!_doneShown) {
+        _doneShown = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) => _onDone(context));
+      }
     }
 
     return Scaffold(
@@ -93,7 +112,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
             padding: const EdgeInsets.only(right: 16),
             child: Center(
               child: Text(
-                _stateLabel(status.state),
+                _stateLabel(status.state, completed),
                 style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
@@ -185,17 +204,19 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
             ),
             child: Column(
               children: [
-                Text('${(prog * 100).toStringAsFixed(1)}%',
-                    style: const TextStyle(
-                        fontSize: 30,
-                        fontWeight: FontWeight.w900,
-                        color: CncColors.primary,
-                        fontFamily: 'monospace')),
+                Text(
+                  completed ? '100.0%' : '${(prog * 100).toStringAsFixed(1)}%',
+                  style: TextStyle(
+                      fontSize: 30,
+                      fontWeight: FontWeight.w900,
+                      color: completed ? CncColors.primary : CncColors.primary,
+                      fontFamily: 'monospace'),
+                ),
                 const SizedBox(height: 6),
                 LinearProgressIndicator(
-                  value: prog,
+                  value: completed ? 1.0 : prog,
                   backgroundColor: const Color(0xFF222222),
-                  color: CncColors.primary,
+                  color: completed ? CncColors.primary : CncColors.primary,
                   minHeight: 6,
                 ),
                 const SizedBox(height: 6),
@@ -205,9 +226,15 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
                     Text('已用 ${_fmt(_elapsed)}',
                         style: const TextStyle(
                             fontSize: 10, color: CncColors.textSub)),
-                    Text('剩余 ${_fmt(remain)}',
-                        style: const TextStyle(
-                            fontSize: 10, color: CncColors.blue)),
+                    Text(
+                      completed
+                          ? '加工完成'
+                          : '剩余 ${_fmt(remain)}',
+                      style: const TextStyle(
+                          fontSize: 10,
+                          color: CncColors.blue,
+                          fontWeight: FontWeight.bold),
+                    ),
                   ],
                 ),
               ],
@@ -242,20 +269,23 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
             children: [
               Expanded(
                 child: GestureDetector(
-                  onTap: _togglePause,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    decoration: BoxDecoration(
-                      color: CncColors.warning.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: CncColors.warning),
-                    ),
-                    child: Center(
-                      child: Text(_paused ? '▶️ 恢复加工' : '⏸️ 暂停加工',
-                          style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                              color: CncColors.warning)),
+                  onTap: completed ? null : _togglePause,
+                  child: Opacity(
+                    opacity: completed ? 0.45 : 1,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: CncColors.warning.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: CncColors.warning),
+                      ),
+                      child: Center(
+                        child: Text(_paused ? '▶️ 继续' : '⏸️ 暂停',
+                            style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: CncColors.warning)),
+                      ),
                     ),
                   ),
                 ),
@@ -272,7 +302,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
                       border: Border.all(color: CncColors.danger),
                     ),
                     child: const Center(
-                      child: Text('🚨 紧急停止',
+                      child: Text('🚨 停止',
                           style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.bold,
@@ -303,7 +333,8 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
   int get _totalTime => 750; // 12:30，与 Wizard 内部一致
 
-  String _stateLabel(MachineState s) {
+  String _stateLabel(MachineState s, bool completed) {
+    if (completed) return '加工完成';
     switch (s) {
       case MachineState.busy:
         return '加工中';
@@ -339,9 +370,9 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: CncColors.card,
-        title: const Text('🚨 已急停',
+        title: const Text('🚨 已停止',
             style: TextStyle(color: CncColors.danger)),
-        content: const Text('主轴刹停，机床保护性断电。',
+        content: const Text('加工已停止，主轴刹停。',
             style: TextStyle(color: CncColors.textMain)),
         actions: [
           TextButton(
@@ -360,10 +391,8 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
   }
 
   void _onDone(BuildContext context) {
-    if (ref.read(activeJobProvider) == null) return;
-    ref.read(activeJobProvider.notifier).clear();
-    _head.stop();
     if (!mounted) return;
+    // 自然完成不清理 activeJob，以便控制台继续显示「加工已完成」
     showDialog(
       context: context,
       builder: (_) => AlertDialog(

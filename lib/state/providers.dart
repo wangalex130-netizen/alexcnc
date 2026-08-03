@@ -71,9 +71,11 @@ class ActiveJob {
   final String materialKey;
   final Map<int, int> procSlot; // 工序 index → 物理刀兜
   final DateTime startedAt;
+  final DateTime? finishedAt;
   final List<String> selfCheckPhases;
   final int selfCheckIndex; // 当前进行到的阶段，-1 = 尚未开始
   final bool selfCheckDone;
+  final bool completed; // 机器已返回加工完成
 
   const ActiveJob({
     required this.item,
@@ -81,9 +83,11 @@ class ActiveJob {
     required this.materialKey,
     required this.procSlot,
     required this.startedAt,
+    this.finishedAt,
     this.selfCheckPhases = const [],
     this.selfCheckIndex = -1,
     this.selfCheckDone = false,
+    this.completed = false,
   });
 
   ActiveJob copyWith({
@@ -92,9 +96,11 @@ class ActiveJob {
     String? materialKey,
     Map<int, int>? procSlot,
     DateTime? startedAt,
+    DateTime? finishedAt,
     List<String>? selfCheckPhases,
     int? selfCheckIndex,
     bool? selfCheckDone,
+    bool? completed,
   }) =>
       ActiveJob(
         item: item ?? this.item,
@@ -102,9 +108,11 @@ class ActiveJob {
         materialKey: materialKey ?? this.materialKey,
         procSlot: procSlot ?? this.procSlot,
         startedAt: startedAt ?? this.startedAt,
+        finishedAt: finishedAt ?? this.finishedAt,
         selfCheckPhases: selfCheckPhases ?? this.selfCheckPhases,
         selfCheckIndex: selfCheckIndex ?? this.selfCheckIndex,
         selfCheckDone: selfCheckDone ?? this.selfCheckDone,
+        completed: completed ?? this.completed,
       );
 }
 
@@ -150,6 +158,12 @@ class ActiveJobNotifier extends StateNotifier<ActiveJob?> {
       selfCheckIndex: job.selfCheckPhases.length,
     );
     onSelfCheckDone?.call();
+  }
+
+  void markCompleted() {
+    final job = state;
+    if (job == null || job.completed) return;
+    state = job.copyWith(completed: true, finishedAt: DateTime.now());
   }
 
   void clear() {
