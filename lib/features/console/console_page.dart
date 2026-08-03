@@ -133,17 +133,29 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
           // ---- 快捷开关 ----
           Row(
             children: [
-              _ToggleBtn(icon: '💡', label: '机箱照明', active: _light,
+              _ToggleBtn(
+                  icon: '💡',
+                  label: '机箱照明',
+                  active: _light,
+                  enabled: canControl,
                   onTap: () {
                     setState(() => _light = !_light);
                     hw.setAux('light', _light);
                   }),
-              _ToggleBtn(icon: '🎯', label: '红点激光', active: _laser,
+              _ToggleBtn(
+                  icon: '🎯',
+                  label: '红点激光',
+                  active: _laser,
+                  enabled: canControl,
                   onTap: () {
                     setState(() => _laser = !_laser);
                     hw.setAux('laser', _laser);
                   }),
-              _ToggleBtn(icon: '⏱️', label: '延时摄影', active: _timelapse,
+              _ToggleBtn(
+                  icon: '⏱️',
+                  label: '延时摄影',
+                  active: _timelapse,
+                  enabled: canControl,
                   onTap: () {
                     setState(() => _timelapse = !_timelapse);
                     hw.setAux('timelapse', _timelapse);
@@ -270,10 +282,11 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                 const SizedBox(height: 12),
 
-                // IDLE 控制区（远程模式锁死）
-                if (canControl) ...[
+                // 主动控制区：局域网直连始终展示，加工中仅禁用不隐藏
+                if (isLocal) ...[
                   const _SectionTitle('定位与回零'),
                   _JogCard(
+                    enabled: canControl,
                     onJog: (axis, d) => hw.jog(axis, d),
                     onSetZero: () => hw.setWorkZero(),
                     onHome: () => hw.home(),
@@ -281,6 +294,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   const SizedBox(height: 12),
                   const _SectionTitle('主轴调试 (Spindle)'),
                   _SpindleCard(
+                    enabled: canControl,
                     rpm: _rpm,
                     onRpm: (v) => setState(() => _rpm = v),
                     spindleOn: _spindleOn,
@@ -291,10 +305,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   ),
                   const SizedBox(height: 12),
                   const _SectionTitle('安全与刀仓配置'),
-                  _AtcEntry(onOpen: () => _openAtc(context, hw)),
-                ] else if (isLocal && !idle) ...[
-                  const SizedBox(height: 8),
-                  const Center(child: Text('加工中… 危险操作已收起', style: TextStyle(color: CncColors.textSub))),
+                  _AtcEntry(enabled: canControl, onOpen: () => _openAtc(context, hw)),
                 ],
 
                 const SizedBox(height: 12),
@@ -379,28 +390,32 @@ class _ToggleBtn extends StatelessWidget {
   final String icon;
   final String label;
   final bool active;
+  final bool enabled;
   final VoidCallback onTap;
-  const _ToggleBtn({required this.icon, required this.label, required this.active, required this.onTap});
+  const _ToggleBtn({required this.icon, required this.label, required this.active, this.enabled = true, required this.onTap});
 
   @override
   Widget build(BuildContext context) => Expanded(
         child: GestureDetector(
-          onTap: onTap,
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            decoration: BoxDecoration(
-              color: active ? CncColors.card : const Color(0xFF111111),
-              border: Border(
-                right: BorderSide(color: CncColors.border.withOpacity(0.5)),
+          onTap: enabled ? onTap : null,
+          child: Opacity(
+            opacity: enabled ? 1 : 0.45,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              decoration: BoxDecoration(
+                color: active && enabled ? CncColors.card : const Color(0xFF111111),
+                border: Border(
+                  right: BorderSide(color: CncColors.border.withOpacity(0.5)),
+                ),
               ),
-            ),
-            child: Column(
-              children: [
-                Text(icon, style: const TextStyle(fontSize: 18)),
-                const SizedBox(height: 4),
-                Text(label,
-                    style: TextStyle(fontSize: 10, color: active ? CncColors.primary : CncColors.textSub)),
-              ],
+              child: Column(
+                children: [
+                  Text(icon, style: const TextStyle(fontSize: 18)),
+                  const SizedBox(height: 4),
+                  Text(label,
+                      style: TextStyle(fontSize: 10, color: active && enabled ? CncColors.primary : CncColors.textSub)),
+                ],
+              ),
             ),
           ),
         ),
@@ -453,10 +468,11 @@ class _SectionTitle extends StatelessWidget {
 // ===================== Jog 摇杆 =====================
 
 class _JogCard extends StatelessWidget {
+  final bool enabled;
   final void Function(String axis, double d) onJog;
   final VoidCallback onSetZero;
   final VoidCallback onHome;
-  const _JogCard({required this.onJog, required this.onSetZero, required this.onHome});
+  const _JogCard({this.enabled = true, required this.onJog, required this.onSetZero, required this.onHome});
 
   @override
   Widget build(BuildContext context) => Container(
@@ -475,9 +491,9 @@ class _JogCard extends StatelessWidget {
                 crossAxisSpacing: 4,
                 children: [
                   const SizedBox(),
-                  _JogBtn('Y+', () => onJog('y', 1)),
+                  _JogBtn('Y+', () => onJog('y', 1), enabled: enabled),
                   const SizedBox(),
-                  _JogBtn('X-', () => onJog('x', -1)),
+                  _JogBtn('X-', () => onJog('x', -1), enabled: enabled),
                   Container(
                     decoration: BoxDecoration(
                       color: const Color(0xFF111111),
@@ -485,9 +501,9 @@ class _JogCard extends StatelessWidget {
                     ),
                     child: const Center(child: Text('XY', style: TextStyle(fontSize: 10, color: Color(0xFF555555)))),
                   ),
-                  _JogBtn('X+', () => onJog('x', 1)),
+                  _JogBtn('X+', () => onJog('x', 1), enabled: enabled),
                   const SizedBox(),
-                  _JogBtn('Y-', () => onJog('y', -1)),
+                  _JogBtn('Y-', () => onJog('y', -1), enabled: enabled),
                   const SizedBox(),
                 ],
               ),
@@ -498,9 +514,9 @@ class _JogCard extends StatelessWidget {
               width: 45,
               child: Column(
                 children: [
-                  _JogBtn('Z+', () => onJog('z', 1)),
-                  _JogBtn('Z', () => onJog('z', 0), plain: true),
-                  _JogBtn('Z-', () => onJog('z', -1)),
+                  _JogBtn('Z+', () => onJog('z', 1), enabled: enabled),
+                  _JogBtn('Z', () => onJog('z', 0), plain: true, enabled: enabled),
+                  _JogBtn('Z-', () => onJog('z', -1), enabled: enabled),
                 ],
               ),
             ),
@@ -510,9 +526,9 @@ class _JogCard extends StatelessWidget {
               width: 50,
               child: Column(
                 children: [
-                  _HomeBtn('📍\n定原点', onSetZero),
+                  _HomeBtn('📍\n定原点', onSetZero, enabled: enabled),
                   const SizedBox(height: 4),
-                  _HomeBtn('🏠\n回零', onHome),
+                  _HomeBtn('🏠\n回零', onHome, enabled: enabled),
                 ],
               ),
             ),
@@ -525,18 +541,22 @@ class _JogBtn extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
   final bool plain;
-  const _JogBtn(this.label, this.onTap, {this.plain = false});
+  final bool enabled;
+  const _JogBtn(this.label, this.onTap, {this.plain = false, this.enabled = true});
   @override
   Widget build(BuildContext context) => GestureDetector(
-        onTap: onTap,
-        child: Container(
-          height: 38,
-          decoration: BoxDecoration(
-            color: plain ? const Color(0xFF111111) : const Color(0xFF222222),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: CncColors.border),
+        onTap: enabled ? onTap : null,
+        child: Opacity(
+          opacity: enabled ? 1 : 0.45,
+          child: Container(
+            height: 38,
+            decoration: BoxDecoration(
+              color: plain ? const Color(0xFF111111) : const Color(0xFF222222),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: CncColors.border),
+            ),
+            child: Center(child: Text(label, style: const TextStyle(fontSize: 14, color: CncColors.textMain))),
           ),
-          child: Center(child: Text(label, style: const TextStyle(fontSize: 14, color: CncColors.textMain))),
         ),
       );
 }
@@ -544,21 +564,25 @@ class _JogBtn extends StatelessWidget {
 class _HomeBtn extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
-  const _HomeBtn(this.label, this.onTap);
+  final bool enabled;
+  const _HomeBtn(this.label, this.onTap, {this.enabled = true});
   @override
   Widget build(BuildContext context) => GestureDetector(
-        onTap: onTap,
-        child: Container(
-          height: 38,
-          decoration: BoxDecoration(
-            color: const Color(0xFF222222),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: CncColors.border),
-          ),
-          child: Center(
-            child: Text(label,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: CncColors.textSub)),
+        onTap: enabled ? onTap : null,
+        child: Opacity(
+          opacity: enabled ? 1 : 0.45,
+          child: Container(
+            height: 38,
+            decoration: BoxDecoration(
+              color: const Color(0xFF222222),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: CncColors.border),
+            ),
+            child: Center(
+              child: Text(label,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: CncColors.textSub)),
+            ),
           ),
         ),
       );
@@ -567,59 +591,63 @@ class _HomeBtn extends StatelessWidget {
 // ===================== 主轴 =====================
 
 class _SpindleCard extends StatelessWidget {
+  final bool enabled;
   final int rpm;
   final ValueChanged<int> onRpm;
   final bool spindleOn;
   final VoidCallback onToggle;
-  const _SpindleCard({required this.rpm, required this.onRpm, required this.spindleOn, required this.onToggle});
+  const _SpindleCard({this.enabled = true, required this.rpm, required this.onRpm, required this.spindleOn, required this.onToggle});
 
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.all(12),
         decoration: _cardDeco(),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('目标转速: ${rpm.toString()} RPM',
-                    style: const TextStyle(fontSize: 12, color: CncColors.textSub)),
-                GestureDetector(
-                  onTap: onToggle,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: spindleOn ? CncColors.danger.withOpacity(0.15) : const Color(0xFF222222),
-                      border: Border.all(color: spindleOn ? CncColors.danger : CncColors.border),
-                      borderRadius: BorderRadius.circular(6),
+        child: Opacity(
+          opacity: enabled ? 1 : 0.45,
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('目标转速: ${rpm.toString()} RPM',
+                      style: const TextStyle(fontSize: 12, color: CncColors.textSub)),
+                  GestureDetector(
+                    onTap: enabled ? onToggle : null,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: spindleOn && enabled ? CncColors.danger.withOpacity(0.15) : const Color(0xFF222222),
+                        border: Border.all(color: spindleOn && enabled ? CncColors.danger : CncColors.border),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(spindleOn && enabled ? '🚨 停止转动' : '🌀 测试启动',
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: spindleOn && enabled ? CncColors.danger : CncColors.textMain)),
                     ),
-                    child: Text(spindleOn ? '🚨 停止转动' : '🌀 测试启动',
-                        style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: spindleOn ? CncColors.danger : CncColors.textMain)),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                const Text('0', style: TextStyle(fontSize: 10, color: Color(0xFF555555))),
-                Expanded(
-                  child: Slider(
-                    value: rpm.toDouble(),
-                    min: 0,
-                    max: 24000,
-                    divisions: 24,
-                    activeColor: CncColors.primary,
-                    onChanged: (v) => onRpm(v.round()),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  const Text('0', style: TextStyle(fontSize: 10, color: Color(0xFF555555))),
+                  Expanded(
+                    child: Slider(
+                      value: rpm.toDouble(),
+                      min: 0,
+                      max: 24000,
+                      divisions: 24,
+                      activeColor: enabled ? CncColors.primary : CncColors.textSub,
+                      onChanged: enabled ? (v) => onRpm(v.round()) : null,
+                    ),
                   ),
-                ),
-                const Text('24k', style: TextStyle(fontSize: 10, color: Color(0xFF555555))),
-              ],
-            ),
-          ],
+                  const Text('24k', style: TextStyle(fontSize: 10, color: Color(0xFF555555))),
+                ],
+              ),
+            ],
+          ),
         ),
       );
 }
@@ -628,8 +656,9 @@ class _SpindleCard extends StatelessWidget {
 // 与向导 Step3 共用 toolMagazineProvider：任一处修改，另一处立即同步。
 
 class _AtcEntry extends ConsumerWidget {
+  final bool enabled;
   final VoidCallback onOpen;
-  const _AtcEntry({required this.onOpen});
+  const _AtcEntry({this.enabled = true, required this.onOpen});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final magazine = ref.watch(toolMagazineProvider);
@@ -638,31 +667,34 @@ class _AtcEntry extends ConsumerWidget {
         ? '当前主轴 T1: ${ringEmoji(t1.ring)} ${t1.name}'
         : '当前主轴: 空';
     return GestureDetector(
-      onTap: onOpen,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: _cardDeco(),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('ATC 自动换刀系统', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
-                const SizedBox(height: 2),
-                Text(sub, style: const TextStyle(fontSize: 10, color: Color(0xFF666666))),
-              ],
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xFF222222),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: CncColors.border),
+      onTap: enabled ? onOpen : null,
+      child: Opacity(
+        opacity: enabled ? 1 : 0.45,
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: _cardDeco(),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('ATC 自动换刀系统', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                  const SizedBox(height: 2),
+                  Text(sub, style: const TextStyle(fontSize: 10, color: Color(0xFF666666))),
+                ],
               ),
-              child: const Text('管理刀仓 ❯', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: CncColors.blue)),
-            ),
-          ],
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF222222),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: CncColors.border),
+                ),
+                child: const Text('管理刀仓 ❯', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: CncColors.blue)),
+              ),
+            ],
+          ),
         ),
       ),
     );
