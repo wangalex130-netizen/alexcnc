@@ -164,7 +164,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       case 2:
         return _atcReady;
       case 3:
-        return _originSet && _safetyChecked;
+        return _originSet && !_overflow && _safetyChecked;
       case 4:
         return _guardChecked;
       default:
@@ -276,15 +276,27 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     } else if (_step == 2) {
       final req = _task?.requiredTools ?? [];
       final dup = _procSlot.values.length != _procSlot.values.toSet().length;
-      msg = dup
-          ? '不同工序不能共用同一个刀兜，请为每把工序刀选择独立刀兜。'
-          : (_procConfirmed.length < req.length
-              ? '请逐一确认每个刀兜的实物环色一致。'
-              : '请点击「确认映射并同步到机器」。');
+      if (dup) {
+        msg = '不同工序不能共用同一个刀兜，请为每把工序刀选择独立刀兜。';
+      } else if (_procSlot.length < req.length) {
+        msg = '请为每把工序刀选择物理刀兜。';
+      } else if (_procConfirmed.length < req.length) {
+        msg = '请逐一确认每个刀兜的实物环色一致。';
+      } else if (!_syncedToMachine) {
+        msg = '必须点击「确认映射并同步到机器」后才能进入下一步。';
+      } else {
+        msg = '请点击「确认映射并同步到机器」。';
+      }
     } else if (_step == 3) {
-      msg = _originSet
-          ? '请勾选「红点轨迹已落在耗材内，且避开了压板」。'
-          : '请先用红点激光「设雕刻原点」。';
+      if (!_originSet) {
+        msg = '请先用红点激光「设雕刻原点」。';
+      } else if (_overflow) {
+        msg = '雕刻图形已超出机床物理极限，请调整原点位置。';
+      } else if (!_safetyChecked) {
+        msg = '请勾选「红点轨迹已落在耗材内，且避开了压板」。';
+      } else {
+        msg = '原点与行程核验无误，可进入下一步。';
+      }
     } else if (_step == 4) {
       msg = '请确认防护罩已合上。';
     } else {
@@ -321,6 +333,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           requiredTools: _task?.requiredTools ?? [],
           procSlot: _procSlot,
           confirmed: _procConfirmed,
+          synced: _syncedToMachine,
           onAssign: _assignProcSlot,
           onToggleConfirm: _toggleProcConfirm,
           onSync: () {
@@ -846,6 +859,7 @@ class _StepAtc extends ConsumerStatefulWidget {
   final List<RequiredTool> requiredTools;
   final Map<int, int> procSlot; // 工序 index → 物理刀兜
   final Set<int> confirmed; // 已实物确认的工序 index
+  final bool synced; // 是否已点击「确认映射并同步到机器」
   final void Function(int p, int slot) onAssign;
   final void Function(int p) onToggleConfirm;
   final VoidCallback onSync;
@@ -853,6 +867,7 @@ class _StepAtc extends ConsumerStatefulWidget {
     required this.requiredTools,
     required this.procSlot,
     required this.confirmed,
+    required this.synced,
     required this.onAssign,
     required this.onToggleConfirm,
     required this.onSync,
@@ -1099,9 +1114,25 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                     widget.onSync();
                   }
                 : null,
-            icon: Icon(ready ? Icons.sync : Icons.block, color: Colors.black),
+            style: FilledButton.styleFrom(
+              backgroundColor: ready
+                  ? (widget.synced
+                      ? CncColors.primary.withOpacity(0.85)
+                      : CncColors.primary)
+                  : null,
+              foregroundColor: Colors.black,
+            ),
+            icon: Icon(
+                ready
+                    ? (widget.synced ? Icons.check_circle : Icons.sync)
+                    : Icons.block,
+                color: Colors.black),
             label: Text(
-                ready ? '确认映射并同步到机器' : '请完成刀位分配与实物确认',
+                ready
+                    ? (widget.synced
+                        ? '已同步到机器（点击重新同步）'
+                        : '确认映射并同步到机器')
+                    : '请完成刀位分配与实物确认',
                 style: const TextStyle(
                     fontSize: 14, fontWeight: FontWeight.bold)),
           ),
@@ -1260,9 +1291,9 @@ class _Slot extends StatelessWidget {
   }
 }
 
-// ===================== Step 4 · 定原点防撞（激光找原点，按原稿）=====================
+// ===================== Step 4 · 定原点防撞（按 step4.html 重做）=====================
 
-class _StepOrigin extends StatefulWidget {
+class _StepOrigin extends ConsumerStatefulWidget {
   final TaskMetadata? task;
   final Offset origin; // mm
   final bool originSet;
@@ -1281,20 +1312,37 @@ class _StepOrigin extends StatefulWidget {
   });
 
   @override
-  State<_StepOrigin> createState() => _StepOriginState();
+  ConsumerState<_StepOrigin> createState() => _StepOriginState();
 }
 
-class _StepOriginState extends State<_StepOrigin>
+class _StepOriginState extends ConsumerState<_StepOrigin>
     with SingleTickerProviderStateMixin {
-  static const double _bedW = 300;
-  static const double _bedH = 200;
+  double _bedW = 300; // 机器 X 行程 mm，连接后自动读取
+  double _bedH = 200; // 机器 Y 行程 mm，连接后自动读取
+  bool _areaLoading = true;
   double _jogStep = 1; // 0.1 / 1 / 10 mm
-  late final AnimationController _walk =
-      AnimationController(vsync: this, duration: const Duration(seconds: 2))
-        ..addListener(() => setState(() {}));
+  late final AnimationController _walk = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 2200))
+    ..addListener(() => setState(() {}));
   bool _walking = false;
   bool _overflow = false;
   String _guide = '💡 移动红点至耗材左下角，点击 [设雕刻原点]。系统将自动校验图形尺寸与底板边界。';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadWorkArea();
+  }
+
+  Future<void> _loadWorkArea() async {
+    final area = await ref.read(hardwareServiceProvider).getWorkArea();
+    if (!mounted) return;
+    setState(() {
+      _bedW = area.widthMm;
+      _bedH = area.heightMm;
+      _areaLoading = false;
+    });
+  }
 
   @override
   void dispose() {
@@ -1304,35 +1352,57 @@ class _StepOriginState extends State<_StepOrigin>
 
   double get _w => widget.task?.widthMm ?? 90;
   double get _h => widget.task?.heightMm ?? 90;
+  double get _cmX => widget.origin.dx / 10;
+  double get _cmY => widget.origin.dy / 10;
+
+  bool get _isOverflow =>
+      widget.origin.dx + _w > _bedW || widget.origin.dy + _h > _bedH;
 
   void _move(double dx, double dy) {
-    if (_walking || widget.originSet) return;
+    if (_walking) return;
     var x = widget.origin.dx + dx * _jogStep;
     var y = widget.origin.dy + dy * _jogStep;
     x = x.clamp(0.0, _bedW);
     y = y.clamp(0.0, _bedH);
     widget.onOrigin(Offset(x, y));
+    // 若已设原点，移动激光后实时重新校验行程边界
+    if (widget.originSet) {
+      final nowOverflow = _isOverflow;
+      setState(() {
+        _overflow = nowOverflow;
+        if (nowOverflow) {
+          _guide =
+              '🚨 超限警告：雕刻图形已超出机床物理极限！请向左/下调整原点。';
+        } else {
+          _guide =
+              '✓ 雕刻原点锁定！行程校验通过。请点击 [启动实物走边框]，肉眼检查红点轨迹是否踩在耗材上且避开压板。';
+        }
+      });
+    }
   }
 
   void _setOrigin() {
+    final overflow = _isOverflow;
     widget.onOriginSet(true);
-    _overflow = widget.origin.dx + _w > _bedW ||
-        widget.origin.dy + _h > _bedH;
+    widget.onSafety(false);
     setState(() {
-      if (_overflow) {
+      _overflow = overflow;
+      if (overflow) {
         _guide =
-            '🚨 超限警告：图纸范围超出底板边缘！请向左/下调整原点。';
+            '🚨 超限警告：雕刻图形已超出机床物理极限！请向左/下调整原点。';
       } else {
-        _guide = '✓ 雕刻原点锁定！行程校验通过。请点击 [启动实物走边框]，肉眼检查红点轨迹。';
+        _guide =
+            '✓ 雕刻原点锁定！行程校验通过。请点击 [启动实物走边框]，肉眼检查红点轨迹是否踩在耗材上且避开压板。';
       }
     });
   }
 
   void _walkFrame() {
-    if (_walking || !widget.originSet) return;
+    if (_walking || !widget.originSet || _overflow) return;
     setState(() => _walking = true);
-    _walk.forward(from: 0).whenComplete(
-        () => setState(() => _walking = false));
+    _walk.forward(from: 0).whenComplete(() {
+      if (mounted) setState(() => _walking = false);
+    });
   }
 
   void _reset() {
@@ -1350,20 +1420,27 @@ class _StepOriginState extends State<_StepOrigin>
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
     final taskName = widget.task?.name ?? '模型';
-    final cmX = (widget.origin.dx / _bedW * 30);
-    final cmY = (widget.origin.dy / _bedH * 20);
+    final statusText = _walking
+        ? '⚡ 走边框中…'
+        : (widget.originSet ? '🔴 激光准直' : '🔴 激光准直');
+
+    if (_areaLoading) {
+      return const Center(
+          child: CircularProgressIndicator(color: CncColors.primary));
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('Step 4 · 定原点防撞',
             style: t.titleMedium?.copyWith(color: CncColors.textMain)),
         const SizedBox(height: 8),
-        // 继承的任务信息
+        // 继承 Step 1 的任务信息卡
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
             color: CncColors.card,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(10),
             border: Border.all(color: CncColors.border),
           ),
           child: Row(
@@ -1374,7 +1451,8 @@ class _StepOriginState extends State<_StepOrigin>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text('当前作业',
-                        style: TextStyle(fontSize: 10, color: CncColors.textSub)),
+                        style:
+                            TextStyle(fontSize: 10, color: CncColors.textSub)),
                     Text(taskName,
                         style: const TextStyle(
                             fontSize: 12,
@@ -1384,8 +1462,8 @@ class _StepOriginState extends State<_StepOrigin>
                 ),
               ),
               Text('${_w.toInt()} x ${_h.toInt()} mm',
-                  style: TextStyle(
-                      fontSize: 11,
+                  style: const TextStyle(
+                      fontSize: 12,
                       fontWeight: FontWeight.bold,
                       color: CncColors.primary,
                       fontFamily: 'monospace')),
@@ -1393,32 +1471,88 @@ class _StepOriginState extends State<_StepOrigin>
           ),
         ),
         const SizedBox(height: 10),
-        // 底板
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('寻位与范围校验',
+                style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+            Text('Smart 3020',
+                style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: CncColors.primary)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        // 机床物理底板（带点阵、刻度）
         Container(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.only(
+              left: 24, top: 18, right: 16, bottom: 14),
           decoration: BoxDecoration(
             color: CncColors.bg,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
             border: Border.all(color: CncColors.border),
           ),
           child: Column(
             children: [
-              AspectRatio(
-                aspectRatio: _bedW / _bedH,
-                child: CustomPaint(
-                  painter: _BedPainter(
-                    bedW: _bedW,
-                    bedH: _bedH,
-                    partW: _w,
-                    partH: _h,
-                    origin: widget.origin,
-                    originSet: widget.originSet,
-                    walk: _walk.value,
-                    walking: _walking,
-                  ),
+              // X 轴刻度
+              Padding(
+                padding: const EdgeInsets.only(left: 2, bottom: 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    for (final v in [0, _bedW / 3, _bedW * 2 / 3, _bedW])
+                      Text('${(v / 10).toStringAsFixed(v == _bedW ? 0 : 0)}${v == _bedW ? 'cm' : ''}',
+                          style: const TextStyle(
+                              fontSize: 9,
+                              color: CncColors.textSub,
+                              fontFamily: 'monospace')),
+                  ],
                 ),
               ),
-              const SizedBox(height: 6),
+              IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Y 轴刻度
+                    SizedBox(
+                      width: 22,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          for (final v in [_bedH, _bedH / 2, 0])
+                            Text('${(v / 10).toStringAsFixed(0)}',
+                                style: const TextStyle(
+                                    fontSize: 9,
+                                    color: CncColors.textSub,
+                                    fontFamily: 'monospace')),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    // 画布
+                    Expanded(
+                      child: AspectRatio(
+                        aspectRatio: _bedW / _bedH,
+                        child: CustomPaint(
+                          painter: _BedPainter(
+                            bedW: _bedW,
+                            bedH: _bedH,
+                            partW: _w,
+                            partH: _h,
+                            origin: widget.origin,
+                            originSet: widget.originSet,
+                            overflow: _overflow,
+                            walk: _walk.value,
+                            walking: _walking,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -1426,7 +1560,7 @@ class _StepOriginState extends State<_StepOrigin>
                       style: const TextStyle(
                           fontSize: 11, color: CncColors.textSub)),
                   Text(
-                      '底板坐标 (${cmX.toStringAsFixed(2)}, ${cmY.toStringAsFixed(2)}) cm',
+                      '底板坐标 (${_cmX.toStringAsFixed(2)}, ${_cmY.toStringAsFixed(2)}) cm',
                       style: const TextStyle(
                           fontSize: 11, color: CncColors.textSub)),
                 ],
@@ -1434,16 +1568,18 @@ class _StepOriginState extends State<_StepOrigin>
             ],
           ),
         ),
-        const SizedBox(height: 10),
-        // D-pad + 步长
+        const SizedBox(height: 12),
+        // D-pad + 坐标面板 + 步长
         Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
+            SizedBox(
+              width: 130,
               child: GridView.count(
                 crossAxisCount: 3,
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                childAspectRatio: 1.1,
+                childAspectRatio: 1.05,
                 mainAxisSpacing: 4,
                 crossAxisSpacing: 4,
                 children: [
@@ -1451,7 +1587,7 @@ class _StepOriginState extends State<_StepOrigin>
                   _J('▲', () => _move(0, 1)),
                   const SizedBox(),
                   _J('◄', () => _move(-1, 0)),
-                  _J('设原点', _setOrigin, primary: true),
+                  _J('设\n原点', _setOrigin, primary: true),
                   _J('►', () => _move(1, 0)),
                   const SizedBox(),
                   _J('▼', () => _move(0, -1)),
@@ -1460,28 +1596,63 @@ class _StepOriginState extends State<_StepOrigin>
               ),
             ),
             const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('微调步长',
-                    style: TextStyle(fontSize: 10, color: CncColors.textSub)),
-                const SizedBox(height: 4),
-                ...[0.1, 1.0, 10.0].map((s) => _StepChip(
-                      label: s == 0.1 ? '0.1mm' : '${s.toInt()}mm',
-                      active: _jogStep == s,
-                      onTap: () => setState(() => _jogStep = s),
-                    )),
-              ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: CncColors.card,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: CncColors.border),
+                    ),
+                    child: Column(
+                      children: [
+                        _CoordRow('底板 X:', '${_cmX.toStringAsFixed(2)} cm'),
+                        _CoordRow('底板 Y:', '${_cmY.toStringAsFixed(2)} cm'),
+                        const Divider(color: CncColors.border, height: 10),
+                        _CoordRow('状态:', statusText),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text('微调步长',
+                      style:
+                          TextStyle(fontSize: 10, color: CncColors.textSub)),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [0.1, 1.0, 10.0]
+                        .map((s) => Expanded(
+                              child: Padding(
+                                padding: EdgeInsets.only(
+                                    right: s == 10.0 ? 0 : 4),
+                                child: _StepChip(
+                                  label: s == 0.1
+                                      ? '0.1mm'
+                                      : '${s.toInt()}mm',
+                                  active: _jogStep == s,
+                                  onTap: () =>
+                                      setState(() => _jogStep = s),
+                                ),
+                              ),
+                            ))
+                        .toList(),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
+        // 操作按钮
         Row(
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: _walkFrame,
-                icon: const Icon(Icons.route, color: CncColors.primary),
+                onPressed: widget.originSet && !_overflow ? _walkFrame : null,
+                icon: Icon(_walking ? Icons.motion_photos_on : Icons.route,
+                    color: CncColors.primary),
                 label: Text(_walking ? '走边框中…' : '启动实物走边框',
                     style: const TextStyle(color: CncColors.primary)),
                 style: OutlinedButton.styleFrom(
@@ -1495,7 +1666,8 @@ class _StepOriginState extends State<_StepOrigin>
             Expanded(
               child: OutlinedButton.icon(
                 onPressed: _reset,
-                icon: const Icon(Icons.my_location, color: CncColors.textSub),
+                icon: const Icon(Icons.my_location,
+                    color: CncColors.textSub),
                 label: const Text('激光归零',
                     style: TextStyle(color: CncColors.textSub)),
                 style: OutlinedButton.styleFrom(
@@ -1508,6 +1680,7 @@ class _StepOriginState extends State<_StepOrigin>
           ],
         ),
         const SizedBox(height: 10),
+        // 引导/警告文案
         Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
@@ -1536,6 +1709,30 @@ class _StepOriginState extends State<_StepOrigin>
       ],
     );
   }
+}
+
+class _CoordRow extends StatelessWidget {
+  final String k;
+  final String v;
+  const _CoordRow(this.k, this.v);
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 1),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(k,
+                style: const TextStyle(
+                    fontSize: 11, color: CncColors.textSub)),
+            Text(v,
+                style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: CncColors.primary,
+                    fontFamily: 'monospace')),
+          ],
+        ),
+      );
 }
 
 class _J extends StatelessWidget {
@@ -1596,6 +1793,7 @@ class _BedPainter extends CustomPainter {
   final double bedW, bedH, partW, partH;
   final Offset origin;
   final bool originSet;
+  final bool overflow;
   final double walk;
   final bool walking;
   const _BedPainter({
@@ -1605,6 +1803,7 @@ class _BedPainter extends CustomPainter {
     required this.partH,
     required this.origin,
     required this.originSet,
+    required this.overflow,
     required this.walk,
     required this.walking,
   });
@@ -1614,18 +1813,22 @@ class _BedPainter extends CustomPainter {
     final sx = size.width / bedW;
     final sy = size.height / bedH;
 
+    // 底板背景
     canvas.drawRect(
       Rect.fromLTWH(0, 0, size.width, size.height),
-      Paint()..color = const Color(0xFF0d0d0d),
+      Paint()..color = const Color(0xFF111111),
     );
-    final grid = Paint()
+
+    // 点阵网格（对齐 step4.html 的 radial-gradient dot grid）
+    final dotPaint = Paint()
       ..color = CncColors.textSub.withOpacity(0.25)
       ..strokeWidth = 1;
-    for (double g = 0; g <= bedW + 0.1; g += 50) {
-      canvas.drawLine(Offset(g * sx, 0), Offset(g * sx, size.height), grid);
-    }
-    for (double g = 0; g <= bedH + 0.1; g += 50) {
-      canvas.drawLine(Offset(0, g * sy), Offset(size.width, g * sy), grid);
+    const spacingMm = 15.0;
+    for (double gx = 0; gx < bedW; gx += spacingMm) {
+      for (double gy = 0; gy < bedH; gy += spacingMm) {
+        canvas.drawCircle(Offset(gx * sx, size.height - gy * sy), 0.8,
+            dotPaint);
+      }
     }
 
     final px = origin.dx * sx;
@@ -1634,28 +1837,32 @@ class _BedPainter extends CustomPainter {
     final ph = partH * sy;
 
     if (originSet) {
-      // 图纸轮廓（虚线绿框）
+      final boxColor = overflow ? CncColors.danger : CncColors.primary;
+      // 图纸轮廓填充
       canvas.drawRect(
         Rect.fromLTWH(px, py - ph, pw, ph),
         Paint()
-          ..color = CncColors.primary.withOpacity(0.18)
+          ..color = boxColor.withOpacity(0.08)
           ..style = PaintingStyle.fill,
       );
-      canvas.drawRect(
-        Rect.fromLTWH(px, py - ph, pw, ph),
-        Paint()
-          ..color = CncColors.primary
-          ..strokeWidth = 2,
-      );
+      // 图纸轮廓虚线框
+      final borderPaint = Paint()
+        ..color = boxColor
+        ..strokeWidth = 1.5
+        ..style = PaintingStyle.stroke;
+      _drawDashedRect(
+          canvas, Rect.fromLTWH(px, py - ph, pw, ph), borderPaint, 5, 4);
     }
 
     // 激光红点（工件零点）
     canvas.drawCircle(Offset(px, py), 5, Paint()..color = CncColors.laser);
-    canvas.drawCircle(Offset(px, py), 9,
-        Paint()..color = CncColors.laser.withOpacity(0.3));
+    canvas.drawCircle(Offset(px, py), 10,
+        Paint()..color = CncColors.laser.withOpacity(0.25));
+    canvas.drawCircle(Offset(px, py), 16,
+        Paint()..color = CncColors.laser.withOpacity(0.1));
 
-    // 走边框动画
-    if (walking && originSet && pw > 1 && ph > 1) {
+    // 走边框动画（真实物理轨迹预览）
+    if (walking && originSet && pw > 1 && ph > 1 && !overflow) {
       final per = 2 * (pw + ph);
       final d = walk * per;
       Offset pt;
@@ -1671,14 +1878,41 @@ class _BedPainter extends CustomPainter {
       canvas.drawCircle(pt, 6, Paint()..color = CncColors.primary);
     }
 
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height),
-        Paint()..color = CncColors.border..strokeWidth = 1);
+    // 底板边框
+    canvas.drawRect(
+        Rect.fromLTWH(0, 0, size.width, size.height),
+        Paint()
+          ..color = CncColors.border
+          ..strokeWidth = 1
+          ..style = PaintingStyle.stroke);
+  }
+
+  void _drawDashedRect(Canvas canvas, Rect rect, Paint paint,
+      double dashLen, double gapLen) {
+    final path = Path()
+      ..addRect(rect);
+    final dashed = _dashPath(path, dashLen, gapLen);
+    canvas.drawPath(dashed, paint);
+  }
+
+  Path _dashPath(Path source, double dashLen, double gapLen) {
+    final dashed = Path();
+    for (final metric in source.computeMetrics()) {
+      var dist = 0.0;
+      while (dist < metric.length) {
+        final end = (dist + dashLen).clamp(0.0, metric.length);
+        dashed.addPath(metric.extractPath(dist, end), Offset.zero);
+        dist += dashLen + gapLen;
+      }
+    }
+    return dashed;
   }
 
   @override
   bool shouldRepaint(covariant _BedPainter old) =>
       old.origin != origin ||
       old.originSet != originSet ||
+      old.overflow != overflow ||
       old.partW != partW ||
       old.partH != partH ||
       old.walk != walk ||

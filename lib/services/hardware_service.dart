@@ -17,6 +17,9 @@ abstract class HardwareService {
   Future<void> disconnect();
   Future<MachineStatus> getStatus();
 
+  /// Machine physical work area (mm). Determined by connected model config.
+  Future<({double widthMm, double heightMm})> getWorkArea();
+
   // --- Motion (locked when !isLocalLAN) ---
   Future<void> jog(String axis, double distanceMm); // axis: x | y | z
   Future<void> home(); // homing cycle ($H)

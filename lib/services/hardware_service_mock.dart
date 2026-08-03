@@ -56,6 +56,12 @@ class MockHardwareService implements HardwareService {
   Future<MachineStatus> getStatus() async => _current;
 
   @override
+  Future<({double widthMm, double heightMm})> getWorkArea() async {
+    // Smart 3020 default bed: 30 cm x 20 cm.
+    return (widthMm: 300.0, heightMm: 200.0);
+  }
+
+  @override
   Future<void> jog(String axis, double distanceMm) async {
     final p = _current.position;
     _current = _current.copyWith(
