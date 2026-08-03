@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/library_item.dart';
@@ -58,12 +60,20 @@ final toolMagazineProvider =
 ///
 /// 解决 Step6 实时加工监控页被左上角叉号关闭后「找不到入口」的问题：
 /// 只要任务还在运行，控制台就会显示「当前加工中」卡片，点击可重新进入监控页。
+///
+/// 自检流水线（self-check）也提升到全局：
+/// - 用户关闭自检页、切到后台或返回控制台，机器自检仍继续进行；
+/// - SelfCheckPage 仅作为可视化展示，不持有驱动定时器；
+/// - 自检完成后自动触发真正的机器加工（通过 [onSelfCheckDone] 回调）。
 class ActiveJob {
   final LibraryItem item;
   final TaskMetadata task;
   final String materialKey;
   final Map<int, int> procSlot; // 工序 index → 物理刀兜
   final DateTime startedAt;
+  final List<String> selfCheckPhases;
+  final int selfCheckIndex; // 当前进行到的阶段，-1 = 尚未开始
+  final bool selfCheckDone;
 
   const ActiveJob({
     required this.item,
@@ -71,6 +81,9 @@ class ActiveJob {
     required this.materialKey,
     required this.procSlot,
     required this.startedAt,
+    this.selfCheckPhases = const [],
+    this.selfCheckIndex = -1,
+    this.selfCheckDone = false,
   });
 
   ActiveJob copyWith({
@@ -79,6 +92,9 @@ class ActiveJob {
     String? materialKey,
     Map<int, int>? procSlot,
     DateTime? startedAt,
+    List<String>? selfCheckPhases,
+    int? selfCheckIndex,
+    bool? selfCheckDone,
   }) =>
       ActiveJob(
         item: item ?? this.item,
@@ -86,16 +102,72 @@ class ActiveJob {
         materialKey: materialKey ?? this.materialKey,
         procSlot: procSlot ?? this.procSlot,
         startedAt: startedAt ?? this.startedAt,
+        selfCheckPhases: selfCheckPhases ?? this.selfCheckPhases,
+        selfCheckIndex: selfCheckIndex ?? this.selfCheckIndex,
+        selfCheckDone: selfCheckDone ?? this.selfCheckDone,
       );
 }
 
 class ActiveJobNotifier extends StateNotifier<ActiveJob?> {
-  ActiveJobNotifier() : super(null);
+  final void Function()? onSelfCheckDone;
+  final void Function()? onCleared;
+  Timer? _timer;
 
-  void start(ActiveJob job) => state = job;
-  void clear() => state = null;
+  ActiveJobNotifier({this.onSelfCheckDone, this.onCleared}) : super(null);
+
+  void start(ActiveJob job) {
+    // 启动时把 selfCheckIndex 设为 0 并开始推进
+    state = job.copyWith(selfCheckIndex: 0);
+    _runSelfCheck();
+  }
+
+  void _runSelfCheck() {
+    _timer?.cancel();
+    final job = state;
+    if (job == null) return;
+    if (job.selfCheckDone || job.selfCheckPhases.isEmpty) {
+      _finishSelfCheck();
+      return;
+    }
+    _timer = Timer.periodic(const Duration(milliseconds: 700), (_) {
+      final job = state;
+      if (job == null) return;
+      final next = job.selfCheckIndex + 1;
+      if (next >= job.selfCheckPhases.length) {
+        _finishSelfCheck();
+      } else {
+        state = job.copyWith(selfCheckIndex: next);
+      }
+    });
+  }
+
+  void _finishSelfCheck() {
+    _timer?.cancel();
+    final job = state;
+    if (job == null) return;
+    state = job.copyWith(
+      selfCheckDone: true,
+      selfCheckIndex: job.selfCheckPhases.length,
+    );
+    onSelfCheckDone?.call();
+  }
+
+  void clear() {
+    _timer?.cancel();
+    state = null;
+    onCleared?.call();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
 }
 
 final activeJobProvider = StateNotifierProvider<ActiveJobNotifier, ActiveJob?>(
-  (ref) => ActiveJobNotifier(),
+  (ref) => ActiveJobNotifier(
+    onSelfCheckDone: () => ref.read(hardwareServiceProvider).startJob(),
+    onCleared: () => ref.read(hardwareServiceProvider).stopJob(),
+  ),
 );

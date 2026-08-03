@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -8,12 +6,14 @@ import '../../data/material_db.dart';
 import '../../data/tool_library.dart';
 import '../../models/task_metadata.dart';
 import '../../state/providers.dart';
+import '../shell/app_shell.dart';
 import 'job_monitor_page.dart';
 
 /// Step6 自检流水线页。
 ///
-/// 点击「开始自检并雕刻」后进入，逐项完成电子门磁、ATC 上刀、对刀、调平等检查，
-/// 全部通过后自动跳转到 [JobMonitorPage]。
+/// 仅作为可视化展示：实际的自检进度由 [activeJobProvider] 全局驱动。
+/// 用户关闭本页、切到后台或返回控制台后，机器自检仍继续进行；
+/// 完成后可重新从控制台「当前加工中」入口进入 [JobMonitorPage]。
 class SelfCheckPage extends ConsumerStatefulWidget {
   final String materialKey;
   final List<RequiredTool> requiredTools;
@@ -31,9 +31,6 @@ class SelfCheckPage extends ConsumerStatefulWidget {
 }
 
 class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
-  List<String> _status = [];
-  Timer? _timer;
-
   List<String> get _checks {
     final req = widget.requiredTools;
     final out = <String>[
@@ -54,61 +51,77 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
     return out;
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _status = List.filled(_checks.length, 'pending');
-    _run();
+  void _leaveToConsole() {
+    ref.read(navIndexProvider.notifier).state = 1;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const AppShell()),
+      (route) => false,
+    );
   }
 
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  void _run() {
-    var i = 0;
-    void step() {
-      if (i >= _checks.length) {
-        if (mounted) {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const JobMonitorPage()),
-          );
-        }
-        return;
-      }
-      setState(() => _status[i] = 'running');
-      _timer = Timer(const Duration(milliseconds: 700), () {
-        if (!mounted) return;
-        setState(() => _status[i] = 'done');
-        i++;
-        step();
-      });
-    }
-
-    step();
-  }
-
-  void _cancel() {
-    _timer?.cancel();
-    ref.read(activeJobProvider.notifier).clear();
-    ref.read(hardwareServiceProvider).stopJob();
-    Navigator.of(context).pop();
+  void _onClose() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: CncColors.card,
+        title: const Text('返回控制台？',
+            style: TextStyle(color: CncColors.textMain)),
+        content: const Text(
+          '自检将在后台继续进行，完成后可在控制台「当前加工中」查看实时雕刻过程。',
+          style: TextStyle(color: CncColors.textSub),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('留在本页', style: TextStyle(color: CncColors.textSub)),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _leaveToConsole();
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: CncColors.primary,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('去控制台'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
     final mat = materialByKey(widget.materialKey);
+    final job = ref.watch(activeJobProvider);
+    final phases = job?.selfCheckPhases ?? _checks;
+    final index = job?.selfCheckIndex ?? -1;
+    final done = job?.selfCheckDone ?? false;
+
+    if (done && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const JobMonitorPage()),
+        );
+      });
+    }
+
+    String statusFor(int i) {
+      if (index < i) return 'pending';
+      if (index == i) return 'running';
+      return 'done';
+    }
+
     return Scaffold(
       backgroundColor: CncColors.bg,
       appBar: AppBar(
         backgroundColor: CncColors.panel,
         leading: IconButton(
           icon: const Icon(Icons.close, color: CncColors.textMain),
-          tooltip: '取消自检',
-          onPressed: _cancel,
+          tooltip: '返回控制台',
+          onPressed: _onClose,
         ),
         title:
             const Text('自检中', style: TextStyle(color: CncColors.textMain)),
@@ -153,8 +166,8 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
           const Text('⚡ 全自动预检与自检流水线',
               style: TextStyle(fontSize: 13, color: CncColors.primary)),
           const SizedBox(height: 10),
-          ...List.generate(_checks.length, (i) {
-            final s = _status[i];
+          ...List.generate(phases.length, (i) {
+            final s = statusFor(i);
             final color = s == 'done'
                 ? CncColors.primary
                 : s == 'running'
@@ -179,7 +192,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
                     ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Text(_checks[i],
+                    child: Text(phases[i],
                         style: TextStyle(
                             fontSize: 12,
                             color: s == 'pending'
@@ -199,7 +212,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
               border: Border.all(color: CncColors.blue.withOpacity(0.3)),
             ),
             child: const Text(
-              '💡 自检完成后将自动进入实时加工监控页。关闭本页会取消本次加工。',
+              '💡 关闭本页不会停止自检。完成后请前往控制台「当前加工中」查看实时雕刻过程。',
               style: TextStyle(fontSize: 11, color: CncColors.textMain),
             ),
           ),

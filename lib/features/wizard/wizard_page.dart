@@ -332,7 +332,12 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           onSync: () {
             setState(() => _syncedToMachine = true);
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('刀仓映射已同步到机器')),
+              const SnackBar(
+                content: Text('刀仓映射已同步到机器'),
+                behavior: SnackBarBehavior.floating,
+                margin: EdgeInsets.fromLTRB(16, 0, 16, 90),
+                duration: Duration(seconds: 2),
+              ),
             );
           },
         );
@@ -2042,16 +2047,32 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
   void _start() {
     final task = widget.task;
     if (task == null) return;
-    final hw = ref.read(hardwareServiceProvider);
-    hw.startJob();
+    final req = widget.requiredTools;
+    final phases = <String>[
+      '防护罩电子门磁锁止',
+      '自动开启 ATC 刀仓防护盖',
+    ];
+    for (var p = 0; p < req.length; p++) {
+      final def = toolById(req[p].toolId);
+      final slot = widget.procSlot[p];
+      phases.add('自动装载 T${slot ?? '?'} 号刀具 (${ringEmoji(def.ring)} ${def.name})');
+    }
+    phases.addAll([
+      '移动至刀仓固定测头对刀 (Z-Offset)',
+      '关闭 ATC 刀仓防护盖',
+      '运行曲面网格调平扫描',
+      '主轴离心风压建立，移动至原点开切',
+    ]);
     ref.read(activeJobProvider.notifier).start(ActiveJob(
           item: widget.item,
           task: task,
           materialKey: widget.materialKey,
           procSlot: {...widget.procSlot},
           startedAt: DateTime.now(),
+          selfCheckPhases: phases,
         ));
-    Navigator.of(context).push(
+    // 清空导航栈进入自检页，避免加工过程中返回雕刻向导
+    Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
         builder: (_) => SelfCheckPage(
           materialKey: widget.materialKey,
@@ -2059,6 +2080,7 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
           procSlot: widget.procSlot,
         ),
       ),
+      (route) => false,
     );
   }
 

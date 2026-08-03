@@ -9,6 +9,7 @@ import '../../models/machine_status.dart';
 import '../../models/tool.dart';
 import '../../state/providers.dart';
 import '../wizard/job_monitor_page.dart';
+import '../wizard/self_check_page.dart';
 
 /// 状态驱动设备控制台 (Core 3) —— 严格对齐 控制页面.html。
 ///
@@ -137,7 +138,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   icon: '💡',
                   label: '机箱照明',
                   active: _light,
-                  enabled: canControl,
                   onTap: () {
                     setState(() => _light = !_light);
                     hw.setAux('light', _light);
@@ -146,7 +146,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   icon: '🎯',
                   label: '红点激光',
                   active: _laser,
-                  enabled: canControl,
                   onTap: () {
                     setState(() => _laser = !_laser);
                     hw.setAux('laser', _laser);
@@ -155,7 +154,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   icon: '⏱️',
                   label: '延时摄影',
                   active: _timelapse,
-                  enabled: canControl,
                   onTap: () {
                     setState(() => _timelapse = !_timelapse);
                     hw.setAux('timelapse', _timelapse);
@@ -188,10 +186,24 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     final job = ref.watch(activeJobProvider);
                     if (job == null) return const SizedBox.shrink();
                     return GestureDetector(
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                            builder: (_) => const JobMonitorPage()),
-                      ),
+                      onTap: () {
+                        if (job.selfCheckDone) {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                                builder: (_) => const JobMonitorPage()),
+                          );
+                        } else {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => SelfCheckPage(
+                                materialKey: job.materialKey,
+                                requiredTools: job.task.requiredTools,
+                                procSlot: job.procSlot,
+                              ),
+                            ),
+                          );
+                        }
+                      },
                       child: Container(
                         margin: const EdgeInsets.only(bottom: 12),
                         padding: const EdgeInsets.all(12),
@@ -325,7 +337,10 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     fg: CncColors.danger,
                     bg: CncColors.danger.withOpacity(0.15),
                     border: CncColors.danger,
-                    onTap: () => hw.stopJob(),
+                    onTap: () {
+                      hw.stopJob();
+                      ref.read(activeJobProvider.notifier).clear();
+                    },
                   ),
                 ),
                 const SizedBox(width: 10),

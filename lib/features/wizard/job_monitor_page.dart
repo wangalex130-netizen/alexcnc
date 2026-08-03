@@ -9,6 +9,7 @@ import '../../data/material_db.dart';
 import '../../data/tool_library.dart';
 import '../../models/machine_status.dart';
 import '../../state/providers.dart';
+import '../shell/app_shell.dart';
 
 /// Step6 实时加工监控页。
 ///
@@ -76,7 +77,13 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
         leading: IconButton(
           icon: const Icon(Icons.close, color: CncColors.textMain),
           tooltip: '关闭监控页（加工继续）',
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () {
+            ref.read(navIndexProvider.notifier).state = 1;
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const AppShell()),
+              (route) => false,
+            );
+          },
         ),
         title: const Text('实时加工监控',
             style: TextStyle(color: CncColors.textMain)),
@@ -338,9 +345,13 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
             style: TextStyle(color: CncColors.textMain)),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context)
-              ..pop()
-              ..pop(),
+            onPressed: () {
+              Navigator.of(context).pop();
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const AppShell()),
+                (route) => false,
+              );
+            },
             child: const Text('好', style: TextStyle(color: CncColors.danger)),
           ),
         ],
@@ -363,9 +374,13 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
             style: TextStyle(color: CncColors.textMain)),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context)
-              ..pop()
-              ..pop(),
+            onPressed: () {
+              Navigator.of(context).pop();
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const AppShell()),
+                (route) => false,
+              );
+            },
             child: const Text('好', style: TextStyle(color: CncColors.primary)),
           ),
         ],
