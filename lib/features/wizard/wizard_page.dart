@@ -863,6 +863,68 @@ class _StepAtc extends ConsumerStatefulWidget {
 }
 
 class _StepAtcState extends ConsumerState<_StepAtc> {
+  /// 选择物理刀兜前的占用检测。
+  /// 若目标刀兜已在控制台配置其他刀具，且与当前工序所需刀具不一致，
+  /// 必须弹窗要求用户实物确认，否则不能分配。
+  Future<void> _maybeAssign(int p, int slot) async {
+    final magazine = ref.read(toolMagazineProvider);
+    final existingId = magazine[slot];
+    final neededId = widget.requiredTools[p].toolId;
+    if (existingId == null || existingId == neededId) {
+      widget.onAssign(p, slot);
+      return;
+    }
+    final existing = toolById(existingId);
+    final needed = toolById(neededId);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: CncColors.card,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: CncColors.border),
+        ),
+        title: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: CncColors.danger),
+            const SizedBox(width: 8),
+            Text('T$slot 已占用',
+                style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: CncColors.textMain)),
+          ],
+        ),
+        content: Text(
+          'T$slot 当前已配置为 ${ringEmoji(existing.ring)} ${existing.name}，'
+          '与工序${p + 1} 所需刀具 ${ringEmoji(needed.ring)} ${needed.name} 不一致。\n\n'
+          '若继续映射，请确认 T$slot 实物刀兜中的刀具已更换为 ${ringEmoji(needed.ring)} ${needed.name}，'
+          '并核对环色无误。',
+          style: const TextStyle(fontSize: 13, color: CncColors.textSub),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消',
+                style: TextStyle(color: CncColors.textSub)),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: CncColors.danger,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('已实物确认，继续映射',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      widget.onAssign(p, slot);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
@@ -972,7 +1034,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                                 slot: s,
                                 selected: slot == s,
                                 danger: dup && slot == s,
-                                onTap: () => widget.onAssign(p, s),
+                                onTap: () => _maybeAssign(p, s),
                               ),
                             ),
                           ))
