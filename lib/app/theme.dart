@@ -23,6 +23,9 @@ class CncColors {
   static const Color textMain = Color(0xFFFFFFFF);
   static const Color textSub = Color(0xFF888888);
 
+  // 图标：深色背景上保持可见的中性灰（比 textSub 更亮，避免线性图标发虚）
+  static const Color icon = Color(0xFFB0B0B0);
+
   // 边框
   static const Color border = Color(0xFF333333);
 }

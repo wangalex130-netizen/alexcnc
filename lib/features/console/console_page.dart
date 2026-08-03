@@ -376,7 +376,8 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
               children: [
                 Expanded(
                   child: _ActionBtn(
-                    label: '🚨 停止',
+                    icon: Symbols.stop,
+                    label: '停止',
                     fg: CncColors.danger,
                     bg: CncColors.danger.withOpacity(0.15),
                     border: CncColors.danger,
@@ -413,7 +414,8 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 const SizedBox(width: 10),
                 Expanded(
                   child: _ActionBtn(
-                    label: status.state == MachineState.paused ? '▶️ 继续' : '⏸️ 暂停',
+                    icon: status.state == MachineState.paused ? Symbols.play_arrow : Symbols.pause,
+                    label: status.state == MachineState.paused ? '继续' : '暂停',
                     fg: CncColors.textMain,
                     bg: const Color(0xFF222222),
                     border: CncColors.border,
@@ -448,7 +450,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
             final def = id != null ? toolById(id) : null;
             return Tool(
               index: slot,
-              name: def != null ? '${ringEmoji(def.ring)} ${def.name}' : '空位',
+              name: def != null ? def.name : '空位',
               material: def != null ? def.material : null,
               installed: def != null,
               defId: id,
@@ -474,9 +476,9 @@ BoxDecoration _cardDeco() => BoxDecoration(
     );
 
 /// 状态指示圆点：替代 emoji 色点（🟢🔴🟠），统一为纯色圆，跟随语义色。
-Widget _statusDot(Color color) => Container(
-      width: 8,
-      height: 8,
+Widget _statusDot(Color color, {double size = 8}) => Container(
+      width: size,
+      height: size,
       decoration: BoxDecoration(color: color, shape: BoxShape.circle),
     );
 
@@ -508,10 +510,10 @@ class _ToggleBtn extends StatelessWidget {
                 children: [
                   Icon(icon,
                       size: 20,
-                      color: active && enabled ? CncColors.primary : CncColors.textSub),
+                      color: active && enabled ? CncColors.primary : CncColors.icon),
                   const SizedBox(height: 4),
                   Text(label,
-                      style: TextStyle(fontSize: 10, color: active && enabled ? CncColors.primary : CncColors.textSub)),
+                      style: TextStyle(fontSize: 10, color: active && enabled ? CncColors.primary : CncColors.icon)),
                 ],
               ),
             ),
@@ -681,11 +683,11 @@ class _HomeBtn extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(icon, size: 18, color: CncColors.textSub),
+                Icon(icon, size: 18, color: CncColors.icon),
                 const SizedBox(height: 3),
                 Text(label,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: CncColors.textSub)),
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: CncColors.textMain)),
               ],
             ),
           ),
@@ -776,9 +778,18 @@ class _AtcEntry extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final magazine = ref.watch(toolMagazineProvider);
     final t1 = magazine[1] != null ? toolById(magazine[1]!) : null;
-    final sub = t1 != null
-        ? '当前主轴 T1: ${ringEmoji(t1.ring)} ${t1.name}'
-        : '当前主轴: 空';
+    final Widget sub = t1 != null
+        ? Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _statusDot(ringColor(t1.ring), size: 10),
+              const SizedBox(width: 6),
+              Text('当前主轴 T1: ${t1.name}',
+                  style: const TextStyle(fontSize: 10, color: Color(0xFF666666))),
+            ],
+          )
+        : const Text('当前主轴: 空',
+            style: TextStyle(fontSize: 10, color: Color(0xFF666666)));
     return GestureDetector(
       onTap: enabled ? onOpen : null,
       child: Opacity(
@@ -794,7 +805,7 @@ class _AtcEntry extends ConsumerWidget {
                 children: [
                   const Text('ATC 自动换刀系统', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
                   const SizedBox(height: 2),
-                  Text(sub, style: const TextStyle(fontSize: 10, color: Color(0xFF666666))),
+                  sub,
                 ],
               ),
               Container(
@@ -855,7 +866,7 @@ class _AtcSheetState extends ConsumerState<_AtcSheet> {
                   Text('选择刀具 → T$_pickerSlot', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: CncColors.textMain)),
                   GestureDetector(
                     onTap: () => setState(() => _pickerSlot = null),
-                    child: const Text('×', style: TextStyle(fontSize: 22, color: Color(0xFF666666))),
+                    child: const Icon(Symbols.close, size: 22, color: Color(0xFF666666)),
                   ),
                 ],
               ),
@@ -945,7 +956,7 @@ class _AtcSheetState extends ConsumerState<_AtcSheet> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: const [
                 Text('配置 ATC 刀具映射表', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: CncColors.textMain)),
-                Text('×', style: TextStyle(fontSize: 22, color: Color(0xFF666666))),
+                Icon(Symbols.close, size: 22, color: Color(0xFF666666)),
               ],
             ),
           ),
@@ -1037,11 +1048,12 @@ class _AtcSheetState extends ConsumerState<_AtcSheet> {
 
 class _ActionBtn extends StatelessWidget {
   final String label;
+  final IconData? icon;
   final Color fg;
   final Color bg;
   final Color border;
   final VoidCallback onTap;
-  const _ActionBtn({required this.label, required this.fg, required this.bg, required this.border, required this.onTap});
+  const _ActionBtn({required this.label, this.icon, required this.fg, required this.bg, required this.border, required this.onTap});
 
   @override
   Widget build(BuildContext context) => GestureDetector(
@@ -1054,7 +1066,16 @@ class _ActionBtn extends StatelessWidget {
             borderRadius: BorderRadius.circular(10),
           ),
           child: Center(
-            child: Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: fg)),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (icon != null) ...[
+                  Icon(icon, size: 16, color: fg),
+                  const SizedBox(width: 6),
+                ],
+                Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: fg)),
+              ],
+            ),
           ),
         ),
       );
