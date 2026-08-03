@@ -35,6 +35,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   // ---- 跨步骤共享状态 ----
   late String _materialKey; // Step1 模型默认材质 → Step2 预选
   late String _thickness; // 板材厚度（默认=模型默认板厚）
+  late TextEditingController _thicknessCtl; // Step2 厚度输入（稳定 controller，避免无法删除）
   Offset _origin = const Offset(15, 15); // 工件零点 (mm, 底板 300x200)
   bool _originSet = false;
   int _leveling = 1; // 0 不调平 / 1 标准 / 2 精细
@@ -42,6 +43,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   // _procSlot[工序index] = 物理刀兜号；_procConfirmed 存已实物确认的工序 index。
   Map<int, int> _procSlot = {};
   Set<int> _procConfirmed = {};
+  bool _syncedToMachine = false; // Step3：必须点「确认映射并同步到机器」
   bool _chkThick = false; // 实物厚度与设置一致
   bool _chkMatch = false; // 材质/尺寸厚度与实物完全一致
   bool _safetyChecked = false; // Step4 轨迹落在耗材内且避开压板
@@ -71,10 +73,12 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       _loading = false;
       _materialKey = task?.defaultMaterialKey ?? 'pine';
       _thickness = (task?.boardThicknessMm ?? 3).toStringAsFixed(1);
+      _thicknessCtl = TextEditingController(text: _thickness);
       // 默认把工序①→T1、工序②→T2… 写入共享刀表（与控制台同步）。
       // 用户可在 Step3 自由调整刀兜，机器按工序顺序换刀而非写死 T1→T2。
       _procSlot = {};
       _procConfirmed = {};
+      _syncedToMachine = false;
       final req = task?.requiredTools ?? [];
       if (req.isNotEmpty) {
         final mag = {...ref.read(toolMagazineProvider)};
@@ -94,7 +98,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   double get _minThickness => _task?.boardThicknessMm ?? 3.0;
   double get _thicknessVal => double.tryParse(_thickness) ?? 0;
 
-  /// 刀仓映射是否就绪：每把工序刀都分配到不同刀兜，且逐兜实物确认完成。
+  /// 刀仓映射是否就绪：每把工序刀都分配到不同刀兜、逐兜实物确认完成、
+  /// 且已点「确认映射并同步到机器」。
   bool get _atcReady {
     final req = _task?.requiredTools ?? [];
     if (req.isEmpty) return false;
@@ -104,6 +109,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     for (final p in _procSlot.keys) {
       if (!_procConfirmed.contains(p)) return false;
     }
+    if (!_syncedToMachine) return false; // 必须点「确认映射并同步到机器」
     return true;
   }
 
@@ -121,6 +127,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       mag[slot] = tid;
       ref.read(toolMagazineProvider.notifier).state = mag;
       _procConfirmed.remove(p); // 刀兜变动，实物确认需重做
+      _syncedToMachine = false; // 映射变动，需重新同步到机器
     });
   }
 
@@ -131,6 +138,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       } else {
         _procConfirmed.add(p);
       }
+      _syncedToMachine = false; // 确认状态变动，需重新同步到机器
     });
   }
 
@@ -280,6 +288,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           thickness: _thickness,
           minThickness: _minThickness,
           defaultKey: _task?.defaultMaterialKey ?? 'pine',
+          controller: _thicknessCtl,
           chkThick: _chkThick,
           chkMatch: _chkMatch,
           onMaterial: (k) => setState(() => _materialKey = k),
@@ -295,6 +304,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           onAssign: _assignProcSlot,
           onToggleConfirm: _toggleProcConfirm,
           onSync: () {
+            setState(() => _syncedToMachine = true);
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('刀仓映射已同步到机器')),
             );
@@ -432,7 +442,7 @@ class _StepParse extends StatelessWidget {
                     const Text('模型默认刀具',
                         style: TextStyle(fontSize: 12, color: CncColors.textSub)),
                     const Spacer(),
-                    Text('T? ${tool.name}',
+                    Text(tool.name,
                         style: const TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.bold,
@@ -483,6 +493,7 @@ class _StepMaterial extends StatelessWidget {
   final String defaultKey; // 模型默认材质 key（排在第一位、标注「模型默认」）
   final String thickness;
   final double minThickness;
+  final TextEditingController controller; // 稳定 controller（可正常删除/编辑）
   final bool chkThick;
   final bool chkMatch; // 材质/尺寸厚度与实物完全一致
   final void Function(String) onMaterial;
@@ -494,6 +505,7 @@ class _StepMaterial extends StatelessWidget {
     required this.defaultKey,
     required this.thickness,
     required this.minThickness,
+    required this.controller,
     required this.chkThick,
     required this.chkMatch,
     required this.onMaterial,
@@ -507,8 +519,30 @@ class _StepMaterial extends StatelessWidget {
     final t = Theme.of(context).textTheme;
     final mat = materialByKey(materialKey);
     final def = materialByKey(defaultKey);
-    final th = double.tryParse(thickness) ?? 0;
+    final th = double.tryParse(controller.text) ?? 0;
     final tooThin = th > 0 && th < minThickness;
+    // 输入框处理：允许自由编辑/删除；若输入有效数值且小于最小板厚，
+    // 自动吸附到最小板厚（客户只能填写 ≥ 默认厚度的尺寸）。
+    void onChanged(String v) {
+      if (v.isEmpty) {
+        onThickness('');
+        return;
+      }
+      final parsed = double.tryParse(v);
+      if (parsed == null) {
+        onThickness(v); // 中间态（如 "3."）暂不约束
+        return;
+      }
+      if (parsed < minThickness) {
+        final snapped = minThickness.toStringAsFixed(1);
+        controller.text = snapped;
+        controller.selection = TextSelection.fromPosition(
+            TextPosition(offset: snapped.length));
+        onThickness(snapped);
+        return;
+      }
+      onThickness(v);
+    }
     // 材料库列表：默认材质排第一位。
     final ordered = [def, ...materials.where((m) => m.key != def.key)];
     final selectedIsDefault = materialKey == defaultKey;
@@ -665,13 +699,14 @@ class _StepMaterial extends StatelessWidget {
         ),
         const SizedBox(height: 14),
         TextField(
-          controller: TextEditingController(text: thickness),
+          controller: controller,
           keyboardType: TextInputType.number,
-          onChanged: onThickness,
+          onChanged: onChanged,
           style: const TextStyle(color: CncColors.textMain),
           decoration: InputDecoration(
-            labelText: '板材厚度 (mm)',
-            hintText: '需 ≥ ${minThickness.toStringAsFixed(1)}（模型默认板厚）',
+            labelText:
+                '板材厚度 (mm)　最小板材厚度 ${minThickness.toStringAsFixed(1)} mm（与模型默认厚度同步）',
+            hintText: '只能填写 ≥ ${minThickness.toStringAsFixed(1)} mm',
             labelStyle: const TextStyle(color: CncColors.textSub),
             hintStyle: const TextStyle(color: CncColors.textSub),
             errorText: tooThin
@@ -839,15 +874,23 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                         color: CncColors.primary.withOpacity(0.15),
                         borderRadius: BorderRadius.circular(6),
                       ),
-                      child: Text('工序 ${p + 1}',
-                          style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              color: CncColors.primary)),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(ringEmoji(def.ring),
+                              style: const TextStyle(fontSize: 12)),
+                          const SizedBox(width: 4),
+                          Text('工序 ${p + 1}',
+                              style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: CncColors.primary)),
+                        ],
+                      ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(rt.role,
+                      child: Text('${rt.role} · 模型推荐刀具',
                           style: const TextStyle(
                               fontSize: 12, color: CncColors.textSub)),
                     ),
@@ -927,6 +970,8 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
               .map((s) => _Slot(
                     slot: s,
                     defId: magazine[s],
+                    procSlot: widget.procSlot,
+                    confirmed: widget.confirmed,
                     onTap: () {},
                   ))
               .toList(),
@@ -1013,46 +1058,90 @@ class _SlotChip extends StatelessWidget {
 class _Slot extends StatelessWidget {
   final int slot;
   final String? defId;
+  final Map<int, int> procSlot; // 工序 index → 物理刀兜（用于同步显示工序标签）
+  final Set<int> confirmed; // 已实物确认的工序 index（防呆）
   final VoidCallback onTap;
   const _Slot(
       {required this.slot,
       required this.defId,
+      required this.procSlot,
+      required this.confirmed,
       required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final def = defId != null ? toolById(defId!) : null;
     final seated = def != null;
-    final ring = seated ? ringColor(def!.ring) : CncColors.danger;
+    final ring = seated ? ringColor(def!.ring) : Colors.grey.shade600;
+    // 该刀兜被哪道工序映射（同步显示工序标签）
+    final procEntry = procSlot.entries.where((e) => e.value == slot).isEmpty
+        ? null
+        : procSlot.entries.firstWhere((e) => e.value == slot);
+    final proc = procEntry?.key;
+    final isConfirmed = proc != null && confirmed.contains(proc);
     return GestureDetector(
       onTap: onTap,
       child: Column(
         children: [
-          Container(
-            width: 62,
-            height: 62,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: ring, width: 3),
-              color: ring.withOpacity(0.12),
-            ),
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text('T$slot',
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                          color: CncColors.textMain)),
-                  Icon(seated ? Icons.check_circle : Icons.add,
-                      color: ring, size: 18),
-                ],
+          Stack(
+            alignment: Alignment.topCenter,
+            children: [
+              Container(
+                width: 62,
+                height: 62,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: ring, width: 3),
+                  color: ring.withOpacity(0.12),
+                ),
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text('T$slot',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              color: CncColors.textMain)),
+                      Icon(
+                          seated
+                              ? (isConfirmed
+                                  ? Icons.check_circle
+                                  : Icons.pending)
+                              : Icons.add,
+                          color: ring,
+                          size: 18),
+                    ],
+                  ),
+                ),
               ),
-            ),
+              // 工序映射标签（同步显示）
+              if (proc != null)
+                Positioned(
+                  top: -4,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: isConfirmed
+                          ? CncColors.primary
+                          : Colors.orange,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text('工序${proc + 1}',
+                        style: const TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black)),
+                  ),
+                ),
+            ],
           ),
           const SizedBox(height: 6),
-          Text(seated ? '已就位' : '空位',
+          Text(
+              seated
+                  ? (isConfirmed ? '已就位·已确认' : '已就位')
+                  : (proc != null ? '待装入' : '空位'),
               style: TextStyle(fontSize: 11, color: ring)),
           if (seated)
             SizedBox(
