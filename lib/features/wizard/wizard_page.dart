@@ -39,6 +39,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   late FocusNode _thicknessFocus; // 失去焦点时吸附到最小板厚
   Offset _origin = const Offset(15, 15); // 工件零点 (mm, 底板 300x200)
   bool _originSet = false;
+  bool _originOverflow = false; // Step4 图纸外包矩形是否超出机床行程
   int _leveling = 1; // 0 不调平 / 1 标准 / 2 精细
   // ---- 工序刀序 ↔ 物理刀兜 映射（解耦）----
   // _procSlot[工序index] = 物理刀兜号；_procConfirmed 存已实物确认的工序 index。
@@ -164,7 +165,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       case 2:
         return _atcReady;
       case 3:
-        return _originSet && !_overflow && _safetyChecked;
+        return _originSet && !_originOverflow && _safetyChecked;
       case 4:
         return _guardChecked;
       default:
@@ -290,7 +291,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     } else if (_step == 3) {
       if (!_originSet) {
         msg = '请先用红点激光「设雕刻原点」。';
-      } else if (_overflow) {
+      } else if (_originOverflow) {
         msg = '雕刻图形已超出机床物理极限，请调整原点位置。';
       } else if (!_safetyChecked) {
         msg = '请勾选「红点轨迹已落在耗材内，且避开了压板」。';
@@ -348,9 +349,11 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           task: _task,
           origin: _origin,
           originSet: _originSet,
+          overflow: _originOverflow,
           safetyChecked: _safetyChecked,
           onOrigin: (o) => setState(() => _origin = o),
           onOriginSet: (v) => setState(() => _originSet = v),
+          onOverflow: (v) => setState(() => _originOverflow = v),
           onSafety: (v) => setState(() => _safetyChecked = v),
         );
       case 4:
@@ -1297,17 +1300,21 @@ class _StepOrigin extends ConsumerStatefulWidget {
   final TaskMetadata? task;
   final Offset origin; // mm
   final bool originSet;
+  final bool overflow; // 图纸外包矩形是否超出机床行程
   final bool safetyChecked;
   final void Function(Offset) onOrigin;
   final void Function(bool) onOriginSet;
+  final void Function(bool) onOverflow;
   final void Function(bool) onSafety;
   const _StepOrigin({
     required this.task,
     required this.origin,
     required this.originSet,
+    required this.overflow,
     required this.safetyChecked,
     required this.onOrigin,
     required this.onOriginSet,
+    required this.onOverflow,
     required this.onSafety,
   });
 
@@ -1325,7 +1332,6 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       vsync: this, duration: const Duration(milliseconds: 2200))
     ..addListener(() => setState(() {}));
   bool _walking = false;
-  bool _overflow = false;
   String _guide = '💡 移动红点至耗材左下角，点击 [设雕刻原点]。系统将自动校验图形尺寸与底板边界。';
 
   @override
@@ -1368,8 +1374,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     // 若已设原点，移动激光后实时重新校验行程边界
     if (widget.originSet) {
       final nowOverflow = _isOverflow;
+      widget.onOverflow(nowOverflow);
       setState(() {
-        _overflow = nowOverflow;
         if (nowOverflow) {
           _guide =
               '🚨 超限警告：雕刻图形已超出机床物理极限！请向左/下调整原点。';
@@ -1385,8 +1391,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     final overflow = _isOverflow;
     widget.onOriginSet(true);
     widget.onSafety(false);
+    widget.onOverflow(overflow);
     setState(() {
-      _overflow = overflow;
       if (overflow) {
         _guide =
             '🚨 超限警告：雕刻图形已超出机床物理极限！请向左/下调整原点。';
@@ -1398,7 +1404,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   }
 
   void _walkFrame() {
-    if (_walking || !widget.originSet || _overflow) return;
+    if (_walking || !widget.originSet || widget.overflow) return;
     setState(() => _walking = true);
     _walk.forward(from: 0).whenComplete(() {
       if (mounted) setState(() => _walking = false);
@@ -1409,8 +1415,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     widget.onOrigin(const Offset(15, 15));
     widget.onOriginSet(false);
     widget.onSafety(false);
+    widget.onOverflow(false);
     setState(() {
-      _overflow = false;
       _guide =
           '💡 移动红点至耗材左下角，点击 [设雕刻原点]。系统将自动校验图形尺寸与底板边界。';
     });
@@ -1542,7 +1548,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
                             partH: _h,
                             origin: widget.origin,
                             originSet: widget.originSet,
-                            overflow: _overflow,
+                            overflow: widget.overflow,
                             walk: _walk.value,
                             walking: _walking,
                           ),
@@ -1650,7 +1656,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: widget.originSet && !_overflow ? _walkFrame : null,
+                onPressed: widget.originSet && !widget.overflow ? _walkFrame : null,
                 icon: Icon(_walking ? Icons.motion_photos_on : Icons.route,
                     color: CncColors.primary),
                 label: Text(_walking ? '走边框中…' : '启动实物走边框',
@@ -1684,19 +1690,19 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: _overflow
+            color: widget.overflow
                 ? CncColors.danger.withOpacity(0.12)
                 : CncColors.primary.withOpacity(0.08),
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-                color: _overflow
+                color: widget.overflow
                     ? CncColors.danger
                     : CncColors.primary.withOpacity(0.4)),
           ),
           child: Text(_guide,
               style: TextStyle(
                   fontSize: 11,
-                  color: _overflow
+                  color: widget.overflow
                       ? CncColors.danger
                       : CncColors.textMain)),
         ),
