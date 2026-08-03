@@ -12,6 +12,8 @@ import '../../models/library_item.dart';
 import '../../models/task_metadata.dart';
 import '../../models/tool.dart';
 import '../../state/providers.dart';
+import 'self_check_page.dart';
+import 'job_monitor_page.dart';
 
 /// Core 2: 6-step foolproof processing wizard.
 ///
@@ -49,7 +51,6 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   bool _chkThick = false; // 实物厚度与设置一致
   bool _chkMatch = false; // 材质/尺寸厚度与实物完全一致
   bool _safetyChecked = false; // Step4 轨迹落在耗材内且避开压板
-  bool _guardChecked = false; // Step5 防护罩已合上
 
   static const _titles = [
     '解析任务',
@@ -57,7 +58,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     '刀仓映射',
     '定原点防撞',
     '智能调平',
-    '全自动起飞',
+    '开始雕刻',
   ];
 
   @override
@@ -167,19 +168,10 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       case 3:
         return _originSet && !_originOverflow && _safetyChecked;
       case 4:
-        return _guardChecked;
+        return true; // Step5 只需选择是否调平即可进入下一步
       default:
         return true;
     }
-  }
-
-  Future<void> _takeoff() async {
-    await ref.read(hardwareServiceProvider).startJob();
-    if (!mounted) return;
-    Navigator.of(context).pop();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已下发全自动起飞指令，回到控制台查看进度')),
-    );
   }
 
   @override
@@ -233,34 +225,34 @@ class _WizardPageState extends ConsumerState<WizardPage> {
             ),
           ),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              if (_step > 0)
-                OutlinedButton(
-                  onPressed: () => setState(() => _step--),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: CncColors.textMain,
-                    side: BorderSide(color: CncColors.border),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 14),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
+          if (_step < 5)
+            Row(
+              children: [
+                if (_step > 0)
+                  OutlinedButton(
+                    onPressed: () => setState(() => _step--),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: CncColors.textMain,
+                      side: BorderSide(color: CncColors.border),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 14),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: const Text('上一步'),
                   ),
-                  child: const Text('上一步'),
-                ),
-              const Spacer(),
-              if (_step < 5)
+                const Spacer(),
                 FilledButton(
-                  onPressed: _canProceed ? () => setState(() => _step++) : null,
+                  onPressed:
+                      _canProceed ? () => setState(() => _step++) : null,
                   child: const Text('下一步'),
-                )
-              else
-                FilledButton(
-                  onPressed: _canProceed ? _takeoff : null,
-                  child: const Text('一键开切'),
                 ),
-            ],
-          ),
+              ],
+            )
+          else
+            // Step6 的「开始自检并雕刻」按钮已内嵌在 _StepTakeoff 卡片中，
+            // 底部不再显示「上一步 / 一键开切」。
+            const SizedBox.shrink(),
           const SizedBox(height: 8),
           if (!_canProceed) _guardHint(t),
         ],
@@ -299,7 +291,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
         msg = '原点与行程核验无误，可进入下一步。';
       }
     } else if (_step == 4) {
-      msg = '请确认防护罩已合上。';
+      msg = '请选择是否进行曲面调平。';
     } else {
       msg = '当前步骤未完成。';
     }
@@ -360,11 +352,11 @@ class _WizardPageState extends ConsumerState<WizardPage> {
         return _StepLeveling(
           mode: _leveling,
           onMode: (m) => setState(() => _leveling = m),
-          guardChecked: _guardChecked,
-          onGuard: (v) => setState(() => _guardChecked = v),
         );
       case 5:
         return _StepTakeoff(
+          item: widget.item,
+          task: _task,
           materialKey: _materialKey,
           requiredTools: _task?.requiredTools ?? [],
           procSlot: _procSlot,
@@ -1930,13 +1922,9 @@ class _BedPainter extends CustomPainter {
 class _StepLeveling extends StatelessWidget {
   final int mode;
   final void Function(int) onMode;
-  final bool guardChecked;
-  final void Function(bool) onGuard;
   const _StepLeveling({
     required this.mode,
     required this.onMode,
-    required this.guardChecked,
-    required this.onGuard,
   });
 
   // 基于图纸面积匹配阵列（对齐 step5.html）
@@ -2025,63 +2013,22 @@ class _StepLeveling extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 12),
-        // 硬件防护预检
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: CncColors.card,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: CncColors.border),
-          ),
-          child: Column(
-            children: [
-              _SensorRow('🛡️ 机体防护罩状态', '● 已安全闭合'),
-              _SensorRow('💨 主轴风压排屑/散热', '● 转动自开启'),
-              _SensorRow('⚡ 物理急停按键', '● 状态复位'),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        _CheckTile(
-          value: guardChecked,
-          onChanged: onGuard,
-          label: '防护罩已合上，确认进入一键启动',
-        ),
       ],
     );
   }
 }
 
-class _SensorRow extends StatelessWidget {
-  final String label;
-  final String status;
-  const _SensorRow(this.label, this.status);
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label,
-                style: const TextStyle(fontSize: 12, color: CncColors.textMain)),
-            Text(status,
-                style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: CncColors.primary)),
-          ],
-        ),
-      );
-}
-
-// ===================== Step 6 · 全自动起飞（预检流水线 + 模型 2D 模拟）=====================
+// ===================== Step 6 · 开始雕刻（自检 + 实时监控入口）=====================
 
 class _StepTakeoff extends ConsumerStatefulWidget {
+  final LibraryItem item;
+  final TaskMetadata? task;
   final String materialKey;
   final List<RequiredTool> requiredTools;
   final Map<int, int> procSlot;
   const _StepTakeoff({
+    required this.item,
+    required this.task,
     required this.materialKey,
     required this.requiredTools,
     required this.procSlot,
@@ -2091,313 +2038,41 @@ class _StepTakeoff extends ConsumerStatefulWidget {
   ConsumerState<_StepTakeoff> createState() => _StepTakeoffState();
 }
 
-class _StepTakeoffState extends ConsumerState<_StepTakeoff>
-    with SingleTickerProviderStateMixin {
-  int _phase = 0; // 0 准备 1 预检 2 加工
-  List<String> _status = List.filled(7, 'pending');
-  Timer? _timer;
-  late final AnimationController _head =
-      AnimationController(vsync: this, duration: const Duration(seconds: 4))
-        ..repeat();
-  int _elapsed = 0;
-  int _total = 750; // 12:30
-  bool _paused = false;
-
-  /// 全自动预检流水线：防护罩 → 开盖 → 按工序顺序逐把自动换刀 → 对刀 →
-  /// 合盖 → 曲面调平 → 开切。刀位与顺序来自用户在 Step3 的映射（解耦），
-  /// 而非写死 T1→T2。
-  List<String> get _checks {
-    final req = widget.requiredTools;
-    final out = <String>[
-      '防护罩电子门磁锁止',
-      '自动开启 ATC 刀仓防护盖',
-    ];
-    for (var p = 0; p < req.length; p++) {
-      final def = toolById(req[p].toolId);
-      final slot = widget.procSlot[p];
-      out.add('自动装载 T${slot ?? '?'} 号刀具 (${ringEmoji(def.ring)} ${def.name})');
-    }
-    out.addAll([
-      '移动至刀仓固定测头对刀 (Z-Offset)',
-      '关闭 ATC 刀仓防护盖',
-      '运行 6 点曲面网格调平扫描',
-      '主轴离心风压建立，移动至原点开切',
-    ]);
-    return out;
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    _head.dispose();
-    super.dispose();
-  }
-
+class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
   void _start() {
-    if (_phase != 0) return;
-    setState(() {
-      _phase = 1;
-      _status = List.filled(_checks.length, 'pending');
-    });
-    var i = 0;
-    void step() {
-      if (i >= _checks.length) {
-        if (mounted) {
-          setState(() => _phase = 2);
-          _runDash();
-        }
-        return;
-      }
-      setState(() => _status[i] = 'running');
-      _timer = Timer(const Duration(milliseconds: 500), () {
-        if (!mounted) return;
-        setState(() => _status[i] = 'done');
-        i++;
-        step();
-      });
-    }
-
-    step();
-  }
-
-  void _runDash() {
-    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (_paused) return;
-      if (!mounted) return;
-      setState(() => _elapsed++);
-      if (_elapsed >= _total) {
-        t.cancel();
-        _head.stop();
-        if (mounted) {
-          showDialog(
-            context: context,
-            builder: (_) => AlertDialog(
-              backgroundColor: CncColors.card,
-              title: const Text('🎉 加工完成',
-                  style: TextStyle(color: CncColors.primary)),
-              content: const Text('本次作业已全自动加工完成。',
-                  style: TextStyle(color: CncColors.textMain)),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context)
-                    ..pop()
-                    ..pop(),
-                  child: const Text('好',
-                      style: TextStyle(color: CncColors.primary)),
-                ),
-              ],
-            ),
-          );
-        }
-      }
-    });
-  }
-
-  void _togglePause() => setState(() => _paused = !_paused);
-
-  void _estop() {
-    _timer?.cancel();
-    _head.stop();
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: CncColors.card,
-        title: const Text('🚨 已急停',
-            style: TextStyle(color: CncColors.danger)),
-        content: const Text('主轴刹停，机床保护性断电。',
-            style: TextStyle(color: CncColors.textMain)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context)
-              ..pop()
-              ..pop(),
-            child: const Text('好', style: TextStyle(color: CncColors.danger)),
-          ),
-        ],
+    final task = widget.task;
+    if (task == null) return;
+    final hw = ref.read(hardwareServiceProvider);
+    hw.startJob();
+    ref.read(activeJobProvider.notifier).start(ActiveJob(
+          item: widget.item,
+          task: task,
+          materialKey: widget.materialKey,
+          procSlot: {...widget.procSlot},
+          startedAt: DateTime.now(),
+        ));
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SelfCheckPage(
+          materialKey: widget.materialKey,
+          requiredTools: widget.requiredTools,
+          procSlot: widget.procSlot,
+        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
     final mat = materialByKey(widget.materialKey);
-    final magazine = ref.watch(toolMagazineProvider);
     final req = widget.requiredTools;
-    final firstSlot = req.isNotEmpty ? widget.procSlot[0] : null;
-    final runTool = (firstSlot != null && magazine[firstSlot] != null)
-        ? toolById(magazine[firstSlot]!)
-        : null;
-
-    if (_phase == 0) {
-      return _ReadyPhase(
-        mat: mat,
-        requiredTools: req,
-        procSlot: widget.procSlot,
-        onStart: _start,
-      );
-    }
-    if (_phase == 1) {
-      return _PipelinePhase(status: _status, checks: _checks);
-    }
-    // phase 2
-    final prog = _elapsed / _total;
-    final remain = max(0, _total - _elapsed);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Step 6 · 实时加工',
-            style: t.titleMedium?.copyWith(color: CncColors.textMain)),
-        const SizedBox(height: 10),
-        const Text('实时矢量轨迹与遥测监控',
-            style: TextStyle(fontSize: 12, color: CncColors.textSub)),
-        const SizedBox(height: 8),
-        // 2D 模型轮廓模拟（关键点：必须是模型本身的轮廓）
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: CncColors.bg,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: CncColors.border),
-          ),
-          child: Column(
-            children: [
-              const Text('2D 矢量实时轨迹（模型轮廓）',
-                  style: TextStyle(fontSize: 11, color: CncColors.textSub)),
-              const SizedBox(height: 8),
-              AspectRatio(
-                aspectRatio: 3 / 2,
-                child: AnimatedBuilder(
-                  animation: _head,
-                  builder: (c, _) => CustomPaint(
-                    painter: _ModelTrajectoryPainter(
-                      progress: _head.value,
-                      modelW: 145,
-                      modelH: 95,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        // 进度
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: CncColors.card,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: CncColors.border),
-          ),
-          child: Column(
-            children: [
-              Text('${(prog * 100).toStringAsFixed(1)}%',
-                  style: const TextStyle(
-                      fontSize: 30,
-                      fontWeight: FontWeight.w900,
-                      color: CncColors.primary,
-                      fontFamily: 'monospace')),
-              const SizedBox(height: 6),
-              LinearProgressIndicator(
-                value: prog,
-                backgroundColor: const Color(0xFF222222),
-                color: CncColors.primary,
-                minHeight: 6,
-              ),
-              const SizedBox(height: 6),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('已用 ${_fmt(_elapsed)}',
-                      style: const TextStyle(
-                          fontSize: 10, color: CncColors.textSub)),
-                  Text('剩余 ${_fmt(remain)}',
-                      style: const TextStyle(
-                          fontSize: 10,
-                          color: CncColors.blue)),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        // 遥测 4 格
-        GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          childAspectRatio: 2.2,
-          mainAxisSpacing: 8,
-          crossAxisSpacing: 8,
-          children: [
-            _Telem('主轴实时转速', '${mat.rpm} RPM', CncColors.primary),
-            _Telem('云端最佳进给', '${mat.feed} mm/min', CncColors.blue),
-            _Telem('当前运行刀具',
-                runTool != null && firstSlot != null
-                    ? '${ringEmoji(runTool.ring)} T$firstSlot ${runTool.name}'
-                    : 'T —',
-                CncColors.danger),
-            _Telem('实时 Z 轴坐标',
-                '${(-1.0 - (DateTime.now().millisecond % 80) / 100).toStringAsFixed(3)} mm',
-                CncColors.textMain),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: GestureDetector(
-                onTap: _togglePause,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  decoration: BoxDecoration(
-                    color: CncColors.warning.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: CncColors.warning),
-                  ),
-                  child: Center(
-                    child: Text(_paused ? '▶️ 恢复加工' : '⏸️ 暂停加工',
-                        style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: CncColors.warning)),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: GestureDetector(
-                onTap: _estop,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  decoration: BoxDecoration(
-                    color: CncColors.danger.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: CncColors.danger),
-                  ),
-                  child: Center(
-                    child: Text('🚨 紧急停止',
-                        style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: CncColors.danger)),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
+    return _ReadyPhase(
+      mat: mat,
+      requiredTools: req,
+      procSlot: widget.procSlot,
+      onStart: _start,
     );
   }
-}
-
-String _fmt(int s) {
-  final m = (s ~/ 60).toString().padLeft(2, '0');
-  final ss = (s % 60).toString().padLeft(2, '0');
-  return '$m:$ss';
 }
 
 class _ReadyPhase extends StatelessWidget {
@@ -2456,7 +2131,7 @@ class _ReadyPhase extends StatelessWidget {
           ),
           child: const Text(
               '🔒 云端数据闭环保护中：加工代码由云端直接发送给 CNC 硬件，手机端不保存任何原始文件。'
-              '点击启动后，设备将全自动运行开盖、ATC 上刀、固置对刀与曲面调平。',
+              '点击后设备将先执行自检流水线，完成后自动进入实时加工监控页。',
               style: TextStyle(fontSize: 11, color: CncColors.textMain)),
         ),
         const SizedBox(height: 14),
@@ -2465,241 +2140,11 @@ class _ReadyPhase extends StatelessWidget {
           child: FilledButton.icon(
             onPressed: onStart,
             icon: const Icon(Icons.play_arrow, color: Colors.black),
-            label: const Text('🚀 一键启动全自动加工',
+            label: const Text('开始自检并雕刻',
                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
           ),
         ),
       ],
     );
   }
-}
-
-class _PipelinePhase extends StatelessWidget {
-  final List<String> status;
-  final List<String> checks;
-  const _PipelinePhase({required this.status, required this.checks});
-  @override
-  Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('⚡ 全自动预检与自检流水线',
-            style: TextStyle(fontSize: 13, color: CncColors.primary)),
-        const SizedBox(height: 10),
-        ...List.generate(checks.length, (i) {
-          final s = status[i];
-          final color = s == 'done'
-              ? CncColors.primary
-              : s == 'running'
-                  ? CncColors.blue
-                  : CncColors.textSub;
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Row(
-              children: [
-                if (s == 'running')
-                  SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: color),
-                  )
-                else
-                  Icon(
-                    s == 'done' ? Icons.check_circle : Icons.circle_outlined,
-                    color: color,
-                    size: 16,
-                  ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(checks[i],
-                      style: TextStyle(
-                          fontSize: 12,
-                          color: s == 'pending'
-                              ? CncColors.textSub
-                              : CncColors.textMain)),
-                ),
-              ],
-            ),
-          );
-        }),
-      ],
-    );
-  }
-}
-
-class _Telem extends StatelessWidget {
-  final String label;
-  final String val;
-  final Color color;
-  const _Telem(this.label, this.val, this.color);
-  @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: CncColors.card,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: CncColors.border),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label,
-                style: const TextStyle(fontSize: 10, color: CncColors.textSub)),
-            const SizedBox(height: 2),
-            Text(val,
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'monospace',
-                    color: color)),
-          ],
-        ),
-      );
-}
-
-// ===================== 模型轮廓 2D 轨迹（必须是模型本身）=====================
-
-/// 生成模型轮廓路径点（mm，模型局部坐标 0..w, 0..h）。
-/// 严格还原 step6.html 设计稿的「战神徽章矢量图」：镜头/眼形外框
-/// （M15 45 Q67.5 5 120 45 Q67.5 85 15 45 Z）+ 内圆 r20。
-List<Offset> modelContour(double w, double h) {
-  final pts = <Offset>[];
-  // SVG viewBox 135 x 90 → 局部坐标等比展开
-  final sx = w / 135, sy = h / 90;
-  Offset v(double x, double y) => Offset(x * sx, y * sy);
-  final p0 = v(15, 45);
-  final c1 = v(67.5, 5); // 上控制点
-  final p1 = v(120, 45);
-  final c2 = v(67.5, 85); // 下控制点
-  // 第一段二次贝塞尔 p0 → p1（控制 c1）
-  const n1 = 48;
-  for (var i = 0; i <= n1; i++) {
-    final t = i / n1, mt = 1 - t;
-    pts.add(Offset(
-      mt * mt * p0.dx + 2 * mt * t * c1.dx + t * t * p1.dx,
-      mt * mt * p0.dy + 2 * mt * t * c1.dy + t * t * p1.dy,
-    ));
-  }
-  // 第二段二次贝塞尔 p1 → p0（控制 c2），闭合回 p0
-  const n2 = 48;
-  for (var i = 0; i <= n2; i++) {
-    final t = i / n2, mt = 1 - t;
-    pts.add(Offset(
-      mt * mt * p1.dx + 2 * mt * t * c2.dx + t * t * p0.dx,
-      mt * mt * p1.dy + 2 * mt * t * c2.dy + t * t * p0.dy,
-    ));
-  }
-  // 内圆（用 x 比例保证各向同性，渲染为正圆）
-  final cc = v(67.5, 45);
-  final r = 20 * sx;
-  const nc = 56;
-  for (var i = 0; i <= nc; i++) {
-    final a = i / nc * 2 * pi;
-    pts.add(Offset(cc.dx + cos(a) * r, cc.dy + sin(a) * r));
-  }
-  return pts;
-}
-
-class _ModelTrajectoryPainter extends CustomPainter {
-  final double progress;
-  final double modelW;
-  final double modelH;
-  const _ModelTrajectoryPainter(
-      {required this.progress, required this.modelW, required this.modelH});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final pad = 14.0;
-    final availW = size.width - pad * 2;
-    final availH = size.height - pad * 2;
-    final scale = min(availW / modelW, availH / modelH);
-    final offX = (size.width - modelW * scale) / 2;
-    final offY = (size.height - modelH * scale) / 2;
-    Offset toPix(Offset p) =>
-        Offset(offX + p.dx * scale, offY + (modelH - p.dy) * scale);
-
-    final pts = modelContour(modelW, modelH);
-
-    // 网格底
-    canvas.drawRect(
-      Rect.fromLTWH(0, 0, size.width, size.height),
-      Paint()..color = const Color(0xFF111111),
-    );
-
-    // 完整路径（淡）
-    final full = Path()..moveTo(toPix(pts[0]).dx, toPix(pts[0]).dy);
-    for (var i = 1; i < pts.length; i++) {
-      full.lineTo(toPix(pts[i]).dx, toPix(pts[i]).dy);
-    }
-    canvas.drawPath(
-      full,
-      Paint()
-        ..color = CncColors.primary.withOpacity(0.25)
-        ..strokeWidth = 2
-        ..style = PaintingStyle.stroke,
-    );
-
-    // 分段长度
-    final seg = <double>[];
-    var total = 0.0;
-    for (var i = 1; i < pts.length; i++) {
-      final a = toPix(pts[i - 1]);
-      final b = toPix(pts[i]);
-      final l = (b - a).distance;
-      seg.add(l);
-      total += l;
-    }
-
-    // 已走路径（亮）
-    final done = Path()..moveTo(toPix(pts[0]).dx, toPix(pts[0]).dy);
-    var target = progress * total;
-    for (var i = 1; i < pts.length; i++) {
-      final a = toPix(pts[i - 1]);
-      final b = toPix(pts[i]);
-      final l = seg[i - 1];
-      if (target >= l) {
-        done.lineTo(b.dx, b.dy);
-        target -= l;
-      } else {
-        final f = l == 0 ? 0.0 : target / l;
-        done.lineTo(a.dx + (b.dx - a.dx) * f, a.dy + (b.dy - a.dy) * f);
-        break;
-      }
-    }
-    canvas.drawPath(
-      done,
-      Paint()
-        ..color = CncColors.primary
-        ..strokeWidth = 2.5
-        ..style = PaintingStyle.stroke,
-    );
-
-    // 刀头（激光红点）
-    var tt = progress * total;
-    var sgi = 0;
-    while (sgi < seg.length && tt > seg[sgi]) {
-      tt -= seg[sgi];
-      sgi++;
-    }
-    final head = sgi >= seg.length
-        ? toPix(pts.last)
-        : (() {
-            final a = toPix(pts[sgi]);
-            final b = toPix(pts[sgi + 1]);
-            final f = seg[sgi] == 0 ? 0.0 : tt / seg[sgi];
-            return Offset(a.dx + (b.dx - a.dx) * f, a.dy + (b.dy - a.dy) * f);
-          })();
-    canvas.drawCircle(head, 4, Paint()..color = CncColors.laser);
-
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height),
-        Paint()..color = CncColors.border..strokeWidth = 1);
-  }
-
-  @override
-  bool shouldRepaint(covariant _ModelTrajectoryPainter old) =>
-      old.progress != progress ||
-      old.modelW != modelW ||
-      old.modelH != modelH;
 }

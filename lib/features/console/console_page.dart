@@ -8,6 +8,7 @@ import '../../widgets/tool_icon.dart';
 import '../../models/machine_status.dart';
 import '../../models/tool.dart';
 import '../../state/providers.dart';
+import '../wizard/job_monitor_page.dart';
 
 /// 状态驱动设备控制台 (Core 3) —— 严格对齐 控制页面.html。
 ///
@@ -168,6 +169,65 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     child: const Text('🔒 远程监视模式：主动移动/开切已锁定，仅可查看状态与软停止/暂停。',
                         style: TextStyle(fontSize: 11, color: CncColors.warning)),
                   ),
+
+                // 当前加工任务入口（解决监控页被叉掉后找不到入口的 bug）
+                Consumer(
+                  builder: (context, ref, child) {
+                    final job = ref.watch(activeJobProvider);
+                    if (job == null) return const SizedBox.shrink();
+                    return GestureDetector(
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const JobMonitorPage()),
+                      ),
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: CncColors.warning.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(10),
+                          border:
+                              Border.all(color: CncColors.warning.withOpacity(0.4)),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: CncColors.warning.withOpacity(0.15),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.router,
+                                  color: CncColors.warning, size: 18),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('当前加工中',
+                                      style: TextStyle(
+                                          fontSize: 10,
+                                          color: CncColors.warning)),
+                                  Text(job.item.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.bold,
+                                          color: CncColors.textMain)),
+                                ],
+                              ),
+                            ),
+                            const Icon(Icons.chevron_right,
+                                color: CncColors.textSub),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
 
                 // 全局 DRO
                 Container(

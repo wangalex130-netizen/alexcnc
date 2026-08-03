@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/library_item.dart';
 import '../models/machine_status.dart';
+import '../models/task_metadata.dart';
 import '../services/cloud_service.dart';
 import '../services/cloud_service_mock.dart';
 import '../services/hardware_service.dart';
@@ -50,4 +52,50 @@ class ToolMagazine extends StateNotifier<Map<int, String?>> {
 final toolMagazineProvider =
     StateNotifierProvider<ToolMagazine, Map<int, String?>>(
   (ref) => ToolMagazine(),
+);
+
+/// 当前正在进行的全局加工任务。
+///
+/// 解决 Step6 实时加工监控页被左上角叉号关闭后「找不到入口」的问题：
+/// 只要任务还在运行，控制台就会显示「当前加工中」卡片，点击可重新进入监控页。
+class ActiveJob {
+  final LibraryItem item;
+  final TaskMetadata task;
+  final String materialKey;
+  final Map<int, int> procSlot; // 工序 index → 物理刀兜
+  final DateTime startedAt;
+
+  const ActiveJob({
+    required this.item,
+    required this.task,
+    required this.materialKey,
+    required this.procSlot,
+    required this.startedAt,
+  });
+
+  ActiveJob copyWith({
+    LibraryItem? item,
+    TaskMetadata? task,
+    String? materialKey,
+    Map<int, int>? procSlot,
+    DateTime? startedAt,
+  }) =>
+      ActiveJob(
+        item: item ?? this.item,
+        task: task ?? this.task,
+        materialKey: materialKey ?? this.materialKey,
+        procSlot: procSlot ?? this.procSlot,
+        startedAt: startedAt ?? this.startedAt,
+      );
+}
+
+class ActiveJobNotifier extends StateNotifier<ActiveJob?> {
+  ActiveJobNotifier() : super(null);
+
+  void start(ActiveJob job) => state = job;
+  void clear() => state = null;
+}
+
+final activeJobProvider = StateNotifierProvider<ActiveJobNotifier, ActiveJob?>(
+  (ref) => ActiveJobNotifier(),
 );
