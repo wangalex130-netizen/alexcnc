@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
 import '../../models/library_item.dart';
@@ -186,7 +187,7 @@ class _InspirationSliver extends StatelessWidget {
 
     return SliverList(
       delegate: SliverChildListDelegate([
-        // 搜索框（🔍）
+        // 搜索框
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
           decoration: BoxDecoration(
@@ -195,7 +196,7 @@ class _InspirationSliver extends StatelessWidget {
           ),
           child: const Row(
             children: [
-              Text('🔍', style: TextStyle(fontSize: 14)),
+              Icon(Symbols.search, size: 16, color: CncColors.textSub),
               SizedBox(width: 10),
               Text('搜索官方精选创意...', style: TextStyle(fontSize: 13, color: CncColors.textSub)),
             ],
@@ -302,7 +303,7 @@ class _HeroCard extends StatelessWidget {
                       const SizedBox(height: 6),
                       Text(item.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
                       const SizedBox(height: 4),
-                      Text('⏱️ ${item.duration ?? ''}   🪵 ${item.materialPreset ?? ''}',
+                      Text('时长 ${item.duration ?? ''}  ·  ${item.materialPreset ?? ''}',
                           style: const TextStyle(fontSize: 10, color: Color(0xFFbbbbbb))),
                     ],
                   ),
@@ -343,7 +344,7 @@ class _ModelCard extends StatelessWidget {
                     Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
                     const SizedBox(height: 4),
-                    Text('🟦 ${item.materialPreset ?? ''}',
+                    Text(item.materialPreset ?? '',
                         maxLines: 1, style: const TextStyle(fontSize: 10, color: CncColors.blue)),
                   ],
                 ),
@@ -401,7 +402,7 @@ class _MySpaceSliver extends StatelessWidget {
             border: Border.all(color: CncColors.border, style: BorderStyle.solid),
           ),
           child: const Text(
-            '💡 如何创建我的专属工程？\n请在电脑端下载并使用 Smart CNC Studio 软件，完成图纸导入、参数设置与切片后，'
+            '如何创建我的专属工程？\n请在电脑端下载并使用 Smart CNC Studio 软件，完成图纸导入、参数设置与切片后，'
             '点击“上传至云端”，即可在此处同步并开始雕刻。',
             style: TextStyle(fontSize: 11, height: 1.5, color: CncColors.textSub)),
         ),
@@ -430,7 +431,7 @@ class _SyncButton extends StatefulWidget {
 }
 
 class _SyncButtonState extends State<_SyncButton> {
-  String _label = '🔄 手动刷新';
+  String _label = '手动刷新';
   bool _busy = false;
   void _onTap() {
     if (_busy) return;
@@ -439,11 +440,11 @@ class _SyncButtonState extends State<_SyncButton> {
       _label = '同步中...';
     });
     Future.delayed(const Duration(milliseconds: 800), () {
-      if (mounted) setState(() => _label = '✓ 已更新');
+      if (mounted) setState(() => _label = '已更新');
       Future.delayed(const Duration(milliseconds: 1500), () {
         if (mounted) setState(() {
           _busy = false;
-          _label = '🔄 手动刷新';
+          _label = '手动刷新';
         });
       });
     });
@@ -458,7 +459,14 @@ class _SyncButtonState extends State<_SyncButton> {
             color: CncColors.blue,
             borderRadius: BorderRadius.circular(6),
           ),
-          child: Text(_label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Symbols.refresh, size: 14, color: Colors.white),
+              const SizedBox(width: 4),
+              Text(_label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+            ],
+          ),
         ),
       );
 }
@@ -489,8 +497,8 @@ class _ProjectItem extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: CncColors.border),
                 ),
-                child: Center(child: Text(dimmed ? '✓' : '📁',
-                    style: const TextStyle(fontSize: 20, color: CncColors.textSub))),
+                child: Center(child: Icon(dimmed ? Symbols.check_circle : Symbols.folder,
+                    size: 22, color: CncColors.textSub)),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -500,7 +508,7 @@ class _ProjectItem extends StatelessWidget {
                     Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: CncColors.textMain)),
                     const SizedBox(height: 4),
-                    Text('🪵 ${item.materialPreset ?? ''}  |  ${item.syncTime ?? item.duration ?? ''}',
+                    Text('${item.materialPreset ?? ''}  |  ${item.syncTime ?? item.duration ?? ''}',
                         style: const TextStyle(fontSize: 10, color: CncColors.textSub)),
                   ],
                 ),

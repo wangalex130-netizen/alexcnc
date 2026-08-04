@@ -483,8 +483,7 @@ class _StepParse extends StatelessWidget {
                     padding: EdgeInsets.only(bottom: isLast ? 0 : 8),
                     child: Row(
                       children: [
-                        Text(ringEmoji(tool.ring),
-                            style: const TextStyle(fontSize: 22)),
+                        ringDot(tool.ring, size: 22),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Column(
@@ -993,8 +992,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(ringEmoji(def.ring),
-                              style: const TextStyle(fontSize: 12)),
+                          ringDot(def.ring, size: 12),
                           const SizedBox(width: 4),
                           Text('工序 ${p + 1}',
                               style: const TextStyle(

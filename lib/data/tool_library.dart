@@ -129,18 +129,34 @@ Color ringColor(String ring) {
   }
 }
 
-/// 定位环 emoji（与 HTML 红/绿环一致）。
+/// 定位环色点：代码绘制纯色圆（替代原 🔴🟢🟠🔵⚪ emoji，不依赖 emoji 字体）。
+Widget ringDot(String ring, {double size = 10, double border = 0}) {
+  final c = ringColor(ring);
+  return Container(
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      color: c,
+      shape: BoxShape.circle,
+      border: border > 0
+          ? Border.all(color: Colors.white, width: border)
+          : null,
+    ),
+  );
+}
+
+/// 定位环中文色名（用于纯文本步骤说明，避免彩色 emoji）。
 String ringEmoji(String ring) {
   switch (ring) {
     case 'red':
-      return '🔴';
+      return '红';
     case 'green':
-      return '🟢';
+      return '绿';
     case 'orange':
-      return '🟠';
+      return '橙';
     case 'blue':
-      return '🔵';
+      return '蓝';
     default:
-      return '⚪';
+      return '灰';
   }
 }
