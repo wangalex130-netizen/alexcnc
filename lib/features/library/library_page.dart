@@ -510,7 +510,7 @@ class _ProjectItem extends StatelessWidget {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
-                    color: dimmed ? const Color(0xFF222222) : CncColors.primary,
+                    color: dimmed ? const Color(0xFFE0E3E8) : CncColors.primary,
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(dimmed ? '再切一个' : '云端开切',

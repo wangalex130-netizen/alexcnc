@@ -164,7 +164,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
           ),
           const SizedBox(height: 16),
           const Text('⚡ 全自动预检与自检流水线',
-              style: TextStyle(fontSize: 13, color: CncColors.primary)),
+              style: TextStyle(fontSize: 13, color: CncColors.primaryInk)),
           const SizedBox(height: 10),
           ...List.generate(phases.length, (i) {
             final s = statusFor(i);

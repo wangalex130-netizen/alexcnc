@@ -202,7 +202,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
             child: Center(
               child: Text(
                 'Step ${_step + 1}/6',
-                style: t.bodyMedium?.copyWith(color: CncColors.primary),
+                style: t.bodyMedium?.copyWith(color: CncColors.primaryInk),
               ),
             ),
           ),
@@ -1657,7 +1657,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
                 icon: Icon(_walking ? Icons.motion_photos_on : Icons.route,
                     color: CncColors.primary),
                 label: Text(_walking ? '走边框中…' : '启动实物走边框',
-                    style: const TextStyle(color: CncColors.primary)),
+                    style: const TextStyle(color: CncColors.primaryInk)),
                 style: OutlinedButton.styleFrom(
                   side: BorderSide(color: CncColors.primary),
                   shape: RoundedRectangleBorder(
@@ -1748,7 +1748,7 @@ class _J extends StatelessWidget {
         onTap: onTap,
         child: Container(
           decoration: BoxDecoration(
-            color: primary ? CncColors.primary.withOpacity(0.15) : const Color(0xFF222222),
+            color: primary ? CncColors.primary.withOpacity(0.15) : const Color(0xFFEDEFF2),
             borderRadius: BorderRadius.circular(6),
             border: Border.all(
                 color: primary ? CncColors.primary : CncColors.border),
@@ -1778,7 +1778,7 @@ class _StepChip extends StatelessWidget {
           margin: const EdgeInsets.only(bottom: 4),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: active ? CncColors.primary : const Color(0xFF222222),
+            color: active ? CncColors.primary : const Color(0xFFEDEFF2),
             borderRadius: BorderRadius.circular(6),
             border: Border.all(
                 color: active ? CncColors.primary : CncColors.border),
@@ -1819,7 +1819,7 @@ class _BedPainter extends CustomPainter {
     // 底板背景
     canvas.drawRect(
       Rect.fromLTWH(0, 0, size.width, size.height),
-      Paint()..color = const Color(0xFF111111),
+      Paint()..color = const Color(0xFFEFF2F5),
     );
 
     // 点阵网格（对齐 step4.html 的 radial-gradient dot grid）

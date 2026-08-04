@@ -206,7 +206,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
                 const SizedBox(height: 6),
                 LinearProgressIndicator(
                   value: completed ? 1.0 : prog,
-                  backgroundColor: const Color(0xFF222222),
+                  backgroundColor: const Color(0xFFEDEFF2),
                   color: completed ? CncColors.primary : CncColors.primary,
                   minHeight: 6,
                 ),
@@ -393,7 +393,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
       builder: (_) => AlertDialog(
         backgroundColor: CncColors.card,
         title:
-            const Text('🎉 加工完成', style: TextStyle(color: CncColors.primary)),
+            const Text('🎉 加工完成', style: TextStyle(color: CncColors.primaryInk)),
         content: const Text('本次作业已加工完成。',
             style: TextStyle(color: CncColors.textMain)),
         actions: [
@@ -407,7 +407,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
                 (route) => false,
               );
             },
-            child: const Text('好', style: TextStyle(color: CncColors.primary)),
+            child: const Text('好', style: TextStyle(color: CncColors.primaryInk)),
           ),
         ],
       ),
@@ -513,7 +513,7 @@ class _ModelTrajectoryPainter extends CustomPainter {
 
     canvas.drawRect(
       Rect.fromLTWH(0, 0, size.width, size.height),
-      Paint()..color = const Color(0xFF111111),
+      Paint()..color = const Color(0xFFEFF2F5),
     );
 
     final full = Path()..moveTo(toPix(pts[0]).dx, toPix(pts[0]).dy);

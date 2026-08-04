@@ -80,7 +80,7 @@ class _ProfilePageState extends State<ProfilePage> {
               icon: Symbols.wifi,
               title: '网络配对与连接',
               trailing: const Text('已连 Wi-Fi',
-                  style: TextStyle(fontSize: 12, color: CncColors.primary)),
+                  style: TextStyle(fontSize: 12, color: CncColors.primaryInk)),
               onTap: () => _openSheet(const _PairingSheet()),
             ),
             _MenuItem(
@@ -255,7 +255,7 @@ class _Switch extends StatelessWidget {
               height: 16,
               margin: const EdgeInsets.all(2),
               decoration: BoxDecoration(
-                color: value ? Colors.black : Colors.white,
+                color: value ? Colors.white : CncColors.textSub,
                 shape: BoxShape.circle,
               ),
             ),
@@ -469,7 +469,7 @@ class _OtaSheet extends StatelessWidget {
                           style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
-                              color: CncColors.primary)),
+                              color: CncColors.primaryInk)),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -743,7 +743,7 @@ class _DiagProgressButtonState extends State<_DiagProgressButton> {
               onPressed: _running ? null : _start,
               style: FilledButton.styleFrom(
                 backgroundColor: CncColors.bg,
-                foregroundColor: CncColors.primary,
+                foregroundColor: CncColors.primaryInk,
                 disabledBackgroundColor: CncColors.border,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(

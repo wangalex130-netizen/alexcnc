@@ -1,47 +1,49 @@
 import 'package:flutter/material.dart';
 
-/// Smart CNC Pro 设计令牌 —— 严格对齐「Smart CNC APP 视觉模拟 v2」原稿。
+/// Smart CNC Pro 设计令牌 —— 浅色界面（对齐「先不要黑色界面」诉求）。
 ///
-/// 配色：纯黑底 + 荧光绿 #00ff7f 指挥中心风格。
+/// 配色：浅灰底 + 荧光绿 #00ff7f 作为强调（填充/边框/选中），
+/// 文字与图标用深灰/深绿保证浅底可读性。
 class CncColors {
   CncColors._();
 
-  // 背景 / 面板 / 卡片
-  static const Color bg = Color(0xFF000000); // 纯黑底
-  static const Color panel = Color(0xFF181818); // 顶栏 / 底部动作条
-  static const Color panelAlt = Color(0xFF121212); // 库/我的页面顶区
-  static const Color card = Color(0xFF1a1a1a); // 卡片
+  // 背景 / 面板 / 卡片（浅色系）
+  static const Color bg = Color(0xFFF4F6F8); // 页面浅灰底
+  static const Color panel = Color(0xFFFFFFFF); // 顶栏 / 底部动作条（白）
+  static const Color panelAlt = Color(0xFFEDEFF2); // 次级面板
+  static const Color card = Color(0xFFFFFFFF); // 卡片（白）
 
   // 招牌色与辅助色
   static const Color primary = Color(0xFF00ff7f); // 荧光绿（绿底配黑字）
-  static const Color warning = Color(0xFFff9800); // 橙
-  static const Color danger = Color(0xFFf44336); // 红
-  static const Color blue = Color(0xFF2196f3); // 蓝
-  static const Color laser = Color(0xFFff2a2a); // 激光点红
+  static const Color primaryInk =
+      Color(0xFF00863D); // 浅底上的深绿（文字 / 选中图标）
+  static const Color warning = Color(0xFFE65100); // 深橙（浅底可读）
+  static const Color danger = Color(0xFFD32F2F); // 深红（浅底可读）
+  static const Color blue = Color(0xFF1565C0); // 深蓝
+  static const Color laser = Color(0xFFFF1744); // 激光点红
 
   // 文字
-  static const Color textMain = Color(0xFFFFFFFF);
-  static const Color textSub = Color(0xFF888888);
+  static const Color textMain = Color(0xFF1A1D1F); // 近黑
+  static const Color textSub = Color(0xFF6B7177); // 中灰
 
-  // 图标：深色背景上保持可见的中性灰（比 textSub 更亮，避免线性图标发虚）
-  static const Color icon = Color(0xFFB0B0B0);
+  // 图标：浅色背景上保持可见的中性深灰
+  static const Color icon = Color(0xFF4A5158);
 
   // 边框
-  static const Color border = Color(0xFF333333);
+  static const Color border = Color(0xFFE2E5EA); // 浅灰描边
 }
 
-/// ThemeData 封装。dark = 原稿设计；light = 同语言浅色备用。
+/// ThemeData 封装。light = 默认浅色；dark = 同语言深色备用。
 class AppTheme {
   AppTheme._();
 
-  static final ThemeData dark = ThemeData(
+  static final ThemeData light = ThemeData(
     useMaterial3: true,
-    brightness: Brightness.dark,
+    brightness: Brightness.light,
     scaffoldBackgroundColor: CncColors.bg,
-    colorScheme: ColorScheme.dark(
+    colorScheme: ColorScheme.light(
       primary: CncColors.primary,
       secondary: CncColors.blue,
-      background: CncColors.bg,
       surface: CncColors.card,
       error: CncColors.danger,
     ),
@@ -54,8 +56,8 @@ class AppTheme {
       elevation: 0,
     ),
     navigationBarTheme: NavigationBarThemeData(
-      backgroundColor: CncColors.panel.withOpacity(0.95),
-      indicatorColor: CncColors.primary.withOpacity(0.18),
+      backgroundColor: CncColors.panel,
+      indicatorColor: CncColors.primary.withOpacity(0.15),
       labelTextStyle: WidgetStateProperty.all(
         const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
       ),
@@ -75,44 +77,69 @@ class AppTheme {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     ),
-    textTheme: _textTheme(Brightness.dark),
+    textTheme: _textTheme(Brightness.light),
   );
 
-  /// 浅色备用主题（默认进入为 dark，见 theme_mode_controller）。
-  static final ThemeData light = ThemeData(
+  static final ThemeData dark = ThemeData(
     useMaterial3: true,
-    brightness: Brightness.light,
-    scaffoldBackgroundColor: const Color(0xFFF4F7FA),
-    colorScheme: ColorScheme.fromSeed(
-      seedColor: CncColors.primary,
-      brightness: Brightness.light,
+    brightness: Brightness.dark,
+    scaffoldBackgroundColor: const Color(0xFF000000),
+    colorScheme: ColorScheme.dark(
+      primary: CncColors.primary,
       secondary: CncColors.blue,
+      background: const Color(0xFF000000),
+      surface: const Color(0xFF1a1a1a),
       error: CncColors.danger,
+    ),
+    cardColor: const Color(0xFF1a1a1a),
+    dividerColor: const Color(0xFF333333),
+    canvasColor: const Color(0xFF000000),
+    appBarTheme: const AppBarTheme(
+      backgroundColor: const Color(0xFF181818),
+      foregroundColor: Colors.white,
+      elevation: 0,
+    ),
+    navigationBarTheme: NavigationBarThemeData(
+      backgroundColor: const Color(0xFF181818).withOpacity(0.95),
+      indicatorColor: CncColors.primary.withOpacity(0.18),
+      labelTextStyle: WidgetStateProperty.all(
+        const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+      ),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         backgroundColor: CncColors.primary,
         foregroundColor: Colors.black,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     ),
-    textTheme: _textTheme(Brightness.light),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF1a1a1a),
+        foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    ),
+    textTheme: _textTheme(Brightness.dark),
   );
 
   static TextTheme _textTheme(Brightness b) {
-    final base = b == Brightness.light
-        ? const Color(0xFF0B1B24)
-        : CncColors.textMain;
+    final base = b == Brightness.light ? const Color(0xFF1A1D1F) : Colors.white;
     final muted = b == Brightness.light
-        ? const Color(0xFF5B6B75)
-        : CncColors.textSub;
+        ? const Color(0xFF6B7177)
+        : const Color(0xFF888888);
     return TextTheme(
-      displaySmall: TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: base, letterSpacing: -0.5),
-      titleLarge: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: base),
-      titleMedium: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: base),
+      displaySmall: TextStyle(
+          fontSize: 28, fontWeight: FontWeight.w700, color: base, letterSpacing: -0.5),
+      titleLarge:
+          TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: base),
+      titleMedium:
+          TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: base),
       bodyLarge: TextStyle(fontSize: 15, color: base),
       bodyMedium: TextStyle(fontSize: 14, color: muted),
-      labelLarge: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: base),
+      labelLarge:
+          TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: base),
     );
   }
 }

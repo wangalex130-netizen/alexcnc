@@ -46,7 +46,7 @@ class AppShell extends ConsumerWidget {
             NavigationDestination(
               icon: Icon(_icons[i], size: 24, color: CncColors.icon),
               selectedIcon: Icon(_icons[i],
-                  size: 24, color: CncColors.primary),
+                  size: 24, color: CncColors.primaryInk),
               label: _labels[i],
             ),
         ],
