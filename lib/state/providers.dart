@@ -38,8 +38,8 @@ final isLocalLANProvider = StateProvider<bool>((ref) => true);
 class ToolMagazine extends StateNotifier<Map<int, String?>> {
   ToolMagazine()
       : super(const {
-          1: 't_flat_3175', // 🔴 3.175 平底刀
-          2: 't_v60', // 🟢 60° V 型刀
+          1: 't_flat_3175', // 红环 3.175 平底刀
+          2: 't_v60', // 绿环 60° V 型刀
           3: null,
           4: null,
         });

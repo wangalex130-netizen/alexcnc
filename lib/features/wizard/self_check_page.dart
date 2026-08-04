@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
 import '../../data/material_db.dart';
@@ -163,8 +164,14 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
             ),
           ),
           const SizedBox(height: 16),
-          const Text('⚡ 全自动预检与自检流水线',
-              style: TextStyle(fontSize: 13, color: CncColors.primaryInk)),
+          Row(
+            children: [
+              Icon(Symbols.bolt, size: 16, color: CncColors.primaryInk),
+              const SizedBox(width: 6),
+              const Text('全自动预检与自检流水线',
+                  style: TextStyle(fontSize: 13, color: CncColors.primaryInk)),
+            ],
+          ),
           const SizedBox(height: 10),
           ...List.generate(phases.length, (i) {
             final s = statusFor(i);
@@ -212,7 +219,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
               border: Border.all(color: CncColors.blue.withOpacity(0.3)),
             ),
             child: const Text(
-              '💡 关闭本页不会停止自检。完成后请前往控制台「当前加工中」查看实时雕刻过程。',
+              '关闭本页不会停止自检。完成后请前往控制台「当前加工中」查看实时雕刻过程。',
               style: TextStyle(fontSize: 11, color: CncColors.textMain),
             ),
           ),

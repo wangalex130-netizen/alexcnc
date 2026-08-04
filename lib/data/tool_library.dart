@@ -129,7 +129,7 @@ Color ringColor(String ring) {
   }
 }
 
-/// 定位环色点：代码绘制纯色圆（替代原 🔴🟢🟠🔵⚪ emoji，不依赖 emoji 字体）。
+/// 定位环色点：代码绘制纯色圆（替代原彩色环点 emoji，不依赖 emoji 字体）。
 Widget ringDot(String ring, {double size = 10, double border = 0}) {
   final c = ringColor(ring);
   return Container(

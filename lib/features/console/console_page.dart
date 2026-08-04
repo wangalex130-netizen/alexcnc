@@ -376,7 +376,8 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
               children: [
                 Expanded(
                   child: _ActionBtn(
-                    label: '🚨 停止',
+                    icon: Symbols.stop,
+                    label: '停止',
                     fg: CncColors.danger,
                     bg: CncColors.danger.withOpacity(0.15),
                     border: CncColors.danger,
@@ -413,7 +414,8 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 const SizedBox(width: 10),
                 Expanded(
                   child: _ActionBtn(
-                    label: status.state == MachineState.paused ? '▶️ 继续' : '⏸️ 暂停',
+                    icon: status.state == MachineState.paused ? Symbols.play_arrow : Symbols.pause,
+                    label: status.state == MachineState.paused ? '继续' : '暂停',
                     fg: CncColors.textMain,
                     bg: const Color(0xFFEDEFF2),
                     border: CncColors.border,
@@ -473,7 +475,7 @@ BoxDecoration _cardDeco() => BoxDecoration(
       border: Border.all(color: CncColors.border),
     );
 
-/// 状态指示圆点：替代 emoji 色点（🟢🔴🟠），统一为纯色圆，跟随语义色。
+/// 状态指示圆点：替代彩色 emoji 色点，统一为纯色圆，跟随语义色。
 Widget _statusDot(Color color) => Container(
       width: 8,
       height: 8,
@@ -1037,11 +1039,12 @@ class _AtcSheetState extends ConsumerState<_AtcSheet> {
 
 class _ActionBtn extends StatelessWidget {
   final String label;
+  final IconData? icon;
   final Color fg;
   final Color bg;
   final Color border;
   final VoidCallback onTap;
-  const _ActionBtn({required this.label, required this.fg, required this.bg, required this.border, required this.onTap});
+  const _ActionBtn({required this.label, this.icon, required this.fg, required this.bg, required this.border, required this.onTap});
 
   @override
   Widget build(BuildContext context) => GestureDetector(
@@ -1054,7 +1057,16 @@ class _ActionBtn extends StatelessWidget {
             borderRadius: BorderRadius.circular(10),
           ),
           child: Center(
-            child: Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: fg)),
+            child: icon == null
+                ? Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: fg))
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(icon, size: 18, color: fg),
+                      const SizedBox(width: 6),
+                      Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: fg)),
+                    ],
+                  ),
           ),
         ),
       );

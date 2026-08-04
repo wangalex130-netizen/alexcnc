@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
 import '../../data/material_db.dart';
@@ -1065,10 +1066,19 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                 if (dup)
                   Padding(
                     padding: const EdgeInsets.only(top: 6),
-                    child: Text(
-                        '⚠️ T$slot 被多个工序占用，请为每个工序选择不同刀兜',
-                        style: const TextStyle(
-                            fontSize: 11, color: CncColors.danger)),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Symbols.warning, size: 14, color: CncColors.danger),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                            'T$slot 被多个工序占用，请为每个工序选择不同刀兜',
+                            style: const TextStyle(
+                                fontSize: 11, color: CncColors.danger)),
+                      ),
+                    ],
+                  ),
                   ),
               ],
             ),
@@ -1327,7 +1337,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       vsync: this, duration: const Duration(milliseconds: 2200))
     ..addListener(() => setState(() {}));
   bool _walking = false;
-  String _guide = '💡 移动红点至耗材左下角，点击 [设雕刻原点]。系统将自动校验图形尺寸与底板边界。';
+  String _guide = '移动红点至耗材左下角，点击 [设雕刻原点]。系统将自动校验图形尺寸与底板边界。';
 
   @override
   void initState() {
@@ -1373,10 +1383,10 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       setState(() {
         if (nowOverflow) {
           _guide =
-              '🚨 超限警告：雕刻图形已超出机床物理极限！请向左/下调整原点。';
+              '超限警告：雕刻图形已超出机床物理极限！请向左/下调整原点。';
         } else {
           _guide =
-              '✓ 雕刻原点锁定！行程校验通过。请点击 [启动实物走边框]，肉眼检查红点轨迹是否踩在耗材上且避开压板。';
+              '雕刻原点锁定！行程校验通过。请点击 [启动实物走边框]，肉眼检查红点轨迹是否踩在耗材上且避开压板。';
         }
       });
     }
@@ -1390,10 +1400,10 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     setState(() {
       if (overflow) {
         _guide =
-            '🚨 超限警告：雕刻图形已超出机床物理极限！请向左/下调整原点。';
+            '超限警告：雕刻图形已超出机床物理极限！请向左/下调整原点。';
       } else {
         _guide =
-            '✓ 雕刻原点锁定！行程校验通过。请点击 [启动实物走边框]，肉眼检查红点轨迹是否踩在耗材上且避开压板。';
+            '雕刻原点锁定！行程校验通过。请点击 [启动实物走边框]，肉眼检查红点轨迹是否踩在耗材上且避开压板。';
       }
     });
   }
@@ -1413,7 +1423,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     widget.onOverflow(false);
     setState(() {
       _guide =
-          '💡 移动红点至耗材左下角，点击 [设雕刻原点]。系统将自动校验图形尺寸与底板边界。';
+          '移动红点至耗材左下角，点击 [设雕刻原点]。系统将自动校验图形尺寸与底板边界。';
     });
   }
 
@@ -1422,8 +1432,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     final t = Theme.of(context).textTheme;
     final taskName = widget.task?.name ?? '模型';
     final statusText = _walking
-        ? '⚡ 走边框中…'
-        : (widget.originSet ? '🔴 激光准直' : '🔴 激光准直');
+        ? '走边框中…'
+        : (widget.originSet ? '激光准直' : '激光准直');
 
     if (_areaLoading) {
       return const Center(
@@ -2149,10 +2159,19 @@ class _ReadyPhase extends StatelessWidget {
             borderRadius: BorderRadius.circular(10),
             border: Border.all(color: CncColors.blue.withOpacity(0.3)),
           ),
-          child: const Text(
-              '🔒 云端数据闭环保护中：加工代码由云端直接发送给 CNC 硬件，手机端不保存任何原始文件。'
-              '点击后设备将先执行自检流水线，完成后自动进入实时加工监控页。',
-              style: TextStyle(fontSize: 11, color: CncColors.textMain)),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Symbols.lock, size: 14, color: CncColors.blue),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                    '云端数据闭环保护中：加工代码由云端直接发送给 CNC 硬件，手机端不保存任何原始文件。'
+                    '点击后设备将先执行自检流水线，完成后自动进入实时加工监控页。',
+                    style: const TextStyle(fontSize: 11, color: CncColors.textMain)),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 14),
         SizedBox(
