@@ -16,7 +16,7 @@ class CncColors {
   // 招牌色与辅助色
   static const Color primary = Color(0xFF00ff7f); // 荧光绿（绿底配黑字）
   static const Color primaryInk =
-      Color(0xFF00863D); // 浅底上的深绿（文字 / 选中图标）
+      Color(0xFF0A5C3A); // 浅底上的深绿（文字 / 选中图标），确保可读
   static const Color warning = Color(0xFFE65100); // 深橙（浅底可读）
   static const Color danger = Color(0xFFD32F2F); // 深红（浅底可读）
   static const Color blue = Color(0xFF1565C0); // 深蓝
@@ -26,8 +26,8 @@ class CncColors {
   static const Color textMain = Color(0xFF1A1D1F); // 近黑
   static const Color textSub = Color(0xFF6B7177); // 中灰
 
-  // 图标：浅色背景上保持可见的中性深灰
-  static const Color icon = Color(0xFF4A5158);
+  // 图标：浅色背景上保持可见的中性深灰（比 4A5158 再深一档）
+  static const Color icon = Color(0xFF2D333A);
 
   // 边框
   static const Color border = Color(0xFFE2E5EA); // 浅灰描边
@@ -57,10 +57,22 @@ class AppTheme {
     ),
     navigationBarTheme: NavigationBarThemeData(
       backgroundColor: CncColors.panel,
-      indicatorColor: CncColors.primary.withOpacity(0.15),
-      labelTextStyle: WidgetStateProperty.all(
-        const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-      ),
+      indicatorColor: CncColors.primary.withOpacity(0.25),
+      labelTextStyle: WidgetStateProperty.resolveWith((states) {
+        final selected = states.contains(WidgetState.selected);
+        return TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+          color: selected ? CncColors.primaryInk : CncColors.icon,
+        );
+      }),
+      iconTheme: WidgetStateProperty.resolveWith((states) {
+        final selected = states.contains(WidgetState.selected);
+        return IconThemeData(
+          color: selected ? CncColors.primaryInk : CncColors.icon,
+          size: 24,
+        );
+      }),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
