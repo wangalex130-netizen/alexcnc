@@ -45,4 +45,7 @@ abstract class HardwareService {
   /// [mode] 0=不调平 / 1=标准 / 2=精细；[cols]/[rows] 为探测点数阵。
   Future<void> setLevelingPlan(
       {required int mode, required int cols, required int rows});
+
+  /// 释放底层连接（MQTT / TCP socket）。由 Provider 在 dispose 时调用。
+  void dispose();
 }

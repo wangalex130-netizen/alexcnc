@@ -106,7 +106,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     _controller = controller;
 
     try {
-      await controller.initializePlayer();
+      await controller.initialize();
       if (!mounted) return;
       setState(() => _state = _CamState.ready);
     } catch (e) {

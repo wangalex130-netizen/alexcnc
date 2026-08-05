@@ -41,6 +41,16 @@ jobs:
           cp /tmp/main.dart.bak lib/main.dart
           cp /tmp/pubspec.yaml.bak pubspec.yaml
 
+      # flutter_vlc_player 7.x 需要 Android NDK 27.0.12077973，而 flutter create
+      # 生成的 build.gradle.kts 默认指向镜像自带的 26.3。这里显式 pin 到 27.0，
+      # Gradle 会自动下载对应 NDK（side-by-side）。先删掉任何既有 ndkVersion 行，
+      # 再在 android { 下注入，确保幂等、不重复定义。
+      - name: Pin Android NDK 27 (required by flutter_vlc_player)
+        run: |
+          sed -i '/ndkVersion/d' android/app/build.gradle.kts
+          sed -i '0,/^android {/s//android {\n    ndkVersion = "27.0.12077973"/' android/app/build.gradle.kts
+          grep -n "ndkVersion" android/app/build.gradle.kts
+
       # Remove the default counter-app test so `flutter analyze` stays clean.
       - name: Drop generated default test
         run: rm -rf test

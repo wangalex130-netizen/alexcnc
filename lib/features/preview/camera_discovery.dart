@@ -63,7 +63,7 @@ class CameraDiscovery {
     try {
       sock = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
       sock.multicastHops = 2;
-      await sock.joinMulticast(InternetAddress(_kMulticastAddr));
+      sock.joinMulticast(InternetAddress(_kMulticastAddr));
 
       final uuid = _uuid();
       sock.send(utf8.encode(_probeXml(uuid)),
