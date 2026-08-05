@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/config.dart';
+import '../app/runtime_config.dart';
 import '../models/library_item.dart';
 import '../models/machine_status.dart';
 import '../models/task_metadata.dart';
@@ -15,9 +16,20 @@ import '../services/hardware_service_real.dart';
 import '../services/network_auth.dart';
 
 /// Live controller binding. 默认用 Mock；构建时传 USE_REAL_BACKEND=true 接真机。
+/// 运行时联调设置（RuntimeConfig）可覆盖地址、设备 ID，保存后本 provider 自动
+/// 重建服务并触发重连，无需重新出包。
 final hardwareServiceProvider = Provider<HardwareService>((ref) {
-  final svc = AppConfig.useRealBackend
-      ? RealHardwareService()
+  final cfg = ref.watch(runtimeConfigProvider);
+  final svc = cfg.resolvedUseRealBackend
+      ? RealHardwareService(
+          broker: cfg.resolvedMqttBroker,
+          mqttPort: cfg.resolvedMqttPort,
+          mqttUser: cfg.resolvedMqttUser,
+          mqttPass: cfg.resolvedMqttPass,
+          deviceId: cfg.resolvedDeviceId,
+          tcpHost: cfg.resolvedDeviceTcpHost,
+          tcpPort: cfg.resolvedDeviceTcpPort,
+        )
       : MockHardwareService();
   ref.onDispose(svc.dispose);
   return svc;
@@ -29,8 +41,13 @@ final machineStatusProvider = StreamProvider<MachineStatus>((ref) {
 });
 
 /// Cloud binding. 默认用 Mock；构建时传 USE_REAL_BACKEND=true 接云端。
-final cloudServiceProvider = Provider<CloudService>((ref) =>
-    AppConfig.useRealBackend ? RealCloudService() : MockCloudService());
+/// baseUrl / deviceId 同样受 RuntimeConfig 覆盖。
+final cloudServiceProvider = Provider<CloudService>((ref) {
+  final cfg = ref.watch(runtimeConfigProvider);
+  return cfg.resolvedUseRealBackend
+      ? RealCloudService(cfg.resolvedCloudBaseUrl, cfg.resolvedDeviceId)
+      : MockCloudService();
+});
 
 final networkProbeProvider = Provider<NetworkProbe>((ref) => NetworkProbe());
 

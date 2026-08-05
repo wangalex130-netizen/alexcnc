@@ -27,6 +27,8 @@ enum ConnectionState { disconnected, connecting, connected }
 class RealHardwareService implements HardwareService {
   final String broker;
   final int mqttPort;
+  final String mqttUser;
+  final String mqttPass;
   final String deviceId;
   final String tcpHost;
   final int tcpPort;
@@ -53,10 +55,18 @@ class RealHardwareService implements HardwareService {
   RealHardwareService({
     this.broker = AppConfig.mqttBroker,
     this.mqttPort = AppConfig.mqttPort,
+    this.mqttUser = AppConfig.mqttUser,
+    this.mqttPass = AppConfig.mqttPass,
     this.deviceId = AppConfig.deviceId,
     this.tcpHost = AppConfig.deviceTcpHost,
     this.tcpPort = AppConfig.deviceTcpPort,
   });
+
+  /// MQTT 状态广播主题：cnc/<deviceId>/status（按实例 deviceId 推导）
+  String get mqttStatusTopic => 'cnc/$deviceId/status';
+
+  /// MQTT 命令下发主题：cnc/<deviceId>/cmd
+  String get mqttCmdTopic => 'cnc/$deviceId/cmd';
 
   @override
   Stream<MachineStatus> get statusStream => _ctrl.stream;
@@ -82,12 +92,12 @@ class RealHardwareService implements HardwareService {
       client.logging(on: false);
       client.onDisconnected = _onMqttDisconnected;
       await client.connect(
-        AppConfig.mqttUser.isEmpty ? null : AppConfig.mqttUser,
-        AppConfig.mqttPass.isEmpty ? null : AppConfig.mqttPass,
+        mqttUser.isEmpty ? null : mqttUser,
+        mqttPass.isEmpty ? null : mqttPass,
       );
       if (client.connectionStatus?.state == MqttConnectionState.connected) {
         _mqtt = client;
-        client.subscribe(AppConfig.mqttStatusTopic, MqttQos.atLeastOnce);
+        client.subscribe(mqttStatusTopic, MqttQos.atLeastOnce);
         client.updates!.listen(_onMqtt);
         _reconnectAttempts = 0;
         _setConn(ConnectionState.connected);
@@ -187,7 +197,7 @@ class RealHardwareService implements HardwareService {
       final builder = MqttClientPayloadBuilder();
       builder.addString(json);
       _mqtt!.publishMessage(
-          AppConfig.mqttCmdTopic, MqttQos.atLeastOnce, builder.payload!);
+          mqttCmdTopic, MqttQos.atLeastOnce, builder.payload!);
     }
   }
 

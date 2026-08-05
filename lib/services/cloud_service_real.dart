@@ -17,9 +17,12 @@ import 'cloud_service_mock.dart';
 /// 委托给 [MockCloudService] 兜底，保证无网也能打开 App。
 class RealCloudService implements CloudService {
   final String baseUrl;
+  final String deviceId;
   final CloudService _fallback = MockCloudService();
 
-  RealCloudService([this.baseUrl = AppConfig.cloudBaseUrl]);
+  RealCloudService(
+      [this.baseUrl = AppConfig.cloudBaseUrl,
+      this.deviceId = AppConfig.deviceId]);
 
   static const _kMatCache = 'cloud_materials_cache_v1';
   static const _kTaskCachePrefix = 'cloud_task_';
@@ -101,7 +104,7 @@ class RealCloudService implements CloudService {
           .post(
             Uri.parse('$baseUrl/api/v1/diagnostics'),
             headers: await _headers,
-            body: jsonEncode({'device': AppConfig.deviceId, 'log': log}),
+            body: jsonEncode({'device': deviceId, 'log': log}),
           )
           .timeout(const Duration(seconds: 5));
     } catch (_) {

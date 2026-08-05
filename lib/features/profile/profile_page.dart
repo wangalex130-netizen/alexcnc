@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
+import '../settings/debug_settings_page.dart';
 
 /// Core 5: personal hub & device manager.
 /// Strictly aligned to 我的页面.html —— 荧光绿 #00ff7f / 纯黑底 / 线性图标 / 原名。
@@ -139,6 +140,15 @@ class _ProfilePageState extends State<ProfilePage> {
               icon: Symbols.build,
               title: '智能诊断与日志提取',
               onTap: () => _openSheet(const _DiagSheet()),
+            ),
+            _MenuItem(
+              icon: Symbols.tune,
+              title: '联调设置（云端 / MQTT / 设备）',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const DebugSettingsPage()),
+              ),
             ),
             _MenuItem(
               icon: Symbols.headset,

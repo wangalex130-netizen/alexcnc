@@ -66,7 +66,8 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
               // 自动发现作为兜底（见 lib/features/preview/ ）。
               SizedBox(
                 height: 220,
-                child: RtspPreviewWidget(rtspUrl: AppConfig.cameraRtspUrl),
+                child: RtspPreviewWidget(
+                    rtspUrl: ref.watch(runtimeConfigProvider).resolvedCameraRtsp),
               ),
               Positioned(
                 top: 40,
