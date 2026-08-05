@@ -11,6 +11,9 @@ import '../models/position.dart';
 import '../models/tool.dart';
 import 'hardware_service.dart';
 
+/// 链路连接态：UI 据此显示「连接中 / 已连 / 掉线」，不影响功能逻辑。
+enum ConnectionState { disconnected, connecting, connected }
+
 /// 真实硬件实现：云端 MQTT（主链路：状态订阅 + 全命令下发）+ 局域网 TCP（低延迟
 /// 运动控制 jog/home/定原点）。
 ///
@@ -32,6 +35,15 @@ class RealHardwareService implements HardwareService {
   MqttServerClient? _mqtt;
   Socket? _tcp;
   bool _tcpConnected = false;
+
+  // ---- 连接态（重连 + UI 展示，不改变功能逻辑）----
+  ConnectionState _conn = ConnectionState.disconnected;
+  final _connCtrl = StreamController<ConnectionState>.broadcast();
+  Timer? _reconnectTimer;
+  Timer? _tcpReconnectTimer;
+  int _reconnectAttempts = 0;
+  bool _closing = false;
+
   final Map<String, bool> _aux = {
     'light': false,
     'laser': false,
@@ -49,6 +61,10 @@ class RealHardwareService implements HardwareService {
   @override
   Stream<MachineStatus> get statusStream => _ctrl.stream;
 
+  /// 连接态流：connecting / connected / disconnected，UI 订阅以显示链路状态。
+  Stream<ConnectionState> get connectionState => _connCtrl.stream;
+  ConnectionState get currentConnectionState => _conn;
+
   @override
   Future<void> connect() async {
     _connectMqtt();
@@ -56,14 +72,15 @@ class RealHardwareService implements HardwareService {
   }
 
   Future<void> _connectMqtt() async {
+    if (_conn == ConnectionState.connected) return;
+    _setConn(ConnectionState.connecting);
     try {
+      // 每次重连都新建 client，避免复用已断开实例的脏状态
       final client = MqttServerClient(broker, 'alexcnc_${_shortId()}');
       client.port = mqttPort;
       client.keepAlivePeriod = 30;
       client.logging(on: false);
-      client.onDisconnected = () {
-        // 断线后由外层重连策略处理；此处仅记录
-      };
+      client.onDisconnected = _onMqttDisconnected;
       await client.connect(
         AppConfig.mqttUser.isEmpty ? null : AppConfig.mqttUser,
         AppConfig.mqttPass.isEmpty ? null : AppConfig.mqttPass,
@@ -72,10 +89,44 @@ class RealHardwareService implements HardwareService {
         _mqtt = client;
         client.subscribe(AppConfig.mqttStatusTopic, MqttQos.atLeastOnce);
         client.updates!.listen(_onMqtt);
+        _reconnectAttempts = 0;
+        _setConn(ConnectionState.connected);
+      } else {
+        _setConn(ConnectionState.disconnected);
+        _scheduleReconnect();
       }
     } catch (_) {
-      // 云端不可达：保持离线，不阻断 App
+      // 云端不可达：保持离线并尝试重连，不阻断 App
+      _setConn(ConnectionState.disconnected);
+      _scheduleReconnect();
     }
+  }
+
+  void _onMqttDisconnected() {
+    if (_closing) {
+      _setConn(ConnectionState.disconnected);
+      return;
+    }
+    _setConn(ConnectionState.disconnected);
+    _scheduleReconnect();
+  }
+
+  /// 指数退避重连：2s → 4s → 8s → 16s → 封顶 30s
+  void _scheduleReconnect() {
+    if (_closing) return;
+    _reconnectTimer?.cancel();
+    final backoff = [2, 4, 8, 16, 30];
+    final secs = backoff[_reconnectAttempts.clamp(0, backoff.length - 1)];
+    _reconnectAttempts++;
+    _reconnectTimer = Timer(Duration(seconds: secs), () {
+      if (_conn != ConnectionState.connected && !_closing) _connectMqtt();
+    });
+  }
+
+  void _setConn(ConnectionState s) {
+    if (_conn == s) return;
+    _conn = s;
+    if (!_connCtrl.isClosed) _connCtrl.add(s);
   }
 
   void _onMqtt(List<MqttReceivedMessage<MqttMessage>> events) {
@@ -99,11 +150,25 @@ class RealHardwareService implements HardwareService {
           final t = line.trim();
           if (t.isNotEmpty) _parseAndEmit(t);
         }
-      }, onDone: () => _tcpConnected = false,
-          onError: (_) => _tcpConnected = false);
+      }, onDone: () {
+        _tcpConnected = false;
+        _scheduleTcpReconnect();
+      }, onError: (_) {
+        _tcpConnected = false;
+        _scheduleTcpReconnect();
+      });
     } catch (_) {
       _tcpConnected = false;
+      _scheduleTcpReconnect();
     }
+  }
+
+  /// 局域网 TCP 通道：掉线后每 5s 重试，直到连上或 dispose。
+  void _scheduleTcpReconnect() {
+    _tcpReconnectTimer?.cancel();
+    _tcpReconnectTimer = Timer(const Duration(seconds: 5), () {
+      if (!_tcpConnected) _connectTcp();
+    });
   }
 
   void _parseAndEmit(String text) {
@@ -137,11 +202,15 @@ class RealHardwareService implements HardwareService {
 
   @override
   Future<void> disconnect() async {
+    _closing = true;
+    _reconnectTimer?.cancel();
+    _tcpReconnectTimer?.cancel();
     _tcp?.destroy();
     _tcp = null;
     _tcpConnected = false;
     _mqtt?.disconnect();
     _mqtt = null;
+    _setConn(ConnectionState.disconnected);
   }
 
   @override
@@ -228,8 +297,11 @@ class RealHardwareService implements HardwareService {
   bool getAux(String key) => _aux[key] ?? false;
 
   void dispose() {
+    _reconnectTimer?.cancel();
+    _tcpReconnectTimer?.cancel();
     _tcp?.destroy();
     _mqtt?.disconnect();
     _ctrl.close();
+    _connCtrl.close();
   }
 }
