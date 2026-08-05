@@ -43,4 +43,25 @@ class TaskMetadata {
     this.defaultToolId,
     this.requiredTools = const [],
   });
+
+  /// 云端任务元数据 → 本地模型（见 docs/功能逻辑与分工梳理.md / PROTOCOL.md）。
+  factory TaskMetadata.fromJson(Map<String, dynamic> j) => TaskMetadata(
+        id: j['id'] as String? ?? '',
+        name: j['name'] as String? ?? '',
+        widthMm: (j['widthMm'] as num? ?? 0).toDouble(),
+        heightMm: (j['heightMm'] as num? ?? 0).toDouble(),
+        depthMm: (j['depthMm'] as num? ?? 0).toDouble(),
+        boardThicknessMm: (j['boardThicknessMm'] as num? ?? 0).toDouble(),
+        recommendedSpindleRpm: (j['recommendedSpindleRpm'] as num?)?.toDouble(),
+        recommendedFeedRate: (j['recommendedFeedRate'] as num?)?.toDouble(),
+        thumbnailUrl: j['thumbnailUrl'] as String?,
+        defaultMaterialKey: j['defaultMaterialKey'] as String? ?? 'pine',
+        defaultToolId: j['defaultToolId'] as String?,
+        requiredTools: (j['requiredTools'] as List? ?? [])
+            .map((e) => RequiredTool(
+                  (e['toolId'] as String? ?? ''),
+                  (e['role'] as String? ?? ''),
+                ))
+            .toList(),
+      );
 }

@@ -29,6 +29,29 @@ class MaterialSpec {
     required this.toolIds,
     required this.note,
   });
+
+  /// 云端主表 → 本地模型（见 docs/功能逻辑与分工梳理.md §配置项⑦）。
+  factory MaterialSpec.fromJson(Map<String, dynamic> j) {
+    final swatchHex = (j['swatch'] as String? ?? '#9E9E9E')
+        .replaceFirst('#', '');
+    final swatch = Color(0xFF000000 | int.parse(swatchHex, radix: 16));
+    return MaterialSpec(
+      key: j['key'] as String? ?? '',
+      name: j['name'] as String? ?? '',
+      visual: MaterialVisual.values.firstWhere(
+        (e) => e.name == (j['visual'] ?? 'wood'),
+        orElse: () => MaterialVisual.wood,
+      ),
+      swatch: swatch,
+      rpm: (j['rpm'] as num? ?? 0).toInt(),
+      feed: (j['feed'] as num? ?? 0).toInt(),
+      plunge: (j['plunge'] as num? ?? 0).toInt(),
+      toolIds: (j['toolIds'] as List? ?? [])
+          .map((e) => e.toString())
+          .toList(),
+      note: j['note'] as String? ?? '',
+    );
+  }
 }
 
 /// 主选材质（桌面型 CNC 常见材料库；向导 Step2 下拉展示）。

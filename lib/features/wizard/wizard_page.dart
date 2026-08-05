@@ -175,6 +175,23 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     }
   }
 
+  /// 离开「智能调平」步（step==4）时，把点数方案下发给机器。
+  /// 机器收到 mode+cols+rows 后执行真实网格探测；App 不写死点数，
+  /// 以固件广播结果为准。
+  void _next() {
+    if (_step == 4) {
+      final wCm = (_task?.widthMm ?? 0) / 10;
+      final hCm = (_task?.heightMm ?? 0) / 10;
+      final plan = _computeLeveling(_leveling, wCm, hCm);
+      ref.read(hardwareServiceProvider).setLevelingPlan(
+            mode: _leveling,
+            cols: plan.cols,
+            rows: plan.rows,
+          );
+    }
+    setState(() => _step++);
+  }
+
   @override
   void dispose() {
     _thicknessFocus.dispose();
@@ -244,8 +261,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
                   ),
                 const Spacer(),
                 FilledButton(
-                  onPressed:
-                      _canProceed ? () => setState(() => _step++) : null,
+                  onPressed: _canProceed ? _next : null,
                   child: const Text('下一步'),
                 ),
               ],
@@ -357,6 +373,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       case 4:
         return _StepLeveling(
           mode: _leveling,
+          task: _task,
           onMode: (m) => setState(() => _leveling = m),
         );
       case 5:
@@ -1930,36 +1947,48 @@ class _BedPainter extends CustomPainter {
       old.walking != walking;
 }
 
+/// 根据模型尺寸（cm）与调平模式计算探测点阵。
+/// mode: 0=不调平, 1=标准(约 5cm 间距), 2=精细(约 3cm 间距)。
+/// 点数完全由云端下发的真实图纸尺寸决定，不再写死演示面积。
+({int cols, int rows, int pts, int sec}) _computeLeveling(
+    int m, double wCm, double hCm) {
+  if (m == 0) return (cols: 0, rows: 0, pts: 0, sec: 0);
+  final den = m == 1 ? 5.0 : 3.0;
+  final cols = max(2, (wCm / den).ceil());
+  final rows = max(2, (hCm / den).ceil());
+  final pts = cols * rows;
+  final sec = pts * 4; // 每点预估 4 秒
+  return (cols: cols, rows: rows, pts: pts, sec: sec);
+}
+
 // ===================== Step 5 · 智能调平（不调平 / 标准 / 精细）=====================
 
 class _StepLeveling extends StatelessWidget {
   final int mode;
+  final TaskMetadata? task; // 用于取云端下发的真实模型尺寸（cm）
   final void Function(int) onMode;
   const _StepLeveling({
     required this.mode,
+    this.task,
     required this.onMode,
   });
-
-  // 基于图纸面积匹配阵列（对齐 step5.html）
-  (String, String) _calc(int m, double wCm, double hCm) {
-    if (m == 0) return ('跳过调平', '0 秒');
-    final den = m == 1 ? 5.0 : 3.0;
-    final cols = max(2, (wCm / den).ceil());
-    final rows = max(2, (hCm / den).ceil());
-    final pts = cols * rows;
-    final sec = pts * 4;
-    return ('$cols x $rows (共 $pts 点)', '约 $sec 秒');
-  }
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
+    // 调平点数由云端下发的真实模型尺寸（G 代码解析所得）决定，不再写死演示面积。
+    final wCm = (task?.widthMm ?? 0) / 10;
+    final hCm = (task?.heightMm ?? 0) / 10;
     const modes = [
       ('不调平', '跳过曲面调平，手动确认台面平整'),
-      ('标准调平', '9 点网格探测，满足大部分雕刻'),
-      ('精细调平', '12 点网格探测，复杂曲面更精准'),
+      ('标准调平', '约 5cm 网格间距，满足大部分雕刻'),
+      ('精细调平', '约 3cm 网格间距，复杂曲面更精准'),
     ];
-    final (grid, time) = _calc(mode, 14.5, 9.5);
+    final plan = _computeLeveling(mode, wCm, hCm);
+    final grid = mode == 0
+        ? '跳过调平'
+        : '${plan.cols} × ${plan.rows}（共 ${plan.pts} 点）';
+    final time = mode == 0 ? '0 秒' : '约 ${plan.sec} 秒';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

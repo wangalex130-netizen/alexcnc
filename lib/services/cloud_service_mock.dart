@@ -1,9 +1,16 @@
+import '../data/material_db.dart';
 import '../models/library_item.dart';
 import '../models/task_metadata.dart';
 import 'cloud_service.dart';
 
 /// In-memory cloud stand-in.
 class MockCloudService implements CloudService {
+  @override
+  Future<List<MaterialSpec>> fetchMaterials() async {
+    await Future.delayed(const Duration(milliseconds: 150));
+    return materials;
+  }
+
   @override
   Future<TaskMetadata?> getActiveTask() async {
     await Future.delayed(const Duration(milliseconds: 200));

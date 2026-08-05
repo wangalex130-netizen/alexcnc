@@ -3,12 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../app/config.dart';
 import '../../app/theme.dart';
 import '../../data/tool_library.dart';
 import '../../widgets/tool_icon.dart';
 import '../../models/machine_status.dart';
 import '../../models/tool.dart';
 import '../../state/providers.dart';
+import '../preview/rtsp_preview_widget.dart';
 import '../wizard/job_monitor_page.dart';
 import '../wizard/self_check_page.dart';
 
@@ -60,13 +62,11 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
           // ---- 视频监控区 ----
           Stack(
             children: [
-              Container(
+              // 机器侧面固定头：纯裸画面（无叠加层），默认用配置里的固定地址，
+              // 自动发现作为兜底（见 lib/features/preview/ ）。
+              SizedBox(
                 height: 220,
-                width: double.infinity,
-                color: const Color(0xFFECEFF3),
-                child: const Center(
-                  child: Icon(Symbols.videocam, size: 48, color: Color(0xFF9AA0A6)),
-                ),
+                child: RtspPreviewWidget(rtspUrl: AppConfig.cameraRtspUrl),
               ),
               Positioned(
                 top: 40,

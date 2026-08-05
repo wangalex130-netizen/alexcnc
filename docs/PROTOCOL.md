@@ -38,11 +38,17 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 
 接口定义见 `lib/services/hardware_service.dart`。下面是每个方法期望的**出站命令**与对应的 **Grbl / 固件动作**。
 
-### 2.1 传输建议
+### 2.1 传输建议（最终架构：MQTT 主链路 + 局域网 TCP 增强）
 
-- **局域网**：ESP32 起一个 TCP 服务（建议端口 `8899`），App 以**换行分隔的 JSON 帧**通信（每条命令以 `\n` 结尾）。
-- 也可用 **MQTT**（见 2.4）。两条路报文一致。
-- `statusStream` 是实时状态广播（约 5–10 Hz）。
+> 参见 `docs/功能逻辑与分工梳理.md` 决策③。两条链路**报文完全一致**，汇入固件侧同一命令队列串行执行，App 不区分来源。
+
+- **主链路 = 云端 MQTT Broker**（出厂即用、WAN 远程天然打通、App↔机都连它）：
+  - 状态订阅：`cnc/<deviceId>/status`
+  - 命令下发：`cnc/<deviceId>/cmd`
+  - App 默认连 `broker.emqx.io`（测试），量产后换成你们自有 Broker 域名。
+- **局域网增强 = ESP32 本地 TCP 服务（端口 `8899`）**：同 Wi-Fi 时把运动命令（jog/home/定原点）直发设备，降低抖动；App 同时把命令也经 MQTT 兜底。
+- 报文：**换行分隔的 JSON 帧**（每条命令以 `\n` 结尾）。`statusStream` 实时状态广播（约 5–10 Hz）。
+- ESP32 双核可同时跑 MQTT Client + AsyncTCP Server + Grbl 解析 + 状态机（工业成熟组合，资源充足）。
 
 ### 2.2 命令映射表
 
@@ -54,11 +60,12 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 | `startSpindle(rpm)` | `{"cmd":"spindle","rpm":12000}` | `M3 S12000`；`rpm=0` → `M5` |
 | `stopSpindle()` | `{"cmd":"spindle","rpm":0}` | `M5` |
 | `setAux(key, on)` | `{"cmd":"aux","key":"light","on":true}` | `key` ∈ `light`(机箱照明) / `laser`(红点激光) / `timelapse`(延时摄影)；自定义 `$` 或 M-code |
-| `startJob()` | `{"cmd":"job","action":"start"}` | 触发 MCU 开始执行**云端已下发**的队列任务。**App 不发 G-code** |
+| `startJob()` | `{"cmd":"job","action":"start"}` | 触发 MCU 开始执行**云端已下发**的队列任务（固件统一跑「自检 → 加工」）。**App 不发 G-code** |
 | `pauseJob()` | `{"cmd":"job","action":"pause"}` | 软暂停（保留坐标） |
 | `resumeJob()` | `{"cmd":"job","action":"resume"}` | 继续 |
 | `stopJob()` | `{"cmd":"job","action":"stop"}` | 软停止（抬刀 / 回安全位） |
-| `updateToolMap(tools)` | `{"cmd":"toolMap","tools":[{"index":1,"installed":true,"name":"3.175平底刀","length":30.0}]}` | 下发 ATC 刀仓映射 |
+| `updateToolMap(tools)` | `{"cmd":"toolMap","tools":[{"index":1,"installed":true},{"index":2,"installed":false}]}` | 下发 ATC 刀仓映射（仅占用位；**具体哪把刀由 App 侧 updateToolMap 维护，固件四刀位传感器只校验在位**） |
+| `setLevelingPlan(mode, cols, rows)` | `{"cmd":"leveling","mode":1,"cols":5,"rows":4}` | 下发调平网格方案；`mode`∈0/1/2（跳过/标准/精细），`cols/rows` 由 App 按**云端下发的模型尺寸**算好后填好发给机器；机器按此网格执行扫描 |
 | `connect()` / `disconnect()` | 建立 / 断开 TCP | — |
 | `getStatus()` | 拉取一次当前状态 | 返回单帧 status |
 
@@ -70,12 +77,14 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 {
   "state": "idle",            // idle | homing | busy | paused | alarm | disconnected
   "pos":  { "x": 12.34, "y": 5.60, "z": -2.10 },   // G54 工作坐标 (mm)
-  "mp":   { "x": 12.34, "y": 5.60, "z": -2.10 },   // 机器坐标 (mm)
-  "spindle": 12000,           // rpm；主轴关闭时为 null
+  "mpos": { "x": 12.34, "y": 5.60, "z": -2.10 },   // 机器坐标 (mm)；别名 "mp" 也接受
+  "rpm":  12000,              // 主轴转速 rpm；关闭时为 null；别名 "spindle" 也接受
   "feed": 600,                // mm/min；无进给时为 null
-  "prog": 0.42,               // 加工进度 0..1
-  "eta": 180,                 // 预计剩余秒；无任务为 null
+  "progress": 0.42,           // 加工进度 0..1；别名 "prog" 也接受
+  "etaSec": 180,              // 预计剩余秒；无任务为 null；别名 "eta" 也接受
   "msg": "ok",                // 可选状态描述
+  "scIndex": 3,               // 自检阶段进度（固件拥有自检流水线）：当前第几阶段
+  "scTotal": 8,               // 自检总阶段数；0 = 无/未上报
   "aux": { "light": true, "laser": false, "timelapse": false },
   "tools": [                  // ATC 刀仓（4 槽）
     { "index": 1, "name": "3.175平底刀", "material": "钨钢", "length": 30.0, "installed": true },
@@ -85,6 +94,8 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
   ]
 }
 ```
+
+> **自检流水线（决策②：固件拥有）**：`scIndex`/`scTotal` 由固件在 `startJob()` 后统一广播；App **只渲染**，不自己计时。App 据此显示「自检中 3/8」并自动在 `scIndex>=scTotal` 后进入加工态。
 
 ### 2.4 MQTT 备选
 
@@ -103,11 +114,31 @@ payload 与上面 JSON 完全一致。
 
 | 方法 | 路径 | 返回 |
 |---|---|---|
-| `getTaskById(id)` | `GET /api/tasks/{id}` | `TaskMetadata` JSON |
-| `getActiveTask()` | `GET /api/tasks/active` | `TaskMetadata` JSON（可选） |
-| `getInspiration(page)` | `GET /api/library/inspiration?page=0` | `[LibraryItem]` JSON |
-| `getMySpace()` | `GET /api/library/mine` | `[LibraryItem]` JSON |
-| `pushDiagnostics(log)` | `POST /api/diagnostics` | `202 Accepted` |
+| `fetchMaterials()` | `GET /api/v1/materials` | `[MaterialSpec]` JSON（云端主表，见决策⑦）|
+| `getTaskById(id)` | `GET /api/v1/tasks/{id}` | `TaskMetadata` JSON |
+| `getActiveTask()` | `GET /api/v1/tasks/active` | `TaskMetadata` JSON（可选） |
+| `getInspiration(page)` | `GET /api/v1/library/inspiration?page=0` | `[LibraryItem]` JSON |
+| `getMySpace()` | `GET /api/v1/library/mine` | `[LibraryItem]` JSON |
+| `pushDiagnostics(log)` | `POST /api/v1/diagnostics` | `202 Accepted` |
+| `pushTaskToMachine(taskId)` | `POST /api/v1/devices/{deviceId}/jobs` | `{"accepted":true,...}`（云端把切片 G-code 直推 MCU，App 不持有）|
+
+#### MaterialSpec JSON（对应 `lib/data/material_db.dart`，云端主表）
+
+> 决策⑦：一张参数表，三端（机身屏 / App / 网页）共用；App 拉取后本地缓存兜底离线。切片 G-code 里的真实加工参数同样来自云端，App 仅展示。
+
+```json
+{
+  "key": "pine",
+  "name": "松木",
+  "visual": "wood",            // wood | plywood | acrylic | plastic | foam | leather | pcb | brass | bakelite | metal
+  "swatch": "#D7B49E",         // 图标底色
+  "rpm": 10000,
+  "feed": 1500,
+  "plunge": 400,
+  "toolIds": ["t_flat_3175", "t_ball_15"],
+  "note": "软木，进给可快；3.175 平底刀粗雕 + 1.5 球头刀浮雕"
+}
+```
 
 #### TaskMetadata JSON（对应 `lib/models/task_metadata.dart`）
 

@@ -24,16 +24,26 @@ class MockHardwareService implements HardwareService {
 
   void _tick() {
     if (_current.state == MachineState.busy) {
-      final p = (_current.progress + 0.02).clamp(0.0, 1.0);
-      _current = _current.copyWith(
-        progress: p,
-        position: _current.position.copyWith(z: _current.position.z + 0.01),
-      );
-      if (p >= 1) {
-        // 自然加工完成：保留 100% 进度，便于 UI 显示「加工完成」
+      // 固件拥有自检流水线：先推进自检阶段，再进入真实加工。
+      if (_current.selfCheckIndex < _current.selfCheckTotal) {
         _current = _current.copyWith(
-          state: MachineState.idle, progress: 1.0, eta: null,
+          selfCheckIndex: _current.selfCheckIndex + 1,
         );
+      } else {
+        final p = (_current.progress + 0.02).clamp(0.0, 1.0);
+        _current = _current.copyWith(
+          progress: p,
+          position: _current.position.copyWith(z: _current.position.z + 0.01),
+        );
+        if (p >= 1) {
+          // 自然加工完成：保留 100% 进度，便于 UI 显示「加工完成」
+          _current = _current.copyWith(
+            state: MachineState.idle,
+            progress: 1.0,
+            eta: null,
+            selfCheckIndex: _current.selfCheckTotal,
+          );
+        }
       }
     }
     _emit();
@@ -114,8 +124,14 @@ class MockHardwareService implements HardwareService {
 
   @override
   Future<void> startJob() async {
+    // 触发固件：自检流水线 + 加工由固件在 startJob 后统一执行；
+    // App 不再自己计时推进自检（见 docs/功能逻辑与分工梳理.md 决策②）。
     _current = _current.copyWith(
-      state: MachineState.busy, progress: 0, eta: const Duration(minutes: 5),
+      state: MachineState.busy,
+      progress: 0,
+      selfCheckIndex: 0,
+      selfCheckTotal: 8,
+      eta: const Duration(minutes: 5),
     );
     _emit();
   }
@@ -147,6 +163,13 @@ class MockHardwareService implements HardwareService {
   @override
   Future<void> updateToolMap(List<Tool> tools) async {
     // mock: accept mapping from UI
+    _emit();
+  }
+
+  @override
+  Future<void> setLevelingPlan(
+      {required int mode, required int cols, required int rows}) async {
+    // mock: 仅接收记录，不执行真实扫描
     _emit();
   }
 

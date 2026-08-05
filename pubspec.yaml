@@ -13,6 +13,9 @@ dependencies:
   shared_preferences: ^2.2.3
   cupertino_icons: ^1.0.6
   material_symbols_icons: ^4.2960.0
+  flutter_vlc_player: ^0.9.0
+  mqtt_client: ^10.0.0
+  http: ^1.2.0
 
 dev_dependencies:
   flutter_test:

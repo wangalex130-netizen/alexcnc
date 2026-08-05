@@ -2,18 +2,23 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../app/config.dart';
 import '../models/library_item.dart';
 import '../models/machine_status.dart';
 import '../models/task_metadata.dart';
 import '../services/cloud_service.dart';
 import '../services/cloud_service_mock.dart';
+import '../services/cloud_service_real.dart';
 import '../services/hardware_service.dart';
 import '../services/hardware_service_mock.dart';
+import '../services/hardware_service_real.dart';
 import '../services/network_auth.dart';
 
-/// Live controller binding (swap Mock for the real WiFi/MQTT impl later).
+/// Live controller binding. 默认用 Mock；构建时传 USE_REAL_BACKEND=true 接真机。
 final hardwareServiceProvider = Provider<HardwareService>((ref) {
-  final svc = MockHardwareService();
+  final svc = AppConfig.useRealBackend
+      ? RealHardwareService()
+      : MockHardwareService();
   ref.onDispose(svc.dispose);
   return svc;
 });
@@ -23,8 +28,9 @@ final machineStatusProvider = StreamProvider<MachineStatus>((ref) {
   return ref.watch(hardwareServiceProvider).statusStream;
 });
 
-/// Cloud binding (swap Mock for the real cloud/MQTT impl later).
-final cloudServiceProvider = Provider<CloudService>((ref) => MockCloudService());
+/// Cloud binding. 默认用 Mock；构建时传 USE_REAL_BACKEND=true 接云端。
+final cloudServiceProvider = Provider<CloudService>((ref) =>
+    AppConfig.useRealBackend ? RealCloudService() : MockCloudService());
 
 final networkProbeProvider = Provider<NetworkProbe>((ref) => NetworkProbe());
 
@@ -63,8 +69,9 @@ final toolMagazineProvider =
 ///
 /// 自检流水线（self-check）也提升到全局：
 /// - 用户关闭自检页、切到后台或返回控制台，机器自检仍继续进行；
-/// - SelfCheckPage 仅作为可视化展示，不持有驱动定时器；
-/// - 自检完成后自动触发真正的机器加工（通过 [onSelfCheckDone] 回调）。
+/// - SelfCheckPage 仅作为可视化展示；自检由**固件拥有并广播进度**
+///   （App 通过 MachineStatus.scIndex/scTotal 渲染，不再自己计时）；
+/// - 固件在 startJob() 后统一执行「自检 → 加工」，App 不重复触发。
 class ActiveJob {
   final LibraryItem item;
   final TaskMetadata task;
@@ -74,6 +81,7 @@ class ActiveJob {
   final DateTime? finishedAt;
   final List<String> selfCheckPhases;
   final int selfCheckIndex; // 当前进行到的阶段，-1 = 尚未开始
+  final int selfCheckTotal; // 固件广播的总阶段数，0 = 未知
   final bool selfCheckDone;
   final bool completed; // 机器已返回加工完成
 
@@ -86,6 +94,7 @@ class ActiveJob {
     this.finishedAt,
     this.selfCheckPhases = const [],
     this.selfCheckIndex = -1,
+    this.selfCheckTotal = 0,
     this.selfCheckDone = false,
     this.completed = false,
   });
@@ -99,6 +108,7 @@ class ActiveJob {
     DateTime? finishedAt,
     List<String>? selfCheckPhases,
     int? selfCheckIndex,
+    int? selfCheckTotal,
     bool? selfCheckDone,
     bool? completed,
   }) =>
@@ -111,70 +121,55 @@ class ActiveJob {
         finishedAt: finishedAt ?? this.finishedAt,
         selfCheckPhases: selfCheckPhases ?? this.selfCheckPhases,
         selfCheckIndex: selfCheckIndex ?? this.selfCheckIndex,
+        selfCheckTotal: selfCheckTotal ?? this.selfCheckTotal,
         selfCheckDone: selfCheckDone ?? this.selfCheckDone,
         completed: completed ?? this.completed,
       );
 }
 
 class ActiveJobNotifier extends StateNotifier<ActiveJob?> {
-  final void Function()? onSelfCheckDone;
+  /// 触发固件开始（自检 + 加工由固件在 startJob 后统一执行）。
+  /// 由 providers 注入，解耦 StateNotifier 与 Provider 树。
+  final Future<void> Function() startJob;
   final void Function()? onCleared;
-  Timer? _timer;
 
-  ActiveJobNotifier({this.onSelfCheckDone, this.onCleared}) : super(null);
+  ActiveJobNotifier({required this.startJob, this.onCleared}) : super(null);
 
   void start(ActiveJob job) {
-    // 启动时把 selfCheckIndex 设为 0 并开始推进
-    state = job.copyWith(selfCheckIndex: 0);
-    _runSelfCheck();
+    // 固件拥有自检流水线：App 仅下发 startJob()，阶段推进由固件广播驱动
+    // （见 docs/功能逻辑与分工梳理.md 决策②）。App 不再自己计时。
+    state = job.copyWith(selfCheckIndex: -1, selfCheckTotal: 0);
+    startJob();
   }
 
-  void _runSelfCheck() {
-    _timer?.cancel();
-    final job = state;
-    if (job == null) return;
-    if (job.selfCheckDone || job.selfCheckPhases.isEmpty) {
-      _finishSelfCheck();
-      return;
-    }
-    _timer = Timer.periodic(const Duration(milliseconds: 700), (_) {
-      final job = state;
-      if (job == null) return;
-      final next = job.selfCheckIndex + 1;
-      if (next >= job.selfCheckPhases.length) {
-        _finishSelfCheck();
-      } else {
-        state = job.copyWith(selfCheckIndex: next);
-      }
-    });
-  }
-
-  void _finishSelfCheck() {
-    _timer?.cancel();
+  /// 固件广播自检阶段进度时由 providers 调用，同步到 UI。
+  void syncSelfCheck(int index, int total) {
     final job = state;
     if (job == null) return;
     state = job.copyWith(
-      selfCheckDone: true,
-      selfCheckIndex: job.selfCheckPhases.length,
+      selfCheckIndex: index,
+      selfCheckTotal: total,
+      selfCheckDone: total > 0 && index >= total,
     );
-    onSelfCheckDone?.call();
   }
 
   void markCompleted() {
     final job = state;
     if (job == null || job.completed) return;
-    state = job.copyWith(completed: true, finishedAt: DateTime.now());
+    state = job.copyWith(
+      completed: true,
+      finishedAt: DateTime.now(),
+      selfCheckIndex: job.selfCheckTotal,
+    );
   }
 
   void clear() {
-    _timer?.cancel();
     state = null;
     onCleared?.call();
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
     super.dispose();
   }
 }
@@ -182,18 +177,21 @@ class ActiveJobNotifier extends StateNotifier<ActiveJob?> {
 final activeJobProvider = StateNotifierProvider<ActiveJobNotifier, ActiveJob?>(
   (ref) {
     final notifier = ActiveJobNotifier(
-      onSelfCheckDone: () => ref.read(hardwareServiceProvider).startJob(),
+      startJob: () => ref.read(hardwareServiceProvider).startJob(),
       onCleared: () => ref.read(hardwareServiceProvider).stopJob(),
     );
-    // 全局监听机器状态：仅当机器真正完成（state==idle 且 progress>=1）时标记
-    // completed，与当前停留在哪个页面无关，确保控制台/监控页完成态一致同步；
-    // 暂停(state==paused)或手动停止(progress 归零)不会误判为完成。
-    final sub = ref
-        .watch(machineStatusProvider.stream)
-        .listen((status) {
+    // 全局监听机器状态（固件广播的 SSOT）：
+    // 1) 同步自检阶段进度（固件拥有自检流水线）；
+    // 2) 仅当机器真正完成（state==idle 且 progress>=1）时标记 completed，
+    //    与当前停留在哪个页面无关，确保控制台/监控页完成态一致同步；
+    //    暂停/手动停止不会误判为完成。
+    final sub = ref.watch(machineStatusProvider.stream).listen((status) {
       final job = notifier.state;
-      if (job != null &&
-          !job.completed &&
+      if (job == null) return;
+      if (status.selfCheckTotal > 0) {
+        notifier.syncSelfCheck(status.selfCheckIndex, status.selfCheckTotal);
+      }
+      if (!job.completed &&
           status.state == MachineState.idle &&
           status.progress >= 1.0) {
         notifier.markCompleted();
