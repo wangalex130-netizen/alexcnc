@@ -38,17 +38,34 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 
 接口定义见 `lib/services/hardware_service.dart`。下面是每个方法期望的**出站命令**与对应的 **Grbl / 固件动作**。
 
-### 2.1 传输建议（最终架构：MQTT 主链路 + 局域网 TCP 增强）
+### 2.1 传输架构（分阶段）
 
-> 参见 `docs/功能逻辑与分工梳理.md` 决策③。两条链路**报文完全一致**，汇入固件侧同一命令队列串行执行，App 不区分来源。
+> 分两步走：**第一步先做局域网（LAN），第二步再上外网（WAN）**。两步**报文格式完全一致**，仅传输层不同，固件代码可平滑过渡。
 
-- **主链路 = 云端 MQTT Broker**（出厂即用、WAN 远程天然打通、App↔机都连它）：
+#### 🟢 第一步（局域网，当前要做）：TCP:8899 直连
+
+- **唯一控制 + 状态通道 = ESP32 本地 TCP Server，端口 `8899`**。App 作为 TCP Client 直连 `机器IP:8899`，长连接，双向收发。
+- 报文：**换行分隔的 JSON 帧**（每条命令/状态以 `\n` 结尾），与 Grbl 风格逐行交互兼容。
+- 命令帧（App→机器）与状态帧（机器→App）走**同一连接**。
+- 断线 App 侧每 5s 重连；`disconnect()` 主动关闭不再重连。
+- **不依赖任何 Broker / 云端 / 外网**。
+- ESP32 侧用 **AsyncTCP Server**（非阻塞、单客户端串行帧即可），这是最低门槛、最易对齐的路径。
+- 参考实现：`server/fake_firmware.py --tcp`（可直接照抄的服务端骨架）。
+
+#### 🔵 第二步（外网，后续）：云端 MQTT Broker 中继
+
+- 主链路切换为**云端 MQTT Broker**（出厂即用、WAN 远程天然打通）：
   - 状态订阅：`cnc/<deviceId>/status`
   - 命令下发：`cnc/<deviceId>/cmd`
   - App 默认连 `broker.emqx.io`（测试），量产后换成你们自有 Broker 域名。
-- **局域网增强 = ESP32 本地 TCP 服务（端口 `8899`）**：同 Wi-Fi 时把运动命令（jog/home/定原点）直发设备，降低抖动；App 同时把命令也经 MQTT 兜底。
-- 报文：**换行分隔的 JSON 帧**（每条命令以 `\n` 结尾）。`statusStream` 实时状态广播（约 5–10 Hz）。
+- ESP32 新增 **MQTT Client** 连同一 Broker；TCP:8899 局域网增强保留（同 Wi-Fi 时运动命令直发降抖动）。
+- App 侧把 `RealHardwareService(cloudEnabled: true)` 即可启用，**命令/状态帧无需改动**。
+
+#### 公共要求（两步都适用）
+
+- 报文：**换行分隔的 JSON 帧**（每条以 `\n` 结尾）。`statusStream` 实时状态广播（约 5–10 Hz）。
 - ESP32 双核可同时跑 MQTT Client + AsyncTCP Server + Grbl 解析 + 状态机（工业成熟组合，资源充足）。
+- 报文字段见 §2.3，命令见 §2.2——**第一步请严格按此实现**。
 
 ### 2.2 命令映射表
 
@@ -97,12 +114,21 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 
 > **自检流水线（决策②：固件拥有）**：`scIndex`/`scTotal` 由固件在 `startJob()` 后统一广播；App **只渲染**，不自己计时。App 据此显示「自检中 3/8」并自动在 `scIndex>=scTotal` 后进入加工态。
 
-### 2.4 MQTT 备选
+### 2.4 G-code 局域网推送（第一步）
+
+> 资产闭环不变式：**App 永不持有 G-code**。第一步用 **PC 伴随服务 `server.py`** 充当模型库 + G-code 源。
+
+- App 选好模型后调用 `pushTaskToMachine(taskId)` → `POST /api/v1/devices/{id}/jobs`。
+- `server.py` 收到后把 G-code 经**局域网 TCP:8899** 以 `{"cmd":"gcode","lines":[...]}` 帧推给机器（见 `server.py` 的 `push_gcode_to_machine`）。
+- 随后 App 发 `{"cmd":"job","action":"start"}`，机器（已缓冲 G-code）开始执行。
+- 内置 `SAMPLE_GCODE` 可直接跑通演示；真机接入时由切片服务产出真实 G-code。
+
+### 2.5 MQTT 备选（第二步，当前不做）
 
 - 状态发布：`cnc/<deviceId>/status`
 - 命令订阅：`cnc/<deviceId>/cmd`
 
-payload 与上面 JSON 完全一致。
+payload 与上面 JSON 完全一致。第一步请用 §2.1「TCP:8899 直连」实现。
 
 ---
 
@@ -254,11 +280,18 @@ busy ──(异常)──▶ alarm ──(复位)──▶ idle
 
 ## 7. 嵌入式交付清单（Done 标准）
 
-- [ ] `RealHardwareService implements HardwareService`：实现 WiFi / TCP（或 MQTT）通信，按 §2.2 命令、§2.3 状态广播。
+### 第一步（局域网，先交付）
+- [ ] ESP32 起 **AsyncTCP Server:8899**（`0.0.0.0`），按 §2.2 解析命令帧、按 §2.3 广播状态帧（含 `scIndex/scTotal` 自检）。
+- [ ] 自检流水线：收到 `job start` 后 `scTotal=8`，固件自行推进 `scIndex 0→8`，再进 `progress` 加工；App 只读不计时。
+- [ ] 接收 `gcode` 帧并缓冲；`job start` 执行已缓冲的 G-code。
+- [ ] 接收 `leveling` 帧并按网格执行扫描。
+- [ ] 局域网联调：`server/fake_firmware.py --tcp` 可被 App 直连跑通 Jog / 回零 / 开切 / RTSP（见 `docs/本地联调指南.md`）。
+
+### 第二步（外网，后续）
+- [ ] `RealHardwareService(cloudEnabled:true)`：实现云端 MQTT Client，按 §2.5 主题通信（帧格式同第一步）。
 - [ ] `RealCloudService implements CloudService`：实现 REST（或 MQTT），按 §3 接口与 JSON Schema。
-- [ ] `lib/state/providers.dart` 第 11 行、第 23 行把 `Mock*` 换成 `Real*`；App 编译通过、GitHub Actions 出 APK 可装。
-- [ ] 联调：同 Wi-Fi 下 Jog / 回零 / 开切可用；切 4G 后 App 自动变为监视模式（Jog / 开切锁死）。
-- [ ] 把本协议文档里 `cnc/<deviceId>` 的 `deviceId` 命名、端口号（默认 8899）与 App 侧对齐（如需改默认值，同步改 `RealHardwareService`）。
+- [ ] 联调：同 Wi-Fi 全功能；切 4G 后 App 自动变为监视模式（Jog / 开切锁死）。
+- [ ] 把 `deviceId` 命名、端口号（默认 8899）与 App 侧对齐（如需改默认值，同步改 `RealHardwareService`）。
 
 ---
 

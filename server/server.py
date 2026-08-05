@@ -18,12 +18,29 @@
 cnc/<deviceId>/cmd，sim_device.py 扮演固件回 status —— 完整闭环见 README。
 """
 import json
+import os
 import sys
+import socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8787
 HOST = "0.0.0.0"
+
+# 局域网内「机器」地址（ESP32 TCP Server:8899）。默认 127.0.0.1（与 fake_firmware
+# 同机演示）；真机联调时设环境变量 MACHINE_HOST=192.168.1.x 指向机器。
+MACHINE_HOST = os.environ.get("MACHINE_HOST", "127.0.0.1")
+MACHINE_PORT = int(os.environ.get("MACHINE_PORT", "8899"))
+
+# 内置示例 G-code（第一步调试用，无需真实切片）：在 80x80 台面上刻一个矩形回字。
+SAMPLE_GCODE = [
+    "G21", "G90", "G1 Z5 F500",
+    "G1 X5 Y5 F600", "G1 Z-1 F200",
+    "G1 X75 Y5", "G1 X75 Y75", "G1 X5 Y75", "G1 X5 Y5",
+    "G1 Z-2 F200",
+    "G1 X15 Y15", "G1 X65 Y15", "G1 X65 Y65", "G1 X15 Y65", "G1 X15 Y15",
+    "G1 Z5 F500", "M5", "M30",
+]
 
 # ---- 材质主表（与 lib/data/material_db.dart 对齐；云端为唯一真源）----
 MATERIALS = [
@@ -135,11 +152,15 @@ class Handler(BaseHTTPRequestHandler):
 
         if p.path.startswith("/api/v1/devices/") and p.path.endswith("/jobs"):
             dev = p.path.split("/")[-2]
+            # 第一步（局域网）：云端(Mock)把 G-code 经局域网 TCP:8899 直推 MCU；
+            # App 不持有 G-code，仅触发本端点。
+            gcode = payload.get("gcode") or SAMPLE_GCODE
+            pushed = push_gcode_to_machine(gcode)
             print(f"[GCODE PUSH] device={dev} task={payload.get('taskId')} "
-                  f"-> 云端将切片 G-code 直推 MCU（App 不持有 G-code）", flush=True)
-            # 此处真实环境会把任务交给切片服务并推送；本地仅记录事件。
+                  f"pushed={pushed} -> {MACHINE_HOST}:{MACHINE_PORT}", flush=True)
             return self._send(202, {"accepted": True, "device": dev,
-                                     "taskId": payload.get("taskId")})
+                                     "taskId": payload.get("taskId"),
+                                     "gcodePushed": pushed})
 
         if p.path == "/api/v1/diagnostics":
             print(f"[DIAG] device={payload.get('device')} "
@@ -147,6 +168,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True})
 
         return self._send(404, {"error": "not found"})
+
+
+def push_gcode_to_machine(lines):
+    """经局域网 TCP:8899 把 G-code 推给机器（第一步）。返回是否成功。"""
+    try:
+        s = socket.create_connection((MACHINE_HOST, MACHINE_PORT), timeout=3)
+        s.sendall((json.dumps({"cmd": "gcode", "lines": list(lines)}) + "\n").encode())
+        s.close()
+        return True
+    except Exception as e:
+        print(f"[GCODE PUSH] 推送失败: {e}", flush=True)
+        return False
 
 
 if __name__ == "__main__":

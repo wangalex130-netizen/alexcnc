@@ -14,16 +14,17 @@ import 'hardware_service.dart';
 /// 链路连接态：UI 据此显示「连接中 / 已连 / 掉线」，不影响功能逻辑。
 enum ConnectionState { disconnected, connecting, connected }
 
-/// 真实硬件实现：云端 MQTT（主链路：状态订阅 + 全命令下发）+ 局域网 TCP（低延迟
-/// 运动控制 jog/home/定原点）。
+/// 真实硬件实现。
 ///
-/// 协议细节见 `docs/PROTOCOL.md`：
-/// - 状态广播 topic：cnc/<deviceId>/status（JSON → MachineStatus.fromJson）
-/// - 命令下发 topic：cnc/<deviceId>/cmd（JSON 命令帧）
-/// - LAN TCP 8899：局域网内把运动命令直发设备，降低 jog 抖动
+/// **第一步（局域网，默认）**：以 [tcpHost]:[tcpPort]（默认 8899）为**唯一控制 +
+/// 状态通道**，App 直连机器（ESP32 TCP Server）。详见 `docs/PROTOCOL.md` Step1。
+///
+/// **第二步（外网，[cloudEnabled]=true 时启用）**：额外连接云端 MQTT Broker，命令/
+/// 状态改走主题 cnc/<deviceId>/cmd、cnc/<deviceId>/status；帧格式与 TCP 完全一致，
+/// 仅传输层不同，无需重写命令逻辑。
 ///
 /// 两条链路汇入同一 [statusStream]，App 其余代码无需区分来源。离线/未连时静默
-/// 不报错，UI 仅显示为 disconnected。
+/// 不报错，UI 仅显示为 disconnected。连接态以 TCP 为准（第一步唯一通道）。
 class RealHardwareService implements HardwareService {
   final String broker;
   final int mqttPort;
@@ -32,6 +33,8 @@ class RealHardwareService implements HardwareService {
   final String deviceId;
   final String tcpHost;
   final int tcpPort;
+  /// 第二步外网开关；第一步（LAN）保持 false，MQTT 链路不启用。
+  final bool cloudEnabled;
 
   final _ctrl = StreamController<MachineStatus>.broadcast();
   MqttServerClient? _mqtt;
@@ -60,6 +63,7 @@ class RealHardwareService implements HardwareService {
     this.deviceId = AppConfig.deviceId,
     this.tcpHost = AppConfig.deviceTcpHost,
     this.tcpPort = AppConfig.deviceTcpPort,
+    this.cloudEnabled = false,
   });
 
   /// MQTT 状态广播主题：cnc/<deviceId>/status（按实例 deviceId 推导）
@@ -77,7 +81,7 @@ class RealHardwareService implements HardwareService {
 
   @override
   Future<void> connect() async {
-    _connectMqtt();
+    if (cloudEnabled) _connectMqtt();
     _connectTcp();
   }
 
@@ -154,6 +158,7 @@ class RealHardwareService implements HardwareService {
       _tcp = await Socket.connect(tcpHost, tcpPort,
           timeout: const Duration(seconds: 3));
       _tcpConnected = true;
+      _setConn(ConnectionState.connected); // 第一步唯一通道，TCP 通即"已连"
       _tcp!.listen((data) {
         final text = utf8.decode(data);
         for (final line in text.split('\n')) {
@@ -162,9 +167,11 @@ class RealHardwareService implements HardwareService {
         }
       }, onDone: () {
         _tcpConnected = false;
+        if (!cloudEnabled) _setConn(ConnectionState.disconnected);
         _scheduleTcpReconnect();
       }, onError: (_) {
         _tcpConnected = false;
+        if (!cloudEnabled) _setConn(ConnectionState.disconnected);
         _scheduleTcpReconnect();
       });
     } catch (_) {
@@ -191,8 +198,9 @@ class RealHardwareService implements HardwareService {
   }
 
   void _publish(Map<String, dynamic> cmd) {
+    if (!cloudEnabled) return; // 第一步（LAN）不启用 MQTT
     final json = jsonEncode(cmd);
-    // 主链路：MQTT 命令
+    // 第二步主链路：MQTT 命令
     if (_mqtt?.connectionStatus?.state == MqttConnectionState.connected) {
       final builder = MqttClientPayloadBuilder();
       builder.addString(json);
@@ -255,53 +263,81 @@ class RealHardwareService implements HardwareService {
   }
 
   @override
-  Future<void> startSpindle(double rpm) async =>
-      _publish({'cmd': 'spindle', 'rpm': rpm});
+  Future<void> startSpindle(double rpm) async {
+    final cmd = {'cmd': 'spindle', 'rpm': rpm};
+    _sendTcp(cmd);
+    _publish(cmd);
+  }
 
   @override
-  Future<void> stopSpindle() async => _publish({'cmd': 'spindle', 'rpm': 0});
+  Future<void> stopSpindle() async {
+    final cmd = {'cmd': 'spindle', 'rpm': 0};
+    _sendTcp(cmd);
+    _publish(cmd);
+  }
 
   @override
   Future<void> setAux(String key, bool on) async {
     _aux[key] = on;
-    _publish({'cmd': 'aux', 'key': key, 'on': on});
+    final cmd = {'cmd': 'aux', 'key': key, 'on': on};
+    _sendTcp(cmd);
+    _publish(cmd);
   }
 
   @override
-  Future<void> startJob() async =>
-      _publish({'cmd': 'job', 'action': 'start'});
+  Future<void> startJob() async {
+    final cmd = {'cmd': 'job', 'action': 'start'};
+    _sendTcp(cmd);
+    _publish(cmd);
+  }
 
   @override
-  Future<void> pauseJob() async =>
-      _publish({'cmd': 'job', 'action': 'pause'});
+  Future<void> pauseJob() async {
+    final cmd = {'cmd': 'job', 'action': 'pause'};
+    _sendTcp(cmd);
+    _publish(cmd);
+  }
 
   @override
-  Future<void> resumeJob() async =>
-      _publish({'cmd': 'job', 'action': 'resume'});
+  Future<void> resumeJob() async {
+    final cmd = {'cmd': 'job', 'action': 'resume'};
+    _sendTcp(cmd);
+    _publish(cmd);
+  }
 
   @override
-  Future<void> stopJob() async => _publish({'cmd': 'job', 'action': 'stop'});
+  Future<void> stopJob() async {
+    final cmd = {'cmd': 'job', 'action': 'stop'};
+    _sendTcp(cmd);
+    _publish(cmd);
+  }
 
   @override
-  Future<void> updateToolMap(List<Tool> tools) async => _publish({
-        'cmd': 'toolMap',
-        'tools': tools
-            .map((t) => {
-                  'index': t.index,
-                  'installed': t.installed,
-                })
-            .toList(),
-      });
+  Future<void> updateToolMap(List<Tool> tools) async {
+    final cmd = {
+      'cmd': 'toolMap',
+      'tools': tools
+          .map((t) => {
+                'index': t.index,
+                'installed': t.installed,
+              })
+          .toList(),
+    };
+    _sendTcp(cmd);
+    _publish(cmd);
+  }
 
   @override
   Future<void> setLevelingPlan(
       {required int mode, required int cols, required int rows}) async {
-    _publish({
+    final cmd = {
       'cmd': 'leveling',
       'mode': mode,
       'cols': cols,
       'rows': rows,
-    });
+    };
+    _sendTcp(cmd);
+    _publish(cmd);
   }
 
   bool getAux(String key) => _aux[key] ?? false;

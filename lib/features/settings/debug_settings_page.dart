@@ -31,17 +31,25 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
   @override
   void initState() {
     super.initState();
-    final c = ref.read(runtimeConfigProvider);
-    _useReal = c.useRealBackend;
-    _cloud.text = c.cloudBaseUrl;
-    _broker.text = c.mqttBroker;
-    _mqttPort.text = c.mqttPort > 0 ? '${c.mqttPort}' : '';
-    _mqttUser.text = c.mqttUser;
-    _mqttPass.text = c.mqttPass;
-    _tcpHost.text = c.deviceTcpHost;
-    _tcpPort.text = c.deviceTcpPort > 0 ? '${c.deviceTcpPort}' : '';
-    _deviceId.text = c.deviceId;
-    _rtsp.text = c.cameraRtspUrl;
+    _load();
+  }
+
+  /// 等待持久化配置加载完成再回显，避免首帧读到默认值而清空已保存内容。
+  Future<void> _load() async {
+    final c = await ref.read(runtimeConfigProvider.notifier).hydrated;
+    if (!mounted) return;
+    setState(() {
+      _useReal = c.useRealBackend;
+      _cloud.text = c.cloudBaseUrl;
+      _broker.text = c.mqttBroker;
+      _mqttPort.text = c.mqttPort > 0 ? '${c.mqttPort}' : '';
+      _mqttUser.text = c.mqttUser;
+      _mqttPass.text = c.mqttPass;
+      _tcpHost.text = c.deviceTcpHost;
+      _tcpPort.text = c.deviceTcpPort > 0 ? '${c.deviceTcpPort}' : '';
+      _deviceId.text = c.deviceId;
+      _rtsp.text = c.cameraRtspUrl;
+    });
   }
 
   @override
