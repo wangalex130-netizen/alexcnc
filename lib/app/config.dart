@@ -57,13 +57,14 @@ class AppConfig {
       String.fromEnvironment('DEVICE_ID', defaultValue: 'alexcnc-001');
 
   // ---- 2D 刀路预览（协议 §3.2 渲染矢量）----
-  // 2026-08-07 决策：驱动（ArtiMaker）当前生成的 G-code 不含 preview JSON，
-  // 详情页/监控页的刀路预览入口暂时关闭。组件与现算链路（server.py
-  // gcode_to_preview / GET /models/{id}/preview）保留，驱动支持后改为 true 即可。
-  // 可用 --dart-define=TOOLPATH_PREVIEW_ENABLED=true 覆盖（联调现算效果用）。
+  // 2026-08-07 决策链：驱动在电脑端生成 G-code，客户可选择上传至库（上传的是 G-code 本体）。
+  // 因此云端有 G-code 即可现算渲染矢量（server.py gcode_to_preview / GET /models/{id}/preview），
+  // 无需驱动额外产出 JSON。入口默认开启，但仅对「带 G-code 的模型」（gcodeStatus=sliced 或自带
+  // previewUrl）显示预览区块，未上传/未切片的模型不出现空预览。
+  // 如需紧急关闭：--dart-define=TOOLPATH_PREVIEW_ENABLED=false。
   static const bool toolpathPreviewEnabled = bool.fromEnvironment(
     'TOOLPATH_PREVIEW_ENABLED',
-    defaultValue: false,
+    defaultValue: true,
   );
 
   /// MQTT 状态广播主题：cnc/<deviceId>/status

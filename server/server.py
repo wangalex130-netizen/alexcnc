@@ -279,6 +279,10 @@ class Handler(BaseHTTPRequestHandler):
             model.setdefault("requiredTools", [])
             model.setdefault("syncTime", "刚刚同步")
             model.setdefault("isHistory", False)
+            # 兜底：上传 body 带 G-code 本体时，无论客户端是否声明，都视为已切片
+            # （驱动在电脑端生成 G-code，客户上传时连同模型一起入库 → 云端可现算刀路预览）
+            if model.get("gcode"):
+                model["gcodeStatus"] = "sliced"
             UPLOADED_MODELS[mid] = model
             MY_SPACE.insert(0, {
                 "id": mid,

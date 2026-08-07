@@ -29,6 +29,10 @@ class ModelDetailPage extends ConsumerWidget {
     final previewUrl = (item.previewUrl != null && item.previewUrl!.isNotEmpty)
         ? item.previewUrl
         : (base.isEmpty ? null : '$base/api/v1/models/${item.id}/preview');
+    // 仅当模型确实带 G-code（已切片）或自带 previewUrl 时才显示预览，
+    // 避免对无 G-code 模型请求现算端点显示假数据（server 的 SAMPLE 仅服务 mock 联调）。
+    final canPreview = AppConfig.toolpathPreviewEnabled &&
+        ((item.previewUrl?.isNotEmpty ?? false) || item.gcodeStatus == 'sliced');
 
     return Scaffold(
       backgroundColor: CncColors.card,
@@ -99,9 +103,8 @@ class ModelDetailPage extends ConsumerWidget {
                                 fontSize: 11, color: CncColors.warning)),
                       ],
                       const SizedBox(height: 16),
-                      // 刀路预览入口：驱动暂不产 preview JSON，默认关闭（config 开关）；
-                      // 打开后优先模型 previewUrl，否则云端现算。
-                      if (AppConfig.toolpathPreviewEnabled && previewUrl != null) ...[
+                      // 刀路预览入口：仅对带 G-code 的模型显示（云端从 G-code 现算渲染矢量）
+                      if (canPreview && previewUrl != null) ...[
                         const Text('刀路预览',
                             style: TextStyle(
                                 fontSize: 12,
