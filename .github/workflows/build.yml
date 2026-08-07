@@ -25,9 +25,6 @@ jobs:
           flutter-version: '3.29.0'
           channel: 'stable'
 
-      # flutter create overwrites lib/main.dart and pubspec.yaml, so back them
-      # up. The Android platform folder is generated here (no committed native
-      # glue needed) — this is what makes a lean repo actually build an APK.
       - name: Backup custom entry files
         run: |
           cp lib/main.dart /tmp/main.dart.bak
@@ -41,19 +38,10 @@ jobs:
           cp /tmp/main.dart.bak lib/main.dart
           cp /tmp/pubspec.yaml.bak pubspec.yaml
 
-      # 本地 native_vlc_player plugin 依赖 libvlc-all 3.6.4，要求 minSdk 24。
-      # flutter create 生成的 build.gradle.kts 默认 minSdk = flutter.minSdkVersion。
       - name: Set minSdk to 24 for libVLC
         run: |
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/' android/app/build.gradle.kts || true
-          sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 24/' android/app/build.gradle.kts || true
-          echo "--- defaultConfig block ---"
-          sed -n '/defaultConfig {/,/^    }/p' android/app/build.gradle.kts || true
-          echo "--- end ---"
 
-      # flutter create 只在 debug manifest 里带 INTERNET 权限，release 默认没有。
-      # 摄像头 RTSP / MQTT / HTTP 都要联网，ONVIF 自动发现还要接收组播。
-      # 必须注入到 main manifest。
       - name: Inject network permissions into main manifest
         run: |
           MANIFEST=android/app/src/main/AndroidManifest.xml
@@ -65,55 +53,21 @@ jobs:
             sed -i 's#<application#<uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>\n    <application#' "$MANIFEST"
           grep -q 'ACCESS_NETWORK_STATE' "$MANIFEST" || \
             sed -i 's#<application#<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>\n    <application#' "$MANIFEST"
-          # Android 9+ 默认禁止明文 HTTP；部分厂商对非加密 RTSP 也会拦截。
           grep -q 'usesCleartextTraffic' "$MANIFEST" || \
             sed -i 's#<application#<application android:usesCleartextTraffic="true"#' "$MANIFEST"
-          grep -n 'INTERNET\|MULTICAST\|ACCESS_WIFI\|ACCESS_NETWORK\|usesCleartextTraffic\|<application' "$MANIFEST" | head
 
-      # Remove the default counter-app test so `flutter analyze` stays clean.
       - name: Drop generated default test
         run: rm -rf test
 
       - name: Install dependencies
-        run: |
-          set +e
-          flutter pub get > /tmp/pub_get_output.txt 2>&1
-          code=$?
-          if [ $code -ne 0 ]; then
-            {
-              echo "flutter pub get failed"
-              echo
-              cat /tmp/pub_get_output.txt
-            } > /tmp/pub_get_msg.md
-            python3 scripts/post_comment.py "flutter pub get failed for ${{ github.sha }}" /tmp/pub_get_msg.md
-          fi
-          exit $code
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+        run: flutter pub get
 
-      # Non-fatal: surface lint issues without blocking the first APK.
       - name: Analyze (advisory)
         run: flutter analyze
         continue-on-error: true
 
-      # Capture full build output and, on failure, post the error as a commit
-      # comment so it can be read without downloading the (CDN-hosted) log.
       - name: Build release APK
-        run: |
-          set +e
-          flutter build apk --release > /tmp/build_output.txt 2>&1
-          code=$?
-          if [ $code -ne 0 ]; then
-            {
-              echo "Build release APK failed"
-              echo
-              tail -n 200 /tmp/build_output.txt
-            } > /tmp/build_msg.md
-            python3 scripts/post_comment.py "Build failed for ${{ github.sha }}" /tmp/build_msg.md
-          fi
-          exit $code
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+        run: flutter build apk --release
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -121,7 +75,6 @@ jobs:
           name: alexcnc-app
           path: build/app/outputs/flutter-apk/app-release.apk
 
-      # Publish a stable, easy-to-share download link as a GitHub Release.
       - name: Publish APK release
         if: success()
         run: |
@@ -132,9 +85,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-  # ---- iOS：与 Android 同一套 Flutter 代码，macOS 上生成 ios/ 平台工程并出包 ----
-  # 产物为「未签名 .ipa」：真机安装需 Apple 签名（Xcode 配置团队，或后续在 CI
-  # 配证书自动签名）。局域网/RTSP 所需权限（iOS14+ 本地网络、mDNS、ATS）在此注入。
   build-ios:
     runs-on: macos-latest
     permissions:
@@ -161,8 +111,6 @@ jobs:
           cp /tmp/main.dart.bak lib/main.dart
           cp /tmp/pubspec.yaml.bak pubspec.yaml
 
-      # iOS 14+ 必须声明本地网络权限，否则连不上局域网 TCP/RTSP/mDNS；
-      # ATS 例外允许 http://192.168.x.x 明文云端与 rtsp:// 播放。
       - name: Inject iOS network permissions (Info.plist)
         run: |
           PLIST=ios/Runner/Info.plist
@@ -175,38 +123,10 @@ jobs:
           plutil -p "$PLIST" | head -40
 
       - name: Install dependencies
-        run: |
-          set +e
-          flutter pub get > /tmp/ios_pub_get_output.txt 2>&1
-          code=$?
-          if [ $code -ne 0 ]; then
-            {
-              echo "iOS flutter pub get failed"
-              echo
-              cat /tmp/ios_pub_get_output.txt
-            } > /tmp/ios_pub_get_msg.md
-            python3 scripts/post_comment.py "iOS flutter pub get failed for ${{ github.sha }}" /tmp/ios_pub_get_msg.md
-          fi
-          exit $code
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+        run: flutter pub get
 
       - name: Build iOS (no codesign)
-        run: |
-          set +e
-          flutter build ios --release --no-codesign > /tmp/ios_build_output.txt 2>&1
-          code=$?
-          if [ $code -ne 0 ]; then
-            {
-              echo "iOS build failed"
-              echo
-              tail -n 200 /tmp/ios_build_output.txt
-            } > /tmp/ios_build_msg.md
-            python3 scripts/post_comment.py "iOS build failed for ${{ github.sha }}" /tmp/ios_build_msg.md
-          fi
-          exit $code
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+        run: flutter build ios --release --no-codesign
 
       - name: Package unsigned IPA
         run: |
