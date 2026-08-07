@@ -82,9 +82,10 @@ class CameraDiscovery {
   }
 
   /// 取本机非回环 IPv4（用于推断 /24 网段）。
-  static String? _localIPv4() {
+  static Future<String?> _localIPv4() async {
     try {
-      for (final iface in NetworkInterface.list()) {
+      final interfaces = await NetworkInterface.list();
+      for (final iface in interfaces) {
         if (iface.isLoopback || !iface.isUp) continue;
         for (final addr in iface.addresses) {
           if (addr.type == InternetAddressType.IPv4 && !addr.isLoopback) {
@@ -111,7 +112,7 @@ class CameraDiscovery {
   /// 不向用户暴露任何 IP，结果直接返回完整 RTSP URL（默认 /11 主码流）。
   /// 通常最坏情况下 2-3 秒出结果，远好于用户手动找 IP。
   static Future<String?> _tcpScanFallback() async {
-    final myIp = _localIPv4();
+    final myIp = await _localIPv4();
     if (myIp == null) return null;
     final parts = myIp.split('.');
     if (parts.length != 4) return null;
