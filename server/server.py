@@ -117,31 +117,45 @@ TASKS = {
 }
 
 # ---- 方案 A：电脑端（ArtiMaker）上传的任务 / 我的空间 / 灵感库 ----
-# 内存 + data.json 持久化：电脑端 POST /api/v1/tasks 后，App GET /api/v1/library/mine
+# 内存 + data.json 持久化：电脑端 POST /api/v1/tasks|models 后，App GET /api/v1/library/mine
 # 即可在图库看到（打通"电脑端产出 → ② → App"主链路 S2）。
+# 模型条目字段格式见 docs/模型库数据格式与接口定义.md §2。
 DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data.json")
 MY_SPACE = []          # [LibraryItem dict]（isPublic=false）
 UPLOADED_TASKS = {}    # taskId -> task dict（含可选 gcode）
+UPLOADED_MODELS = {}   # modelId -> model dict（电脑端上传的模型条目）
 INSPIRATION = [
     {"id": "insp-hero", "title": "复古木雕花纹板", "author": "ArtiMaker",
-     "imageUrl": None, "isPublic": True, "materialPreset": "松木",
-     "category": "木雕", "duration": "38分钟", "isHero": True, "heroTag": "入门推荐",
+     "coverUrl": None, "imageUrls": [], "isPublic": True, "materialPreset": "松木",
+     "materialKey": "pine", "toolId": "t_flat_3175",
+     "category": "木雕", "tags": ["浮雕", "国风", "入门"], "difficulty": "入门",
+     "duration": "38分钟", "durationSec": 2280,
+     "widthMm": 145, "heightMm": 95, "depthMm": 3, "boardThicknessMm": 3,
+     "requiredTools": [{"toolId": "t_flat_3175", "role": "粗雕/轮廓"},
+                       {"toolId": "t_v60", "role": "精雕/刻线"}],
+     "isHero": True, "heroTag": "入门推荐", "gcodeStatus": "sliced",
      "syncTime": None, "isHistory": False},
     {"id": "insp-1", "title": "赛博朋克发光铭牌", "author": "NeoCraft",
-     "imageUrl": None, "isPublic": True, "materialPreset": "双色亚克力",
-     "category": "亚克力", "duration": "8分10秒", "isHero": False, "heroTag": None,
+     "coverUrl": None, "imageUrls": [], "isPublic": True, "materialPreset": "双色亚克力",
+     "materialKey": "absdual", "toolId": "t_v60",
+     "category": "亚克力", "tags": ["赛博朋克", "发光"], "difficulty": "进阶",
+     "duration": "8分10秒", "durationSec": 490,
+     "widthMm": 120, "heightMm": 60, "depthMm": 2, "boardThicknessMm": 3,
+     "requiredTools": [{"toolId": "t_v60", "role": "精雕/刻线"}],
+     "isHero": False, "heroTag": None, "gcodeStatus": "sliced",
      "syncTime": None, "isHistory": False},
 ]
 
 
 def _load_data():
-    global MY_SPACE, UPLOADED_TASKS
+    global MY_SPACE, UPLOADED_TASKS, UPLOADED_MODELS
     try:
         if os.path.exists(DATA_FILE):
             with open(DATA_FILE, encoding="utf-8") as f:
                 d = json.load(f)
             MY_SPACE = d.get("mySpace", []) or []
             UPLOADED_TASKS = d.get("tasks", {}) or {}
+            UPLOADED_MODELS = d.get("models", {}) or {}
     except Exception as e:
         print(f"[server] 读取 data.json 失败（忽略）: {e}")
 
@@ -149,7 +163,8 @@ def _load_data():
 def _save_data():
     try:
         with open(DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump({"mySpace": MY_SPACE, "tasks": UPLOADED_TASKS},
+            json.dump({"mySpace": MY_SPACE, "tasks": UPLOADED_TASKS,
+                       "models": UPLOADED_MODELS},
                       f, ensure_ascii=False, indent=1)
     except Exception as e:
         print(f"[server] 保存 data.json 失败: {e}")
@@ -196,6 +211,13 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        # 模型库：详情（模型条目全量，格式见 docs/模型库数据格式与接口定义.md）
+        if p.path.startswith("/api/v1/models/"):
+            mid = p.path.rsplit("/", 1)[-1]
+            model = UPLOADED_MODELS.get(mid)
+            if model:
+                return self._send(200, model)
+            return self._send(404, {"error": "model not found", "id": mid})
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):
@@ -231,6 +253,46 @@ class Handler(BaseHTTPRequestHandler):
             _save_data()
             print(f"[TASK UPLOAD] 电脑端上传任务 {tid}（{task.get('name')}）", flush=True)
             return self._send(201, {"ok": True, "id": tid})
+
+        # 模型库：电脑端上传模型条目（body 见 docs/模型库数据格式与接口定义.md §2）
+        if p.path == "/api/v1/models":
+            if not isinstance(payload, dict) or not payload:
+                return self._send(400, {"error": "invalid JSON body",
+                                        "hint": "POST /api/v1/models 需 UTF-8 JSON"})
+            model = dict(payload)
+            mid = model.get("id") or f"mod-{int(time.time())}"
+            model["id"] = mid
+            model.setdefault("imageUrls", [])
+            model.setdefault("tags", [])
+            model.setdefault("requiredTools", [])
+            model.setdefault("syncTime", "刚刚同步")
+            model.setdefault("isHistory", False)
+            UPLOADED_MODELS[mid] = model
+            MY_SPACE.insert(0, {
+                "id": mid,
+                "title": model.get("title") or f"模型 {mid}",
+                "author": model.get("author") or "ArtiMaker 电脑端",
+                "coverUrl": model.get("coverUrl") or (model.get("imageUrls") or [None])[0],
+                "imageUrls": model.get("imageUrls", []),
+                "isPublic": model.get("isPublic") is True,
+                "materialPreset": model.get("materialPreset") or model.get("materialKey"),
+                "materialKey": model.get("materialKey"),
+                "toolId": model.get("toolId"),
+                "category": model.get("category"),
+                "tags": model.get("tags", []),
+                "difficulty": model.get("difficulty"),
+                "duration": model.get("duration"),
+                "durationSec": model.get("durationSec"),
+                "widthMm": model.get("widthMm"), "heightMm": model.get("heightMm"),
+                "depthMm": model.get("depthMm"), "boardThicknessMm": model.get("boardThicknessMm"),
+                "requiredTools": model.get("requiredTools", []),
+                "gcodeStatus": model.get("gcodeStatus", "unsliced"),
+                "isHero": False, "heroTag": None,
+                "syncTime": "刚刚同步", "isHistory": False,
+            })
+            _save_data()
+            print(f"[MODEL UPLOAD] 电脑端上传模型 {mid}（{model.get('title')}）", flush=True)
+            return self._send(201, {"ok": True, "id": mid})
 
         if p.path.startswith("/api/v1/devices/") and p.path.endswith("/jobs"):
             dev = p.path.split("/")[-2]

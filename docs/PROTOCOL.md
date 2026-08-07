@@ -278,18 +278,32 @@ payload 与上面 JSON 完全一致（含 `gcodeUrl` 下载链接，**MQTT 不�
 }
 ```
 
-#### LibraryItem JSON（对应 `lib/models/library_item.dart`）
+#### LibraryItem JSON（模型库条目，对应 `lib/models/library_item.dart`）
+
+> 完整格式见 `docs/模型库数据格式与接口定义.md`；列表接口返回 P0 精简字段，
+> 详情接口 `GET /api/v1/models/{id}` 返回全量（P0+P1+P2）。
 
 ```json
 {
-  "id": "insp-1",
-  "title": "赛博朋克发光铭牌",
-  "author": "NeoCraft",
-  "imageUrl": "https://...",
+  "id": "mod-1001",
+  "title": "复古木雕花纹板",
+  "author": "ArtiMaker",
+  "category": "木雕",
+  "tags": ["浮雕", "国风", "入门"],
+  "difficulty": "入门",
+  "coverUrl": "https://cdn.example.com/mod-1001/cover.jpg",
+  "imageUrls": ["https://cdn.example.com/mod-1001/1.jpg", "https://cdn.example.com/mod-1001/2.jpg"],
   "isPublic": true,
-  "materialPreset": "双色亚克力",
-  "category": "亚克力",
-  "duration": "8分10秒",
+  "materialKey": "pine",
+  "materialPreset": "松木",
+  "toolId": "t_flat_3175",
+  "requiredTools": [
+    {"toolId": "t_flat_3175", "role": "粗雕/轮廓"},
+    {"toolId": "t_v60", "role": "精雕/刻线"}
+  ],
+  "widthMm": 145, "heightMm": 95, "depthMm": 3, "boardThicknessMm": 3,
+  "duration": "38分钟", "durationSec": 2280,
+  "gcodeStatus": "sliced",
   "isHero": false,
   "heroTag": null,
   "syncTime": null,
