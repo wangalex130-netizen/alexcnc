@@ -17,7 +17,7 @@ dependencies:
   # on _viewId）。改用本地 plugin，直接嵌入原生 libVLC 的 VLCVideoLayout，与
   # camera-test-app 完全一致。
   native_vlc_player:
-    path: ./packages/native_vlc_player
+    path: packages/native_vlc_player
   # 拿当前 Wi-Fi IP（走 Android 原生 WifiManager，比 NetworkInterface.list()
   # 可靠——后者可能拿到蜂窝网卡导致扫描错网段找不到摄像头）
   network_info_plus: ^6.1.0
