@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_vlc_player/flutter_vlc_player.dart';
 
@@ -52,7 +53,12 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
   @override
   void initState() {
     super.initState();
-    _init();
+    // flutter_vlc_player 内部用 PlatformView，其 viewId 要等 widget 首次 layout
+    // 完成才会被分配；如果在 initState 同步调 _init → controller.initialize()
+    // 会抛 LateInitializationError(viewId 未初始化)。把初始化延后到首帧之后。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _init();
+    });
   }
 
   @override
@@ -61,7 +67,9 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     if (oldWidget.rtspUrl != widget.rtspUrl) {
       _disposeController();
       _triedFixed = false;
-      _init();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _init();
+      });
     }
   }
 
@@ -171,7 +179,9 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
       if (!_triedFixed && widget.rtspUrl != null && widget.autoDiscover) {
         _triedFixed = true;
       }
-      _init();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _init();
+      });
     });
   }
 
@@ -238,7 +248,9 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
           onRetry: () {
             _reconnectTimer?.cancel();
             _disposeController();
-            _init();
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) _init();
+            });
           },
         );
       case _CamState.connecting:
