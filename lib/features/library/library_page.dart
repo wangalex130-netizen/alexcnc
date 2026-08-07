@@ -273,7 +273,7 @@ class _HeroCard extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                _thumb(item.imageUrl),
+                _thumb(item.displayImageUrl),
                 Container(
                   decoration: const BoxDecoration(
                     gradient: LinearGradient(
@@ -334,7 +334,7 @@ class _ModelCard extends StatelessWidget {
             children: [
               AspectRatio(aspectRatio: 1, child: ClipRRect(
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-                child: _thumb(item.imageUrl),
+                child: _thumb(item.displayImageUrl),
               )),
               Padding(
                 padding: const EdgeInsets.all(10),
@@ -346,12 +346,36 @@ class _ModelCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(item.materialPreset ?? '',
                         maxLines: 1, style: const TextStyle(fontSize: 10, color: CncColors.blue)),
+                    if (item.difficulty != null || item.tags.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 4,
+                        runSpacing: 4,
+                        children: [
+                          if (item.difficulty != null)
+                            _chip(item.difficulty!, CncColors.primary.withOpacity(0.14),
+                                CncColors.primaryInk),
+                          ...item.tags.take(2).map((t) => _chip(t, CncColors.card,
+                              CncColors.textSub)),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
             ],
           ),
         ),
+      );
+
+  Widget _chip(String label, Color bg, Color fg) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(label,
+            style: TextStyle(fontSize: 9, color: fg, fontWeight: FontWeight.w500)),
       );
 }
 

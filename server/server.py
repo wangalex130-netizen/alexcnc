@@ -197,6 +197,11 @@ class Handler(BaseHTTPRequestHandler):
             task = TASKS.get(tid) or UPLOADED_TASKS.get(tid)
             if task:
                 return self._send(200, task)
+            # 模型条目回退：App 图库点开模型 → 向导 getTaskById(mod-*) 需要 TaskMetadata
+            # （尺寸/材质/刀具/工序），把模型条目转成任务元数据返回。
+            model = UPLOADED_MODELS.get(tid)
+            if model:
+                return self._send(200, model_to_task(model))
             return self._send(404, {"error": "task not found", "id": tid})
         # D10：G-code 文件下载端点（机器 HTTP 拉取落 SD；外网②同构为预签名 URL）
         if p.path.startswith("/api/v1/gcode/"):
@@ -319,6 +324,24 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True})
 
         return self._send(404, {"error": "not found"})
+
+
+def model_to_task(model):
+    """模型条目 → TaskMetadata（向导 getTaskById 用）。字段对齐 TaskMetadata.fromJson。"""
+    return {
+        "id": model.get("id"),
+        "name": model.get("title") or model.get("name") or model.get("id"),
+        "widthMm": model.get("widthMm") or 0,
+        "heightMm": model.get("heightMm") or 0,
+        "depthMm": model.get("depthMm") or 0,
+        "boardThicknessMm": model.get("boardThicknessMm") or 0,
+        "recommendedSpindleRpm": model.get("recommendedSpindleRpm"),
+        "recommendedFeedRate": model.get("recommendedFeedRate"),
+        "thumbnailUrl": model.get("coverUrl") or (model.get("imageUrls") or [None])[0],
+        "defaultMaterialKey": model.get("materialKey") or "pine",
+        "defaultToolId": model.get("toolId"),
+        "requiredTools": model.get("requiredTools") or [],
+    }
 
 
 def push_gcode_to_machine(lines):
