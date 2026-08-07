@@ -20,6 +20,7 @@ cnc/<deviceId>/cmd，sim_device.py 扮演固件回 status —— 完整闭环见
 """
 import json
 import os
+import re
 import sys
 import time
 import socket
@@ -218,6 +219,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         # 模型库：详情（模型条目全量，格式见 docs/模型库数据格式与接口定义.md）
         if p.path.startswith("/api/v1/models/"):
+            # 2D 刀路预览（渲染矢量，非 G-code）：模型带 gcode 现算；否则用 SAMPLE
+            if p.path.endswith("/preview"):
+                mid = p.path.split("/")[-2]
+                model = UPLOADED_MODELS.get(mid) or {}
+                gcode = model.get("gcode") or SAMPLE_GCODE
+                return self._send(200, gcode_to_preview(gcode))
             mid = p.path.rsplit("/", 1)[-1]
             model = UPLOADED_MODELS.get(mid)
             if model:
@@ -337,6 +344,52 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, {"ok": True})
             return self._send(404, {"error": "model not found", "id": mid})
         return self._send(404, {"error": "not found"})
+
+
+def gcode_to_preview(lines):
+    """把 G-code 抽出 2D 渲染矢量（协议 §3.2 格式），App 只下载这份预览，绝不持有 G-code。
+
+    - G0（快速移动）→ travel 线段（灰色虚线）
+    - G1（切削进给）→ cut 线段（绿色实线）
+    返回 {"units":"mm","bounds":{"w","h"},"paths":[{"type","pts"}]}
+    """
+    cur = [0.0, 0.0]
+    travel, cut = [], []
+    min_x = min_y = 0.0
+    max_x = max_y = 0.0
+    for raw in (lines or []):
+        s = (raw or "").split(";")[0].strip()
+        if not s or s.startswith("("):
+            continue
+        m = re.match(r"^G(\d+)", s)
+        if not m:
+            continue
+        g = int(m.group(1))
+        if g not in (0, 1):
+            continue
+        xm = re.search(r"X(-?\d+\.?\d*)", s)
+        ym = re.search(r"Y(-?\d+\.?\d*)", s)
+        nx = float(xm.group(1)) if xm else cur[0]
+        ny = float(ym.group(1)) if ym else cur[1]
+        nx, ny = round(nx, 2), round(ny, 2)
+        max_x, max_y = max(max_x, nx), max(max_y, ny)
+        min_x, min_y = min(min_x, nx), min(min_y, ny)
+        if g == 0:
+            if (nx, ny) != (cur[0], cur[1]):
+                travel.append([cur, [nx, ny]])
+        elif (nx, ny) != (cur[0], cur[1]):
+            # 跳过纯 Z 移动（无 XY 变化），避免零长度线段
+            cut.append([cur, [nx, ny]])
+        cur = [nx, ny]
+    return {
+        "units": "mm",
+        "bounds": {"w": max_x - min_x, "h": max_y - min_y},
+        "paths": [
+            {"type": "travel", "pts": p} for p in travel
+        ] + [
+            {"type": "cut", "pts": p} for p in cut
+        ],
+    }
 
 
 def model_to_task(model):

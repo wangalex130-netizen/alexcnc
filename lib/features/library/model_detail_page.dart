@@ -1,24 +1,33 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/runtime_config.dart';
 import '../../app/theme.dart';
 import '../../models/library_item.dart';
 import '../wizard/wizard_page.dart';
+import 'toolpath_preview.dart';
 
 /// 模型库详情页：多图轮播 + 加工参数展示 + 「开始雕刻」入口。
 ///
 /// 数据来自模型条目（LibraryItem 已含加工参数字段，见
 /// docs/模型库数据格式与接口定义.md）；点「开始雕刻」进入向导 6 步，
 /// 向导内部经 getTaskById 从云端拉 TaskMetadata（模型条目回退已打通）。
-class ModelDetailPage extends StatelessWidget {
+class ModelDetailPage extends ConsumerWidget {
   final LibraryItem item;
   const ModelDetailPage({super.key, required this.item});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final images = item.imageUrls.isNotEmpty
         ? item.imageUrls
         : [if (item.coverUrl != null) item.coverUrl!];
     final sliced = item.gcodeStatus == null || item.gcodeStatus == 'sliced';
+    // 刀路预览地址：优先模型自带 previewUrl；否则兜底走云端现算
+    // （GET /api/v1/models/{id}/preview，server.py 从 G-code 抽渲染矢量，App 不持有 G-code）
+    final base = ref.watch(runtimeConfigProvider).resolvedCloudBaseUrl;
+    final previewUrl = (item.previewUrl != null && item.previewUrl!.isNotEmpty)
+        ? item.previewUrl
+        : (base.isEmpty ? null : '$base/api/v1/models/${item.id}/preview');
 
     return Scaffold(
       backgroundColor: CncColors.card,
@@ -89,6 +98,16 @@ class ModelDetailPage extends StatelessWidget {
                                 fontSize: 11, color: CncColors.warning)),
                       ],
                       const SizedBox(height: 16),
+                      if (previewUrl != null) ...[
+                        const Text('刀路预览',
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: CncColors.textMain)),
+                        const SizedBox(height: 8),
+                        ToolpathPreview(url: previewUrl),
+                        const SizedBox(height: 14),
+                      ],
                       _ParamsGrid(item: item),
                       const SizedBox(height: 14),
                       _ToolCard(item: item),
