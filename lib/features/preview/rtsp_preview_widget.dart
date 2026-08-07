@@ -145,7 +145,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     return url;
   }
 
-  void _runCurrentAttempt() async {
+  void _runCurrentAttempt() {
     if (!mounted) return;
     if (_attemptIndex >= _attempts.length) {
       _onCurrentCandidatesExhausted();
@@ -186,23 +186,28 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
       _resolution = '—';
     });
 
-    _connectTimeoutTimer?.cancel();
-    _connectTimeoutTimer = Timer(const Duration(seconds: 12), () {
+    // 关键：必须等首帧 layout 完成、VlcPlayer 创建 platform view 并分配 viewId 后，
+    // 才能调用 controller.initialize()，否则会抛 LateInitializationError(_viewId)。
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      if (_state == _CamState.connecting) {
-        _failCurrentAttempt('连接超时');
+      if (_controller != controller) return;
+
+      _connectTimeoutTimer?.cancel();
+      _connectTimeoutTimer = Timer(const Duration(seconds: 12), () {
+        if (!mounted) return;
+        if (_state == _CamState.connecting) {
+          _failCurrentAttempt('连接超时');
+        }
+      });
+
+      try {
+        await controller.initialize().timeout(const Duration(seconds: 10));
+      } on TimeoutException {
+        _failCurrentAttempt('初始化超时');
+      } catch (e) {
+        _failCurrentAttempt('初始化失败：$e');
       }
     });
-
-    try {
-      await controller.initialize().timeout(const Duration(seconds: 10));
-    } on TimeoutException {
-      _failCurrentAttempt('初始化超时');
-      return;
-    } catch (e) {
-      _failCurrentAttempt('初始化失败：$e');
-      return;
-    }
   }
 
   VlcPlayerOptions get _playerOptions => VlcPlayerOptions(
