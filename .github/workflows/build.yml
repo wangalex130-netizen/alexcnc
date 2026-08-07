@@ -1,4 +1,4 @@
-name: Build alexcnc APK
+name: Build alexcnc (APK + IPA)
 
 on:
   push:
@@ -100,3 +100,81 @@ jobs:
             --notes "Automated build from ${{ github.sha }}"
         env:
           GH_TOKEN: ${{ github.token }}
+
+  # ---- iOS：与 Android 同一套 Flutter 代码，macOS 上生成 ios/ 平台工程并出包 ----
+  # 产物为「未签名 .ipa」：真机安装需 Apple 签名（Xcode 配置团队，或后续在 CI
+  # 配证书自动签名）。局域网/RTSP 所需权限（iOS14+ 本地网络、mDNS、ATS）在此注入。
+  build-ios:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter (stable)
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.29.0'
+          channel: 'stable'
+
+      - name: Backup custom entry files
+        run: |
+          cp lib/main.dart /tmp/main.dart.bak
+          cp pubspec.yaml /tmp/pubspec.yaml.bak
+
+      - name: Generate iOS platform
+        run: flutter create --platforms=ios --org com.alexcnc .
+
+      - name: Restore custom entry files
+        run: |
+          cp /tmp/main.dart.bak lib/main.dart
+          cp /tmp/pubspec.yaml.bak pubspec.yaml
+
+      # iOS 14+ 必须声明本地网络权限，否则连不上局域网 TCP/RTSP/mDNS；
+      # ATS 例外允许 http://192.168.x.x 明文云端与 rtsp:// 播放。
+      - name: Inject iOS network permissions (Info.plist)
+        run: |
+          PLIST=ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :NSLocalNetworkUsageDescription string '用于发现并连接局域网内的 CNC 雕刻机与摄像头'" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :NSBonjourServices array" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :NSBonjourServices:0 string _alexcnc._tcp" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :NSBonjourServices:1 string _http._tcp" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" "$PLIST"
+          plutil -p "$PLIST" | head -40
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build iOS (no codesign)
+        run: |
+          set +e
+          flutter build ios --release --no-codesign > /tmp/ios_build_output.txt 2>&1
+          code=$?
+          if [ $code -ne 0 ]; then
+            {
+              echo "## iOS build failed for ${{ github.sha }}"
+              echo
+              echo '```text'
+              tail -n 150 /tmp/ios_build_output.txt
+              echo '```'
+            } > /tmp/ios_build_msg.md
+            gh api repos/${{ github.repository }}/commits/${{ github.sha }}/comments -f body="$(cat /tmp/ios_build_msg.md)" || true
+          fi
+          exit $code
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Package unsigned IPA
+        run: |
+          cd build/ios/iphoneos
+          mkdir -p Payload
+          cp -r Runner.app Payload/
+          zip -qry alexcnc-ios-unsigned.ipa Payload
+          ls -lh alexcnc-ios-unsigned.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: alexcnc-ios-unsigned
+          path: build/ios/iphoneos/alexcnc-ios-unsigned.ipa
