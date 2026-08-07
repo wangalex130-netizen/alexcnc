@@ -31,7 +31,9 @@ class CameraDiscovery {
   /// 返回可用的 RTSP 地址；找不到返回 null。
   ///
   /// 流程：1) 先试本地缓存（上次成功地址，秒开）；
-  ///       2) 否则走 ONVIF WS-Discovery 探测。
+  ///       2) 否则 ONVIF WS-Discovery 探测（依赖组播，部分路由器可能不通）；
+  ///       3) 失败后跑一次同 /24 子网 TCP 端口扫描兜底（最快 2-3 秒出结果），
+  ///          命中 554/5544 端口即认为是摄像头，返回 RTSP URL（不暴露 IP 给客户）。
   static Future<String?> discover({
     Duration timeout = const Duration(seconds: 4),
   }) async {
@@ -44,7 +46,8 @@ class CameraDiscovery {
       }
       return normalized;
     }
-    final found = await _onvifProbe(timeout);
+    String? found = await _onvifProbe(timeout);
+    found ??= await _tcpScanFallback();
     if (found != null) {
       final normalized = _withDefaultCreds(found);
       if (normalized != found) {
@@ -76,6 +79,78 @@ class CameraDiscovery {
     return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
         '${hex.substring(12, 16)}-${hex.substring(16, 20)}-'
         '${hex.substring(20, 32)}';
+  }
+
+  /// 取本机非回环 IPv4（用于推断 /24 网段）。
+  static String? _localIPv4() {
+    try {
+      for (final iface in NetworkInterface.list()) {
+        if (iface.isLoopback || !iface.isUp) continue;
+        for (final addr in iface.addresses) {
+          if (addr.type == InternetAddressType.IPv4 && !addr.isLoopback) {
+            return addr.address;
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// TCP 端口连通性测试（短超时），命中返回 true。
+  static Future<bool> _tcpOpen(String host, int port, Duration timeout) async {
+    try {
+      final socket = await Socket.connect(host, port, timeout: timeout);
+      socket.destroy();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 同 /24 子网静默扫描 RTSP 端口兜底：批量 64 并发，命中 554/5544 即返回。
+  /// 不向用户暴露任何 IP，结果直接返回完整 RTSP URL（默认 /11 主码流）。
+  /// 通常最坏情况下 2-3 秒出结果，远好于用户手动找 IP。
+  static Future<String?> _tcpScanFallback() async {
+    final myIp = _localIPv4();
+    if (myIp == null) return null;
+    final parts = myIp.split('.');
+    if (parts.length != 4) return null;
+    final prefix = '${parts[0]}.${parts[1]}.${parts[2]}';
+
+    final ports = const [554, 5544];
+    // 不扫本机自身 IP（可能有其他服务占 554），从 .1 到 .254
+    final hosts = <String>[for (var i = 1; i <= 254; i++) '$prefix.$i'];
+
+    final completer = Completer<String?>();
+    bool finished = false;
+    void done(String? result) {
+      if (!finished) {
+        finished = true;
+        completer.complete(result);
+      }
+    }
+
+    Future<void> probe(String host) async {
+      if (finished) return;
+      for (final port in ports) {
+        if (finished) return;
+        if (await _tcpOpen(host, port, const Duration(milliseconds: 350))) {
+          // TCP 命中即认为可能是摄像头，返回带默认凭据的 RTSP URL
+          done('rtsp://$host:$port/11');
+          return;
+        }
+      }
+    }
+
+    // 分批 64 并发跑，命中即停
+    for (var i = 0; i < hosts.length; i += 64) {
+      if (finished) break;
+      final batch = hosts.skip(i).take(64);
+      await Future.wait(batch.map(probe));
+    }
+
+    if (completer.isCompleted) return await completer.future;
+    return null;
   }
 
   static Future<String?> _onvifProbe(Duration timeout) async {
