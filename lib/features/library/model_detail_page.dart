@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/config.dart';
 import '../../app/runtime_config.dart';
 import '../../app/theme.dart';
 import '../../models/library_item.dart';
@@ -98,7 +99,9 @@ class ModelDetailPage extends ConsumerWidget {
                                 fontSize: 11, color: CncColors.warning)),
                       ],
                       const SizedBox(height: 16),
-                      if (previewUrl != null) ...[
+                      // 刀路预览入口：驱动暂不产 preview JSON，默认关闭（config 开关）；
+                      // 打开后优先模型 previewUrl，否则云端现算。
+                      if (AppConfig.toolpathPreviewEnabled && previewUrl != null) ...[
                         const Text('刀路预览',
                             style: TextStyle(
                                 fontSize: 12,

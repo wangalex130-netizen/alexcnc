@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../app/config.dart';
 import '../../app/runtime_config.dart';
 import '../../app/theme.dart';
 import '../../data/material_db.dart';
@@ -57,6 +58,9 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
   /// 加载 2D 刀路：优先模型自带 previewUrl；否则兜底走云端现算
   /// （GET /api/v1/models/{id}/preview，server.py 从 G-code 抽渲染矢量）。
   void _loadToolpath() {
+    // 2026-08-07：驱动暂不产 preview JSON，入口默认关闭（config 开关）；
+    // 打开后优先模型 previewUrl，否则兜底云端现算。
+    if (!AppConfig.toolpathPreviewEnabled) return;
     final job = ref.read(activeJobProvider);
     final item = job?.item;
     if (item == null || _pathLoading) return;
@@ -230,8 +234,11 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
                                     child: CircularProgressIndicator(
                                         strokeWidth: 2,
                                         color: CncColors.primary))
-                                : const Text('暂无刀路预览',
-                                    style: TextStyle(
+                                : Text(
+                                    AppConfig.toolpathPreviewEnabled
+                                        ? '暂无刀路预览'
+                                        : '刀路预览待驱动支持',
+                                    style: const TextStyle(
                                         fontSize: 12,
                                         color: CncColors.textSub)),
                           ),
