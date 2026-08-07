@@ -77,10 +77,11 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 | `startSpindle(rpm)` | `{"cmd":"spindle","rpm":12000}` | `M3 S12000`；`rpm=0` → `M5` |
 | `stopSpindle()` | `{"cmd":"spindle","rpm":0}` | `M5` |
 | `setAux(key, on)` | `{"cmd":"aux","key":"light","on":true}` | `key` ∈ `light`(机箱照明) / `laser`(红点激光) / `timelapse`(延时摄影)；自定义 `$` 或 M-code |
-| `startJob()` | `{"cmd":"job","action":"start"}` | 触发 MCU 开始执行**云端已下发**的队列任务（固件统一跑「自检 → 加工」）。**App 不发 G-code** |
+| `startJob()` | `{"cmd":"job","action":"start"}` | 触发 MCU 开始执行**已落盘（SD/Flash）的 G-code**（固件统一跑「物理确认 → 自检 → 加工」）。**App 不发 G-code**；文件经 D10 下载链路先落盘，动作经 D9 物理确认门禁 |
 | `pauseJob()` | `{"cmd":"job","action":"pause"}` | 软暂停（保留坐标） |
 | `resumeJob()` | `{"cmd":"job","action":"resume"}` | 继续 |
 | `stopJob()` | `{"cmd":"job","action":"stop"}` | 软停止（抬刀 / 回安全位） |
+| `confirm()`（D9，仅调试/演示用） | `{"cmd":"confirm"}` | 安全确认门禁。**正式形态为机身屏物理按钮**，由固件内部触发；此命令仅供联调模拟，量产固件可忽略 |
 | `updateToolMap(tools)` | `{"cmd":"toolMap","tools":[{"index":1,"installed":true},{"index":2,"installed":false}]}` | 下发 ATC 刀仓映射（仅占用位；**具体哪把刀由 App 侧 updateToolMap 维护，固件四刀位传感器只校验在位**） |
 | `setLevelingPlan(mode, cols, rows)` | `{"cmd":"leveling","mode":1,"cols":5,"rows":4}` | 下发调平网格方案；`mode`∈0/1/2（跳过/标准/精细），`cols/rows` 由 App 按**云端下发的模型尺寸**算好后填好发给机器；机器按此网格执行扫描 |
 | `connect()` / `disconnect()` | 建立 / 断开 TCP | — |
@@ -102,6 +103,8 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
   "msg": "ok",                // 可选状态描述
   "scIndex": 3,               // 自检阶段进度（固件拥有自检流水线）：当前第几阶段
   "scTotal": 8,               // 自检总阶段数；0 = 无/未上报
+  "download": 0.6,            // D10 G-code 文件下载进度 0..1；无下载任务为 null
+  "awaitingConfirm": true,    // D9 是否正等待机旁物理确认；false/null = 不等待
   "aux": { "light": true, "laser": false, "timelapse": false },
   "tools": [                  // ATC 刀仓（4 槽）
     { "index": 1, "name": "3.175平底刀", "material": "钨钢", "length": 30.0, "installed": true },
@@ -114,13 +117,27 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 
 > **自检流水线（决策②：固件拥有）**：`scIndex`/`scTotal` 由固件在 `startJob()` 后统一广播；App **只渲染**，不自己计时。App 据此显示「自检中 3/8」并自动在 `scIndex>=scTotal` 后进入加工态。
 
-### 2.4 G-code 局域网推送（第一步）
+### 2.4 G-code 下发链路（D10：命令与文件分离，HTTP 下载落盘）
 
-> 资产闭环不变式：**App 永不持有 G-code**。第一步用 **PC 伴随服务 `server.py`** 充当模型库 + G-code 源。
+> 资产闭环不变式：**App 永不持有 G-code**。2026-08-07 起（D10）：**MQTT/TCP 只传控制指令与
+> 下载链接，不传文件本体**；G-code 一律经 **HTTP 下载（预签名 URL）** 异步落机器本地存储
+> （SD/Flash）后执行，**不做流式/滴流传输**。
 
-- App 选好模型后调用 `pushTaskToMachine(taskId)` → `POST /api/v1/devices/{id}/jobs`。
-- `server.py` 收到后把 G-code 经**局域网 TCP:8899** 以 `{"cmd":"gcode","lines":[...]}` 帧推给机器（见 `server.py` 的 `push_gcode_to_machine`）。
-- 随后 App 发 `{"cmd":"job","action":"start"}`，机器（已缓冲 G-code）开始执行。
+**标准流程（云端 / 局域网统一同一套）**：
+
+```
+① 电脑端/云端把 G-code 存到文件服务 → 得到可下载 URL（预签名）
+② 下发 job 命令（带 gcodeUrl）：{"cmd":"job","action":"prepare","gcodeUrl":"http://.../gcode/task-001","compensation":"firmware"}
+③ 机器收到后 HTTP 异步下载 → 广播 download 进度（0..1）→ 完成后 state=ready
+④ 用户点开始 → 机器广播 awaitingConfirm=true → 机身屏弹「确认加工」→ 机旁物理按钮
+⑤ 确认后固件执行「自检(sc 0→8) → 加工(progress/eta)」，完成后 state=idle
+```
+
+- **文件服务**：外网 = ② 的 G-code 托管（预签名 URL）；局域网 = `server.py` 提供
+  `GET /api/v1/gcode/{taskId}` 端点（网关把文件传给它或直接上传）。
+- **`gcode` 帧保留为兼容通道**（小文件/调试）：`{"cmd":"gcode","lines":[...],"compensation":"..."}`；
+  机器收到后同样落盘存储，再走 ④⑤ 流程——**两种来源进入同一执行引擎**。
+- 下载失败/校验失败：广播 `state=alarm` + `msg` 原因，可重发 `job prepare` 重试（建议支持断点续传，P2）。
 - 内置 `SAMPLE_GCODE` 可直接跑通演示；真机接入时由切片服务产出真实 G-code。
 
 ### 2.5 MQTT 备选（第二步，当前不做）
@@ -128,7 +145,7 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 - 状态发布：`cnc/<deviceId>/status`
 - 命令订阅：`cnc/<deviceId>/cmd`
 
-payload 与上面 JSON 完全一致。第一步请用 §2.1「TCP:8899 直连」实现。
+payload 与上面 JSON 完全一致（含 `gcodeUrl` 下载链接，**MQTT 不传文件本体**）。第一步请用 §2.1「TCP:8899 直连」实现。
 
 ### 2.6 设备唯一码与注册（D5/D7，机器始终在线模型）
 
@@ -170,6 +187,29 @@ payload 与上面 JSON 完全一致。第一步请用 §2.1「TCP:8899 直连」
 - 机器执行完 `setLevelingPlan` 网格探测后，把每个点的 Z 偏差填入 `grid`（行为序，行优先）回传；
 - 上位机据此重算补偿 G-code（compensation=host）再下发；`compensation=firmware` 时固件自留网格，不依赖回传。
 
+### 2.8 物理安全确认（D9，任何任务/动作的门禁）
+
+> 语义：凡涉及**主轴起转**或**坐标大范围移动**的动作（含任务开始前的回零/移刀/起转），机器
+> 必须先在**机身屏弹出高优先级「确认加工」界面**，用户**机旁按物理按钮**确认后才执行；
+> 未确认则保持 `awaitingConfirm=true` 待命，不产生任何运动/起转。与 D3"远程功能参数无需
+> 屏上确认"并存——这是不可绕过的安全联锁。
+
+**状态与触发**：
+
+```jsonc
+// 机器广播（等待确认中）
+{ "state": "idle", "awaitingConfirm": true, "msg": "请在机身屏确认加工" }
+// 用户按下物理按钮后（固件内部确认，无需网络命令）
+{ "state": "busy", "awaitingConfirm": false, "scIndex": 0, "scTotal": 8 }
+```
+
+- **触发时机**：`startJob` 后进入实际运动前（回零/移刀/主轴起转之前）；P2 可扩展为「jog 单次
+  大位移（如 >10mm）」或「暂停后长时间恢复」再次触发。
+- **确认载体**：**物理按钮**（硬件形态待产品确认，建议实体键 + 长按 2s 防误触）；固件在按钮
+  事件中内部置位，**不应依赖网络 `confirm` 命令**（`confirm` 命令仅供联调模拟，量产忽略）。
+- **超时策略**：未确认无限等待；用户可在机身屏取消（回到 idle）。
+- **App/电脑端表现**：收到 `awaitingConfirm=true` 时显示「等待机旁确认」并禁用「开始」，不替用户确认。
+
 ---
 
 ## 3. CloudService 契约（App ↔ 云端）
@@ -186,8 +226,9 @@ payload 与上面 JSON 完全一致。第一步请用 §2.1「TCP:8899 直连」
 | `getInspiration(page)` | `GET /api/v1/library/inspiration?page=0` | `[LibraryItem]` JSON |
 | `getMySpace()` | `GET /api/v1/library/mine` | `[LibraryItem]` JSON（含电脑端上传任务，方案 A/S2） |
 | `pushDiagnostics(log)` | `POST /api/v1/diagnostics` | `202 Accepted` |
-| `pushTaskToMachine(taskId)` | `POST /api/v1/devices/{deviceId}/jobs` | `{"accepted":true,...}`（云端把切片 G-code 直推 MCU，App 不持有）|
+| `pushTaskToMachine(taskId)` | `POST /api/v1/devices/{deviceId}/jobs` | `{"accepted":true,...}`（云端把 G-code 存为文件，返回 `gcodeUrl` 预签名下载链接，App 不持有）|
 | **电脑端上传任务（新）** | `POST /api/v1/tasks` | `201 {"ok":true,"id":...}`（ArtiMaker 上传生成的任务，body=TaskMetadata JSON + 可选 `gcode`/`thumbnailUrl`；写入②后 App 图库「我的空间」可见） |
+| **G-code 文件下载（新，D10）** | `GET /api/v1/gcode/{taskId}` | 机器 HTTP 拉取 G-code 文本（预签名 URL 即指此端点；局域网 server.py 已支持，外网②同构） |
 
 > **电脑端对接示例（方案 A / S2，`server.py` 已支持）**：
 > ```bash
@@ -293,12 +334,14 @@ payload 与上面 JSON 完全一致。第一步请用 §2.1「TCP:8899 直连」
 
 枚举值（与 `lib/models/machine_status.dart` 一致）：
 `disconnected` · `idle` · `homing` · `busy` · `paused` · `alarm`
+（D9/D10 扩展：`ready` 表示 G-code 已落盘待执行；`awaitingConfirm` 作为状态帧标志位而非独立枚举）
 
 合法迁移：
 
 ```
 idle ──home()──▶ homing ──▶ idle
-idle ──startJob()──▶ busy ──pauseJob()──▶ paused ──resumeJob()──▶ busy
+idle ──job prepare──▶ download(progress) ──▶ ready ──startJob──▶ awaitingConfirm(待物理确认) ──▶ busy
+idle ──startJob──▶ busy ──pauseJob()──▶ paused ──resumeJob()──▶ busy
 busy / paused ──stopJob()──▶ idle
 busy ──(异常)──▶ alarm ──(复位)──▶ idle
 任意 ──disconnect()──▶ disconnected
@@ -338,7 +381,8 @@ busy ──(异常)──▶ alarm ──(复位)──▶ idle
 ### 第一步（局域网，先交付）
 - [ ] ESP32 起 **AsyncTCP Server:8899**（`0.0.0.0`），按 §2.2 解析命令帧、按 §2.3 广播状态帧（含 `scIndex/scTotal` 自检）。
 - [ ] 自检流水线：收到 `job start` 后 `scTotal=8`，固件自行推进 `scIndex 0→8`，再进 `progress` 加工；App 只读不计时。
-- [ ] 接收 `gcode` 帧并缓冲；`job start` 执行已缓冲的 G-code。
+- [ ] **D10 下载链路**：实现 HTTP 下载器 + SD/Flash 存储；支持 `job prepare{gcodeUrl}` → 下载 → 广播 `download` 进度 → `ready`；`gcode` 帧同样落盘进同一执行引擎。
+- [ ] **D9 物理确认**：`ready` 后广播 `awaitingConfirm=true`；机身屏弹「确认加工」高优先级界面；物理按钮按下后进入 `busy`（自检→加工）；未确认保持待命、不运动不起转。
 - [ ] 接收 `leveling` 帧并按网格执行扫描。
 - [ ] 局域网联调：`server/fake_firmware.py --tcp` 可被 App 直连跑通 Jog / 回零 / 开切 / RTSP（见 `docs/本地联调指南.md`）。
 

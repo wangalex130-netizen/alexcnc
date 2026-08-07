@@ -7,7 +7,8 @@
   GET  /api/v1/materials            材质参数主表（JSON 数组，字段对齐 MaterialSpec.fromJson）
   GET  /api/v1/tasks/active         当前激活任务元数据
   GET  /api/v1/tasks/<id>           指定任务元数据（含 widthMm/heightMm 驱动调平点数）
-  POST /api/v1/devices/<id>/jobs    云端把切片 G-code 推送到指定设备（App 仅触发，不传 G-code）
+  GET  /api/v1/gcode/<id>           D10 G-code 文件下载端点（机器 HTTP 拉取落 SD，预签名 URL 同构）
+  POST /api/v1/devices/<id>/jobs    云端下发任务：返回 gcodeUrl 下载链接（正式路径）+ 保留 TCP 直推（兼容）
   POST /api/v1/diagnostics          诊断日志上报
 
 运行：
@@ -182,6 +183,19 @@ class Handler(BaseHTTPRequestHandler):
             if task:
                 return self._send(200, task)
             return self._send(404, {"error": "task not found", "id": tid})
+        # D10：G-code 文件下载端点（机器 HTTP 拉取落 SD；外网②同构为预签名 URL）
+        if p.path.startswith("/api/v1/gcode/"):
+            tid = p.path.rsplit("/", 1)[-1]
+            task = TASKS.get(tid) or UPLOADED_TASKS.get(tid)
+            lines = (task or {}).get("gcode") or SAMPLE_GCODE
+            body = ("\n".join(lines) + "\n").encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-GCode-Source", "mock-cloud")
+            self.end_headers()
+            self.wfile.write(body)
+            return
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):
@@ -220,7 +234,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if p.path.startswith("/api/v1/devices/") and p.path.endswith("/jobs"):
             dev = p.path.split("/")[-2]
-            # 第一步（局域网）：云端(Mock)把 G-code 经局域网 TCP:8899 直推 MCU；
+            # D10：返回 gcodeUrl 下载链接供机器 HTTP 拉取落 SD（正式路径）；
+            # 同时保留局域网 TCP:8899 直推（gcode 帧）作为兼容/小文件通道。
             # App 不持有 G-code，仅触发本端点。优先用该任务上传的 G-code。
             gcode = None
             tid = payload.get("taskId")
@@ -230,9 +245,11 @@ class Handler(BaseHTTPRequestHandler):
             pushed = push_gcode_to_machine(gcode)
             print(f"[GCODE PUSH] device={dev} task={payload.get('taskId')} "
                   f"pushed={pushed} -> {MACHINE_HOST}:{MACHINE_PORT}", flush=True)
+            base = f"http://{self.headers.get('Host', f'{HOST}:{PORT}')}"
             return self._send(202, {"accepted": True, "device": dev,
                                      "taskId": payload.get("taskId"),
-                                     "gcodePushed": pushed})
+                                     "gcodePushed": pushed,
+                                     "gcodeUrl": f"{base}/api/v1/gcode/{tid or 'active'}"})
 
         if p.path == "/api/v1/diagnostics":
             print(f"[DIAG] device={payload.get('device')} "
