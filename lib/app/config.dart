@@ -13,11 +13,12 @@ class AppConfig {
   const AppConfig._();
 
   // ---- 摄像头（机器侧面固定头，纯裸画面，无叠加层）----
-  // 雄迈模组：同网段手机可直接播放；ONVIF 自动发现作为兜底。
-  // 默认地址指向当前摄像头（192.168.1.218），可用 --dart-define=CAMERA_RTSP=... 覆盖。
+  // 雄迈模组：同网段手机可直接播放；自动发现（Wi-Fi 网段扫描）作为兜底。
+  // 默认地址是"上次已知的摄像头 IP"（当前 192.168.31.152），摄像头每次上电
+  // IP 可能变化——连不上时自动切扫描找当前 IP。可用 --dart-define=CAMERA_RTSP=... 覆盖。
   static const String cameraRtspUrl = String.fromEnvironment(
     'CAMERA_RTSP',
-    defaultValue: 'rtsp://admin:abc123456@192.168.1.218:554/11',
+    defaultValue: 'rtsp://admin:abc123456@192.168.31.152:554/11',
   );
 
   // ---- 后端选择 ----

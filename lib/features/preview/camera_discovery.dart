@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'package:network_info_plus/network_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 摄像头自动发现（ONVIF WS-Discovery）+ 本地缓存。
@@ -84,10 +85,24 @@ class CameraDiscovery {
   ///
   /// 关键：手机常同时有 Wi-Fi 和蜂窝两个 IPv4，`NetworkInterface.list()`
   /// 返回顺序不保证 Wi-Fi 在前——若拿到蜂窝 IP 就会扫错网段永远找不到摄像头。
-  /// 因此返回【所有】候选，且优先 Wi-Fi/以太网接口；调用方逐个网段扫描。
+  /// 因此优先用 network_info_plus（Android 原生 WifiManager，可靠拿 Wi-Fi IP），
+  /// NetworkInterface.list() 仅作补充；返回所有候选，调用方逐个网段扫描。
   static Future<List<String>> _localIPv4Candidates() async {
     final preferred = <String>[];
     final others = <String>[];
+
+    // 1) 首选：当前 Wi-Fi IP（最可靠）
+    try {
+      final wifiIp = await NetworkInfo().getWifiIP();
+      if (wifiIp != null &&
+          wifiIp.isNotEmpty &&
+          _isPrivateLan(wifiIp) &&
+          !preferred.contains(wifiIp)) {
+        preferred.add(wifiIp);
+      }
+    } catch (_) {}
+
+    // 2) 补充：其他接口的私网 IPv4（Wi-Fi/以太网优先）
     try {
       final interfaces = await NetworkInterface.list();
       for (final iface in interfaces) {
@@ -99,10 +114,15 @@ class CameraDiscovery {
           if (addr.type != InternetAddressType.IPv4) continue;
           if (addr.isLoopback || addr.isLinkLocal) continue;
           if (!_isPrivateLan(addr.address)) continue;
+          if (preferred.contains(addr.address) ||
+              others.contains(addr.address)) {
+            continue;
+          }
           (isLan ? preferred : others).add(addr.address);
         }
       }
     } catch (_) {}
+
     return <String>{...preferred, ...others}.toList();
   }
 

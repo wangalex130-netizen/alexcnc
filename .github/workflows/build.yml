@@ -61,7 +61,11 @@ jobs:
             sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' "$MANIFEST"
           grep -q 'CHANGE_WIFI_MULTICAST_STATE' "$MANIFEST" || \
             sed -i 's#<application#<uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>\n    <application#' "$MANIFEST"
-          grep -n 'INTERNET\|MULTICAST\|<application' "$MANIFEST" | head
+          grep -q 'ACCESS_WIFI_STATE' "$MANIFEST" || \
+            sed -i 's#<application#<uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>\n    <application#' "$MANIFEST"
+          grep -q 'ACCESS_NETWORK_STATE' "$MANIFEST" || \
+            sed -i 's#<application#<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>\n    <application#' "$MANIFEST"
+          grep -n 'INTERNET\|MULTICAST\|ACCESS_WIFI\|ACCESS_NETWORK\|<application' "$MANIFEST" | head
 
       # Remove the default counter-app test so `flutter analyze` stays clean.
       - name: Drop generated default test
