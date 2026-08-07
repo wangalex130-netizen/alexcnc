@@ -143,6 +143,13 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
       setState(() => _state = _CamState.ready);
     });
     _controller = controller;
+
+    // 关键：创建 controller 后【立即】把状态切到 ready 并构建 VlcPlayer。
+    // VlcPlayer 只有进入 widget 树才会创建 platform view → 分配 viewId →
+    // controller 的 autoInitialize 才能开始。如果等 addOnInitListener 触发
+    // 才切 ready，platform view 永远不会创建，初始化永远不会开始，就会
+    // 卡死在「正在连接摄像头…」。连接期间由 VlcPlayer 的 placeholder 显示转圈。
+    setState(() => _state = _CamState.ready);
   }
 
   void _onControllerUpdate() {
@@ -266,7 +273,20 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
           // Android VirtualDisplay 与 viewId 初始化时序不一致的问题。
           virtualDisplay: false,
           placeholder: const Center(
-            child: CircularProgressIndicator(color: CncColors.primary),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(color: CncColors.primary),
+                SizedBox(height: 10),
+                Text(
+                  '正在连接摄像头…',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF9AA0A6),
+                  ),
+                ),
+              ],
+            ),
           ),
         );
     }

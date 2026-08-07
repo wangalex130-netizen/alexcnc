@@ -1,15 +1,19 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../app/runtime_config.dart';
 import '../../app/theme.dart';
 import '../../data/material_db.dart';
 import '../../data/tool_library.dart';
 import '../../models/machine_status.dart';
 import '../../state/providers.dart';
+import '../library/toolpath_preview.dart';
 import '../shell/app_shell.dart';
 
 /// Step6 实时加工监控页。
@@ -32,15 +36,54 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
   int _elapsed = 0;
   bool _doneShown = false;
 
+  /// 真实刀路渲染矢量（协议 §3.2，App 只下载 preview JSON，不持有 G-code）。
+  ToolpathData? _pathData;
+  bool _pathLoading = false;
+
   @override
   void initState() {
     super.initState();
+    // 等首帧后加载刀路（此时 activeJobProvider 已可用）
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadToolpath());
     _pollTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       final completed = ref.read(activeJobProvider)?.completed ?? false;
       final st = ref.read(machineStatusProvider).value?.state ?? MachineState.idle;
       if (!completed && st != MachineState.paused && mounted) {
         setState(() => _elapsed++);
       }
+    });
+  }
+
+  /// 加载 2D 刀路：优先模型自带 previewUrl；否则兜底走云端现算
+  /// （GET /api/v1/models/{id}/preview，server.py 从 G-code 抽渲染矢量）。
+  void _loadToolpath() {
+    final job = ref.read(activeJobProvider);
+    final item = job?.item;
+    if (item == null || _pathLoading) return;
+    final base = ref.read(runtimeConfigProvider).resolvedCloudBaseUrl;
+    final url = (item.previewUrl != null && item.previewUrl!.isNotEmpty)
+        ? item.previewUrl
+        : (base.isEmpty ? null : '$base/api/v1/models/${item.id}/preview');
+    if (url == null) return;
+    setState(() => _pathLoading = true);
+    http
+        .get(Uri.parse(url))
+        .timeout(const Duration(seconds: 8))
+        .then((resp) {
+      if (!mounted) return;
+      if (resp.statusCode == 200) {
+        final data = ToolpathData.fromJson(
+            (jsonDecode(resp.body) as Map?) ?? const {});
+        setState(() {
+          _pathData = data.isEmpty ? null : data;
+          _pathLoading = false;
+        });
+      } else {
+        setState(() => _pathLoading = false);
+      }
+    }).catchError((_) {
+      if (!mounted) return;
+      setState(() => _pathLoading = false);
     });
   }
 
@@ -156,7 +199,8 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
             ),
           ),
           const SizedBox(height: 12),
-          // 2D 轨迹
+          // 2D 刀路实时预览（真实渲染矢量：travel 灰虚线 / cut 绿实线，
+          // 已加工段高亮 + 呼吸激光头；App 只下载 preview JSON，不持有 G-code）
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -166,20 +210,41 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
             ),
             child: Column(
               children: [
-                const Text('2D 矢量实时轨迹（模型轮廓）',
+                const Text('2D 刀路实时预览',
                     style: TextStyle(fontSize: 11, color: CncColors.textSub)),
                 const SizedBox(height: 8),
                 AspectRatio(
                   aspectRatio: 3 / 2,
                   child: AnimatedBuilder(
                     animation: _head,
-                    builder: (c, _) => CustomPaint(
-                      painter: _ModelTrajectoryPainter(
-                        progress: _head.value,
-                        modelW: job?.task.widthMm ?? 145,
-                        modelH: job?.task.heightMm ?? 95,
-                      ),
-                    ),
+                    builder: (c, _) {
+                      final data = _pathData;
+                      if (data == null) {
+                        return Container(
+                          color: const Color(0xFFF5F7FA),
+                          child: Center(
+                            child: _pathLoading
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: CncColors.primary))
+                                : const Text('暂无刀路预览',
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: CncColors.textSub)),
+                          ),
+                        );
+                      }
+                      return CustomPaint(
+                        painter: _ToolpathProgressPainter(
+                          data: data,
+                          progress: prog,
+                          pulse: _head.value,
+                        ),
+                      );
+                    },
                   ),
                 ),
               ],
@@ -474,138 +539,135 @@ class _Telem extends StatelessWidget {
       );
 }
 
-// ===================== 模型轮廓 2D 轨迹（必须是模型本身）=====================
+// ===================== 2D 刀路实时预览（真实渲染矢量）=====================
 
-/// 生成模型轮廓路径点（mm，模型局部坐标 0..w, 0..h）。
-/// 严格还原 step6.html 设计稿的「战神徽章矢量图」：镜头/眼形外框
-/// （M15 45 Q67.5 5 120 45 Q67.5 85 15 45 Z）+ 内圆 r20。
-List<Offset> modelContour(double w, double h) {
-  final pts = <Offset>[];
-  final sx = w / 135, sy = h / 90;
-  Offset v(double x, double y) => Offset(x * sx, y * sy);
-  final p0 = v(15, 45);
-  final c1 = v(67.5, 5);
-  final p1 = v(120, 45);
-  final c2 = v(67.5, 85);
-  const n1 = 48;
-  for (var i = 0; i <= n1; i++) {
-    final t = i / n1, mt = 1 - t;
-    pts.add(Offset(
-      mt * mt * p0.dx + 2 * mt * t * c1.dx + t * t * p1.dx,
-      mt * mt * p0.dy + 2 * mt * t * c1.dy + t * t * p1.dy,
-    ));
-  }
-  const n2 = 48;
-  for (var i = 0; i <= n2; i++) {
-    final t = i / n2, mt = 1 - t;
-    pts.add(Offset(
-      mt * mt * p1.dx + 2 * mt * t * c2.dx + t * t * p0.dx,
-      mt * mt * p1.dy + 2 * mt * t * c2.dy + t * t * p0.dy,
-    ));
-  }
-  final cc = v(67.5, 45);
-  final r = 20 * sx;
-  const nc = 56;
-  for (var i = 0; i <= nc; i++) {
-    final a = i / nc * 2 * pi;
-    pts.add(Offset(cc.dx + cos(a) * r, cc.dy + sin(a) * r));
-  }
-  return pts;
-}
-
-class _ModelTrajectoryPainter extends CustomPainter {
-  final double progress;
-  final double modelW;
-  final double modelH;
-  const _ModelTrajectoryPainter(
-      {required this.progress, required this.modelW, required this.modelH});
+class _ToolpathProgressPainter extends CustomPainter {
+  final ToolpathData data;
+  final double progress; // 真实加工进度 0..1（completed 时锁定 1.0）
+  final double pulse; // 呼吸动画值 0..1（驱动激光头半径）
+  const _ToolpathProgressPainter(
+      {required this.data, required this.progress, required this.pulse});
 
   @override
   void paint(Canvas canvas, Size size) {
     final pad = 14.0;
     final availW = size.width - pad * 2;
     final availH = size.height - pad * 2;
+    final modelW = data.widthMm <= 0 ? 1.0 : data.widthMm;
+    final modelH = data.heightMm <= 0 ? 1.0 : data.heightMm;
     final scale = min(availW / modelW, availH / modelH);
     final offX = (size.width - modelW * scale) / 2;
     final offY = (size.height - modelH * scale) / 2;
-    Offset toPix(Offset p) =>
-        Offset(offX + p.dx * scale, offY + (modelH - p.dy) * scale);
-
-    final pts = modelContour(modelW, modelH);
 
     canvas.drawRect(
       Rect.fromLTWH(0, 0, size.width, size.height),
-      Paint()..color = const Color(0xFFEFF2F5),
+      Paint()..color = const Color(0xFFF5F7FA),
     );
 
-    final full = Path()..moveTo(toPix(pts[0]).dx, toPix(pts[0]).dy);
-    for (var i = 1; i < pts.length; i++) {
-      full.lineTo(toPix(pts[i]).dx, toPix(pts[i]).dy);
-    }
-    canvas.drawPath(
-      full,
-      Paint()
-        ..color = CncColors.primary.withOpacity(0.25)
-        ..strokeWidth = 2
-        ..style = PaintingStyle.stroke,
-    );
-
-    final seg = <double>[];
-    var total = 0.0;
-    for (var i = 1; i < pts.length; i++) {
-      final a = toPix(pts[i - 1]);
-      final b = toPix(pts[i]);
-      final l = (b - a).distance;
-      seg.add(l);
-      total += l;
-    }
-
-    final done = Path()..moveTo(toPix(pts[0]).dx, toPix(pts[0]).dy);
-    var target = progress * total;
-    for (var i = 1; i < pts.length; i++) {
-      final a = toPix(pts[i - 1]);
-      final b = toPix(pts[i]);
-      final l = seg[i - 1];
-      if (target >= l) {
-        done.lineTo(b.dx, b.dy);
-        target -= l;
-      } else {
-        final f = l == 0 ? 0.0 : target / l;
-        done.lineTo(a.dx + (b.dx - a.dx) * f, a.dy + (b.dy - a.dy) * f);
-        break;
+    // 线段流：按 paths 顺序展平（travel / cut），转像素坐标（Y 翻转）。
+    final segs = <_Seg>[];
+    for (final p in data.paths) {
+      if (p.pts.length < 2) continue;
+      for (var i = 1; i < p.pts.length; i++) {
+        final a = Offset(offX + p.pts[i - 1].dx * scale,
+            offY + (modelH - p.pts[i - 1].dy) * scale);
+        final b = Offset(offX + p.pts[i].dx * scale,
+            offY + (modelH - p.pts[i].dy) * scale);
+        if ((b - a).distance < 0.01) continue;
+        segs.add(_Seg(p.type == 'travel', a, b));
       }
     }
-    canvas.drawPath(
-      done,
-      Paint()
-        ..color = CncColors.primary
-        ..strokeWidth = 2.5
-        ..style = PaintingStyle.stroke,
-    );
+    if (segs.isEmpty) return;
 
-    var tt = progress * total;
-    var sgi = 0;
-    while (sgi < seg.length && tt > seg[sgi]) {
-      tt -= seg[sgi];
-      sgi++;
+    final travelPaint = Paint()
+      ..color = CncColors.textSub.withOpacity(0.4)
+      ..strokeWidth = 1.2
+      ..style = PaintingStyle.stroke;
+    final cutPaint = Paint()
+      ..color = CncColors.primary.withOpacity(0.45)
+      ..strokeWidth = 1.8
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    final doneCutPaint = Paint()
+      ..color = CncColors.primaryInk
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    final doneTravelPaint = Paint()
+      ..color = CncColors.textSub
+      ..strokeWidth = 1.6
+      ..style = PaintingStyle.stroke;
+
+    // 1) 全量底稿：travel 灰虚线 / cut 绿色实线
+    for (final s in segs) {
+      if (s.isTravel) {
+        _drawDashedLine(canvas, s.a, s.b, travelPaint);
+      } else {
+        canvas.drawLine(s.a, s.b, cutPaint);
+      }
     }
-    final head = sgi >= seg.length
-        ? toPix(pts.last)
-        : (() {
-            final a = toPix(pts[sgi]);
-            final b = toPix(pts[sgi + 1]);
-            final f = seg[sgi] == 0 ? 0.0 : tt / seg[sgi];
-            return Offset(a.dx + (b.dx - a.dx) * f, a.dy + (b.dy - a.dy) * f);
-          })();
-    canvas.drawCircle(head, 4, Paint()..color = CncColors.laser);
+
+    // 2) 已完成段高亮（按真实进度截断路径总长）
+    final total = segs.fold<double>(0, (sum, s) => sum + s.len);
+    var remain = progress.clamp(0.0, 1.0) * total;
+    var head = segs.last.b;
+    for (final s in segs) {
+      if (remain <= 0) break;
+      if (s.len <= remain) {
+        if (s.isTravel) {
+          _drawDashedLine(canvas, s.a, s.b, doneTravelPaint);
+        } else {
+          canvas.drawLine(s.a, s.b, doneCutPaint);
+        }
+        remain -= s.len;
+        head = s.b;
+      } else {
+        final f = s.len == 0 ? 0.0 : remain / s.len;
+        final mid = Offset(
+            s.a.dx + (s.b.dx - s.a.dx) * f, s.a.dy + (s.b.dy - s.a.dy) * f);
+        if (s.isTravel) {
+          _drawDashedLine(canvas, s.a, mid, doneTravelPaint);
+        } else {
+          canvas.drawLine(s.a, mid, doneCutPaint);
+        }
+        head = mid;
+        remain = 0;
+      }
+    }
+
+    // 3) 呼吸激光头（随 pulse 缩放半径）
+    final r = 3.5 + 1.5 * (0.5 + 0.5 * sin(pulse * 2 * pi));
+    canvas.drawCircle(
+        head, r + 3, Paint()..color = CncColors.laser.withOpacity(0.2));
+    canvas.drawCircle(head, r, Paint()..color = CncColors.laser);
 
     canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height),
         Paint()..color = CncColors.border..strokeWidth = 1);
   }
 
+  /// 虚线：travel 轨迹用（线段级拆分，避免 Path metrics 开销）。
+  void _drawDashedLine(Canvas canvas, Offset a, Offset b, Paint paint) {
+    final len = (b - a).distance;
+    if (len <= 0) return;
+    final dir = (b - a) / len;
+    const dash = 5.0, gap = 4.0;
+    var d = 0.0;
+    while (d < len) {
+      final e = min(d + dash, len);
+      canvas.drawLine(a + dir * d, a + dir * e, paint);
+      d = e + gap;
+    }
+  }
+
   @override
-  bool shouldRepaint(covariant _ModelTrajectoryPainter old) =>
-      old.progress != progress ||
-      old.modelW != modelW ||
-      old.modelH != modelH;
+  bool shouldRepaint(covariant _ToolpathProgressPainter old) =>
+      old.data != data || old.progress != progress || old.pulse != pulse;
+}
+
+/// 单段折线（像素坐标，含 travel/cut 标记与长度）。
+class _Seg {
+  final bool isTravel;
+  final Offset a, b;
+  final double len;
+  _Seg(this.isTravel, this.a, this.b) : len = (b - a).distance;
 }
