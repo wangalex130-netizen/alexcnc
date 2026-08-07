@@ -5,7 +5,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../app/theme.dart';
 import '../../models/library_item.dart';
 import '../../state/providers.dart';
-import '../wizard/wizard_page.dart';
+import 'model_detail_page.dart';
 
 /// Core 4：云端双轨模型库（灵感共享库 / 我的云端空间）—— 对齐 模型库页面.html。
 ///
@@ -36,8 +36,9 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   }
 
   void _openModel(LibraryItem item) {
+    // 先看模型详情（多图/尺寸/时长/材质/刀具），点「开始雕刻」再进向导
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => WizardPage(item: item)),
+      MaterialPageRoute(builder: (_) => ModelDetailPage(item: item)),
     );
   }
 

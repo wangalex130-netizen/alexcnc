@@ -3,6 +3,9 @@
 /// `isPublic == true` => 灵感共享库 (public inspiration);
 /// `isPublic == false` => 我的云端空间 (private cloud space).
 /// Within the private space, `isHistory` marks a completed-job record.
+
+import 'task_metadata.dart' show RequiredTool;
+
 class LibraryItem {
   final String id;
   final String title;
@@ -30,6 +33,11 @@ class LibraryItem {
   final String? toolId; // 默认刀具 id（关联刀具库）
   final int? durationSec; // 雕刻时长秒数（排序/统计）
   final String? gcodeStatus; // unsliced / sliced
+  final String? description; // 模型简介
+  final double widthMm, heightMm, depthMm; // 模型尺寸（驱动调平点数）
+  final double boardThicknessMm; // 推荐板材厚度
+  final List<RequiredTool> requiredTools; // 有序工序刀具
+  final String? previewUrl; // 2D 刀路预览矢量 JSON 地址
 
   const LibraryItem({
     required this.id,
@@ -52,6 +60,13 @@ class LibraryItem {
     this.toolId,
     this.durationSec,
     this.gcodeStatus,
+    this.description,
+    this.widthMm = 0,
+    this.heightMm = 0,
+    this.depthMm = 0,
+    this.boardThicknessMm = 0,
+    this.requiredTools = const [],
+    this.previewUrl,
   });
 
   /// 从云端 REST JSON 解析（字段对齐 docs/模型库数据格式与接口定义.md）。
@@ -78,6 +93,18 @@ class LibraryItem {
         toolId: j['toolId'] as String?,
         durationSec: (j['durationSec'] as num?)?.toInt(),
         gcodeStatus: j['gcodeStatus'] as String?,
+        description: j['description'] as String?,
+        widthMm: (j['widthMm'] as num? ?? 0).toDouble(),
+        heightMm: (j['heightMm'] as num? ?? 0).toDouble(),
+        depthMm: (j['depthMm'] as num? ?? 0).toDouble(),
+        boardThicknessMm: (j['boardThicknessMm'] as num? ?? 0).toDouble(),
+        requiredTools: (j['requiredTools'] as List? ?? [])
+            .map((e) => RequiredTool(
+                  (e['toolId'] as String? ?? ''),
+                  (e['role'] as String? ?? ''),
+                ))
+            .toList(),
+        previewUrl: j['previewUrl'] as String?,
       );
 
   /// 列表展示用图：优先 coverUrl，其次 imageUrls[0]，最后兼容旧 imageUrl。
