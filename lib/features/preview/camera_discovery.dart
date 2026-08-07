@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -169,10 +170,10 @@ class CameraDiscovery {
           'CSeq: 1\r\n'
           'Authorization: Basic $_basicAuth\r\n'
           '\r\n';
-      socket.write(utf8.encode(req));
+      socket.add(utf8.encode(req));
       final data = await socket.first.timeout(
         const Duration(milliseconds: 800),
-        onTimeout: () => <int>[],
+        onTimeout: () => Uint8List(0),
       );
       socket.destroy();
       if (data.isEmpty) return null;

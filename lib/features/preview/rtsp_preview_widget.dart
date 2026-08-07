@@ -154,13 +154,6 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     _lastAttemptLabel = attempt.label;
     debugPrint('[RTSP] 尝试 ${_attemptIndex + 1}/${_attempts.length}: ${attempt.label} -> ${attempt.url}');
 
-    setState(() {
-      _state = _CamState.connecting;
-      _error = null;
-      _diagnosis = '';
-      _resolution = '—';
-    });
-
     _disposeController();
 
     final controller = VlcPlayerController.network(
@@ -179,6 +172,13 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
       setState(() => _state = _CamState.ready);
     });
     _controller = controller;
+
+    setState(() {
+      _state = _CamState.connecting;
+      _error = null;
+      _diagnosis = '';
+      _resolution = '—';
+    });
 
     _connectTimeoutTimer?.cancel();
     _connectTimeoutTimer = Timer(const Duration(seconds: 7), () {
@@ -395,6 +395,53 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
           },
         );
       case _CamState.connecting:
+        if (_controller == null) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(color: CncColors.primary),
+                const SizedBox(height: 10),
+                const Text(
+                  '正在扫描局域网摄像头…',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF9AA0A6)),
+                ),
+                if (_lastAttemptLabel.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    _lastAttemptLabel,
+                    style: const TextStyle(fontSize: 10, color: Color(0xFF6C7075)),
+                  ),
+                ],
+              ],
+            ),
+          );
+        }
+        return VlcPlayer(
+          controller: _controller!,
+          aspectRatio: 16 / 9,
+          virtualDisplay: false,
+          placeholder: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(color: CncColors.primary),
+                const SizedBox(height: 10),
+                const Text(
+                  '正在连接摄像头…',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF9AA0A6)),
+                ),
+                if (_lastAttemptLabel.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    _lastAttemptLabel,
+                    style: const TextStyle(fontSize: 10, color: Color(0xFF6C7075)),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
       case _CamState.ready:
         return VlcPlayer(
           controller: _controller!,
@@ -406,17 +453,10 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
               children: [
                 const CircularProgressIndicator(color: CncColors.primary),
                 const SizedBox(height: 10),
-                Text(
-                  _state == _CamState.ready ? '正在缓冲…' : '正在连接摄像头…',
-                  style: const TextStyle(fontSize: 12, color: Color(0xFF9AA0A6)),
+                const Text(
+                  '正在缓冲…',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF9AA0A6)),
                 ),
-                if (_lastAttemptLabel.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    _lastAttemptLabel,
-                    style: const TextStyle(fontSize: 10, color: Color(0xFF6C7075)),
-                  ),
-                ],
               ],
             ),
           ),
