@@ -1,0 +1,30 @@
+plugins {
+    id "com.android.library"
+    id "kotlin-android"
+}
+
+group = "com.alexcnc.native_vlc_player"
+version = "0.1.0"
+
+android {
+    namespace "com.alexcnc.native_vlc_player"
+    compileSdk 34
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    defaultConfig {
+        minSdk 24
+    }
+}
+
+dependencies {
+    // libVLC 3.6.4：对国产摄像头 RTSP over TCP 兼容性最好，且错误收敛在 native 层。
+    implementation 'org.videolan.android:libvlc-all:3.6.4'
+}
