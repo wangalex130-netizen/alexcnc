@@ -72,7 +72,41 @@ jobs:
         run: rm -rf test
 
       - name: Install dependencies
-        run: flutter pub get
+        run: |
+          set +e
+          flutter pub get > /tmp/pub_get_output.txt 2>&1
+          code=$?
+          if [ $code -ne 0 ]; then
+            {
+              echo "## flutter pub get failed for ${{ github.sha }}"
+              echo
+              echo '```text'
+              cat /tmp/pub_get_output.txt
+              echo '```'
+            } > /tmp/pub_get_msg.md
+            python3 - <<'PY'
+          import os, json, urllib.request
+          token = os.environ["GITHUB_TOKEN"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          sha = os.environ["GITHUB_SHA"]
+          with open("/tmp/pub_get_msg.md", "r", encoding="utf-8") as f:
+              body = f.read()
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/commits/{sha}/comments",
+              data=json.dumps({"body": body}).encode(),
+              method="POST",
+              headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "Content-Type": "application/json", "User-Agent": "ci-bot"}
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  print("comment posted", r.status)
+          except Exception as e:
+              print("comment failed", e)
+          PY
+          fi
+          exit $code
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       # Non-fatal: surface lint issues without blocking the first APK.
       - name: Analyze (advisory)
@@ -94,11 +128,29 @@ jobs:
               tail -n 150 /tmp/build_output.txt
               echo '```'
             } > /tmp/build_msg.md
-            gh api repos/${{ github.repository }}/commits/${{ github.sha }}/comments -f body="$(cat /tmp/build_msg.md)" || true
+            python3 - <<'PY'
+          import os, json, urllib.request
+          token = os.environ["GITHUB_TOKEN"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          sha = os.environ["GITHUB_SHA"]
+          with open("/tmp/build_msg.md", "r", encoding="utf-8") as f:
+              body = f.read()
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/commits/{sha}/comments",
+              data=json.dumps({"body": body}).encode(),
+              method="POST",
+              headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "Content-Type": "application/json", "User-Agent": "ci-bot"}
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  print("comment posted", r.status)
+          except Exception as e:
+              print("comment failed", e)
+          PY
           fi
           exit $code
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -160,7 +212,41 @@ jobs:
           plutil -p "$PLIST" | head -40
 
       - name: Install dependencies
-        run: flutter pub get
+        run: |
+          set +e
+          flutter pub get > /tmp/ios_pub_get_output.txt 2>&1
+          code=$?
+          if [ $code -ne 0 ]; then
+            {
+              echo "## iOS flutter pub get failed for ${{ github.sha }}"
+              echo
+              echo '```text'
+              cat /tmp/ios_pub_get_output.txt
+              echo '```'
+            } > /tmp/ios_pub_get_msg.md
+            python3 - <<'PY'
+          import os, json, urllib.request
+          token = os.environ["GITHUB_TOKEN"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          sha = os.environ["GITHUB_SHA"]
+          with open("/tmp/ios_pub_get_msg.md", "r", encoding="utf-8") as f:
+              body = f.read()
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/commits/{sha}/comments",
+              data=json.dumps({"body": body}).encode(),
+              method="POST",
+              headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "Content-Type": "application/json", "User-Agent": "ci-bot"}
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  print("comment posted", r.status)
+          except Exception as e:
+              print("comment failed", e)
+          PY
+          fi
+          exit $code
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Build iOS (no codesign)
         run: |
@@ -175,11 +261,29 @@ jobs:
               tail -n 150 /tmp/ios_build_output.txt
               echo '```'
             } > /tmp/ios_build_msg.md
-            gh api repos/${{ github.repository }}/commits/${{ github.sha }}/comments -f body="$(cat /tmp/ios_build_msg.md)" || true
+            python3 - <<'PY'
+          import os, json, urllib.request
+          token = os.environ["GITHUB_TOKEN"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          sha = os.environ["GITHUB_SHA"]
+          with open("/tmp/ios_build_msg.md", "r", encoding="utf-8") as f:
+              body = f.read()
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/commits/{sha}/comments",
+              data=json.dumps({"body": body}).encode(),
+              method="POST",
+              headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "Content-Type": "application/json", "User-Agent": "ci-bot"}
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  print("comment posted", r.status)
+          except Exception as e:
+              print("comment failed", e)
+          PY
           fi
           exit $code
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Package unsigned IPA
         run: |
