@@ -1,13 +1,30 @@
-plugins {
-    id "com.android.library"
-    id "kotlin-android"
+group 'com.alexcnc.native_vlc_player'
+version '0.1.0'
+
+buildscript {
+    ext.kotlin_version = '1.9.23'
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
 }
 
-group = "com.alexcnc.native_vlc_player"
-version = "0.1.0"
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
 
 android {
-    namespace "com.alexcnc.native_vlc_player"
+    namespace 'com.alexcnc.native_vlc_player'
     compileSdk 34
 
     compileOptions {
