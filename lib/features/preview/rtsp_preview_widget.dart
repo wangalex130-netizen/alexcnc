@@ -37,11 +37,11 @@ class RtspPreviewWidget extends StatefulWidget {
   State<RtspPreviewWidget> createState() => _RtspPreviewWidgetState();
 }
 
-enum _CamState { resolving, connecting, ready, error }
+enum _CamState { idle, connecting, ready, error }
 
 class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
   VlcPlayerController? _controller;
-  _CamState _state = _CamState.resolving;
+  _CamState _state = _CamState.idle;
   String? _error;
   String _resolution = '—';
 
@@ -53,12 +53,9 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
   @override
   void initState() {
     super.initState();
-    // flutter_vlc_player 内部用 PlatformView，其 viewId 要等 widget 首次 layout
-    // 完成才会被分配；如果在 initState 同步调 _init → controller.initialize()
-    // 会抛 LateInitializationError(viewId 未初始化)。把初始化延后到首帧之后。
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _init();
-    });
+    // 手动启动：默认停在 idle，用户点「实时预览」按钮后才开始连接，
+    // 避免出现"不知道到底有没有在干活"的黑屏等待。
+    // _state = _CamState.idle（默认）
   }
 
   @override
@@ -67,9 +64,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     if (oldWidget.rtspUrl != widget.rtspUrl) {
       _disposeController();
       _triedFixed = false;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _init();
-      });
+      setState(() => _state = _CamState.idle);
     }
   }
 
@@ -80,11 +75,19 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     super.dispose();
   }
 
+  /// 用户点击「实时预览」后启动：进入连接态并初始化。
+  void startPreview() {
+    if (_state == _CamState.connecting || _state == _CamState.ready) return;
+    _reconnectTimer?.cancel();
+    _disposeController();
+    setState(() => _state = _CamState.connecting);
+    _init();
+  }
+
   Future<void> _init() async {
     String? url;
     // 固定地址失败过（或未提供固定地址）→ 走自动发现，覆盖摄像头换 IP 的场景
     if ((widget.rtspUrl == null || _triedFixed) && widget.autoDiscover) {
-      setState(() => _state = _CamState.resolving);
       url = await CameraDiscovery.discover();
       _triedFixed = true;
     } else {
@@ -144,12 +147,10 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     });
     _controller = controller;
 
-    // 关键：创建 controller 后【立即】把状态切到 ready 并构建 VlcPlayer。
-    // VlcPlayer 只有进入 widget 树才会创建 platform view → 分配 viewId →
-    // controller 的 autoInitialize 才能开始。如果等 addOnInitListener 触发
-    // 才切 ready，platform view 永远不会创建，初始化永远不会开始，就会
-    // 卡死在「正在连接摄像头…」。连接期间由 VlcPlayer 的 placeholder 显示转圈。
-    setState(() => _state = _CamState.ready);
+    // 关键：不要等初始化完成才渲染！_buildBody 里 connecting 状态也会渲染
+    // VlcPlayer，platform view 立即创建 → viewId 分配 → autoInitialize 才开跑。
+    // 若等到 addOnInitListener 触发才上屏，platform view 永远不创建，初始化
+    // 永远不开始 → 卡死在「正在连接」。连接期间由 VlcPlayer placeholder 转圈。
   }
 
   void _onControllerUpdate() {
@@ -157,37 +158,24 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     final value = _controller?.value;
     if (value == null) return;
 
-    setState(() {
-      if (value.hasError) {
-        _setError(value.errorDescription ?? '播放异常');
-      } else {
+    if (value.hasError) {
+      _setError(value.errorDescription ?? '播放异常');
+    } else {
+      setState(() {
         _error = null;
         if (value.size != null && value.size!.width > 0) {
           _resolution =
               '${value.size!.width.toInt()}×${value.size!.height.toInt()}';
         }
-      }
-    });
+      });
+    }
   }
 
   void _setError(String msg) {
-    _error = msg;
-    _state = _CamState.error;
-    _scheduleReconnect();
-  }
-
-  void _scheduleReconnect() {
-    _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(const Duration(seconds: 3), () {
-      if (!mounted) return;
-      _disposeController();
-      // 固定地址连不上 → 下次重连切自动发现，适应摄像头换 IP
-      if (!_triedFixed && widget.rtspUrl != null && widget.autoDiscover) {
-        _triedFixed = true;
-      }
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _init();
-      });
+    if (!mounted) return;
+    setState(() {
+      _error = msg;
+      _state = _CamState.error;
     });
   }
 
@@ -240,11 +228,46 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
   Widget _buildBody() {
     switch (_state) {
-      case _CamState.resolving:
-        return const _Placeholder(
-          icon: Icons.search_outlined,
-          text: '正在发现摄像头…',
-          sub: '自动搜索局域网内的 CNC 摄像头',
+      case _CamState.idle:
+        // 手动启动：一个大按钮让用户明确点开实时预览
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: startPreview,
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: CncColors.primary.withOpacity(0.15),
+                    border: Border.all(color: CncColors.primary, width: 1.5),
+                  ),
+                  child: const Icon(
+                    Icons.play_arrow_rounded,
+                    size: 34,
+                    color: CncColors.primary,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  '实时预览',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: CncColors.primaryInk,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  '点击开始查看机器内部画面',
+                  style: TextStyle(fontSize: 11, color: Color(0xFF9AA0A6)),
+                ),
+              ],
+            ),
+          ),
         );
       case _CamState.error:
         return _Placeholder(
@@ -254,18 +277,14 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
           onRetry: () {
             _reconnectTimer?.cancel();
             _disposeController();
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) _init();
-            });
+            startPreview();
           },
         );
       case _CamState.connecting:
-        return const _Placeholder(
-          icon: Icons.videocam_outlined,
-          text: '正在连接摄像头…',
-          sub: '请确保摄像头已通电且与手机同网段',
-        );
       case _CamState.ready:
+        // 无论 connecting 还是 ready 都渲染 VlcPlayer：
+        // connecting 时 platform view 照常创建（viewId 分配），controller 的
+        // autoInitialize 才能开始；否则会死锁在「正在连接」。
         return VlcPlayer(
           controller: _controller!,
           aspectRatio: 16 / 9,
@@ -280,10 +299,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
                 SizedBox(height: 10),
                 Text(
                   '正在连接摄像头…',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF9AA0A6),
-                  ),
+                  style: TextStyle(fontSize: 12, color: Color(0xFF9AA0A6)),
                 ),
               ],
             ),
