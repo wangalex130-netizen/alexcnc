@@ -20,7 +20,7 @@ class ToolpathData {
   const ToolpathData({required this.widthMm, required this.heightMm, required this.paths});
 
   factory ToolpathData.fromJson(Map<String, dynamic> j) {
-    final bounds = (j['bounds'] as Map?) ?? {};
+    final bounds = (j['bounds'] as Map<String, dynamic>?) ?? {};
     final rawPaths = (j['paths'] as List?) ?? [];
     return ToolpathData(
       widthMm: ((bounds['w'] as num?) ?? 0).toDouble(),
@@ -99,7 +99,7 @@ class _ToolpathPreviewState extends State<ToolpathPreview> {
       if (!mounted) return;
       if (resp.statusCode == 200) {
         final data = ToolpathData.fromJson(
-            (jsonDecode(resp.body) as Map?) ?? const {});
+            (jsonDecode(resp.body) as Map<String, dynamic>?) ?? const {});
         setState(() {
           _data = data;
           _loading = false;

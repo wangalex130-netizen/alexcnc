@@ -73,7 +73,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
       if (!mounted) return;
       if (resp.statusCode == 200) {
         final data = ToolpathData.fromJson(
-            (jsonDecode(resp.body) as Map?) ?? const {});
+            (jsonDecode(resp.body) as Map<String, dynamic>?) ?? const {});
         setState(() {
           _pathData = data.isEmpty ? null : data;
           _pathLoading = false;
@@ -610,7 +610,7 @@ class _ToolpathProgressPainter extends CustomPainter {
     // 2) 已完成段高亮（按真实进度截断路径总长）
     final total = segs.fold<double>(0, (sum, s) => sum + s.len);
     var remain = progress.clamp(0.0, 1.0) * total;
-    var head = segs.last.b;
+    var head = segs.first.a; // progress=0 时激光头停在路径起点
     for (final s in segs) {
       if (remain <= 0) break;
       if (s.len <= remain) {
