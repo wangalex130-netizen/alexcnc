@@ -81,31 +81,11 @@ jobs:
           code=$?
           if [ $code -ne 0 ]; then
             {
-              echo "## flutter pub get failed for ${{ github.sha }}"
+              echo "flutter pub get failed"
               echo
-              echo '```text'
               cat /tmp/pub_get_output.txt
-              echo '```'
             } > /tmp/pub_get_msg.md
-            python3 - <<'PY'
-          import os, json, urllib.request
-          token = os.environ["GITHUB_TOKEN"]
-          repo = os.environ["GITHUB_REPOSITORY"]
-          sha = os.environ["GITHUB_SHA"]
-          with open("/tmp/pub_get_msg.md", "r", encoding="utf-8") as f:
-              body = f.read()
-          req = urllib.request.Request(
-              f"https://api.github.com/repos/{repo}/commits/{sha}/comments",
-              data=json.dumps({"body": body}).encode(),
-              method="POST",
-              headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "Content-Type": "application/json", "User-Agent": "ci-bot"}
-          )
-          try:
-              with urllib.request.urlopen(req, timeout=30) as r:
-                  print("comment posted", r.status)
-          except Exception as e:
-              print("comment failed", e)
-          PY
+            python3 scripts/post_comment.py "flutter pub get failed for ${{ github.sha }}" /tmp/pub_get_msg.md
           fi
           exit $code
         env:
@@ -125,31 +105,11 @@ jobs:
           code=$?
           if [ $code -ne 0 ]; then
             {
-              echo "## Build failed for ${{ github.sha }}"
+              echo "Build release APK failed"
               echo
-              echo '```text'
-              tail -n 150 /tmp/build_output.txt
-              echo '```'
+              tail -n 200 /tmp/build_output.txt
             } > /tmp/build_msg.md
-            python3 - <<'PY'
-          import os, json, urllib.request
-          token = os.environ["GITHUB_TOKEN"]
-          repo = os.environ["GITHUB_REPOSITORY"]
-          sha = os.environ["GITHUB_SHA"]
-          with open("/tmp/build_msg.md", "r", encoding="utf-8") as f:
-              body = f.read()
-          req = urllib.request.Request(
-              f"https://api.github.com/repos/{repo}/commits/{sha}/comments",
-              data=json.dumps({"body": body}).encode(),
-              method="POST",
-              headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "Content-Type": "application/json", "User-Agent": "ci-bot"}
-          )
-          try:
-              with urllib.request.urlopen(req, timeout=30) as r:
-                  print("comment posted", r.status)
-          except Exception as e:
-              print("comment failed", e)
-          PY
+            python3 scripts/post_comment.py "Build failed for ${{ github.sha }}" /tmp/build_msg.md
           fi
           exit $code
         env:
@@ -221,31 +181,11 @@ jobs:
           code=$?
           if [ $code -ne 0 ]; then
             {
-              echo "## iOS flutter pub get failed for ${{ github.sha }}"
+              echo "iOS flutter pub get failed"
               echo
-              echo '```text'
               cat /tmp/ios_pub_get_output.txt
-              echo '```'
             } > /tmp/ios_pub_get_msg.md
-            python3 - <<'PY'
-          import os, json, urllib.request
-          token = os.environ["GITHUB_TOKEN"]
-          repo = os.environ["GITHUB_REPOSITORY"]
-          sha = os.environ["GITHUB_SHA"]
-          with open("/tmp/ios_pub_get_msg.md", "r", encoding="utf-8") as f:
-              body = f.read()
-          req = urllib.request.Request(
-              f"https://api.github.com/repos/{repo}/commits/{sha}/comments",
-              data=json.dumps({"body": body}).encode(),
-              method="POST",
-              headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "Content-Type": "application/json", "User-Agent": "ci-bot"}
-          )
-          try:
-              with urllib.request.urlopen(req, timeout=30) as r:
-                  print("comment posted", r.status)
-          except Exception as e:
-              print("comment failed", e)
-          PY
+            python3 scripts/post_comment.py "iOS flutter pub get failed for ${{ github.sha }}" /tmp/ios_pub_get_msg.md
           fi
           exit $code
         env:
@@ -258,31 +198,11 @@ jobs:
           code=$?
           if [ $code -ne 0 ]; then
             {
-              echo "## iOS build failed for ${{ github.sha }}"
+              echo "iOS build failed"
               echo
-              echo '```text'
-              tail -n 150 /tmp/ios_build_output.txt
-              echo '```'
+              tail -n 200 /tmp/ios_build_output.txt
             } > /tmp/ios_build_msg.md
-            python3 - <<'PY'
-          import os, json, urllib.request
-          token = os.environ["GITHUB_TOKEN"]
-          repo = os.environ["GITHUB_REPOSITORY"]
-          sha = os.environ["GITHUB_SHA"]
-          with open("/tmp/ios_build_msg.md", "r", encoding="utf-8") as f:
-              body = f.read()
-          req = urllib.request.Request(
-              f"https://api.github.com/repos/{repo}/commits/{sha}/comments",
-              data=json.dumps({"body": body}).encode(),
-              method="POST",
-              headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "Content-Type": "application/json", "User-Agent": "ci-bot"}
-          )
-          try:
-              with urllib.request.urlopen(req, timeout=30) as r:
-                  print("comment posted", r.status)
-          except Exception as e:
-              print("comment failed", e)
-          PY
+            python3 scripts/post_comment.py "iOS build failed for ${{ github.sha }}" /tmp/ios_build_msg.md
           fi
           exit $code
         env:
