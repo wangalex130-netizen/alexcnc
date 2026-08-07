@@ -90,12 +90,31 @@ class RealCloudService implements CloudService {
     return _fallback.getTaskById(id);
   }
 
+  /// 拉取云端 JSON 数组；请求失败返回 null（调用方回退 Mock/缓存）。
+  Future<List<LibraryItem>?> _tryGetList(String path) async {
+    try {
+      final res = await http
+          .get(Uri.parse('$baseUrl$path'))
+          .timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        return (jsonDecode(res.body) as List)
+            .map((e) => LibraryItem.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+    } catch (_) {
+      // 云端不可达 -> 回退
+    }
+    return null;
+  }
+
   @override
-  Future<List<LibraryItem>> getInspiration({int page = 0}) =>
+  Future<List<LibraryItem>> getInspiration({int page = 0}) async =>
+      await _tryGetList('/api/v1/library/inspiration') ??
       _fallback.getInspiration(page: page);
 
   @override
-  Future<List<LibraryItem>> getMySpace() => _fallback.getMySpace();
+  Future<List<LibraryItem>> getMySpace() async =>
+      await _tryGetList('/api/v1/library/mine') ?? _fallback.getMySpace();
 
   @override
   Future<void> pushDiagnostics(String log) async {

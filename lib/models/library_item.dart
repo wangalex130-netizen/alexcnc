@@ -35,4 +35,20 @@ class LibraryItem {
     this.syncTime,
     this.isHistory = false,
   });
+
+  /// 从云端 REST JSON 解析（字段对齐 docs/PROTOCOL.md §3.1 LibraryItem）。
+  factory LibraryItem.fromJson(Map<String, dynamic> j) => LibraryItem(
+        id: (j['id'] as String?) ?? '',
+        title: (j['title'] as String?) ?? '',
+        author: (j['author'] as String?) ?? '',
+        imageUrl: j['imageUrl'] as String?,
+        isPublic: j['isPublic'] == true,
+        materialPreset: j['materialPreset'] as String?,
+        category: j['category'] as String?,
+        duration: j['duration'] as String?,
+        isHero: j['isHero'] == true,
+        heroTag: j['heroTag'] as String?,
+        syncTime: j['syncTime'] as String?,
+        isHistory: j['isHistory'] == true,
+      );
 }

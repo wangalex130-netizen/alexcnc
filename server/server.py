@@ -20,6 +20,7 @@ cnc/<deviceId>/cmd，sim_device.py 扮演固件回 status —— 完整闭环见
 import json
 import os
 import sys
+import time
 import socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
@@ -114,6 +115,44 @@ TASKS = {
     },
 }
 
+# ---- 方案 A：电脑端（ArtiMaker）上传的任务 / 我的空间 / 灵感库 ----
+# 内存 + data.json 持久化：电脑端 POST /api/v1/tasks 后，App GET /api/v1/library/mine
+# 即可在图库看到（打通"电脑端产出 → ② → App"主链路 S2）。
+DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data.json")
+MY_SPACE = []          # [LibraryItem dict]（isPublic=false）
+UPLOADED_TASKS = {}    # taskId -> task dict（含可选 gcode）
+INSPIRATION = [
+    {"id": "insp-hero", "title": "复古木雕花纹板", "author": "ArtiMaker",
+     "imageUrl": None, "isPublic": True, "materialPreset": "松木",
+     "category": "木雕", "duration": "38分钟", "isHero": True, "heroTag": "入门推荐",
+     "syncTime": None, "isHistory": False},
+    {"id": "insp-1", "title": "赛博朋克发光铭牌", "author": "NeoCraft",
+     "imageUrl": None, "isPublic": True, "materialPreset": "双色亚克力",
+     "category": "亚克力", "duration": "8分10秒", "isHero": False, "heroTag": None,
+     "syncTime": None, "isHistory": False},
+]
+
+
+def _load_data():
+    global MY_SPACE, UPLOADED_TASKS
+    try:
+        if os.path.exists(DATA_FILE):
+            with open(DATA_FILE, encoding="utf-8") as f:
+                d = json.load(f)
+            MY_SPACE = d.get("mySpace", []) or []
+            UPLOADED_TASKS = d.get("tasks", {}) or {}
+    except Exception as e:
+        print(f"[server] 读取 data.json 失败（忽略）: {e}")
+
+
+def _save_data():
+    try:
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump({"mySpace": MY_SPACE, "tasks": UPLOADED_TASKS},
+                      f, ensure_ascii=False, indent=1)
+    except Exception as e:
+        print(f"[server] 保存 data.json 失败: {e}")
+
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):  # 安静日志
@@ -133,9 +172,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, MATERIALS)
         if p.path == "/api/v1/tasks/active":
             return self._send(200, TASKS["active"])
+        if p.path == "/api/v1/library/inspiration":
+            return self._send(200, INSPIRATION)
+        if p.path == "/api/v1/library/mine":
+            return self._send(200, MY_SPACE)
         if p.path.startswith("/api/v1/tasks/"):
             tid = p.path.rsplit("/", 1)[-1]
-            task = TASKS.get(tid)
+            task = TASKS.get(tid) or UPLOADED_TASKS.get(tid)
             if task:
                 return self._send(200, task)
             return self._send(404, {"error": "task not found", "id": tid})
@@ -150,11 +193,40 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             payload = {}
 
+        # 电脑端（ArtiMaker）上传生成的模型/任务：写入任务表 + 我的空间（方案 A/S2）
+        if p.path == "/api/v1/tasks":
+            if not isinstance(payload, dict) or not payload:
+                return self._send(400, {"error": "invalid JSON body",
+                                        "hint": "POST /api/v1/tasks 需 UTF-8 JSON"})
+            task = dict(payload)
+            tid = task.get("id") or f"task-{int(time.time())}"
+            task["id"] = tid
+            UPLOADED_TASKS[tid] = task
+            MY_SPACE.insert(0, {
+                "id": tid,
+                "title": task.get("name") or task.get("title") or f"任务 {tid}",
+                "author": task.get("author") or "ArtiMaker 电脑端",
+                "imageUrl": task.get("thumbnailUrl"),
+                "isPublic": False,
+                "materialPreset": task.get("materialPreset") or task.get("defaultMaterialKey"),
+                "category": task.get("category"),
+                "duration": task.get("duration"),
+                "isHero": False, "heroTag": None,
+                "syncTime": "刚刚同步", "isHistory": False,
+            })
+            _save_data()
+            print(f"[TASK UPLOAD] 电脑端上传任务 {tid}（{task.get('name')}）", flush=True)
+            return self._send(201, {"ok": True, "id": tid})
+
         if p.path.startswith("/api/v1/devices/") and p.path.endswith("/jobs"):
             dev = p.path.split("/")[-2]
             # 第一步（局域网）：云端(Mock)把 G-code 经局域网 TCP:8899 直推 MCU；
-            # App 不持有 G-code，仅触发本端点。
-            gcode = payload.get("gcode") or SAMPLE_GCODE
+            # App 不持有 G-code，仅触发本端点。优先用该任务上传的 G-code。
+            gcode = None
+            tid = payload.get("taskId")
+            if tid and tid in UPLOADED_TASKS:
+                gcode = UPLOADED_TASKS[tid].get("gcode")
+            gcode = gcode or payload.get("gcode") or SAMPLE_GCODE
             pushed = push_gcode_to_machine(gcode)
             print(f"[GCODE PUSH] device={dev} task={payload.get('taskId')} "
                   f"pushed={pushed} -> {MACHINE_HOST}:{MACHINE_PORT}", flush=True)
@@ -183,7 +255,9 @@ def push_gcode_to_machine(lines):
 
 
 if __name__ == "__main__":
+    _load_data()
     print(f"Mock Cloud listening on http://{HOST}:{PORT}")
     print("Endpoints: GET /api/v1/materials | GET /api/v1/tasks/<id> | "
-          "POST /api/v1/devices/<id>/jobs")
+          "GET /api/v1/library/mine | GET /api/v1/library/inspiration | "
+          "POST /api/v1/tasks | POST /api/v1/devices/<id>/jobs")
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()

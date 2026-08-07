@@ -130,6 +130,20 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 
 payload 与上面 JSON 完全一致。第一步请用 §2.1「TCP:8899 直连」实现。
 
+### 2.6 设备唯一码与注册（D5/D7，机器始终在线模型）
+
+> 机器经**机身屏配网**（屏幕搜索 WiFi → 输密码）连网后，向云端②注册并保持在线：
+> - 第一步（局域网）：TCP 连接建立后 App 可选发 `hello` 拿机型/唯一码核对；
+> - 第二步（外网）：机器 MQTT 连上②后**必须**先发 `hello` 注册（唯一码即设备身份，②据此鉴权）。
+
+```json
+// 机器 → App/②（连接建立后上报机型与唯一码）
+{"cmd": "hello", "model": "LY_3020_2.0", "serial": "<机器唯一码>", "proto": 1}
+```
+
+**绑定流（D5/D6）**：用户注册个人账户 → 手机/电脑**输入或扫描机器唯一码** → ② 建立「账号 ↔ 机器」绑定
+→ 之后按唯一码选择进入该机器管理。一账号可挂多台，当前**单机连接**（切换即断开上一台）。
+
 ---
 
 ## 3. CloudService 契约（App ↔ 云端）
@@ -144,9 +158,24 @@ payload 与上面 JSON 完全一致。第一步请用 §2.1「TCP:8899 直连」
 | `getTaskById(id)` | `GET /api/v1/tasks/{id}` | `TaskMetadata` JSON |
 | `getActiveTask()` | `GET /api/v1/tasks/active` | `TaskMetadata` JSON（可选） |
 | `getInspiration(page)` | `GET /api/v1/library/inspiration?page=0` | `[LibraryItem]` JSON |
-| `getMySpace()` | `GET /api/v1/library/mine` | `[LibraryItem]` JSON |
+| `getMySpace()` | `GET /api/v1/library/mine` | `[LibraryItem]` JSON（含电脑端上传任务，方案 A/S2） |
 | `pushDiagnostics(log)` | `POST /api/v1/diagnostics` | `202 Accepted` |
 | `pushTaskToMachine(taskId)` | `POST /api/v1/devices/{deviceId}/jobs` | `{"accepted":true,...}`（云端把切片 G-code 直推 MCU，App 不持有）|
+| **电脑端上传任务（新）** | `POST /api/v1/tasks` | `201 {"ok":true,"id":...}`（ArtiMaker 上传生成的任务，body=TaskMetadata JSON + 可选 `gcode`/`thumbnailUrl`；写入②后 App 图库「我的空间」可见） |
+
+> **电脑端对接示例（方案 A / S2，`server.py` 已支持）**：
+> ```bash
+> curl -X POST http://192.168.1.22:8787/api/v1/tasks -H "content-type: application/json" -d '{
+>   "id": "pc-task-1", "name": "电脑端设计的铭牌", "widthMm": 120, "heightMm": 60,
+>   "depthMm": 2, "boardThicknessMm": 3, "recommendedSpindleRpm": 12000,
+>   "recommendedFeedRate": 600, "defaultMaterialKey": "absdual",
+>   "defaultToolId": "t_v60",
+>   "requiredTools": [{"toolId": "t_v60", "role": "精雕/刻线"}],
+>   "thumbnailUrl": "https://.../thumb.png",
+>   "gcode": ["G21","G90","G1 X5 Y5 F600","M30"]
+> }'
+> # 之后 App「图库 → 我的空间」即可看到该任务；点开走向导，startJob 时②按此任务 G-code 推机器
+> ```
 
 #### MaterialSpec JSON（对应 `lib/data/material_db.dart`，云端主表）
 
