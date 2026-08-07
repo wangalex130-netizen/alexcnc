@@ -155,8 +155,8 @@ class CameraDiscovery {
     }
   }
 
-  /// 向指定 host:port 的 RTSP 服务发一个 OPTIONS 探测，返回真实可用的路径。
-  /// 仅验证 RTSP 协议是否响应（200/401 都算），不真正取流。
+  /// 向指定 host:port 的 RTSP 服务发一个 DESCRIBE 探测，返回真实可用的路径。
+  /// DESCRIBE 会真正请求 SDP，200 表示路径/认证都 OK；401 表示路径存在但认证失败。
   static Future<String?> _rtspProbePath(
       String host, int port, String path) async {
     try {
@@ -166,13 +166,14 @@ class CameraDiscovery {
         timeout: const Duration(milliseconds: 800),
       );
       final req =
-          'OPTIONS rtsp://$host:$port$path RTSP/1.0\r\n'
+          'DESCRIBE rtsp://$host:$port$path RTSP/1.0\r\n'
           'CSeq: 1\r\n'
           'Authorization: Basic $_basicAuth\r\n'
+          'Accept: application/sdp\r\n'
           '\r\n';
       socket.add(utf8.encode(req));
       final data = await socket.first.timeout(
-        const Duration(milliseconds: 800),
+        const Duration(milliseconds: 1500),
         onTimeout: () => Uint8List(0),
       );
       socket.destroy();

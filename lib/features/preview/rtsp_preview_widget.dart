@@ -119,15 +119,17 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     _error = null;
   }
 
-  /// 为一个 URL 生成硬解 / 软解 / 子码流 多种尝试。
+  /// 为一个 URL 生成软解 / 硬解 / 子码流 多种尝试。
+  /// 软解优先：国产雄迈/海思模组 H.264/H.265 主码流在部分手机上硬解初始化会卡住，
+  /// 软解成功率最高，先保证能出画面。
   List<_AttemptConfig> _candidatesFor(String url, String source) {
     final list = <_AttemptConfig>[];
-    list.add(_AttemptConfig(url, HwAcc.full, '$source·硬解'));
     list.add(_AttemptConfig(url, HwAcc.disabled, '$source·软解'));
+    list.add(_AttemptConfig(url, HwAcc.full, '$source·硬解'));
     final sub = _subStreamUrl(url);
     if (sub != url) {
-      list.add(_AttemptConfig(sub, HwAcc.full, '$source·子码流'));
       list.add(_AttemptConfig(sub, HwAcc.disabled, '$source·子码流软解'));
+      list.add(_AttemptConfig(sub, HwAcc.full, '$source·子码流硬解'));
     }
     return list;
   }
@@ -143,7 +145,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     return url;
   }
 
-  void _runCurrentAttempt() {
+  void _runCurrentAttempt() async {
     if (!mounted) return;
     if (_attemptIndex >= _attempts.length) {
       _onCurrentCandidatesExhausted();
@@ -159,18 +161,22 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     final controller = VlcPlayerController.network(
       attempt.url,
       hwAcc: attempt.hwAcc,
-      autoPlay: true,
-      autoInitialize: true,
+      autoPlay: false,
+      autoInitialize: false,
       options: _playerOptions,
     );
 
+    // 必须在 initialize() 之前注册监听器，否则可能漏掉初始化完成事件。
     controller.addListener(_onControllerUpdate);
     controller.addOnInitListener(() {
       if (!mounted) return;
       if (_controller != controller) return;
       _connectTimeoutTimer?.cancel();
+      debugPrint('[RTSP] 初始化完成: ${attempt.label}');
       setState(() => _state = _CamState.ready);
+      controller.play();
     });
+
     _controller = controller;
 
     setState(() {
@@ -181,12 +187,22 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     });
 
     _connectTimeoutTimer?.cancel();
-    _connectTimeoutTimer = Timer(const Duration(seconds: 7), () {
+    _connectTimeoutTimer = Timer(const Duration(seconds: 12), () {
       if (!mounted) return;
       if (_state == _CamState.connecting) {
         _failCurrentAttempt('连接超时');
       }
     });
+
+    try {
+      await controller.initialize().timeout(const Duration(seconds: 10));
+    } on TimeoutException {
+      _failCurrentAttempt('初始化超时');
+      return;
+    } catch (e) {
+      _failCurrentAttempt('初始化失败：$e');
+      return;
+    }
   }
 
   VlcPlayerOptions get _playerOptions => VlcPlayerOptions(
@@ -195,11 +211,12 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
         ]),
         extras: const [
           '--rtsp-tcp',
-          '--connect-timeout=4000',
+          '--connect-timeout=8000',
           '--live-caching=100',
           '--drop-late-frames',
           '--skip-frames',
           '--no-audio',
+          '--avcodec-hw=any',
         ],
       );
 
@@ -275,9 +292,9 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
   void _buildFinalError() {
     final buffer = StringBuffer();
     buffer.writeln('已尝试以下方式均未成功：');
-    // 固定地址尝试
     for (final a in _attempts) {
       buffer.writeln('• ${a.label}');
+      buffer.writeln('  ${a.url}');
     }
     if (_lastVlcError.isNotEmpty) {
       buffer.writeln('最后错误：$_lastVlcError');

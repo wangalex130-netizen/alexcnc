@@ -65,7 +65,10 @@ jobs:
             sed -i 's#<application#<uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>\n    <application#' "$MANIFEST"
           grep -q 'ACCESS_NETWORK_STATE' "$MANIFEST" || \
             sed -i 's#<application#<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>\n    <application#' "$MANIFEST"
-          grep -n 'INTERNET\|MULTICAST\|ACCESS_WIFI\|ACCESS_NETWORK\|<application' "$MANIFEST" | head
+          # Android 9+ 默认禁止明文 HTTP；部分厂商对非加密 RTSP 也会拦截。
+          grep -q 'usesCleartextTraffic' "$MANIFEST" || \
+            sed -i 's#<application#<application android:usesCleartextTraffic="true"#' "$MANIFEST"
+          grep -n 'INTERNET\|MULTICAST\|ACCESS_WIFI\|ACCESS_NETWORK\|usesCleartextTraffic\|<application' "$MANIFEST" | head
 
       # Remove the default counter-app test so `flutter analyze` stays clean.
       - name: Drop generated default test
