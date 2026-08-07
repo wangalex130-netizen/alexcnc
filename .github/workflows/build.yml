@@ -45,8 +45,11 @@ jobs:
       # flutter create 生成的 build.gradle.kts 默认 minSdk = flutter.minSdkVersion。
       - name: Set minSdk to 24 for libVLC
         run: |
-          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/' android/app/build.gradle.kts
-          grep -n "minSdk" android/app/build.gradle.kts
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/' android/app/build.gradle.kts || true
+          sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 24/' android/app/build.gradle.kts || true
+          echo "--- defaultConfig block ---"
+          sed -n '/defaultConfig {/,/^    }/p' android/app/build.gradle.kts || true
+          echo "--- end ---"
 
       # flutter create 只在 debug manifest 里带 INTERNET 权限，release 默认没有。
       # 摄像头 RTSP / MQTT / HTTP 都要联网，ONVIF 自动发现还要接收组播。
