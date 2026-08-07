@@ -14,8 +14,8 @@ import 'camera_discovery.dart';
 /// 设计要点：
 /// - 这是固定在机器侧面、看内部雕刻的监控头，**不做**对位网格 / 十字准星 /
 ///   加工范围框，纯裸画面。
-/// - 地址优先用本地缓存（上次自动发现结果），否则自动 ONVIF 发现，IP 变化
-///   也能自动跟上。
+/// - 地址优先用固定/缓存地址，失败后自动切换：软解 → 子码流 → 局域网扫描。
+///   即使摄像头上电换 IP 或手机硬解不兼容，也能自动兜底。
 class RtspPreviewWidget extends StatefulWidget {
   /// 直接指定 RTSP 地址（例如设置页填的固定 IP）。为 null 时走自动发现。
   final String? rtspUrl;
@@ -39,27 +39,34 @@ class RtspPreviewWidget extends StatefulWidget {
 
 enum _CamState { idle, connecting, ready, error }
 
+/// 一次播放尝试的配置。
+class _AttemptConfig {
+  final String url;
+  final HwAcc hwAcc;
+  final String label;
+
+  const _AttemptConfig(this.url, this.hwAcc, this.label);
+}
+
 class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
   VlcPlayerController? _controller;
   _CamState _state = _CamState.idle;
   String? _error;
+  String _diagnosis = '';
   String _resolution = '—';
 
   Timer? _reconnectTimer;
-
-  /// 连接阶段超时：固定地址 8 秒连不上就自动清缓存切自动发现，
-  /// 避免一直转圈无反馈（摄像头每次上电 IP 都可能变化）。
   Timer? _connectTimeoutTimer;
 
-  /// 固定地址是否已失败过（失败后切换到自动发现，应对摄像头上电换 IP）。
-  bool _triedFixed = false;
+  List<_AttemptConfig> _attempts = [];
+  int _attemptIndex = -1;
+  bool _discoveryDone = false;
+  String _lastVlcError = '';
+  String _lastAttemptLabel = '';
 
   @override
   void initState() {
     super.initState();
-    // 手动启动：默认停在 idle，用户点「实时预览」按钮后才开始连接，
-    // 避免出现"不知道到底有没有在干活"的黑屏等待。
-    // _state = _CamState.idle（默认）
   }
 
   @override
@@ -67,7 +74,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.rtspUrl != widget.rtspUrl) {
       _disposeController();
-      _triedFixed = false;
+      _resetAttempts();
       setState(() => _state = _CamState.idle);
     }
   }
@@ -80,64 +87,113 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     super.dispose();
   }
 
-  /// 用户点击「实时预览」后启动：进入连接态并初始化。
+  /// 用户点击「实时预览」后启动：进入连接态并开始尝试。
   void startPreview() {
     if (_state == _CamState.connecting || _state == _CamState.ready) return;
     _reconnectTimer?.cancel();
     _connectTimeoutTimer?.cancel();
     _disposeController();
-    _triedFixed = false;
-    setState(() => _state = _CamState.connecting);
-    _init();
+    _resetAttempts();
+
+    final fixed = widget.rtspUrl?.trim();
+    if (fixed != null && fixed.isNotEmpty) {
+      _attempts = _candidatesFor(fixed, '固定地址');
+      _attemptIndex = 0;
+      setState(() => _state = _CamState.connecting);
+      _runCurrentAttempt();
+    } else if (widget.autoDiscover) {
+      setState(() => _state = _CamState.connecting);
+      _runDiscoveryThenPlay();
+    } else {
+      _setError('未配置摄像头地址，且未启用自动发现');
+    }
   }
 
-  Future<void> _init() async {
-    String? url;
-    // 固定地址失败过（或未提供固定地址）→ 走自动发现，覆盖摄像头换 IP 的场景
-    if ((widget.rtspUrl == null || _triedFixed) && widget.autoDiscover) {
-      url = await CameraDiscovery.discover();
-      _triedFixed = true;
-    } else {
-      url = widget.rtspUrl;
-      _triedFixed = false;
+  void _resetAttempts() {
+    _attempts = [];
+    _attemptIndex = -1;
+    _discoveryDone = false;
+    _lastVlcError = '';
+    _lastAttemptLabel = '';
+    _diagnosis = '';
+    _error = null;
+  }
+
+  /// 为一个 URL 生成硬解 / 软解 / 子码流 多种尝试。
+  List<_AttemptConfig> _candidatesFor(String url, String source) {
+    final list = <_AttemptConfig>[];
+    list.add(_AttemptConfig(url, HwAcc.full, '$source·硬解'));
+    list.add(_AttemptConfig(url, HwAcc.disabled, '$source·软解'));
+    final sub = _subStreamUrl(url);
+    if (sub != url) {
+      list.add(_AttemptConfig(sub, HwAcc.full, '$source·子码流'));
+      list.add(_AttemptConfig(sub, HwAcc.disabled, '$source·子码流软解'));
     }
-    if (url == null || url.isEmpty) {
-      setState(() {
-        _state = _CamState.error;
-        _error = '未发现摄像头，请确认手机与摄像头在同一局域网';
-      });
+    return list;
+  }
+
+  /// 把主码流 /11 换成子码流 /12，用于硬解/主码流失败时兜底。
+  String _subStreamUrl(String url) {
+    try {
+      final uri = Uri.parse(url);
+      if (uri.path == '/11') {
+        return uri.replace(path: '/12').toString();
+      }
+    } catch (_) {}
+    return url;
+  }
+
+  void _runCurrentAttempt() {
+    if (!mounted) return;
+    if (_attemptIndex >= _attempts.length) {
+      _onCurrentCandidatesExhausted();
       return;
     }
-    _initialize(url);
-  }
 
-  void _initialize(String url) async {
+    final attempt = _attempts[_attemptIndex];
+    _lastAttemptLabel = attempt.label;
+    debugPrint('[RTSP] 尝试 ${_attemptIndex + 1}/${_attempts.length}: ${attempt.label} -> ${attempt.url}');
+
     setState(() {
       _state = _CamState.connecting;
       _error = null;
+      _diagnosis = '';
       _resolution = '—';
     });
 
+    _disposeController();
+
     final controller = VlcPlayerController.network(
-      url,
-      hwAcc: HwAcc.full,
-      // 让 controller 自己等 platform view(viewId) ready 后再初始化；
-      // 之前手动 await controller.initialize() 会抢跑，导致
-      // LateInitializationError: _viewId has not been initialized.
+      attempt.url,
+      hwAcc: attempt.hwAcc,
       autoPlay: true,
       autoInitialize: true,
-      // 与调试 APP（camera-test-app）验证过的低延时配置保持一致：
-      //   --rtsp-tcp             强制走 TCP（国产摄像头 UDP 经常不通）
-      //   --network-caching=100  网络缓冲降到 100ms，减少延迟
-      //   --live-caching=100     直播缓存同步调低
-      //   --drop-late-frames     网络抖动时丢迟到帧，避免帧堆积延迟越滚越大
-      //   --skip-frames          丢不完整帧，防卡顿拖尾
-      //   --no-audio             只解视频，跳过音频
-      options: VlcPlayerOptions(
+      options: _playerOptions,
+    );
+
+    controller.addListener(_onControllerUpdate);
+    controller.addOnInitListener(() {
+      if (!mounted) return;
+      if (_controller != controller) return;
+      _connectTimeoutTimer?.cancel();
+      setState(() => _state = _CamState.ready);
+    });
+    _controller = controller;
+
+    _connectTimeoutTimer?.cancel();
+    _connectTimeoutTimer = Timer(const Duration(seconds: 7), () {
+      if (!mounted) return;
+      if (_state == _CamState.connecting) {
+        _failCurrentAttempt('连接超时');
+      }
+    });
+  }
+
+  VlcPlayerOptions get _playerOptions => VlcPlayerOptions(
         advanced: VlcAdvancedOptions([
           VlcAdvancedOptions.networkCaching(100),
         ]),
-        extras: [
+        extras: const [
           '--rtsp-tcp',
           '--connect-timeout=4000',
           '--live-caching=100',
@@ -145,32 +201,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
           '--skip-frames',
           '--no-audio',
         ],
-      ),
-    );
-
-    controller.addListener(_onControllerUpdate);
-    controller.addOnInitListener(() {
-      if (!mounted) return;
-      _connectTimeoutTimer?.cancel();
-      setState(() => _state = _CamState.ready);
-    });
-    _controller = controller;
-
-    // 关键：不要等初始化完成才渲染！_buildBody 里 connecting 状态也会渲染
-    // VlcPlayer，platform view 立即创建 → viewId 分配 → autoInitialize 才开跑。
-    // 若等到 addOnInitListener 触发才上屏，platform view 永远不创建，初始化
-    // 永远不开始 → 卡死在「正在连接」。连接期间由 VlcPlayer placeholder 转圈。
-
-    // 连接兜底超时：8 秒内既没连上也没报错 → 按 _handleFailure 走
-    // （固定地址失败 → 清缓存切自动发现；自动发现也失败 → 显示错误）。
-    _connectTimeoutTimer?.cancel();
-    _connectTimeoutTimer = Timer(const Duration(seconds: 8), () {
-      if (!mounted) return;
-      if (_state == _CamState.connecting) {
-        _handleFailure('连接超时');
-      }
-    });
-  }
+      );
 
   void _onControllerUpdate() {
     if (!mounted) return;
@@ -178,7 +209,8 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     if (value == null) return;
 
     if (value.hasError) {
-      _handleFailure(value.errorDescription ?? '播放异常');
+      final msg = value.errorDescription ?? '播放异常';
+      _failCurrentAttempt(msg);
     } else {
       setState(() {
         _error = null;
@@ -190,30 +222,76 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     }
   }
 
-  void _setError(String msg) {
+  void _failCurrentAttempt(String msg) {
     if (!mounted) return;
+    _connectTimeoutTimer?.cancel();
+    _lastVlcError = msg;
+    debugPrint('[RTSP] 失败: $_lastAttemptLabel -> $msg');
+    _disposeController();
+
+    _attemptIndex++;
+    if (_attemptIndex < _attempts.length) {
+      _runCurrentAttempt();
+      return;
+    }
+    _onCurrentCandidatesExhausted();
+  }
+
+  /// 固定地址（或缓存）的所有尝试都失败后，清缓存并启动局域网扫描。
+  void _onCurrentCandidatesExhausted() {
+    if (!mounted) return;
+    if (widget.autoDiscover && !_discoveryDone) {
+      _runDiscoveryThenPlay();
+      return;
+    }
+    _buildFinalError();
+  }
+
+  void _runDiscoveryThenPlay() {
+    if (!mounted) return;
+    _discoveryDone = true;
+    _disposeController();
     setState(() {
-      _error = msg;
-      _state = _CamState.error;
+      _state = _CamState.connecting;
+      _lastAttemptLabel = '正在扫描局域网摄像头…';
+      _error = null;
+    });
+
+    CameraDiscovery.clearCache().then((_) => CameraDiscovery.discover()).then((url) {
+      if (!mounted) return;
+      if (url != null && url.isNotEmpty) {
+        _attempts = _candidatesFor(url, '扫描发现');
+        _attemptIndex = 0;
+        _runCurrentAttempt();
+      } else {
+        _setError('未发现摄像头，请确认手机与摄像头在同一局域网');
+      }
+    }).catchError((e) {
+      if (!mounted) return;
+      _setError('扫描失败：$e');
     });
   }
 
-  /// 统一失败处理：
-  /// 1) 固定地址/旧缓存连不上 → 清缓存，自动切自动发现再试一次（摄像头换 IP 场景）；
-  /// 2) 自动发现也失败（或不允许发现）→ 停在错误状态，用户手动重试。
-  void _handleFailure(String msg) {
-    if (!mounted) return;
-    _connectTimeoutTimer?.cancel();
-    if (!_triedFixed && widget.autoDiscover) {
-      _triedFixed = true;
-      _disposeController();
-      // 先清掉旧 IP 缓存，等清除完成再重新发现，避免读到脏缓存
-      CameraDiscovery.clearCache().then((_) {
-        if (mounted) _init();
-      });
-      return;
+  void _buildFinalError() {
+    final buffer = StringBuffer();
+    buffer.writeln('已尝试以下方式均未成功：');
+    // 固定地址尝试
+    for (final a in _attempts) {
+      buffer.writeln('• ${a.label}');
     }
-    _setError(msg);
+    if (_lastVlcError.isNotEmpty) {
+      buffer.writeln('最后错误：$_lastVlcError');
+    }
+    _setError('视频流中断', details: buffer.toString());
+  }
+
+  void _setError(String msg, {String details = ''}) {
+    if (!mounted) return;
+    setState(() {
+      _error = msg;
+      _diagnosis = details;
+      _state = _CamState.error;
+    });
   }
 
   void _disposeController() {
@@ -266,7 +344,6 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
   Widget _buildBody() {
     switch (_state) {
       case _CamState.idle:
-        // 手动启动：一个大按钮让用户明确点开实时预览
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: startPreview,
@@ -309,8 +386,8 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
       case _CamState.error:
         return _Placeholder(
           icon: Icons.videocam_off_outlined,
-          text: '视频流中断',
-          sub: _error ?? '未知错误',
+          text: _error ?? '视频流中断',
+          sub: _diagnosis.isNotEmpty ? _diagnosis : '未知错误',
           onRetry: () {
             _reconnectTimer?.cancel();
             _disposeController();
@@ -319,25 +396,27 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
         );
       case _CamState.connecting:
       case _CamState.ready:
-        // 无论 connecting 还是 ready 都渲染 VlcPlayer：
-        // connecting 时 platform view 照常创建（viewId 分配），controller 的
-        // autoInitialize 才能开始；否则会死锁在「正在连接」。
         return VlcPlayer(
           controller: _controller!,
           aspectRatio: 16 / 9,
-          // virtualDisplay=false 使用 Texture 渲染，避免某些机型上
-          // Android VirtualDisplay 与 viewId 初始化时序不一致的问题。
           virtualDisplay: false,
-          placeholder: const Center(
+          placeholder: Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                CircularProgressIndicator(color: CncColors.primary),
-                SizedBox(height: 10),
+                const CircularProgressIndicator(color: CncColors.primary),
+                const SizedBox(height: 10),
                 Text(
-                  '正在连接摄像头…',
-                  style: TextStyle(fontSize: 12, color: Color(0xFF9AA0A6)),
+                  _state == _CamState.ready ? '正在缓冲…' : '正在连接摄像头…',
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF9AA0A6)),
                 ),
+                if (_lastAttemptLabel.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    _lastAttemptLabel,
+                    style: const TextStyle(fontSize: 10, color: Color(0xFF6C7075)),
+                  ),
+                ],
               ],
             ),
           ),
@@ -375,15 +454,15 @@ class _Placeholder extends StatelessWidget {
               fontWeight: FontWeight.w500,
             ),
           ),
-          if (sub != null) ...[
+          if (sub != null && sub!.isNotEmpty) ...[
             const SizedBox(height: 6),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Text(
                 sub!,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  fontSize: 11,
+                  fontSize: 10,
                   color: Color(0xFFB0B5BB),
                 ),
               ),

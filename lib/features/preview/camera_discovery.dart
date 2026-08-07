@@ -5,7 +5,7 @@ import 'dart:math';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// 摄像头自动发现（ONVIF WS-Discovery）+ 本地缓存。
+/// 摄像头自动发现（TCP 端口扫描 + RTSP 路径探测 + ONVIF WS-Discovery 兜底）+ 本地缓存。
 ///
 /// 解决摄像头每次上电 IP 可能变化的问题：App 打开实时视频时自动在局域网
 /// 探测摄像头，拿到当前 RTSP 地址并缓存到 SharedPreferences，下次秒开。
@@ -15,11 +15,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 class CameraDiscovery {
   static const String _kCachedUrl = 'camera_rtsp_url';
   static const String _kMulticastAddr = '239.255.255.250';
-  static const int _kWsDiscoveryPort = 3702;
+  static const String _kWsDiscoveryPort = '3702';
 
   /// 默认凭据（雄迈/国产摄像头通用；RTSP URL 缺账号时自动补上）。
   static const String _defaultUser = 'admin';
   static const String _defaultPassword = 'abc123456';
+  static final String _basicAuth =
+      base64Encode(utf8.encode('$_defaultUser:$_defaultPassword'));
+
+  /// 常见 RTSP 路径，按优先级探测。雄迈主码流 /11 优先，子码流 /12 兜底。
+  static const List<String> _rtspPaths = ['/11', '/12'];
 
   /// 给不带账号的 rtsp URL 补默认凭据（ONVIF GetStreamUri 返回的地址通常没账号）。
   static String _withDefaultCreds(String url) {
@@ -32,7 +37,7 @@ class CameraDiscovery {
   /// 返回可用的 RTSP 地址；找不到返回 null。
   ///
   /// 流程：1) 先试本地缓存（上次成功地址，秒开）；
-  ///       2) 否则 TCP 端口扫描（2-5 秒，不依赖组播，最可靠）；
+  ///       2) 否则 TCP 端口扫描 + RTSP 路径探测（2-6 秒，最可靠）；
   ///       3) ONVIF WS-Discovery 兜底（依赖组播，部分路由器可能不通）。
   static Future<String?> discover({
     Duration timeout = const Duration(seconds: 4),
@@ -46,6 +51,7 @@ class CameraDiscovery {
       }
       return normalized;
     }
+
     String? found = await _tcpScanFallback();
     found ??= await _onvifProbe(timeout);
     if (found != null) {
@@ -107,9 +113,10 @@ class CameraDiscovery {
       final interfaces = await NetworkInterface.list();
       for (final iface in interfaces) {
         final name = iface.name.toLowerCase();
-        final isLan =
-            name.contains('wlan') || name.contains('wifi') ||
-            name.contains('eth') || name.contains('en');
+        final isLan = name.contains('wlan') ||
+            name.contains('wifi') ||
+            name.contains('eth') ||
+            name.contains('en');
         for (final addr in iface.addresses) {
           if (addr.type != InternetAddressType.IPv4) continue;
           if (addr.isLoopback || addr.isLinkLocal) continue;
@@ -147,26 +154,76 @@ class CameraDiscovery {
     }
   }
 
-  /// 同 /24 子网静默扫描 RTSP 端口兜底：批量 64 并发，命中 554/5544 即返回。
-  /// 依次扫本机所有私网网段（Wi-Fi 优先），最坏 2-5 秒出结果。
+  /// 向指定 host:port 的 RTSP 服务发一个 OPTIONS 探测，返回真实可用的路径。
+  /// 仅验证 RTSP 协议是否响应（200/401 都算），不真正取流。
+  static Future<String?> _rtspProbePath(
+      String host, int port, String path) async {
+    try {
+      final socket = await Socket.connect(
+        host,
+        port,
+        timeout: const Duration(milliseconds: 800),
+      );
+      final req =
+          'OPTIONS rtsp://$host:$port$path RTSP/1.0\r\n'
+          'CSeq: 1\r\n'
+          'Authorization: Basic $_basicAuth\r\n'
+          '\r\n';
+      socket.write(utf8.encode(req));
+      final data = await socket.first.timeout(
+        const Duration(milliseconds: 800),
+        onTimeout: () => <int>[],
+      );
+      socket.destroy();
+      if (data.isEmpty) return null;
+      final resp = utf8.decode(data, allowMalformed: true);
+      // 200 OK 或 401 Unauthorized 都说明该路径存在 RTSP 服务
+      if (resp.startsWith('RTSP/1.') &&
+          (resp.contains(' 200 ') || resp.contains(' 401 '))) {
+        return path;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// 测试 host:port 上的所有候选 RTSP 路径，返回第一个命中的完整 URL。
+  static Future<String?> _probeRtspUrl(String host, int port) async {
+    for (final path in _rtspPaths) {
+      final found = await _rtspProbePath(host, port, path);
+      if (found != null) {
+        return 'rtsp://$_defaultUser:$_defaultPassword@$host:$port$found';
+      }
+    }
+    // 路径探测全部失败，但端口确实开着——仍用默认 /11 让播放器自己试
+    return 'rtsp://$_defaultUser:$_defaultPassword@$host:$port/11';
+  }
+
+  /// 同 /24 子网静默扫描 RTSP 端口：批量 64 并发，命中后还要确认 RTSP 路径。
+  /// 依次扫本机所有私网网段（Wi-Fi 优先），最坏 2-6 秒出结果。
   static Future<String?> _tcpScanFallback() async {
     final ips = await _localIPv4Candidates();
     if (ips.isEmpty) return null;
+    final ownIps = <String>{...ips};
+
     for (final ip in ips) {
-      final found = await _scanSubnet(ip);
+      final found = await _scanSubnet(ip, ownIps);
       if (found != null) return found;
     }
     return null;
   }
 
-  static Future<String?> _scanSubnet(String myIp) async {
+  static Future<String?> _scanSubnet(
+      String myIp, Set<String> skipIps) async {
     final parts = myIp.split('.');
     if (parts.length != 4) return null;
     final prefix = '${parts[0]}.${parts[1]}.${parts[2]}';
 
     final ports = const [554, 5544];
     // 不扫本机自身 IP（可能有其他服务占 554），从 .1 到 .254
-    final hosts = <String>[for (var i = 1; i <= 254; i++) '$prefix.$i'];
+    final hosts = <String>[
+      for (var i = 1; i <= 254; i++)
+        if (!skipIps.contains('$prefix.$i')) '$prefix.$i'
+    ];
 
     final completer = Completer<String?>();
     bool finished = false;
@@ -182,8 +239,9 @@ class CameraDiscovery {
       for (final port in ports) {
         if (finished) return;
         if (await _tcpOpen(host, port, const Duration(milliseconds: 350))) {
-          // TCP 命中即认为可能是摄像头，返回带默认凭据的 RTSP URL
-          done('rtsp://$host:$port/11');
+          // TCP 命中后再确认路径，避免扫到非摄像头的 554 端口服务
+          final url = await _probeRtspUrl(host, port);
+          done(url);
           return;
         }
       }
@@ -209,7 +267,7 @@ class CameraDiscovery {
 
       final uuid = _uuid();
       sock.send(utf8.encode(_probeXml(uuid)),
-          InternetAddress(_kMulticastAddr), _kWsDiscoveryPort);
+          InternetAddress(_kMulticastAddr), int.parse(_kWsDiscoveryPort));
 
       final completer = Completer<String?>();
       final probedXAddrs = <String>{};
