@@ -51,6 +51,15 @@ jobs:
           sed -i '0,/^android {/s//android {\n    ndkVersion = "27.0.12077973"/' android/app/build.gradle.kts
           grep -n "ndkVersion" android/app/build.gradle.kts
 
+      # flutter create 只在 debug manifest 里带 INTERNET 权限，release 默认没有。
+      # 摄像头 RTSP / MQTT / HTTP 都要联网，必须注入到 main manifest。
+      - name: Inject INTERNET permission into main manifest
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          grep -q 'android.permission.INTERNET' "$MANIFEST" || \
+            sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' "$MANIFEST"
+          grep -n 'INTERNET\|<application' "$MANIFEST" | head
+
       # Remove the default counter-app test so `flutter analyze` stays clean.
       - name: Drop generated default test
         run: rm -rf test

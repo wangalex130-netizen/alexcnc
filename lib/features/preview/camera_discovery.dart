@@ -16,6 +16,18 @@ class CameraDiscovery {
   static const String _kMulticastAddr = '239.255.255.250';
   static const int _kWsDiscoveryPort = 3702;
 
+  /// 默认凭据（雄迈/国产摄像头通用；RTSP URL 缺账号时自动补上）。
+  static const String _defaultUser = 'admin';
+  static const String _defaultPassword = 'abc123456';
+
+  /// 给不带账号的 rtsp URL 补默认凭据（ONVIF GetStreamUri 返回的地址通常没账号）。
+  static String _withDefaultCreds(String url) {
+    if (!url.startsWith('rtsp://')) return url;
+    final rest = url.substring('rtsp://'.length);
+    if (rest.contains('@')) return url; // 已带凭据
+    return 'rtsp://$_defaultUser:$_defaultPassword@$rest';
+  }
+
   /// 返回可用的 RTSP 地址；找不到返回 null。
   ///
   /// 流程：1) 先试本地缓存（上次成功地址，秒开）；
@@ -26,11 +38,19 @@ class CameraDiscovery {
     final prefs = await SharedPreferences.getInstance();
     final cached = prefs.getString(_kCachedUrl);
     if (cached != null && cached.isNotEmpty) {
-      return cached;
+      final normalized = _withDefaultCreds(cached);
+      if (normalized != cached) {
+        await prefs.setString(_kCachedUrl, normalized);
+      }
+      return normalized;
     }
     final found = await _onvifProbe(timeout);
     if (found != null) {
-      await prefs.setString(_kCachedUrl, found);
+      final normalized = _withDefaultCreds(found);
+      if (normalized != found) {
+        await prefs.setString(_kCachedUrl, normalized);
+      }
+      return normalized;
     }
     return found;
   }
@@ -38,7 +58,7 @@ class CameraDiscovery {
   /// 手动写入缓存（例如用户在设置页填了固定 IP / 路由器已做 DHCP 绑定）。
   static Future<void> saveUrl(String url) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kCachedUrl, url);
+    await prefs.setString(_kCachedUrl, _withDefaultCreds(url));
   }
 
   /// 清空缓存（重新走一次自动发现）。

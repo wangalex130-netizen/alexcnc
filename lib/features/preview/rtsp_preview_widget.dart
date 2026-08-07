@@ -46,6 +46,9 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
   Timer? _reconnectTimer;
 
+  /// 固定地址是否已失败过（失败后切换到自动发现，应对摄像头上电换 IP）。
+  bool _triedFixed = false;
+
   @override
   void initState() {
     super.initState();
@@ -57,6 +60,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.rtspUrl != widget.rtspUrl) {
       _disposeController();
+      _triedFixed = false;
       _init();
     }
   }
@@ -69,10 +73,15 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
   }
 
   Future<void> _init() async {
-    String? url = widget.rtspUrl;
-    if (url == null && widget.autoDiscover) {
+    String? url;
+    // 固定地址失败过（或未提供固定地址）→ 走自动发现，覆盖摄像头换 IP 的场景
+    if ((widget.rtspUrl == null || _triedFixed) && widget.autoDiscover) {
       setState(() => _state = _CamState.resolving);
       url = await CameraDiscovery.discover();
+      _triedFixed = true;
+    } else {
+      url = widget.rtspUrl;
+      _triedFixed = false;
     }
     if (url == null || url.isEmpty) {
       setState(() {
@@ -95,10 +104,24 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
       url,
       hwAcc: HwAcc.full,
       autoPlay: true,
+      // 与调试 APP（camera-test-app）验证过的低延时配置保持一致：
+      //   --rtsp-tcp             强制走 TCP（国产摄像头 UDP 经常不通）
+      //   --network-caching=100  网络缓冲降到 100ms，减少延迟
+      //   --live-caching=100     直播缓存同步调低
+      //   --drop-late-frames     网络抖动时丢迟到帧，避免帧堆积延迟越滚越大
+      //   --skip-frames          丢不完整帧，防卡顿拖尾
+      //   --no-audio             只解视频，跳过音频
       options: VlcPlayerOptions(
         advanced: VlcAdvancedOptions([
-          VlcAdvancedOptions.networkCaching(200),
+          VlcAdvancedOptions.networkCaching(100),
         ]),
+        extras: [
+          '--rtsp-tcp',
+          '--live-caching=100',
+          '--drop-late-frames',
+          '--skip-frames',
+          '--no-audio',
+        ],
       ),
     );
 
@@ -144,6 +167,10 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     _reconnectTimer = Timer(const Duration(seconds: 3), () {
       if (!mounted) return;
       _disposeController();
+      // 固定地址连不上 → 下次重连切自动发现，适应摄像头换 IP
+      if (!_triedFixed && widget.rtspUrl != null && widget.autoDiscover) {
+        _triedFixed = true;
+      }
       _init();
     });
   }
