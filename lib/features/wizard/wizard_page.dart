@@ -89,23 +89,20 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       _materialKey = task?.defaultMaterialKey ?? 'pine';
       _thickness = (task?.boardThicknessMm ?? 3).toStringAsFixed(1);
       _thicknessCtl = TextEditingController(text: _thickness);
-      // 默认把工序①→T1、工序②→T2… 写入共享刀表（与控制台同步）。
-      // 用户可在 Step3 自由调整刀兜，机器按工序顺序换刀而非写死 T1→T2。
+      // 刀仓以「控制台刀仓管理」为准（用户可增删/清空刀位）：
+      // 已装好的工序刀沿用当前刀兜；未装的工序刀留空，由用户在 Step3 选择。
+      // 不再自动按 1..N 覆盖/重排刀仓 —— 否则控制台删除（清空）的刀会在向导中"复活"。
       _procSlot = {};
       _procConfirmed = {};
       _syncedToMachine = false;
       final req = task?.requiredTools ?? [];
       if (req.isNotEmpty) {
-        final mag = {...ref.read(toolMagazineProvider)};
+        final mag = ref.read(toolMagazineProvider);
         for (var i = 0; i < req.length; i++) {
-          _procSlot[i] = i + 1;
           final tid = req[i].toolId;
-          for (final k in mag.keys) {
-            if (mag[k] == tid) mag[k] = null; // 避免同一把刀落在两个兜
-          }
-          mag[i + 1] = tid;
+          final at = mag.keys.where((k) => mag[k] == tid).toList();
+          if (at.isNotEmpty) _procSlot[i] = at.first;
         }
-        ref.read(toolMagazineProvider.notifier).state = mag;
       }
     });
   }
@@ -975,8 +972,8 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
         Text('Step 3 · 刀仓映射',
             style: t.titleMedium?.copyWith(color: CncColors.textMain)),
         const SizedBox(height: 6),
-        const Text('模型需按工序顺序使用以下刀具。为每把工序刀选择物理刀兜'
-            '（默认 工序①→T1、工序②→T2，可自由调整）。机器按工序顺序自动换刀，而非固定 T1→T2。',
+        const Text('模型需按工序顺序使用以下刀具。已自动沿用控制台刀仓中已配置的刀位；'
+            '未配置的工序刀请手动选择物理刀兜。机器按工序顺序自动换刀，而非固定 T1→T2。',
             style: TextStyle(fontSize: 12, color: CncColors.textSub)),
         const SizedBox(height: 14),
         // 有序工序刀具 → 选兜 + 实物确认
