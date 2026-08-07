@@ -28,7 +28,6 @@ class LibraryItem {
   final String? coverUrl; // 封面图（列表；= imageUrls 第一张）
   final List<String> imageUrls; // 几张实物图（详情轮播）
   final List<String> tags; // 风格标签
-  final String? difficulty; // 难度：入门/进阶/高手
   final String? materialKey; // 默认材质 key（关联材质主表）
   final String? toolId; // 默认刀具 id（关联刀具库）
   final int? durationSec; // 雕刻时长秒数（排序/统计）
@@ -55,7 +54,6 @@ class LibraryItem {
     this.coverUrl,
     this.imageUrls = const [],
     this.tags = const [],
-    this.difficulty,
     this.materialKey,
     this.toolId,
     this.durationSec,
@@ -88,7 +86,6 @@ class LibraryItem {
             .map((e) => e.toString())
             .toList(),
         tags: (j['tags'] as List? ?? []).map((e) => e.toString()).toList(),
-        difficulty: j['difficulty'] as String?,
         materialKey: j['materialKey'] as String?,
         toolId: j['toolId'] as String?,
         durationSec: (j['durationSec'] as num?)?.toInt(),

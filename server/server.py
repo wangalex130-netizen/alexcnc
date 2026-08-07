@@ -128,7 +128,7 @@ INSPIRATION = [
     {"id": "insp-hero", "title": "复古木雕花纹板", "author": "ArtiMaker",
      "coverUrl": None, "imageUrls": [], "isPublic": True, "materialPreset": "松木",
      "materialKey": "pine", "toolId": "t_flat_3175",
-     "category": "木雕", "tags": ["浮雕", "国风", "入门"], "difficulty": "入门",
+     "category": "木雕", "tags": ["浮雕", "国风", "入门"],
      "duration": "38分钟", "durationSec": 2280,
      "widthMm": 145, "heightMm": 95, "depthMm": 3, "boardThicknessMm": 3,
      "requiredTools": [{"toolId": "t_flat_3175", "role": "粗雕/轮廓"},
@@ -138,7 +138,7 @@ INSPIRATION = [
     {"id": "insp-1", "title": "赛博朋克发光铭牌", "author": "NeoCraft",
      "coverUrl": None, "imageUrls": [], "isPublic": True, "materialPreset": "双色亚克力",
      "materialKey": "absdual", "toolId": "t_v60",
-     "category": "亚克力", "tags": ["赛博朋克", "发光"], "difficulty": "进阶",
+     "category": "亚克力", "tags": ["赛博朋克", "发光"],
      "duration": "8分10秒", "durationSec": 490,
      "widthMm": 120, "heightMm": 60, "depthMm": 2, "boardThicknessMm": 3,
      "requiredTools": [{"toolId": "t_v60", "role": "精雕/刻线"}],
@@ -285,7 +285,6 @@ class Handler(BaseHTTPRequestHandler):
                 "toolId": model.get("toolId"),
                 "category": model.get("category"),
                 "tags": model.get("tags", []),
-                "difficulty": model.get("difficulty"),
                 "duration": model.get("duration"),
                 "durationSec": model.get("durationSec"),
                 "widthMm": model.get("widthMm"), "heightMm": model.get("heightMm"),
@@ -323,6 +322,20 @@ class Handler(BaseHTTPRequestHandler):
                   f"log={str(payload.get('log'))[:80]}", flush=True)
             return self._send(200, {"ok": True})
 
+        return self._send(404, {"error": "not found"})
+
+    def do_DELETE(self):
+        # 我的空间：删除电脑端上传的模型（App「我的空间 → 删除」）
+        p = urlparse(self.path)
+        if p.path.startswith("/api/v1/models/"):
+            mid = p.path.rsplit("/", 1)[-1]
+            if mid in UPLOADED_MODELS:
+                del UPLOADED_MODELS[mid]
+                MY_SPACE[:] = [x for x in MY_SPACE if x.get("id") != mid]
+                _save_data()
+                print(f"[MODEL DELETE] 删除模型 {mid}", flush=True)
+                return self._send(200, {"ok": True})
+            return self._send(404, {"error": "model not found", "id": mid})
         return self._send(404, {"error": "not found"})
 
 

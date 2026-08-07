@@ -190,6 +190,13 @@ class MockCloudService implements CloudService {
   }
 
   @override
+  Future<bool> deleteModel(String id) async {
+    await Future.delayed(const Duration(milliseconds: 200));
+    // Mock 下始终成功（真实删除由 RealCloudService → 云端执行）
+    return true;
+  }
+
+  @override
   Future<void> pushDiagnostics(String log) async {
     await Future.delayed(const Duration(milliseconds: 200));
   }

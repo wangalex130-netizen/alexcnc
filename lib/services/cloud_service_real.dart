@@ -117,6 +117,22 @@ class RealCloudService implements CloudService {
       await _tryGetList('/api/v1/library/mine') ?? _fallback.getMySpace();
 
   @override
+  Future<bool> deleteModel(String id) async {
+    try {
+      final resp = await http
+          .delete(
+            Uri.parse('$baseUrl/api/v1/models/$id'),
+            headers: await _headers,
+          )
+          .timeout(const Duration(seconds: 5));
+      return resp.statusCode == 200;
+    } catch (_) {
+      // 云端不可达 -> 回退 Mock（内存删除视为成功）
+      return _fallback.deleteModel(id);
+    }
+  }
+
+  @override
   Future<void> pushDiagnostics(String log) async {
     try {
       await http

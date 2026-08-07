@@ -17,5 +17,7 @@ abstract class CloudService {
   Future<TaskMetadata?> getTaskById(String id);
   Future<List<LibraryItem>> getInspiration({int page = 0});
   Future<List<LibraryItem>> getMySpace();
+  /// 删除「我的空间」里的模型/任务（电脑端上传的私有模型可下架）。
+  Future<bool> deleteModel(String id);
   Future<void> pushDiagnostics(String log);
 }

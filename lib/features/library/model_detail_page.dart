@@ -58,10 +58,11 @@ class ModelDetailPage extends StatelessWidget {
                                     fontWeight: FontWeight.w700,
                                     color: CncColors.textMain)),
                           ),
-                          _Badge(
-                              label: item.difficulty ?? '—',
-                              fg: CncColors.primaryInk,
-                              bg: CncColors.primary.withOpacity(0.14)),
+                          if (item.category != null)
+                            _Badge(
+                                label: item.category!,
+                                fg: CncColors.primaryInk,
+                                bg: CncColors.primary.withOpacity(0.14)),
                         ],
                       ),
                       const SizedBox(height: 4),

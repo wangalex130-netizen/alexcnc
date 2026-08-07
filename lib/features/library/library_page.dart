@@ -19,10 +19,9 @@ class LibraryPage extends ConsumerStatefulWidget {
 
 class _LibraryPageState extends ConsumerState<LibraryPage> {
   int _tab = 0; // 0 = 灵感共享库, 1 = 我的云端空间
-  int _category = 0;
+  String _category = ''; // 当前分类（'' = 全部）
+  String _keyword = ''; // 搜索关键字
   late Future<List<LibraryItem>> _future;
-
-  static const _categories = ['推荐灵感', '木作工艺', 'PCB 电路', '亚克力'];
 
   @override
   void initState() {
@@ -35,11 +34,34 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     _future = _tab == 0 ? cloud.getInspiration() : cloud.getMySpace();
   }
 
+  /// 动态聚合分类（从模型数据提取，电脑端传什么分类就显示什么）。
+  List<String> _categoriesOf(List<LibraryItem> items) {
+    final set = <String>{};
+    for (final e in items) {
+      final c = e.category;
+      if (c != null && c.isNotEmpty) set.add(c);
+    }
+    return ['全部', ...set];
+  }
+
   void _openModel(LibraryItem item) {
     // 先看模型详情（多图/尺寸/时长/材质/刀具），点「开始雕刻」再进向导
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => ModelDetailPage(item: item)),
     );
+  }
+
+  Future<void> _deleteModel(LibraryItem item) async {
+    final ok = await ref.read(cloudServiceProvider).deleteModel(item.id);
+    if (!mounted) return;
+    if (ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已删除该模型'), duration: Duration(seconds: 1)));
+      setState(_load);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('删除失败，请稍后重试')));
+    }
   }
 
   @override
@@ -54,7 +76,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
               index: _tab,
               onChanged: (i) => setState(() {
                 _tab = i;
-                _category = 0;
+                _category = '';
+                _keyword = '';
                 _load();
               }),
             ),
@@ -78,8 +101,17 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
               }
               final items = snap.data ?? [];
               return _tab == 0
-                  ? _InspirationSliver(items: items, category: _category, onCategory: (i) => setState(() => _category = i), onOpen: _openModel)
-                  : _MySpaceSliver(items: items, onOpen: _openModel);
+                  ? _InspirationSliver(
+                      items: items,
+                      categories: _categoriesOf(items),
+                      category: _category,
+                      keyword: _keyword,
+                      onKeyword: (k) => setState(() => _keyword = k),
+                      onCategory: (c) => setState(() => _category = c),
+                      onOpen: _openModel,
+                    )
+                  : _MySpaceSliver(
+                      items: items, onOpen: _openModel, onDelete: _deleteModel);
             },
           ),
         ),
@@ -172,53 +204,95 @@ class _StickySegmented extends SliverPersistentHeaderDelegate {
 
 class _InspirationSliver extends StatelessWidget {
   final List<LibraryItem> items;
-  final int category;
-  final void Function(int) onCategory;
+  final List<String> categories; // 动态聚合分类（首项「全部」）
+  final String category; // 当前分类（'' = 全部）
+  final String keyword;
+  final void Function(String) onKeyword;
+  final void Function(String) onCategory;
   final void Function(LibraryItem) onOpen;
-  const _InspirationSliver({required this.items, required this.category, required this.onCategory, required this.onOpen});
+  const _InspirationSliver({
+    required this.items,
+    required this.categories,
+    required this.category,
+    required this.keyword,
+    required this.onKeyword,
+    required this.onCategory,
+    required this.onOpen,
+  });
 
   @override
   Widget build(BuildContext context) {
     final heroList = items.where((e) => e.isHero).toList();
     final hero = heroList.isEmpty ? null : heroList.first;
-    final grid = items.where((e) => !e.isHero).toList();
-    final byCat = category == 0
-        ? grid
-        : grid.where((e) => e.category == _LibraryPageState._categories[category]).toList();
+    var grid = items.where((e) => !e.isHero).toList();
+    if (category.isNotEmpty) {
+      grid = grid.where((e) => e.category == category).toList();
+    }
+    final kw = keyword.trim().toLowerCase();
+    if (kw.isNotEmpty) {
+      grid = grid
+          .where((e) =>
+              e.title.toLowerCase().contains(kw) ||
+              e.tags.any((t) => t.toLowerCase().contains(kw)))
+          .toList();
+    }
 
     return SliverList(
       delegate: SliverChildListDelegate([
-        // 搜索框
+        // 搜索框（可输入：标题 / 标签过滤）
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
           decoration: BoxDecoration(
             color: const Color(0xFF222222),
             borderRadius: BorderRadius.circular(20),
           ),
-          child: const Row(
+          child: Row(
             children: [
-              Icon(Symbols.search, size: 16, color: CncColors.textSub),
-              SizedBox(width: 10),
-              Text('搜索官方精选创意...', style: TextStyle(fontSize: 13, color: CncColors.textSub)),
+              const Icon(Symbols.search, size: 16, color: CncColors.textSub),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  onChanged: onKeyword,
+                  style: const TextStyle(fontSize: 13, color: CncColors.textMain),
+                  decoration: InputDecoration(
+                    hintText: '搜索模型名称或标签...',
+                    hintStyle: const TextStyle(
+                        fontSize: 13, color: CncColors.textSub),
+                    isDense: true,
+                    border: InputBorder.none,
+                    suffixIcon: keyword.isEmpty
+                        ? null
+                        : GestureDetector(
+                            onTap: () => onKeyword(''),
+                            child: const Padding(
+                              padding: EdgeInsets.only(left: 8),
+                              child: Icon(Symbols.close,
+                                  size: 14, color: CncColors.textSub),
+                            ),
+                          ),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
         const SizedBox(height: 12),
-        // 分类标签
+        // 分类标签（动态聚合）
         SizedBox(
           height: 28,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            itemCount: _LibraryPageState._categories.length,
+            itemCount: categories.length,
             separatorBuilder: (_, __) => const SizedBox(width: 16),
             itemBuilder: (c, i) {
-              final active = i == category;
+              final name = categories[i];
+              final active = name == category || (i == 0 && category.isEmpty);
               return GestureDetector(
-                onTap: () => onCategory(i),
+                onTap: () => onCategory(i == 0 ? '' : name),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(_LibraryPageState._categories[i],
+                    Text(name,
                         style: TextStyle(
                             fontSize: 13,
                             color: active ? CncColors.textMain : CncColors.textSub,
@@ -233,7 +307,7 @@ class _InspirationSliver extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 14),
-        if (hero != null) ...[
+        if (hero != null && category.isEmpty && kw.isEmpty) ...[
           _HeroCard(item: hero, onOpen: onOpen),
           const SizedBox(height: 14),
         ],
@@ -246,13 +320,15 @@ class _InspirationSliver extends StatelessWidget {
             crossAxisSpacing: 12,
             childAspectRatio: 0.82,
           ),
-          itemCount: byCat.length,
-          itemBuilder: (c, i) => _ModelCard(item: byCat[i], onOpen: onOpen),
+          itemCount: grid.length,
+          itemBuilder: (c, i) => _ModelCard(item: grid[i], onOpen: onOpen),
         ),
-        if (byCat.isEmpty)
+        if (grid.isEmpty)
           const Padding(
             padding: EdgeInsets.only(top: 32),
-            child: Center(child: Text('该分类暂无内容', style: TextStyle(color: CncColors.textSub))),
+            child: Center(
+                child: Text('未找到相关模型',
+                    style: TextStyle(color: CncColors.textSub))),
           ),
       ]),
     );
@@ -347,18 +423,15 @@ class _ModelCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(item.materialPreset ?? '',
                         maxLines: 1, style: const TextStyle(fontSize: 10, color: CncColors.blue)),
-                    if (item.difficulty != null || item.tags.isNotEmpty) ...[
+                    if (item.tags.isNotEmpty) ...[
                       const SizedBox(height: 6),
                       Wrap(
                         spacing: 4,
                         runSpacing: 4,
-                        children: [
-                          if (item.difficulty != null)
-                            _chip(item.difficulty!, CncColors.primary.withOpacity(0.14),
-                                CncColors.primaryInk),
-                          ...item.tags.take(2).map((t) => _chip(t, CncColors.card,
-                              CncColors.textSub)),
-                        ],
+                        children: item.tags
+                            .take(2)
+                            .map((t) => _chip(t, CncColors.card, CncColors.textSub))
+                            .toList(),
                       ),
                     ],
                   ],
@@ -385,7 +458,9 @@ class _ModelCard extends StatelessWidget {
 class _MySpaceSliver extends StatelessWidget {
   final List<LibraryItem> items;
   final void Function(LibraryItem) onOpen;
-  const _MySpaceSliver({required this.items, required this.onOpen});
+  final void Function(LibraryItem) onDelete;
+  const _MySpaceSliver(
+      {required this.items, required this.onOpen, required this.onDelete});
 
   @override
   Widget build(BuildContext context) {
@@ -436,7 +511,7 @@ class _MySpaceSliver extends StatelessWidget {
         const SizedBox(height: 8),
         ...projects.map((e) => Padding(
             padding: const EdgeInsets.only(bottom: 10),
-            child: _ProjectItem(item: e, onOpen: onOpen),
+            child: _ProjectItem(item: e, onOpen: onOpen, onDelete: onDelete),
           )),
         const SizedBox(height: 8),
         const _SectionTitle('成功加工记录', muted: true),
@@ -499,8 +574,13 @@ class _SyncButtonState extends State<_SyncButton> {
 class _ProjectItem extends StatelessWidget {
   final LibraryItem item;
   final void Function(LibraryItem) onOpen;
+  final void Function(LibraryItem)? onDelete;
   final bool dimmed;
-  const _ProjectItem({required this.item, required this.onOpen, this.dimmed = false});
+  const _ProjectItem(
+      {required this.item,
+      required this.onOpen,
+      this.onDelete,
+      this.dimmed = false});
 
   @override
   Widget build(BuildContext context) => Opacity(
@@ -551,6 +631,22 @@ class _ProjectItem extends StatelessWidget {
                           color: dimmed ? CncColors.textSub : Colors.black)),
                 ),
               ),
+              if (!dimmed && onDelete != null) ...[
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () => onDelete!(item),
+                  child: Container(
+                    width: 30,
+                    height: 30,
+                    decoration: BoxDecoration(
+                      color: CncColors.danger.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Icon(Symbols.delete_outline,
+                        size: 15, color: CncColors.danger),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
