@@ -86,7 +86,6 @@ class CameraDiscovery {
     try {
       final interfaces = await NetworkInterface.list();
       for (final iface in interfaces) {
-        if (iface.isLoopback || !iface.isUp) continue;
         for (final addr in iface.addresses) {
           if (addr.type == InternetAddressType.IPv4 && !addr.isLoopback) {
             return addr.address;
