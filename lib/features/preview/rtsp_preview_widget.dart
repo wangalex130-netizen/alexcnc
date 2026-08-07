@@ -111,7 +111,11 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     final controller = VlcPlayerController.network(
       url,
       hwAcc: HwAcc.full,
+      // 让 controller 自己等 platform view(viewId) ready 后再初始化；
+      // 之前手动 await controller.initialize() 会抢跑，导致
+      // LateInitializationError: _viewId has not been initialized.
       autoPlay: true,
+      autoInitialize: true,
       // 与调试 APP（camera-test-app）验证过的低延时配置保持一致：
       //   --rtsp-tcp             强制走 TCP（国产摄像头 UDP 经常不通）
       //   --network-caching=100  网络缓冲降到 100ms，减少延迟
@@ -134,16 +138,11 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     );
 
     controller.addListener(_onControllerUpdate);
-    _controller = controller;
-
-    try {
-      await controller.initialize();
+    controller.addOnInitListener(() {
       if (!mounted) return;
       setState(() => _state = _CamState.ready);
-    } catch (e) {
-      if (!mounted) return;
-      _setError('初始化失败：$e');
-    }
+    });
+    _controller = controller;
   }
 
   void _onControllerUpdate() {
@@ -263,6 +262,9 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
         return VlcPlayer(
           controller: _controller!,
           aspectRatio: 16 / 9,
+          // virtualDisplay=false 使用 Texture 渲染，避免某些机型上
+          // Android VirtualDisplay 与 viewId 初始化时序不一致的问题。
+          virtualDisplay: false,
           placeholder: const Center(
             child: CircularProgressIndicator(color: CncColors.primary),
           ),
