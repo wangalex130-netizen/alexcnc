@@ -47,6 +47,10 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
   Timer? _reconnectTimer;
 
+  /// 连接阶段超时：固定地址 8 秒连不上就自动清缓存切自动发现，
+  /// 避免一直转圈无反馈（摄像头每次上电 IP 都可能变化）。
+  Timer? _connectTimeoutTimer;
+
   /// 固定地址是否已失败过（失败后切换到自动发现，应对摄像头上电换 IP）。
   bool _triedFixed = false;
 
@@ -71,6 +75,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
   @override
   void dispose() {
     _reconnectTimer?.cancel();
+    _connectTimeoutTimer?.cancel();
     _disposeController();
     super.dispose();
   }
@@ -79,7 +84,9 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
   void startPreview() {
     if (_state == _CamState.connecting || _state == _CamState.ready) return;
     _reconnectTimer?.cancel();
+    _connectTimeoutTimer?.cancel();
     _disposeController();
+    _triedFixed = false;
     setState(() => _state = _CamState.connecting);
     _init();
   }
@@ -132,6 +139,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
         ]),
         extras: [
           '--rtsp-tcp',
+          '--connect-timeout=4000',
           '--live-caching=100',
           '--drop-late-frames',
           '--skip-frames',
@@ -143,6 +151,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     controller.addListener(_onControllerUpdate);
     controller.addOnInitListener(() {
       if (!mounted) return;
+      _connectTimeoutTimer?.cancel();
       setState(() => _state = _CamState.ready);
     });
     _controller = controller;
@@ -151,6 +160,16 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     // VlcPlayer，platform view 立即创建 → viewId 分配 → autoInitialize 才开跑。
     // 若等到 addOnInitListener 触发才上屏，platform view 永远不创建，初始化
     // 永远不开始 → 卡死在「正在连接」。连接期间由 VlcPlayer placeholder 转圈。
+
+    // 连接兜底超时：8 秒内既没连上也没报错 → 按 _handleFailure 走
+    // （固定地址失败 → 清缓存切自动发现；自动发现也失败 → 显示错误）。
+    _connectTimeoutTimer?.cancel();
+    _connectTimeoutTimer = Timer(const Duration(seconds: 8), () {
+      if (!mounted) return;
+      if (_state == _CamState.connecting) {
+        _handleFailure('连接超时');
+      }
+    });
   }
 
   void _onControllerUpdate() {
@@ -159,7 +178,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     if (value == null) return;
 
     if (value.hasError) {
-      _setError(value.errorDescription ?? '播放异常');
+      _handleFailure(value.errorDescription ?? '播放异常');
     } else {
       setState(() {
         _error = null;
@@ -177,6 +196,24 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
       _error = msg;
       _state = _CamState.error;
     });
+  }
+
+  /// 统一失败处理：
+  /// 1) 固定地址/旧缓存连不上 → 清缓存，自动切自动发现再试一次（摄像头换 IP 场景）；
+  /// 2) 自动发现也失败（或不允许发现）→ 停在错误状态，用户手动重试。
+  void _handleFailure(String msg) {
+    if (!mounted) return;
+    _connectTimeoutTimer?.cancel();
+    if (!_triedFixed && widget.autoDiscover) {
+      _triedFixed = true;
+      _disposeController();
+      // 先清掉旧 IP 缓存，等清除完成再重新发现，避免读到脏缓存
+      CameraDiscovery.clearCache().then((_) {
+        if (mounted) _init();
+      });
+      return;
+    }
+    _setError(msg);
   }
 
   void _disposeController() {
