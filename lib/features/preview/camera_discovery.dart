@@ -31,9 +31,8 @@ class CameraDiscovery {
   /// 返回可用的 RTSP 地址；找不到返回 null。
   ///
   /// 流程：1) 先试本地缓存（上次成功地址，秒开）；
-  ///       2) 否则 ONVIF WS-Discovery 探测（依赖组播，部分路由器可能不通）；
-  ///       3) 失败后跑一次同 /24 子网 TCP 端口扫描兜底（最快 2-3 秒出结果），
-  ///          命中 554/5544 端口即认为是摄像头，返回 RTSP URL（不暴露 IP 给客户）。
+  ///       2) 否则 TCP 端口扫描（2-5 秒，不依赖组播，最可靠）；
+  ///       3) ONVIF WS-Discovery 兜底（依赖组播，部分路由器可能不通）。
   static Future<String?> discover({
     Duration timeout = const Duration(seconds: 4),
   }) async {
@@ -46,8 +45,8 @@ class CameraDiscovery {
       }
       return normalized;
     }
-    String? found = await _onvifProbe(timeout);
-    found ??= await _tcpScanFallback();
+    String? found = await _tcpScanFallback();
+    found ??= await _onvifProbe(timeout);
     if (found != null) {
       final normalized = _withDefaultCreds(found);
       if (normalized != found) {
@@ -81,19 +80,40 @@ class CameraDiscovery {
         '${hex.substring(20, 32)}';
   }
 
-  /// 取本机非回环 IPv4（用于推断 /24 网段）。
-  static Future<String?> _localIPv4() async {
+  /// 取本机非回环 IPv4 候选（用于推断 /24 网段）。
+  ///
+  /// 关键：手机常同时有 Wi-Fi 和蜂窝两个 IPv4，`NetworkInterface.list()`
+  /// 返回顺序不保证 Wi-Fi 在前——若拿到蜂窝 IP 就会扫错网段永远找不到摄像头。
+  /// 因此返回【所有】候选，且优先 Wi-Fi/以太网接口；调用方逐个网段扫描。
+  static Future<List<String>> _localIPv4Candidates() async {
+    final preferred = <String>[];
+    final others = <String>[];
     try {
       final interfaces = await NetworkInterface.list();
       for (final iface in interfaces) {
+        final name = iface.name.toLowerCase();
+        final isLan =
+            name.contains('wlan') || name.contains('wifi') ||
+            name.contains('eth') || name.contains('en');
         for (final addr in iface.addresses) {
-          if (addr.type == InternetAddressType.IPv4 && !addr.isLoopback) {
-            return addr.address;
-          }
+          if (addr.type != InternetAddressType.IPv4) continue;
+          if (addr.isLoopback || addr.isLinkLocal) continue;
+          if (!_isPrivateLan(addr.address)) continue;
+          (isLan ? preferred : others).add(addr.address);
         }
       }
     } catch (_) {}
-    return null;
+    return <String>{...preferred, ...others}.toList();
+  }
+
+  /// 是否为常见私网网段（家庭/办公局域网）。蜂窝 CGNAT(100.64/10) 排除。
+  static bool _isPrivateLan(String ip) {
+    final p = ip.split('.').map(int.tryParse).toList();
+    if (p.length != 4 || p.any((e) => e == null)) return false;
+    if (p[0] == 10) return true;
+    if (p[0] == 172 && p[1]! >= 16 && p[1]! <= 31) return true;
+    if (p[0] == 192 && p[1] == 168) return true;
+    return false;
   }
 
   /// TCP 端口连通性测试（短超时），命中返回 true。
@@ -108,11 +128,18 @@ class CameraDiscovery {
   }
 
   /// 同 /24 子网静默扫描 RTSP 端口兜底：批量 64 并发，命中 554/5544 即返回。
-  /// 不向用户暴露任何 IP，结果直接返回完整 RTSP URL（默认 /11 主码流）。
-  /// 通常最坏情况下 2-3 秒出结果，远好于用户手动找 IP。
+  /// 依次扫本机所有私网网段（Wi-Fi 优先），最坏 2-5 秒出结果。
   static Future<String?> _tcpScanFallback() async {
-    final myIp = await _localIPv4();
-    if (myIp == null) return null;
+    final ips = await _localIPv4Candidates();
+    if (ips.isEmpty) return null;
+    for (final ip in ips) {
+      final found = await _scanSubnet(ip);
+      if (found != null) return found;
+    }
+    return null;
+  }
+
+  static Future<String?> _scanSubnet(String myIp) async {
     final parts = myIp.split('.');
     if (parts.length != 4) return null;
     final prefix = '${parts[0]}.${parts[1]}.${parts[2]}';
