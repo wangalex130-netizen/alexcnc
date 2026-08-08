@@ -33,6 +33,10 @@ android {
     defaultConfig {
         // libvlc-all 3.6.4 要求 minSdk >= 24
         minSdk 24
+
+        // 把 libVLC 的 keep 规则随插件带给宿主 App，
+        // 这样宿主即使开启 R8 也不会因为混淆 org.videolan.** 而闪退。
+        consumerProguardFiles 'consumer-rules.pro'
     }
 }
 

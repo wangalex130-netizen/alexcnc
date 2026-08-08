@@ -1,11 +1,16 @@
 package com.alexcnc.native_vlc_player
 
 import android.content.Context
+import android.graphics.Color
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.View
+import android.widget.FrameLayout
+import android.widget.TextView
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -20,14 +25,14 @@ private const val TAG = "NativeVlcView"
 /**
  * A single platform view that wraps libVLC's [VLCVideoLayout] and [MediaPlayer].
  *
- * This is the exact same approach used by the standalone camera-test-app:
- *   - LibVLC with low-latency options and RTP-over-TCP.
- *   - MediaPlayer attached to a VLCVideoLayout (TextureView).
- *   - Events posted back to the main thread and forwarded to Flutter.
+ * 与 camera-test-app 一致的原生实现：
+ *   - LibVLC 低延迟参数 + RTP over TCP。
+ *   - MediaPlayer 挂到 VLCVideoLayout（TextureView）。
+ *   - 事件回主线程后转发给 Flutter。
  *
- * Keeping it native avoids the `LateInitializationError(_viewId)` crash that
- * comes from flutter_vlc_player's Flutter-side controller initializing before
- * the underlying Android Surface/Texture is ready.
+ * 【稳定性约定】这个类的构造函数不允许把异常放跑出去以外的任何形式崩溃：
+ * 承载容器 [container] 一定创建成功，libVLC 相关的每一步都单独兜底，
+ * 失败时把原因记进 [initError] 并直接画在画面上。
  */
 class NativeVlcView(
     context: Context,
@@ -38,14 +43,35 @@ class NativeVlcView(
     private val channel = MethodChannel(messenger, "native_vlc_player_$viewId")
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    private val libVLC: LibVLC?
-    private val mediaPlayer: MediaPlayer?
-    private val videoLayout: VLCVideoLayout
+    /**
+     * 永远可用的宿主容器。即使 libVLC 的类一个都加载不出来，
+     * getView() 依然能返回一个合法 View —— 这是"绝不闪退"的地基。
+     */
+    private val container = FrameLayout(context).apply {
+        setBackgroundColor(Color.parseColor("#0A0A0A"))
+    }
+
+    private var videoLayout: VLCVideoLayout? = null
+    private var libVLC: LibVLC? = null
+    private var mediaPlayer: MediaPlayer? = null
+
+    /** 初始化阶段的失败原因，供 Flutter 侧与画面展示。 */
+    private var initError: String? = null
 
     init {
         channel.setMethodCallHandler(this)
-        videoLayout = VLCVideoLayout(context)
 
+        // ---- 1) 视频承载层 ----
+        runCatching {
+            val layout = VLCVideoLayout(context)
+            videoLayout = layout
+            container.addView(layout, matchParent())
+        }.onFailure {
+            Log.e(TAG, "VLCVideoLayout 创建失败", it)
+            recordInitError("视频层创建失败", it)
+        }
+
+        // ---- 2) libVLC 实例 ----
         libVLC = runCatching {
             LibVLC(
                 context,
@@ -59,67 +85,107 @@ class NativeVlcView(
                     "--no-audio"
                 )
             )
-        }.onFailure { Log.e(TAG, "LibVLC init failed", it) }.getOrNull()
+        }.onFailure {
+            Log.e(TAG, "LibVLC 初始化失败", it)
+            recordInitError("LibVLC 初始化失败", it)
+        }.getOrNull()
 
+        // ---- 3) MediaPlayer ----
         mediaPlayer = libVLC?.let { vlc ->
             runCatching { MediaPlayer(vlc) }
-                .onFailure { Log.e(TAG, "MediaPlayer create failed", it) }
+                .onFailure {
+                    Log.e(TAG, "MediaPlayer 创建失败", it)
+                    recordInitError("MediaPlayer 创建失败", it)
+                }
                 .getOrNull()
         }
 
-        mediaPlayer?.setEventListener { event ->
-            mainHandler.post { handlePlayerEvent(event) }
+        runCatching {
+            mediaPlayer?.setEventListener { event ->
+                mainHandler.post { handlePlayerEvent(event) }
+            }
+        }.onFailure {
+            Log.e(TAG, "注册播放事件监听失败", it)
+            recordInitError("事件监听注册失败", it)
+        }
+
+        // 初始化没成功就把原因画到画面上，让问题可见、可反馈，而不是黑屏或闪退。
+        initError?.let { showOverlayMessage(it) }
+    }
+
+    private fun matchParent() = FrameLayout.LayoutParams(
+        FrameLayout.LayoutParams.MATCH_PARENT,
+        FrameLayout.LayoutParams.MATCH_PARENT
+    )
+
+    private fun recordInitError(stage: String, t: Throwable) {
+        if (initError == null) {
+            initError = "$stage：${t::class.java.simpleName} ${t.message ?: ""}".trim()
         }
     }
 
-    override fun getView(): View = videoLayout
+    private fun showOverlayMessage(text: String) {
+        runCatching {
+            val tv = TextView(container.context).apply {
+                setText(text)
+                setTextColor(Color.parseColor("#FF6B6B"))
+                gravity = Gravity.CENTER
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                setPadding(32, 32, 32, 32)
+            }
+            container.addView(tv, matchParent())
+        }
+    }
+
+    override fun getView(): View = container
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
-        when (call.method) {
-            "play" -> {
-                val url = call.argument<String>("url")
-                if (url.isNullOrBlank()) {
-                    result.error("BAD_URL", "url is null or blank", null)
-                    return
+        // 方法回调同样全程兜底：任何未捕获异常都会被 Flutter 引擎转成崩溃。
+        runCatching {
+            when (call.method) {
+                "play" -> {
+                    val url = call.argument<String>("url")
+                    if (url.isNullOrBlank()) {
+                        result.error("BAD_URL", "url is null or blank", null)
+                        return
+                    }
+                    play(url)
+                    result.success(null)
                 }
-                play(url)
-                result.success(null)
+                "stop" -> {
+                    stop()
+                    result.success(null)
+                }
+                "dispose" -> {
+                    dispose()
+                    result.success(null)
+                }
+                else -> result.notImplemented()
             }
-            "stop" -> {
-                stop()
-                result.success(null)
-            }
-            "dispose" -> {
-                dispose()
-                result.success(null)
-            }
-            else -> result.notImplemented()
+        }.onFailure { t ->
+            Log.e(TAG, "onMethodCall(${call.method}) 异常", t)
+            runCatching { result.error("NATIVE_ERROR", t.message, null) }
         }
     }
 
     private fun play(url: String) {
-        val mp = mediaPlayer ?: run {
-            sendEvent("error", mapOf("message" to "播放器未初始化"))
-            return
-        }
-        val vlc = libVLC ?: run {
-            sendEvent("error", mapOf("message" to "LibVLC 未初始化"))
+        val mp = mediaPlayer
+        val vlc = libVLC
+        val layout = videoLayout
+        if (mp == null || vlc == null || layout == null) {
+            sendEvent("error", mapOf("message" to (initError ?: "播放器未初始化")))
             return
         }
 
         runCatching {
-            // Stop and detach before re-attaching to avoid
-            // "Can't set view when already attached".
+            // 重新 attach 前先 stop + detach，避免 "Can't set view when already attached"。
             mp.stop()
             mp.detachViews()
 
             val media = Media(vlc, Uri.parse(url))
             mp.media = media
-            videoLayout.let { layout ->
-                // textureView=true: render onto a TextureView (better compositing
-                // inside Flutter's platform view).
-                mp.attachViews(layout, null, false, true)
-            }
+            // textureView=true：渲染到 TextureView，在 Flutter 平台视图里合成更稳。
+            mp.attachViews(layout, null, false, true)
             media.release()
             mp.play()
         }.onFailure { e ->
@@ -136,26 +202,30 @@ class NativeVlcView(
     }
 
     private fun handlePlayerEvent(event: MediaPlayer.Event) {
-        when (event.type) {
-            MediaPlayer.Event.Opening -> sendEvent("opening")
-            MediaPlayer.Event.Buffering -> sendEvent("buffering")
-            MediaPlayer.Event.Playing -> sendEvent("playing")
-            MediaPlayer.Event.Stopped -> sendEvent("stopped")
-            MediaPlayer.Event.EndReached -> sendEvent("endReached")
-            MediaPlayer.Event.EncounteredError -> {
-                sendEvent("error", mapOf("message" to "无法连接摄像头，或该流格式不受支持"))
+        runCatching {
+            when (event.type) {
+                MediaPlayer.Event.Opening -> sendEvent("opening")
+                MediaPlayer.Event.Buffering -> sendEvent("buffering")
+                MediaPlayer.Event.Playing -> sendEvent("playing")
+                MediaPlayer.Event.Stopped -> sendEvent("stopped")
+                MediaPlayer.Event.EndReached -> sendEvent("endReached")
+                MediaPlayer.Event.EncounteredError -> {
+                    sendEvent("error", mapOf("message" to "无法连接摄像头，或该流格式不受支持"))
+                }
             }
-        }
+        }.onFailure { Log.e(TAG, "handlePlayerEvent failed", it) }
     }
 
     private fun sendEvent(name: String, args: Map<String, Any?> = emptyMap()) {
-        val payload = HashMap<String, Any?>(args)
-        payload["event"] = name
-        channel.invokeMethod("onEvent", payload)
+        runCatching {
+            val payload = HashMap<String, Any?>(args)
+            payload["event"] = name
+            channel.invokeMethod("onEvent", payload)
+        }.onFailure { Log.e(TAG, "sendEvent($name) failed", it) }
     }
 
     override fun dispose() {
-        channel.setMethodCallHandler(null)
+        runCatching { channel.setMethodCallHandler(null) }
         runCatching {
             mediaPlayer?.setEventListener(null)
             mediaPlayer?.stop()
@@ -163,5 +233,8 @@ class NativeVlcView(
             mediaPlayer?.release()
             libVLC?.release()
         }.onFailure { Log.e(TAG, "dispose failed", it) }
+        mediaPlayer = null
+        libVLC = null
+        videoLayout = null
     }
 }
