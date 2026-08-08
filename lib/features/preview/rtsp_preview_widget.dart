@@ -245,26 +245,6 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
           fit: StackFit.expand,
           children: [
             _buildBody(),
-            if (_state == _CamState.ready)
-              Positioned(
-                bottom: 8,
-                right: 12,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.5),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    _resolution,
-                    style: const TextStyle(
-                      fontSize: 9,
-                      color: Colors.white70,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                ),
-              ),
           ],
         ),
       ),
@@ -316,8 +296,6 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
       case _CamState.error:
         return _Placeholder(
           icon: Icons.videocam_off_outlined,
-          text: _error ?? '视频流中断',
-          sub: _diagnosis.isNotEmpty ? _diagnosis : '未知错误',
           onRetry: () {
             _connectTimeoutTimer?.cancel();
             startPreview();
@@ -328,18 +306,9 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
         final url = _currentUrl;
         Widget player;
         if (url.isEmpty) {
-          player = Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const CircularProgressIndicator(color: CncColors.primary),
-                const SizedBox(height: 10),
-                Text(
-                  _lastAttemptLabel.isEmpty ? '正在连接摄像头…' : _lastAttemptLabel,
-                  style: const TextStyle(fontSize: 12, color: Color(0xFF9AA0A6)),
-                ),
-              ],
-            ),
+          // 连接中且无地址（如正在扫描局域网）：纯静默加载，不显示任何文字。
+          player = const Center(
+            child: CircularProgressIndicator(color: CncColors.primary),
           );
         } else {
           player = NativeVlcPlayer(
@@ -353,27 +322,13 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
           fit: StackFit.expand,
           children: [
             player,
+            // 连接过程完全后台：仅一个低调的加载圈，无任何文字提示。
             if (_state == _CamState.connecting)
-              Container(
-                color: Colors.black.withOpacity(0.6),
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const CircularProgressIndicator(color: CncColors.primary),
-                      const SizedBox(height: 10),
-                      const Text(
-                        '正在连接摄像头…',
-                        style: TextStyle(fontSize: 12, color: Color(0xFF9AA0A6)),
-                      ),
-                      if (_lastAttemptLabel.isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          _lastAttemptLabel,
-                          style: const TextStyle(fontSize: 10, color: Color(0xFF6C7075)),
-                        ),
-                      ],
-                    ],
+              const Positioned.fill(
+                child: ColoredBox(
+                  color: Color(0x73000000),
+                  child: Center(
+                    child: CircularProgressIndicator(color: CncColors.primary),
                   ),
                 ),
               ),
@@ -385,56 +340,27 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
 class _Placeholder extends StatelessWidget {
   final IconData icon;
-  final String text;
-  final String? sub;
   final VoidCallback? onRetry;
 
   const _Placeholder({
     required this.icon,
-    required this.text,
-    this.sub,
     this.onRetry,
   });
 
   @override
   Widget build(BuildContext context) {
+    // 完全无文字：只给一个图标 + 一个纯图标重试按钮（后台重试，不弹提示）。
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(icon, size: 48, color: const Color(0xFF9AA0A6)),
-          const SizedBox(height: 12),
-          Text(
-            text,
-            style: const TextStyle(
-              fontSize: 13,
-              color: Color(0xFF9AA0A6),
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          if (sub != null && sub!.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                sub!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: Color(0xFFB0B5BB),
-                ),
-              ),
-            ),
-          ],
           if (onRetry != null) ...[
-            const SizedBox(height: 14),
-            TextButton.icon(
+            const SizedBox(height: 16),
+            IconButton(
               onPressed: onRetry,
-              icon: const Icon(Icons.refresh, size: 16, color: CncColors.primary),
-              label: const Text(
-                '重试',
-                style: TextStyle(color: CncColors.primaryInk),
-              ),
+              icon: const Icon(Icons.refresh, size: 28, color: CncColors.primary),
+              tooltip: '重试',
             ),
           ],
         ],

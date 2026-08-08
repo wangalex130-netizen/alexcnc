@@ -115,13 +115,17 @@ class NativeVlcView(
                 context,
                 arrayListOf(
                     "--rtsp-tcp",
-                    "--network-caching=100",
-                    "--live-caching=100",
+                    "--network-caching=150",
+                    "--live-caching=150",
                     "--avcodec-hw=any",
                     "--drop-late-frames",
                     "--skip-frames",
+                    // 实时流禁用音视频时钟同步，立即渲染最新帧，显著降低延迟与卡顿。
+                    "--clock-synchro=0",
+                    "--clock-jitter=0",
                     "--no-audio",
-                    "--verbose=2"
+                    "--no-video-title-show",
+                    "--verbose=1"
                 )
             )
         }.onFailure {
@@ -268,8 +272,11 @@ class NativeVlcView(
 
             val media = Media(vlc, Uri.parse(url))
             mp.media = media
-            // textureView=true：渲染到 TextureView，在 Flutter 平台视图里合成更稳。
-            mp.attachViews(layout, null, false, true)
+            // useTextureView=true：渲染到 TextureView。
+            // 关键修复：SurfaceView 在 Flutter Hybrid Composition 平台视图里首帧合成不稳定，
+            // 常黑屏/卡住、必须退出重进才动；TextureView 随普通 View 合成，首帧立即出现，
+            // 根治「退出重进才动」与首帧卡顿。
+            mp.attachViews(layout, null, true, false)
             media.release()
 
             Log.d(TAG, "starting playback (gen=$generation): $url")
