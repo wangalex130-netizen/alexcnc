@@ -66,11 +66,28 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
     final fixed = widget.rtspUrl?.trim();
     if (fixed != null && fixed.isNotEmpty) {
-      _urls = _candidatesFor(fixed);
-      _urlIndex = 0;
+      // 子网感知：固定地址与手机当前 Wi-Fi 网段相符时才优先直连（秒开）；
+      // 否则（客户网段不同，如 192.168.1.x vs 默认 192.168.31.x）直接走自动
+      // 发现，按手机真实网段扫描，避免傻等一个根本不通的地址浪费好几秒。
       setState(() => _state = _CamState.connecting);
-      _runCurrentAttempt();
-    } else if (widget.autoDiscover) {
+      CameraDiscovery.isSameSubnet(fixed).then((same) {
+        if (!mounted) return;
+        if (same) {
+          _urls = _candidatesFor(fixed);
+          _urlIndex = 0;
+          _runCurrentAttempt();
+        } else if (widget.autoDiscover) {
+          _runDiscoveryThenPlay();
+        } else {
+          // 不同网段且未启用自动发现：仍尝试固定地址（公网/端口映射场景）
+          _urls = _candidatesFor(fixed);
+          _urlIndex = 0;
+          _runCurrentAttempt();
+        }
+      });
+      return;
+    }
+    if (widget.autoDiscover) {
       setState(() => _state = _CamState.connecting);
       _runDiscoveryThenPlay();
     } else {
@@ -224,7 +241,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     _discoveryDone = true;
     setState(() {
       _state = _CamState.connecting;
-      _lastAttemptLabel = '正在扫描局域网摄像头…';
+      _lastAttemptLabel = '';
       _error = null;
       _urls = [];
       _urlIndex = -1;
