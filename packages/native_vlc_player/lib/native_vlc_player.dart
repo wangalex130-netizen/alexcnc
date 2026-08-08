@@ -9,34 +9,42 @@ import 'package:flutter/services.dart';
 /// 与原生 [NativeVlcViewFactory] 注册的 viewType 保持一致。
 const String _kViewType = 'native_vlc_player';
 
-/// Native-side player event.
+/// 原生播放器事件。
+///
+/// [generation] 是原生侧的播放会话号，每调用一次 play 自增，
+/// 用于在快速切换码流时丢弃上一路的残留事件。
 class NativeVlcEvent {
   final String event;
   final String? message;
+  final int generation;
 
-  const NativeVlcEvent(this.event, this.message);
+  const NativeVlcEvent(this.event, this.message, {this.generation = 0});
 
   factory NativeVlcEvent.fromMap(Map<dynamic, dynamic> map) {
     return NativeVlcEvent(
       map['event'] as String? ?? 'unknown',
       map['message'] as String?,
+      generation: (map['generation'] as num?)?.toInt() ?? 0,
     );
   }
+
+  @override
+  String toString() => message == null ? event : '$event: $message';
 }
 
 typedef NativeVlcEventCallback = void Function(NativeVlcEvent event);
 
-/// A widget that embeds the native libVLC player view.
+/// 嵌入原生 libVLC 播放视图。
 ///
-/// Each instance gets its own native `VLCVideoLayout` + `MediaPlayer`.
-/// Playback starts automatically when [url] is non-null and the platform view
-/// has been created.
+/// 每个实例对应一套原生 `VLCVideoLayout` + `MediaPlayer`。
+/// **不要给它加随 URL 变化的 Key** —— 切换码流时直接改 [url] 即可，
+/// 复用同一个平台视图，避免反复创建/销毁 LibVLC 实例带来的竞态与卡顿。
 class NativeVlcPlayer extends StatefulWidget {
-  /// RTSP URL to play. Changing this value causes the player to switch streams.
+  /// 要播放的 RTSP 地址。改变它会在同一个原生播放器上切换流。
   final String? url;
 
-  /// Called for every native event (opening, buffering, playing, stopped,
-  /// endReached, error).
+  /// 原生事件回调（opening / buffering / playing / stopped / endReached /
+  /// stalled / error）。
   final NativeVlcEventCallback? onEvent;
 
   const NativeVlcPlayer({
@@ -52,6 +60,9 @@ class NativeVlcPlayer extends StatefulWidget {
 class _NativeVlcPlayerState extends State<NativeVlcPlayer> {
   MethodChannel? _channel;
 
+  /// 平台视图还没建好时，先把地址存下来，创建完成后立即播放。
+  String? _queuedUrl;
+
   @override
   Widget build(BuildContext context) {
     if (defaultTargetPlatform != TargetPlatform.android) {
@@ -66,11 +77,10 @@ class _NativeVlcPlayerState extends State<NativeVlcPlayer> {
       );
     }
 
-    // 使用 Hybrid Composition（initExpensiveAndroidView）而不是普通 AndroidView：
-    // VLCVideoLayout 内部会 inflate 出 SurfaceView，而 Virtual Display / 纹理层
-    // 模式对 SurfaceView 的支持有限，容易黑屏甚至在合成阶段出问题。
-    // Hybrid Composition 会把原生 View 真正叠进 Flutter 的视图层级，对
-    // SurfaceView 与硬件解码输出最友好。
+    // Hybrid Composition（initExpensiveAndroidView）：
+    // VLCVideoLayout 内部会 inflate 出 SurfaceView/TextureView，
+    // 虚拟显示模式对它支持有限，容易黑屏；HC 把原生 View 真正叠进
+    // Flutter 视图层级，对硬件解码输出最友好。
     return PlatformViewLink(
       viewType: _kViewType,
       surfaceFactory: (context, controller) {
@@ -102,10 +112,11 @@ class _NativeVlcPlayerState extends State<NativeVlcPlayer> {
   void _onPlatformViewCreated(int id) {
     _channel = MethodChannel('native_vlc_player_$id');
     _channel!.setMethodCallHandler(_handleMethod);
-    final url = widget.url;
+
+    final url = _queuedUrl ?? widget.url;
+    _queuedUrl = null;
     if (url != null && url.isNotEmpty) {
-      // 原生侧已自行等待 layout 完成再播放；这里额外加一帧保险，
-      // 避免在平台视图刚创建、MethodChannel 尚未完全就绪时立刻调用。
+      // 原生侧自己会等 layout 完成再真正播放；这里再加一帧保险。
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _play(url);
       });
@@ -113,8 +124,14 @@ class _NativeVlcPlayerState extends State<NativeVlcPlayer> {
   }
 
   Future<void> _play(String url) async {
+    final channel = _channel;
+    if (channel == null) {
+      // 平台视图还没就绪，先排队。
+      _queuedUrl = url;
+      return;
+    }
     try {
-      await _channel?.invokeMethod('play', {'url': url});
+      await channel.invokeMethod('play', {'url': url});
     } on PlatformException catch (e) {
       widget.onEvent?.call(NativeVlcEvent('error', e.message));
     } catch (e) {
@@ -141,12 +158,10 @@ class _NativeVlcPlayerState extends State<NativeVlcPlayer> {
 
   @override
   void dispose() {
-    // 平台视图本身由 PlatformViewLink 负责销毁，这里只做原生播放器的资源释放。
+    // 平台视图本身由 PlatformViewLink 销毁，这里只释放原生播放器资源。
     try {
       _channel?.invokeMethod('dispose');
-    } catch (_) {
-      // 释放阶段的异常一律忽略。
-    }
+    } catch (_) {}
     _channel?.setMethodCallHandler(null);
     super.dispose();
   }
