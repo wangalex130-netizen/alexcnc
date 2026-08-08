@@ -58,6 +58,16 @@ class NativeVlcView(
     /** 初始化阶段的失败原因，供 Flutter 侧与画面展示。 */
     private var initError: String? = null
 
+    /**
+     * Flutter 侧传下来的待播放地址。
+     * 平台视图被创建时往往还没有 attach 到窗口、也没有完成 layout，
+     * 此时 libVLC 的 Surface/TextureView 尚未就绪，直接 play() 会立即收到
+     * Stopped/EncounteredError。因此我们先把地址存起来，等容器真正可见、
+     * 宽高都大于 0 后再开始播放。
+     */
+    private var pendingUrl: String? = null
+    private var isDisposed = false
+
     init {
         channel.setMethodCallHandler(this)
 
@@ -82,7 +92,9 @@ class NativeVlcView(
                     "--avcodec-hw=any",
                     "--drop-late-frames",
                     "--skip-frames",
-                    "--no-audio"
+                    "--no-audio",
+                    // 打印详细日志到 logcat，便于排查播放失败真实原因。
+                    "--verbose=2"
                 )
             )
         }.onFailure {
@@ -107,6 +119,13 @@ class NativeVlcView(
         }.onFailure {
             Log.e(TAG, "注册播放事件监听失败", it)
             recordInitError("事件监听注册失败", it)
+        }
+
+        // 监听容器尺寸/附加状态：一旦视图挂到窗口且有有效大小，就尝试播放。
+        container.addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
+            if (right - left > 0 && bottom - top > 0 && container.isAttachedToWindow) {
+                tryStartPlayback()
+            }
         }
 
         // 初始化没成功就把原因画到画面上，让问题可见、可反馈，而不是黑屏或闪退。
@@ -168,7 +187,36 @@ class NativeVlcView(
         }
     }
 
+    /**
+     * 收到播放指令后只暂存 URL，真正启动交给 [tryStartPlayback]，
+     * 等视图 attach + layout 完成后再执行。
+     */
     private fun play(url: String) {
+        if (isDisposed) return
+        Log.d(TAG, "play requested: $url")
+        pendingUrl = url
+        tryStartPlayback()
+    }
+
+    private fun tryStartPlayback() {
+        if (isDisposed) return
+        val url = pendingUrl ?: return
+
+        // 视图未挂到窗口或尺寸为 0 时，Surface/Texture 还没准备好，
+        // 强行播放 libVLC 会立即 stop。这里延迟重试，最多等 3 秒。
+        if (container.width <= 0 || container.height <= 0 || !container.isAttachedToWindow) {
+            Log.d(TAG, "view not ready yet (w=${container.width} h=${container.height} attached=${container.isAttachedToWindow}), defer play")
+            mainHandler.removeCallbacksAndMessages(DEFER_TOKEN)
+            mainHandler.postDelayed({ tryStartPlayback() }, DEFER_TOKEN, 100)
+            return
+        }
+
+        pendingUrl = null
+        mainHandler.removeCallbacksAndMessages(DEFER_TOKEN)
+        doPlay(url)
+    }
+
+    private fun doPlay(url: String) {
         val mp = mediaPlayer
         val vlc = libVLC
         val layout = videoLayout
@@ -187,6 +235,7 @@ class NativeVlcView(
             // textureView=true：渲染到 TextureView，在 Flutter 平台视图里合成更稳。
             mp.attachViews(layout, null, false, true)
             media.release()
+            Log.d(TAG, "starting playback: $url")
             mp.play()
         }.onFailure { e ->
             Log.e(TAG, "play failed: $url", e)
@@ -195,6 +244,8 @@ class NativeVlcView(
     }
 
     private fun stop() {
+        pendingUrl = null
+        mainHandler.removeCallbacksAndMessages(DEFER_TOKEN)
         runCatching {
             mediaPlayer?.stop()
             mediaPlayer?.detachViews()
@@ -203,6 +254,7 @@ class NativeVlcView(
 
     private fun handlePlayerEvent(event: MediaPlayer.Event) {
         runCatching {
+            Log.d(TAG, "event type=${event.type} length=${event.lengthChanged} time=${event.timeChanged}")
             when (event.type) {
                 MediaPlayer.Event.Opening -> sendEvent("opening")
                 MediaPlayer.Event.Buffering -> sendEvent("buffering")
@@ -225,6 +277,8 @@ class NativeVlcView(
     }
 
     override fun dispose() {
+        isDisposed = true
+        mainHandler.removeCallbacksAndMessages(DEFER_TOKEN)
         runCatching { channel.setMethodCallHandler(null) }
         runCatching {
             mediaPlayer?.setEventListener(null)
@@ -236,5 +290,10 @@ class NativeVlcView(
         mediaPlayer = null
         libVLC = null
         videoLayout = null
+    }
+
+    companion object {
+        /** 用于延迟播放重试的 Handler token，便于 dispose 时一次性清掉。 */
+        private const val DEFER_TOKEN = 0x564C43 // "VLC"
     }
 }

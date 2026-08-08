@@ -104,7 +104,11 @@ class _NativeVlcPlayerState extends State<NativeVlcPlayer> {
     _channel!.setMethodCallHandler(_handleMethod);
     final url = widget.url;
     if (url != null && url.isNotEmpty) {
-      _play(url);
+      // 原生侧已自行等待 layout 完成再播放；这里额外加一帧保险，
+      // 避免在平台视图刚创建、MethodChannel 尚未完全就绪时立刻调用。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _play(url);
+      });
     }
   }
 
