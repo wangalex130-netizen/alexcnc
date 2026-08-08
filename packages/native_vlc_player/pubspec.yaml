@@ -1,7 +1,6 @@
 name: native_vlc_player
 description: Native libVLC based RTSP player for AlexCNC (directly embeds VLCVideoLayout).
 version: 0.1.0
-homepage:
 publish_to: 'none'
 
 environment:
