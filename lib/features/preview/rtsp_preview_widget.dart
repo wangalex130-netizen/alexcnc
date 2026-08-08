@@ -50,6 +50,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
   bool _discoveryDone = false;
   String _lastAttemptLabel = '';
   String _lastError = '';
+  int _recoverAttempts = 0;
 
   @override
   void dispose() {
@@ -82,6 +83,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     _urlIndex = -1;
     _discoveryDone = false;
     _lastError = '';
+    _recoverAttempts = 0;
     _lastAttemptLabel = '';
     _diagnosis = '';
     _error = null;
@@ -152,13 +154,17 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
       case 'endReached':
         if (_state == _CamState.connecting) {
           _failCurrentAttempt(event.message ?? '播放已停止');
+        } else if (_state == _CamState.ready) {
+          // 播放中画面中断：多半是摄像头重启/换 IP，自动重扫重连。
+          _autoRecover(event.message ?? '视频流中断');
         }
         break;
       case 'error':
         if (_state == _CamState.connecting) {
           _failCurrentAttempt(event.message ?? '播放失败');
         } else if (_state == _CamState.ready) {
-          _setError('视频流中断', details: event.message ?? '播放异常');
+          // 播放中出错：同上，先尝试自动恢复，不行再提示。
+          _autoRecover(event.message ?? '视频流中断');
         }
         break;
     }
@@ -176,6 +182,31 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
       return;
     }
     _onCurrentCandidatesExhausted();
+  }
+
+  /// 播放中（已 ready）画面中断：多半是摄像头重启或换内网 IP。
+  /// 静默清空缓存的旧 IP 并重新扫描局域网找当前地址，最多自恢复 2 次；
+  /// 仍失败才提示手动重试。整个过程无文字弹窗，后台完成。
+  void _autoRecover(String reason) {
+    if (!mounted) return;
+    if (_recoverAttempts >= 2) {
+      _setError('视频流中断', details: reason);
+      return;
+    }
+    _recoverAttempts++;
+    debugPrint('[RTSP] 画面中断($reason)，尝试自动重连 #$_recoverAttempts');
+    _urls = [];
+    _urlIndex = -1;
+    _discoveryDone = false;
+    _lastError = '';
+    _lastAttemptLabel = '';
+    _diagnosis = '';
+    _error = null;
+    _connectTimeoutTimer?.cancel();
+    CameraDiscovery.clearCache().then((_) {
+      if (!mounted) return;
+      _runDiscoveryThenPlay();
+    });
   }
 
   /// 固定地址（或缓存）的所有尝试都失败后，清缓存并启动局域网扫描。

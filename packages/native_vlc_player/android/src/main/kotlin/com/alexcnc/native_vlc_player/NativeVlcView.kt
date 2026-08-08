@@ -19,6 +19,7 @@ import io.flutter.plugin.platform.PlatformView
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
+import org.videolan.libvlc.IVLCVout
 import org.videolan.libvlc.util.VLCVideoLayout
 
 private const val TAG = "NativeVlcView"
@@ -154,11 +155,27 @@ class NativeVlcView(
             recordInitError("事件监听注册失败", it)
         }
 
+        // ---- 4) 视频缩放：铺满预览框 ----
+        // libVLC 默认按视频「原始分辨率」渲染到 Surface，结果就是小窗 + 大片黑边。
+        // 注册布局回调，视频尺寸就绪后把画面缩放铺满整个容器（cover，无黑边）。
+        runCatching {
+            mediaPlayer?.vlcVout?.addCallback(object : IVLCVout.OnNewVideoLayoutListener {
+                override fun onNewVideoLayout(
+                    vout: IVLCVout,
+                    width: Int, height: Int,
+                    visibleWidth: Int, visibleHeight: Int,
+                    sarNum: Int, sarDen: Int
+                ) {
+                    mainHandler.post { applyFill() }
+                }
+            })
+        }.onFailure { Log.e(TAG, "注册视频布局回调失败", it) }
+
         // 容器一旦挂到窗口且有有效尺寸就尝试播放（Surface/Texture 此时才就绪）。
         container.addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
             runCatching {
                 if (right - left > 0 && bottom - top > 0 && container.isAttachedToWindow) {
-                    tryStartPlayback()
+                    if (hasPlayedOnce) applyFill() else tryStartPlayback()
                 }
             }.onFailure { Log.e(TAG, "layout 回调异常", it) }
         }
@@ -272,6 +289,8 @@ class NativeVlcView(
 
             val media = Media(vlc, Uri.parse(url))
             mp.media = media
+            // 告诉 VLC 显示窗口尺寸，否则它按视频原始分辨率渲染（小窗 + 黑边）。
+            mp.vlcVout.setWindowSize(container.measuredWidth, container.measuredHeight)
             // useTextureView=true：渲染到 TextureView。
             // 关键修复：SurfaceView 在 Flutter Hybrid Composition 平台视图里首帧合成不稳定，
             // 常黑屏/卡住、必须退出重进才动；TextureView 随普通 View 合成，首帧立即出现，
@@ -290,6 +309,17 @@ class NativeVlcView(
             Log.e(TAG, "play failed: $url", e)
             sendEvent("error", mapOf("message" to "启动播放失败：${e.message ?: e::class.java.simpleName}"))
         }
+    }
+
+    /** 把视频画面缩放铺满整个预览容器（cover：无黑边，预览场景下轻微拉伸可接受）。 */
+    private fun applyFill() {
+        val winW = container.measuredWidth
+        val winH = container.measuredHeight
+        if (winW <= 0 || winH <= 0) return
+        runCatching {
+            // 强制视频显示宽高比 = 容器宽高比 → 画面铺满预览框。
+            mediaPlayer?.setAspectRatio("$winW:$winH")
+        }.onFailure { Log.e(TAG, "setAspectRatio 失败", it) }
     }
 
     private fun scheduleWatchdog(gen: Int, url: String) {

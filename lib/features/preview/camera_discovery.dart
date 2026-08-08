@@ -37,20 +37,30 @@ class CameraDiscovery {
 
   /// 返回可用的 RTSP 地址；找不到返回 null。
   ///
-  /// 流程：1) 先试本地缓存（上次成功地址，秒开）；
+  /// 流程：1) 先试本地缓存（上次成功地址，秒开）；但摄像头断电后常换 IP，
+  ///       旧缓存会失效——所以缓存命中先做快速探活，不通就忽略缓存直接重扫；
   ///       2) 否则 TCP 端口扫描 + RTSP 路径探测（2-6 秒，最可靠）；
   ///       3) ONVIF WS-Discovery 兜底（依赖组播，部分路由器可能不通）。
+  ///
+  /// [forceRescan] 为 true 时跳过缓存、无条件扫描当前网段（摄像头可能已换 IP）。
   static Future<String?> discover({
     Duration timeout = const Duration(seconds: 4),
+    bool forceRescan = false,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final cached = prefs.getString(_kCachedUrl);
-    if (cached != null && cached.isNotEmpty) {
+
+    // 缓存命中：先快速探活。不通说明摄像头已换 IP/重启，旧缓存作废走扫描。
+    if (cached != null && cached.isNotEmpty && !forceRescan) {
       final normalized = _withDefaultCreds(cached);
       if (normalized != cached) {
         await prefs.setString(_kCachedUrl, normalized);
       }
-      return normalized;
+      if (await _cachedAlive(normalized)) {
+        return normalized;
+      }
+      // 探活失败：缓存已过期，删掉后走扫描找当前地址。
+      await prefs.remove(_kCachedUrl);
     }
 
     String? found = await _tcpScanFallback();
@@ -63,6 +73,18 @@ class CameraDiscovery {
       return normalized;
     }
     return found;
+  }
+
+  /// 快速探活缓存地址：解析 host:port 并短超时 TCP 连接。通 = 缓存仍有效。
+  static Future<bool> _cachedAlive(String url) async {
+    try {
+      final uri = Uri.parse(url);
+      final host = uri.host;
+      final port = uri.port > 0 ? uri.port : 554;
+      return await _tcpOpen(host, port, const Duration(milliseconds: 600));
+    } catch (_) {
+      return false;
+    }
   }
 
   /// 手动写入缓存（例如用户在设置页填了固定 IP / 路由器已做 DHCP 绑定）。
