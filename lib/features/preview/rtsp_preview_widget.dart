@@ -97,6 +97,14 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     startPreview();
   }
 
+  /// 完全停止实时预览并清空画面。
+  void _stopPreview() {
+    _connectTimeoutTimer?.cancel();
+    _refreshToken++;
+    _resetAttempts();
+    setState(() {});
+  }
+
   void _resetAttempts() {
     _state = _CamState.idle;
     _urls = [];
@@ -392,13 +400,22 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
             ),
           ),
           const Spacer(),
-          // 刷新：点一下立即重连。
-          if (_state != _CamState.idle)
-            _HeaderIcon(
-              icon: Icons.refresh,
-              onTap: _restartPreview,
-              tooltip: '刷新',
-            ),
+          // 播放/停止切换：明确停止实时画面，或重新播放。
+          _HeaderIcon(
+            icon: _state == _CamState.ready || _state == _CamState.connecting
+                ? Icons.stop_rounded
+                : Icons.play_arrow_rounded,
+            onTap: () {
+              if (_state == _CamState.ready || _state == _CamState.connecting) {
+                _stopPreview();
+              } else {
+                _restartPreview();
+              }
+            },
+            tooltip: _state == _CamState.ready || _state == _CamState.connecting
+                ? '停止预览'
+                : '开始预览',
+          ),
           const SizedBox(width: 4),
           // 收起：隐藏视频区，停止解码。
           _HeaderIcon(
@@ -489,11 +506,15 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     return Stack(
       fit: StackFit.expand,
       children: [
+        // 纯黑底：防止连接/切页时透出底层页面残影。
+        const Positioned.fill(
+          child: ColoredBox(color: Color(0xFF0A0A0A)),
+        ),
         content,
         if (_state == _CamState.connecting)
           const Positioned.fill(
             child: ColoredBox(
-              color: Color(0x73000000),
+              color: Color(0xFF0A0A0A),
               child: Center(
                 child: CircularProgressIndicator(color: CncColors.primary),
               ),

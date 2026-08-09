@@ -17,6 +17,7 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.platform.PlatformView
 import org.videolan.libvlc.LibVLC
+import org.videolan.libvlc.IVLCVout
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
 import org.videolan.libvlc.util.VLCVideoLayout
@@ -154,10 +155,33 @@ class NativeVlcView(
             recordInitError("事件监听注册失败", it)
         }
 
+        // 监听视频尺寸变化，每次变化都重新按容器比例铺满。
+        runCatching {
+            mediaPlayer?.vlcVout?.addCallback(object : IVLCVout.Callback {
+                override fun onSurfacesCreated(vout: IVLCVout?) {}
+                override fun onSurfacesDestroyed(vout: IVLCVout?) {}
+                override fun onNewVideoLayout(
+                    vout: IVLCVout?,
+                    width: Int,
+                    height: Int,
+                    visibleWidth: Int,
+                    visibleHeight: Int,
+                    sarNum: Int,
+                    sarDen: Int
+                ) {
+                    mainHandler.post { applyFill() }
+                }
+            })
+        }.onFailure {
+            Log.e(TAG, "注册视频布局监听失败", it)
+            recordInitError("视频布局监听注册失败", it)
+        }
+
         // 容器一旦挂到窗口且有有效尺寸就尝试播放（Surface/Texture 此时才就绪）。
         container.addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
             runCatching {
                 if (right - left > 0 && bottom - top > 0 && container.isAttachedToWindow) {
+                    applyFill()
                     tryStartPlayback()
                 }
             }.onFailure { Log.e(TAG, "layout 回调异常", it) }
@@ -170,6 +194,20 @@ class NativeVlcView(
         FrameLayout.LayoutParams.MATCH_PARENT,
         FrameLayout.LayoutParams.MATCH_PARENT
     )
+
+    /** 按容器尺寸强制铺满（牺牲比例或裁剪黑边，不留白边）。 */
+    private fun applyFill() {
+        runCatching {
+            val mp = mediaPlayer ?: return
+            val w = container.width
+            val h = container.height
+            if (w <= 0 || h <= 0) return
+            // 把显示窗口设为容器大小，并把视频比例强制设为容器比例，
+            // 这样 libVLC 会拉伸/裁剪画面以完全填满容器。
+            mp.setWindowSize(w, h)
+            mp.setAspectRatio("$w:$h")
+        }.onFailure { Log.e(TAG, "applyFill failed", it) }
+    }
 
     private fun recordInitError(stage: String, t: Throwable) {
         if (initError == null) {
@@ -277,6 +315,7 @@ class NativeVlcView(
             // 常黑屏/卡住、必须退出重进才动；TextureView 随普通 View 合成，首帧立即出现，
             // 根治「退出重进才动」与首帧卡顿。
             mp.attachViews(layout, null, true, false)
+            applyFill()
             media.release()
 
             Log.d(TAG, "starting playback (gen=$generation): $url")
