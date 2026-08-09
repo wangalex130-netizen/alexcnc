@@ -54,10 +54,10 @@ class NativeVlcPlayer extends StatefulWidget {
   });
 
   @override
-  State<NativeVlcPlayer> createState() => _NativeVlcPlayerState();
+  State<NativeVlcPlayer> createState() => NativeVlcPlayerState();
 }
 
-class _NativeVlcPlayerState extends State<NativeVlcPlayer> {
+class NativeVlcPlayerState extends State<NativeVlcPlayer> {
   MethodChannel? _channel;
 
   /// 平台视图还没建好时，先把地址存下来，创建完成后立即播放。
@@ -136,6 +136,36 @@ class _NativeVlcPlayerState extends State<NativeVlcPlayer> {
       widget.onEvent?.call(NativeVlcEvent('error', e.message));
     } catch (e) {
       widget.onEvent?.call(NativeVlcEvent('error', e.toString()));
+    }
+  }
+
+  /// 截取当前视频画面。返回保存的 PNG 文件路径；失败返回 null。
+  /// 暂停当前播放。
+  Future<void> pause() async {
+    try {
+      await _channel?.invokeMethod('pause');
+    } catch (_) {}
+  }
+
+  /// 从暂停处恢复播放。
+  Future<void> resume() async {
+    try {
+      await _channel?.invokeMethod('resume');
+    } catch (_) {}
+  }
+
+  /// 截取当前视频画面。返回保存的 PNG 文件路径；失败返回 null。
+  Future<String?> snapshot() async {
+    final channel = _channel;
+    if (channel == null) return null;
+    try {
+      return await channel.invokeMethod<String>('snapshot');
+    } on PlatformException catch (e) {
+      widget.onEvent?.call(NativeVlcEvent('error', e.message));
+      return null;
+    } catch (e) {
+      widget.onEvent?.call(NativeVlcEvent('error', e.toString()));
+      return null;
     }
   }
 
