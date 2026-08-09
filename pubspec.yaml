@@ -23,6 +23,9 @@ dependencies:
   network_info_plus: ^6.1.0
   mqtt_client: 10.5.0
   http: ^1.2.0
+  # 实时预览生命周期：检测控件是否可见，切走页面时自动暂停，切回时恢复，
+  # 根治切换 tab 时的画面滞留与后台解码卡顿。
+  visibility_detector: ^0.4.0+2
 
 dev_dependencies:
   flutter_test:

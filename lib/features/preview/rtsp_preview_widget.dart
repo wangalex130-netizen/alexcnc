@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:native_vlc_player/native_vlc_player.dart';
+import 'package:visibility_detector/visibility_detector.dart';
 
 import '../../app/theme.dart';
 import 'camera_discovery.dart';
@@ -14,6 +15,8 @@ import 'camera_discovery.dart';
 ///   VLCVideoLayout，与已经跑通的 camera-test-app 完全一致。
 /// - 地址优先用固定/缓存地址，失败后自动切换：主码流 /11 → 子码流 /12 →
 ///   局域网扫描。即使摄像头上电换 IP 也能自动兜底。
+/// - 新增生命周期管理：页面切走（或用户收起）时自动停止解码并清掉画面，
+///   切回/展开时自动恢复；根治切换 tab 后的画面滞留与后台卡顿。
 class RtspPreviewWidget extends StatefulWidget {
   /// 直接指定 RTSP 地址（例如设置页填的固定 IP）。为 null 时走自动发现。
   final String? rtspUrl;
@@ -50,7 +53,15 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
   bool _discoveryDone = false;
   String _lastAttemptLabel = '';
   String _lastError = '';
-  int _recoverAttempts = 0;
+
+  /// 用户是否已把预览收起来。
+  bool _collapsed = false;
+
+  /// 当前控件在屏幕上的可见比例（切到其他 tab 会变为 0）。
+  bool _pageVisible = true;
+
+  /// 改变此 token 可强制重建原生播放器（手动刷新/页面切回时使用）。
+  int _refreshToken = 0;
 
   @override
   void dispose() {
@@ -66,28 +77,11 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
     final fixed = widget.rtspUrl?.trim();
     if (fixed != null && fixed.isNotEmpty) {
-      // 子网感知：固定地址与手机当前 Wi-Fi 网段相符时才优先直连（秒开）；
-      // 否则（客户网段不同，如 192.168.1.x vs 默认 192.168.31.x）直接走自动
-      // 发现，按手机真实网段扫描，避免傻等一个根本不通的地址浪费好几秒。
+      _urls = _candidatesFor(fixed);
+      _urlIndex = 0;
       setState(() => _state = _CamState.connecting);
-      CameraDiscovery.isSameSubnet(fixed).then((same) {
-        if (!mounted) return;
-        if (same) {
-          _urls = _candidatesFor(fixed);
-          _urlIndex = 0;
-          _runCurrentAttempt();
-        } else if (widget.autoDiscover) {
-          _runDiscoveryThenPlay();
-        } else {
-          // 不同网段且未启用自动发现：仍尝试固定地址（公网/端口映射场景）
-          _urls = _candidatesFor(fixed);
-          _urlIndex = 0;
-          _runCurrentAttempt();
-        }
-      });
-      return;
-    }
-    if (widget.autoDiscover) {
+      _runCurrentAttempt();
+    } else if (widget.autoDiscover) {
       setState(() => _state = _CamState.connecting);
       _runDiscoveryThenPlay();
     } else {
@@ -95,12 +89,20 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     }
   }
 
+  /// 强制刷新：停止当前播放、重建原生视图、重新走一遍连接/发现流程。
+  void _restartPreview() {
+    _connectTimeoutTimer?.cancel();
+    _refreshToken++;
+    _resetAttempts();
+    startPreview();
+  }
+
   void _resetAttempts() {
+    _state = _CamState.idle;
     _urls = [];
     _urlIndex = -1;
     _discoveryDone = false;
     _lastError = '';
-    _recoverAttempts = 0;
     _lastAttemptLabel = '';
     _diagnosis = '';
     _error = null;
@@ -171,17 +173,13 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
       case 'endReached':
         if (_state == _CamState.connecting) {
           _failCurrentAttempt(event.message ?? '播放已停止');
-        } else if (_state == _CamState.ready) {
-          // 播放中画面中断：多半是摄像头重启/换 IP，自动重扫重连。
-          _autoRecover(event.message ?? '视频流中断');
         }
         break;
       case 'error':
         if (_state == _CamState.connecting) {
           _failCurrentAttempt(event.message ?? '播放失败');
         } else if (_state == _CamState.ready) {
-          // 播放中出错：同上，先尝试自动恢复，不行再提示。
-          _autoRecover(event.message ?? '视频流中断');
+          _setError('视频流中断', details: event.message ?? '播放异常');
         }
         break;
     }
@@ -199,31 +197,6 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
       return;
     }
     _onCurrentCandidatesExhausted();
-  }
-
-  /// 播放中（已 ready）画面中断：多半是摄像头重启或换内网 IP。
-  /// 静默清空缓存的旧 IP 并重新扫描局域网找当前地址，最多自恢复 2 次；
-  /// 仍失败才提示手动重试。整个过程无文字弹窗，后台完成。
-  void _autoRecover(String reason) {
-    if (!mounted) return;
-    if (_recoverAttempts >= 2) {
-      _setError('视频流中断', details: reason);
-      return;
-    }
-    _recoverAttempts++;
-    debugPrint('[RTSP] 画面中断($reason)，尝试自动重连 #$_recoverAttempts');
-    _urls = [];
-    _urlIndex = -1;
-    _discoveryDone = false;
-    _lastError = '';
-    _lastAttemptLabel = '';
-    _diagnosis = '';
-    _error = null;
-    _connectTimeoutTimer?.cancel();
-    CameraDiscovery.clearCache().then((_) {
-      if (!mounted) return;
-      _runDiscoveryThenPlay();
-    });
   }
 
   /// 固定地址（或缓存）的所有尝试都失败后，清缓存并启动局域网扫描。
@@ -283,26 +256,171 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     });
   }
 
+  /// 控件可见性变化回调：切到其他 tab 时自动暂停，切回时自动恢复。
+  void _onVisibilityChanged(VisibilityInfo info) {
+    if (!mounted) return;
+    final visible = info.visibleFraction > 0.05;
+    if (visible == _pageVisible) return;
+
+    setState(() => _pageVisible = visible);
+
+    if (!visible) {
+      // 页面被切走：停止解码，避免后台卡顿与画面滞留。
+      _connectTimeoutTimer?.cancel();
+    } else if (!_collapsed &&
+        (_state == _CamState.ready || _state == _CamState.connecting)) {
+      // 页面切回且之前正在尝试连接/播放：自动刷新恢复画面。
+      _restartPreview();
+    }
+  }
+
+  /// 收起/展开切换。
+  void _toggleCollapse() {
+    setState(() {
+      _collapsed = !_collapsed;
+      if (!_collapsed && _pageVisible) {
+        // 展开后自动恢复预览。
+        _restartPreview();
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    return VisibilityDetector(
+      key: const Key('rtsp_preview_lifecycle'),
+      onVisibilityChanged: _onVisibilityChanged,
+      child: _collapsed ? _buildCollapsed() : _buildExpanded(),
+    );
+  }
+
+  /// 收起态：只占一条细栏，完全不跑解码。
+  Widget _buildCollapsed() {
     return GestureDetector(
-      onTap: widget.onTap,
+      onTap: _toggleCollapse,
       child: Container(
-        color: const Color(0xFF0A0A0A),
-        child: Stack(
-          fit: StackFit.expand,
+        height: 44,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A1A1A),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
           children: [
-            _buildBody(),
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _state == _CamState.ready
+                    ? const Color(0xFF22C55E)
+                    : const Color(0xFF9AA0A6),
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Text(
+              '实时监控',
+              style: TextStyle(
+                fontSize: 13,
+                color: Color(0xFFF5F5F7),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const Spacer(),
+            Icon(
+              Icons.keyboard_arrow_down,
+              size: 22,
+              color: _state == _CamState.ready
+                  ? const Color(0xFF22C55E)
+                  : const Color(0xFF9AA0A6),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildBody() {
+  /// 展开态：带标题栏 + 视频区。
+  Widget _buildExpanded() {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF0A0A0A),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          _buildHeader(),
+          Expanded(child: _buildVideoArea()),
+        ],
+      ),
+    );
+  }
+
+  /// 标题栏：状态点 + 名称 + 刷新 + 收起。
+  Widget _buildHeader() {
+    return Container(
+      height: 38,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: const BoxDecoration(
+        color: Color(0xFF1A1A1A),
+        border: Border(
+          bottom: BorderSide(color: Color(0xFF2A2A2A), width: 1),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: _state == _CamState.ready
+                  ? const Color(0xFF22C55E)
+                  : _state == _CamState.connecting
+                      ? CncColors.primary
+                      : const Color(0xFF9AA0A6),
+            ),
+          ),
+          const SizedBox(width: 8),
+          const Text(
+            '实时监控',
+            style: TextStyle(
+              fontSize: 12,
+              color: Color(0xFFF5F5F7),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const Spacer(),
+          // 刷新：点一下立即重连。
+          if (_state != _CamState.idle)
+            _HeaderIcon(
+              icon: Icons.refresh,
+              onTap: _restartPreview,
+              tooltip: '刷新',
+            ),
+          const SizedBox(width: 4),
+          // 收起：隐藏视频区，停止解码。
+          _HeaderIcon(
+            icon: Icons.keyboard_arrow_up,
+            onTap: _toggleCollapse,
+            tooltip: '收起',
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 视频区：根据状态显示播放器、加载圈、错误占位或黑屏。
+  Widget _buildVideoArea() {
+    // 页面切走或处于错误/空闲态时，不放原生播放器，避免滞留与资源占用。
+    final surfaceActive = _pageVisible &&
+        (_state == _CamState.connecting || _state == _CamState.ready);
+
+    Widget content;
     switch (_state) {
       case _CamState.idle:
-        return GestureDetector(
+        content = GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: startPreview,
           child: Center(
@@ -310,8 +428,8 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  width: 56,
-                  height: 56,
+                  width: 48,
+                  height: 48,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: CncColors.primary.withOpacity(0.15),
@@ -319,70 +437,106 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
                   ),
                   child: const Icon(
                     Icons.play_arrow_rounded,
-                    size: 34,
+                    size: 28,
                     color: CncColors.primary,
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 const Text(
-                  '实时预览',
+                  '点击开始预览',
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 12,
                     color: CncColors.primaryInk,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w500,
                   ),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  '点击开始查看机器内部画面',
-                  style: TextStyle(fontSize: 11, color: Color(0xFF9AA0A6)),
                 ),
               ],
             ),
           ),
         );
+        break;
       case _CamState.error:
-        return _Placeholder(
+        content = _Placeholder(
           icon: Icons.videocam_off_outlined,
           onRetry: () {
             _connectTimeoutTimer?.cancel();
-            startPreview();
+            _restartPreview();
           },
         );
+        break;
       case _CamState.connecting:
       case _CamState.ready:
         final url = _currentUrl;
-        Widget player;
-        if (url.isEmpty) {
-          // 连接中且无地址（如正在扫描局域网）：纯静默加载，不显示任何文字。
-          player = const Center(
+        if (url.isEmpty || !surfaceActive) {
+          // 无地址或页面被切走：纯黑屏 + 加载圈。
+          content = const Center(
             child: CircularProgressIndicator(color: CncColors.primary),
           );
         } else {
-          player = NativeVlcPlayer(
-            key: ValueKey(url),
-            url: url,
-            onEvent: _onNativeEvent,
+          content = GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _restartPreview,
+            child: NativeVlcPlayer(
+              key: ValueKey('${url}_$_refreshToken'),
+              url: url,
+              onEvent: _onNativeEvent,
+            ),
           );
         }
-
-        return Stack(
-          fit: StackFit.expand,
-          children: [
-            player,
-            // 连接过程完全后台：仅一个低调的加载圈，无任何文字提示。
-            if (_state == _CamState.connecting)
-              const Positioned.fill(
-                child: ColoredBox(
-                  color: Color(0x73000000),
-                  child: Center(
-                    child: CircularProgressIndicator(color: CncColors.primary),
-                  ),
-                ),
-              ),
-          ],
-        );
+        break;
     }
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        content,
+        if (_state == _CamState.connecting)
+          const Positioned.fill(
+            child: ColoredBox(
+              color: Color(0x73000000),
+              child: Center(
+                child: CircularProgressIndicator(color: CncColors.primary),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// 标题栏小图标按钮。
+class _HeaderIcon extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  final String tooltip;
+
+  const _HeaderIcon({
+    required this.icon,
+    required this.onTap,
+    required this.tooltip,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(6),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Tooltip(
+          message: tooltip,
+          child: Padding(
+            padding: const EdgeInsets.all(6),
+            child: Icon(
+              icon,
+              size: 20,
+              color: const Color(0xFF9AA0A6),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -402,12 +556,12 @@ class _Placeholder extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 48, color: const Color(0xFF9AA0A6)),
+          Icon(icon, size: 44, color: const Color(0xFF9AA0A6)),
           if (onRetry != null) ...[
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             IconButton(
               onPressed: onRetry,
-              icon: const Icon(Icons.refresh, size: 28, color: CncColors.primary),
+              icon: const Icon(Icons.refresh, size: 26, color: CncColors.primary),
               tooltip: '重试',
             ),
           ],
