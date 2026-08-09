@@ -1,11 +1,14 @@
 package com.alexcnc.native_vlc_player
 
+import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.os.Handler
+import android.provider.MediaStore
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
@@ -178,17 +181,52 @@ class NativeVlcView(
         FrameLayout.LayoutParams.MATCH_PARENT
     )
 
-    /** 截取当前 TextureView 画面并保存到应用外部图片目录，返回文件路径。 */
+    /**
+     * 截取当前 TextureView 画面：
+     *   1) 保存到应用私有图片目录（始终成功，便于分享/打开）；
+     *   2) 同时通过 MediaStore 写入系统相册（无需 WRITE_EXTERNAL_STORAGE 权限）。
+     * 返回应用目录下的 PNG 路径。
+     */
     private fun takeSnapshot(): String? {
         return runCatching {
             val textureView = findTextureView(container) ?: return@runCatching null
             val bitmap = textureView.bitmap ?: return@runCatching null
-            val dir = File(
-                container.context.getExternalFilesDir(Environment.DIRECTORY_PICTURES),
+            val ctx = container.context
+
+            // 1) 应用私有目录副本
+            val privateDir = File(
+                ctx.getExternalFilesDir(Environment.DIRECTORY_PICTURES),
                 "snapshots"
             ).apply { mkdirs() }
-            val file = File(dir, "snapshot_${System.currentTimeMillis()}.png")
+            val file = File(privateDir, "snapshot_${System.currentTimeMillis()}.png")
             FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 90, it) }
+
+            // 2) 写入系统相册（MediaStore，Android 10+ 用 RELATIVE_PATH 落 Pictures/AlexCNC）
+            runCatching {
+                val resolver = ctx.contentResolver
+                val values = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, file.name)
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        put(
+                            MediaStore.Images.Media.RELATIVE_PATH,
+                            "${Environment.DIRECTORY_PICTURES}/AlexCNC"
+                        )
+                        put(MediaStore.Images.Media.IS_PENDING, 1)
+                    }
+                }
+                val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                    ?: return@runCatching
+                resolver.openOutputStream(uri)?.use { out ->
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 90, out)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    values.clear()
+                    values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                    resolver.update(uri, values, null, null)
+                }
+            }.onFailure { Log.w(TAG, "写入系统相册失败（仍保留应用目录副本）", it) }
+
             file.absolutePath
         }.onFailure { Log.e(TAG, "takeSnapshot failed", it) }.getOrNull()
     }

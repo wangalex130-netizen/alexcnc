@@ -4,7 +4,6 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:image_gallery_saver/image_gallery_saver.dart';
 import 'package:native_vlc_player/native_vlc_player.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 
@@ -343,17 +342,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
       _showHint('截图失败，请确认画面已播放');
       return;
     }
-    try {
-      final bytes = await File(path).readAsBytes();
-      await ImageGallerySaver.saveImage(
-        Uint8List.fromList(bytes),
-        quality: 90,
-        name: 'alexcnc_${DateTime.now().millisecondsSinceEpoch}',
-      );
-      _showHint('截图已保存到相册');
-    } catch (e) {
-      _showHint('保存截图失败：$e');
-    }
+    _showHint('截图已保存到相册');
     _resetControlsHideTimer();
   }
 
@@ -847,17 +836,7 @@ class _FullscreenPlayerState extends State<_FullscreenPlayer> {
       _showHint('截图失败');
       return;
     }
-    try {
-      final bytes = await File(path).readAsBytes();
-      await ImageGallerySaver.saveImage(
-        Uint8List.fromList(bytes),
-        quality: 90,
-        name: 'alexcnc_${DateTime.now().millisecondsSinceEpoch}',
-      );
-      _showHint('截图已保存到相册');
-    } catch (e) {
-      _showHint('保存截图失败：$e');
-    }
+    _showHint('截图已保存到相册');
     _resetControlsHideTimer();
   }
 
