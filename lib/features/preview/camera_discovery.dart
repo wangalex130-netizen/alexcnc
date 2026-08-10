@@ -88,12 +88,29 @@ class CameraDiscovery {
         '${hex.substring(20, 32)}';
   }
 
+  /// 常见家用/办公网段（兜底扫描用，拿不到本机 IP 时暴力尝试）。
+  static const List<String> _commonSubnets = [
+    '192.168.0',
+    '192.168.1',
+    '192.168.2',
+    '192.168.31',
+    '192.168.50',
+    '10.0.0',
+    '172.16.0',
+  ];
+
   /// 取本机非回环 IPv4 候选（用于推断 /24 网段）。
   ///
   /// 关键：手机常同时有 Wi-Fi 和蜂窝两个 IPv4，`NetworkInterface.list()`
   /// 返回顺序不保证 Wi-Fi 在前——若拿到蜂窝 IP 就会扫错网段永远找不到摄像头。
   /// 因此优先用 network_info_plus（Android 原生 WifiManager，可靠拿 Wi-Fi IP），
   /// NetworkInterface.list() 仅作补充；返回所有候选，调用方逐个网段扫描。
+  ///
+  /// 鸿蒙兼容：鸿蒙的 AOSP 兼容层对 network_info_plus / NetworkInterface 支持不完整，
+  /// 且不提供位置权限给第三方 APK → 以上两个 API 都可能拿不到 Wi-Fi IP。
+  /// 因此追加两级无需权限的兜底：
+  ///   3) TCP 出口探测：连一个外部地址，系统自动选出口网卡，socket 本机地址即 Wi-Fi IP；
+  ///   4) 常见网段兜底：仍拿不到时，直接暴力扫常用家用/办公网段。
   static Future<List<String>> _localIPv4Candidates() async {
     final preferred = <String>[];
     final others = <String>[];
@@ -130,6 +147,34 @@ class CameraDiscovery {
         }
       }
     } catch (_) {}
+
+    // 3) TCP 出口探测兜底（无需权限，鸿蒙/Android 无位置权限时可靠）：
+    //    连一个外部地址，系统自动选出口网卡，socket.address 即本机出口 IP。
+    if (preferred.isEmpty && others.isEmpty) {
+      for (final target in const ['8.8.8.8', '223.5.5.5', '114.114.114.114']) {
+        try {
+          final s = await Socket.connect(
+            target,
+            53,
+            timeout: const Duration(milliseconds: 1500),
+          );
+          final ip = s.address.address;
+          s.destroy();
+          if (_isPrivateLan(ip) && !preferred.contains(ip)) {
+            preferred.add(ip);
+            break;
+          }
+        } catch (_) {}
+      }
+    }
+
+    // 4) 极端兜底：仍拿不到本机 IP → 用常见网段占位（调用方据此暴力扫描）。
+    if (preferred.isEmpty && others.isEmpty) {
+      for (final prefix in _commonSubnets) {
+        final ph = '$prefix.1';
+        if (!others.contains(ph)) others.add(ph);
+      }
+    }
 
     return <String>{...preferred, ...others}.toList();
   }
