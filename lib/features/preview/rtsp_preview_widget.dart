@@ -59,7 +59,13 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
   bool _collapsed = false;
 
   /// 当前控件在屏幕上的可见比例（切到其他 tab 会变为 0）。
-  bool _pageVisible = true;
+  /// null = 尚未收到 visibility 回调（首帧前），不参与判断。
+  /// 初始不能直接写 true：VisibilityDetector 首帧可能先报 0（布局/动画中），
+  /// 若把 false 固化下来，会导致连接时播放器从不创建、永远转圈。
+  bool? _pageVisible;
+
+  /// 切走页面前的状态，切回时据此决定是否自动恢复预览。
+  _CamState? _preHideState;
 
   /// 改变此 token 可强制重建原生播放器（手动刷新/页面切回时使用）。
   int _refreshToken = 0;
@@ -88,6 +94,10 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     if (_state == _CamState.connecting || _state == _CamState.ready) return;
     _connectTimeoutTimer?.cancel();
     _resetAttempts();
+    // 用户主动点播放，必定可见：强制 _pageVisible=true，
+    // 避免被 visibility 首帧误置为 false 导致播放器从不创建、一直转圈。
+    _pageVisible = true;
+    _preHideState = null;
 
     final fixed = widget.rtspUrl?.trim();
     if (fixed != null && fixed.isNotEmpty) {
@@ -227,17 +237,22 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     _onCurrentCandidatesExhausted();
   }
 
-  /// 固定地址（或缓存）的所有尝试都失败后，清缓存并启动局域网扫描。
+  /// 固定地址（或缓存）的所有尝试都失败后，清缓存并启动局域网全盘扫描。
   void _onCurrentCandidatesExhausted() {
     if (!mounted) return;
     if (widget.autoDiscover && !_discoveryDone) {
-      _runDiscoveryThenPlay();
+      // 缓存/固定地址连不上（可能摄像头换了 IP）：清缓存，全盘扫描一次。
+      _runDiscoveryThenPlay(clearCacheFirst: true);
       return;
     }
     _buildFinalError();
   }
 
-  void _runDiscoveryThenPlay() {
+  /// 启动局域网发现。
+  ///
+  /// [clearCacheFirst] 为 false（默认）：直接读缓存，命中即秒开；
+  /// 为 true（固定地址/缓存全失败后）：先清缓存，强制全盘扫描找新 IP。
+  void _runDiscoveryThenPlay({bool clearCacheFirst = false}) {
     if (!mounted) return;
     _discoveryDone = true;
     setState(() {
@@ -248,7 +263,11 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
       _urlIndex = -1;
     });
 
-    CameraDiscovery.clearCache().then((_) => CameraDiscovery.discover()).then((url) {
+    final discover = clearCacheFirst
+        ? CameraDiscovery.clearCache().then((_) => CameraDiscovery.discover())
+        : CameraDiscovery.discover();
+
+    discover.then((url) {
       if (!mounted) return;
       if (url != null && url.isNotEmpty) {
         _urls = _candidatesFor(url);
@@ -284,23 +303,27 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     });
   }
 
-  /// 控件可见性变化回调：切到其他 tab 时自动暂停，切回时自动恢复。
+  /// 控件可见性变化回调：切到其他 tab 时完整停止解码，切回时自动恢复。
   void _onVisibilityChanged(VisibilityInfo info) {
     if (!mounted) return;
     final visible = info.visibleFraction > 0.05;
     if (visible == _pageVisible) return;
 
-    setState(() => _pageVisible = visible);
-
     if (!visible) {
-      // 页面被切走：停止解码，避免后台卡顿与画面滞留。
-      _connectTimeoutTimer?.cancel();
-      _controlsHideTimer?.cancel();
-      setState(() => _controlsVisible = false);
-    } else if (!_collapsed &&
-        (_state == _CamState.ready || _state == _CamState.connecting)) {
-      // 页面切回且之前正在尝试连接/播放：自动刷新恢复画面。
-      _restartPreview();
+      // 页面切走：记下当前状态，完整停止（播放器从树上移除、停止解码）。
+      _preHideState = _state;
+      _stopPreview();
+    } else {
+      setState(() => _pageVisible = true);
+      // 页面切回：之前在连接/播放中，自动恢复。
+      if (!_collapsed &&
+          (_preHideState == _CamState.ready ||
+              _preHideState == _CamState.connecting)) {
+        _preHideState = null;
+        _restartPreview();
+      } else {
+        _preHideState = null;
+      }
     }
   }
 
@@ -308,10 +331,12 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
   void _toggleCollapse() {
     setState(() {
       _collapsed = !_collapsed;
-      if (!_collapsed && _pageVisible) {
-        // 展开后自动恢复预览。
+      if (!_collapsed) {
+        // 展开是用户主动操作，必定在看画面：恢复预览（强制可见）。
+        _pageVisible = true;
+        _preHideState = null;
         _restartPreview();
-      } else if (_collapsed) {
+      } else {
         // 收起时停止解码并隐藏控制层。
         _connectTimeoutTimer?.cancel();
         _controlsHideTimer?.cancel();
@@ -536,7 +561,8 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
   /// 视频区：根据状态显示播放器、加载圈、错误占位或黑屏。
   Widget _buildVideoArea() {
     // 页面切走或处于错误/空闲态时，不放原生播放器，避免滞留与资源占用。
-    final surfaceActive = _pageVisible &&
+    // _pageVisible 为 null（首帧前）视为可见，避免误判导致播放器不创建。
+    final surfaceActive = (_pageVisible ?? true) &&
         (_state == _CamState.connecting || _state == _CamState.ready);
 
     Widget content;
