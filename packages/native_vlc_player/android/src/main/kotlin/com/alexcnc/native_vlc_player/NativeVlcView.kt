@@ -373,6 +373,17 @@ class NativeVlcView(
             }
 
             val media = Media(vlc, Uri.parse(url))
+            // MJPEG over HTTP（ESP32 摄像头）：每帧独立 JPEG，无需任何网络缓冲，
+            // 默认 150ms 缓存会放大延迟。给 MJPEG 媒体单独设零缓存 + 立即渲染，
+            // 显著降低延迟（RTSP 保持原参数，不破坏稳定性）。
+            if (url.startsWith("http://") || url.startsWith("https://")) {
+                media.addOption(":network-caching=0")
+                media.addOption(":live-caching=0")
+                media.addOption(":clock-synchro=0")
+                media.addOption(":clock-jitter=0")
+                media.addOption(":drop-late-frames")
+                media.addOption(":skip-frames")
+            }
             mp.media = media
             // useTextureView=true：渲染到 TextureView。
             // 关键修复：SurfaceView 在 Flutter Hybrid Composition 平台视图里首帧合成不稳定，
