@@ -13,9 +13,10 @@ class AppConfig {
   const AppConfig._();
 
   // ---- 摄像头（机器侧面固定头，纯裸画面，无叠加层）----
-  // 雄迈模组：同网段手机可直接播放；默认留空 → 启动时自动发现
-  // （先读上次成功缓存，再扫 Wi-Fi 网段），换网络/换 IP 无需手动配置。
-  // 如需固定地址：--dart-define=CAMERA_RTSP=rtsp://user:pass@ip:554/11 覆盖，
+  // 当前方案：ESP32 CameraWebServer（MJPEG over HTTP，端口 81，无认证）。
+  // 默认地址可留空 → 启动时自动发现（先读上次成功缓存，再扫 Wi-Fi 网段
+  // 的 81 端口 + 554 RTSP），换网络/换 IP 无需手动配置。
+  // 如需固定地址：--dart-define=CAMERA_RTSP=http://192.168.1.248:81/stream 覆盖，
   // 或在 App 内「联调设置」里填写。
   static const String cameraRtspUrl = String.fromEnvironment(
     'CAMERA_RTSP',

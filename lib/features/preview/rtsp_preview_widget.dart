@@ -144,11 +144,14 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     _error = null;
   }
 
-  /// 为一个 URL 生成主码流 /11 + 子码流 /12 两种尝试。
+  /// 为一个 URL 生成尝试候选：RTSP 生成主码流 /11 + 子码流 /12；
+  /// HTTP MJPEG（ESP32）只有单一流，不再派生子码流。
   List<String> _candidatesFor(String url) {
     final list = <String>[url];
-    final sub = _subStreamUrl(url);
-    if (sub != url) list.add(sub);
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      final sub = _subStreamUrl(url);
+      if (sub != url) list.add(sub);
+    }
     return list;
   }
 

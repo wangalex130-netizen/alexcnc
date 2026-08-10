@@ -233,8 +233,12 @@ class CameraDiscovery {
     return null;
   }
 
-  /// 测试 host:port 上的所有候选 RTSP 路径，返回第一个命中的完整 URL。
+  /// 测试 host:port 上的所有候选路径，返回第一个命中的完整 URL。
+  /// 81 端口按 ESP32 MJPEG（CameraWebServer）探测；554/5544 按 RTSP 探测。
   static Future<String?> _probeRtspUrl(String host, int port) async {
+    if (port == 81) {
+      return _probeMjpegUrl(host, port);
+    }
     for (final path in _rtspPaths) {
       final found = await _rtspProbePath(host, port, path);
       if (found != null) {
@@ -243,6 +247,55 @@ class CameraDiscovery {
     }
     // 路径探测全部失败，但端口确实开着——仍用默认 /11 让播放器自己试
     return 'rtsp://$_defaultUser:$_defaultPassword@$host:$port/11';
+  }
+
+  /// ESP32 CameraWebServer MJPEG 流探测：
+  /// GET /stream，响应含 200 + multipart/x-mixed-replace（或 JPEG 帧头）即命中。
+  static Future<String?> _probeMjpegUrl(String host, int port) async {
+    try {
+      final socket = await Socket.connect(
+        host,
+        port,
+        timeout: const Duration(milliseconds: 800),
+      );
+      socket.add(utf8.encode('GET /stream HTTP/1.0\r\n\r\n'));
+      final data = await socket.first.timeout(
+        const Duration(milliseconds: 2000),
+        onTimeout: () => Uint8List(0),
+      );
+      socket.destroy();
+      if (data.isEmpty) return null;
+      final head = utf8.decode(data, allowMalformed: true);
+      final hasJpegFrame = _containsSubsequence(data, const [0xFF, 0xD8]);
+      // 200 + 明确 MJPEG 标识，或已见到 JPEG 帧头
+      if (head.contains(' 200 ') &&
+          (head.contains('multipart/x-mixed-replace') ||
+              head.contains('image/jpeg') ||
+              hasJpegFrame)) {
+        return 'http://$host:$port/stream';
+      }
+      // 部分固件 /stream 返回 302 到 / 或需要 query，回退试 /capture 确认是 ESP32
+      if (head.contains(' 302 ') || head.contains(' 301 ')) {
+        return 'http://$host:$port/stream';
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// 判断 data 是否包含子序列 sub（Dart List.contains 是等值比较，需自实现）。
+  static bool _containsSubsequence(List<int> data, List<int> sub) {
+    if (sub.isEmpty || data.length < sub.length) return false;
+    for (var i = 0; i <= data.length - sub.length; i++) {
+      var match = true;
+      for (var j = 0; j < sub.length; j++) {
+        if (data[i + j] != sub[j]) {
+          match = false;
+          break;
+        }
+      }
+      if (match) return true;
+    }
+    return false;
   }
 
   /// 同 /24 子网静默扫描 RTSP 端口：批量 64 并发，命中后还要确认 RTSP 路径。
@@ -278,7 +331,8 @@ class CameraDiscovery {
     if (parts.length != 4) return null;
     final prefix = '${parts[0]}.${parts[1]}.${parts[2]}';
 
-    final ports = const [554, 5544];
+    // ESP32 MJPEG(81) + RTSP(554, 5544) 端口都探测
+    final ports = const [554, 5544, 81];
     // 不扫本机自身 IP（可能有其他服务占 554），从 .1 到 .254
     final hosts = <String>[
       for (var i = 1; i <= 254; i++)
