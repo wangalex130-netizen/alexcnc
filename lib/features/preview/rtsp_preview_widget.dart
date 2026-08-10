@@ -206,6 +206,12 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
           _state = _CamState.ready;
           _isPaused = false;
         });
+        // 连接成功：把当前地址写入缓存。下次打开自动发现时优先读缓存秒开；
+        // 换网络/换 IP 后缓存地址失效时，再回落到全盘扫描兜底。
+        final url = _currentUrl;
+        if (url.isNotEmpty) {
+          CameraDiscovery.saveUrl(url);
+        }
         break;
       case 'stopped':
       case 'endReached':

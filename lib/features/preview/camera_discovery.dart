@@ -246,14 +246,27 @@ class CameraDiscovery {
   }
 
   /// 同 /24 子网静默扫描 RTSP 端口：批量 64 并发，命中后还要确认 RTSP 路径。
-  /// 依次扫本机所有私网网段（Wi-Fi 优先），最坏 2-6 秒出结果。
+  /// 依次扫手机所在网段 + 全部常见网段（去重），最坏 6-20 秒出结果。
   static Future<String?> _tcpScanFallback() async {
     final ips = await _localIPv4Candidates();
     if (ips.isEmpty) return null;
     final ownIps = <String>{...ips};
 
+    // 去重收集要扫的网段：手机网段优先（同网段秒开），常见网段兜底
+    // （鸿蒙拿不到手机 IP、或手机与摄像头跨网段但路由互通时仍能找到）。
+    final subnets = <String>{};
     for (final ip in ips) {
-      final found = await _scanSubnet(ip, ownIps);
+      final parts = ip.split('.');
+      if (parts.length == 4) {
+        subnets.add('${parts[0]}.${parts[1]}.${parts[2]}');
+      }
+    }
+    for (final prefix in _commonSubnets) {
+      subnets.add(prefix);
+    }
+
+    for (final prefix in subnets) {
+      final found = await _scanSubnet('$prefix.1', ownIps);
       if (found != null) return found;
     }
     return null;
