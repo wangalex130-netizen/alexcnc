@@ -5,7 +5,6 @@ class Tool {
   final String? material;
   final double? lengthMm;
   final bool installed;
-  final String? defId; // 关联刀库 ToolDef.id（用于与刀库同步）
 
   const Tool({
     required this.index,
@@ -13,7 +12,6 @@ class Tool {
     this.material,
     this.lengthMm,
     this.installed = false,
-    this.defId,
   });
 
   Tool copyWith({
@@ -21,7 +19,6 @@ class Tool {
     String? material,
     double? lengthMm,
     bool? installed,
-    String? defId,
   }) =>
       Tool(
         index: index,
@@ -29,6 +26,5 @@ class Tool {
         material: material ?? this.material,
         lengthMm: lengthMm ?? this.lengthMm,
         installed: installed ?? this.installed,
-        defId: defId ?? this.defId,
       );
 }

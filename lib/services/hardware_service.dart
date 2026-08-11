@@ -17,9 +17,6 @@ abstract class HardwareService {
   Future<void> disconnect();
   Future<MachineStatus> getStatus();
 
-  /// Machine physical work area (mm). Determined by connected model config.
-  Future<({double widthMm, double heightMm})> getWorkArea();
-
   // --- Motion (locked when !isLocalLAN) ---
   Future<void> jog(String axis, double distanceMm); // axis: x | y | z
   Future<void> home(); // homing cycle ($H)
@@ -38,14 +35,4 @@ abstract class HardwareService {
 
   // --- ATC ---
   Future<void> updateToolMap(List<Tool> tools);
-
-  // --- Leveling plan ---
-  /// 向导 Step5：App 根据云端下发的模型尺寸 + 用户所选模式算好探测点阵，
-  /// 下发给 MCU。固件收到后执行真实网格探测并以广播结果为准。
-  /// [mode] 0=不调平 / 1=标准 / 2=精细；[cols]/[rows] 为探测点数阵。
-  Future<void> setLevelingPlan(
-      {required int mode, required int cols, required int rows});
-
-  /// 释放底层连接（MQTT / TCP socket）。由 Provider 在 dispose 时调用。
-  void dispose();
 }

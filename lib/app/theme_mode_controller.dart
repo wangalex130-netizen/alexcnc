@@ -9,8 +9,8 @@ final themeModeProvider =
 );
 
 class ThemeModeController extends StateNotifier<ThemeMode> {
-  // 默认进入浅色界面（用户诉求：先不要黑色界面）。
-  ThemeModeController() : super(ThemeMode.light) {
+  // 默认进入纯暗色（对齐 HTML 原稿的指挥中心风格）。
+  ThemeModeController() : super(ThemeMode.dark) {
     _load();
   }
 
@@ -20,9 +20,11 @@ class ThemeModeController extends StateNotifier<ThemeMode> {
     final prefs = await SharedPreferences.getInstance();
     final v = prefs.getString(_key);
     if (!mounted) return;
-    state = v == 'dark'
-        ? ThemeMode.dark
-        : ThemeMode.light; // 默认浅色
+    state = v == 'light'
+        ? ThemeMode.light
+        : v == 'dark'
+            ? ThemeMode.dark
+            : ThemeMode.dark; // 原稿为纯暗色指挥中心风格，默认 dark
   }
 
   Future<void> set(ThemeMode mode) async {

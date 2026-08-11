@@ -1,16 +1,115 @@
-import '../data/material_db.dart';
 import '../models/library_item.dart';
-import '../models/model_library.dart';
 import '../models/task_metadata.dart';
+import '../models/model_library.dart';
 import 'cloud_service.dart';
 
-/// In-memory cloud stand-in.
+/// In-memory cloud stand-in（演示 / 无硬件 / 联调兜底）。
+///
+/// 旧接口与模型库 5 接口都给出演示数据，真实后端不可达时 App 自动回落到这里。
 class MockCloudService implements CloudService {
-  @override
-  Future<List<MaterialSpec>> fetchMaterials() async {
-    await Future.delayed(const Duration(milliseconds: 150));
-    return materials;
-  }
+  static const List<LibraryItem> _seed = [
+    LibraryItem(
+      id: 'insp-hero',
+      title: '复古几何木质杯垫套组',
+      author: '官方精选',
+      imageUrl:
+          'https://images.unsplash.com/photo-1546554137-f86b9593a222?auto=format&fit=crop&w=600&q=80',
+      isPublic: true,
+      materialPreset: '黑胡桃木 (3mm)',
+      category: '木作工艺',
+      duration: '12分30秒',
+      isHero: true,
+      heroTag: '周末主推干货',
+    ),
+    LibraryItem(
+      id: 'insp-1',
+      title: '赛博朋克发光铭牌',
+      author: 'NeoCraft',
+      imageUrl:
+          'https://images.unsplash.com/photo-1517055729424-69974240954b?auto=format&fit=crop&w=300&q=80',
+      isPublic: true,
+      materialPreset: '双色亚克力',
+      category: '亚克力',
+      duration: '8分10秒',
+    ),
+    LibraryItem(
+      id: 'insp-2',
+      title: 'Arduino 扩展板打样',
+      author: 'PCB_Lab',
+      imageUrl:
+          'https://images.unsplash.com/photo-1592659762303-90081d34b277?auto=format&fit=crop&w=300&q=80',
+      isPublic: true,
+      materialPreset: '覆铜板 PCB',
+      category: 'PCB 电路',
+      duration: '15分02秒',
+    ),
+    LibraryItem(
+      id: 'insp-3',
+      title: '胡桃木手机支架',
+      author: '木作老张',
+      imageUrl:
+          'https://images.unsplash.com/photo-1610701596007-11502861dcfa?auto=format&fit=crop&w=300&q=80',
+      isPublic: true,
+      materialPreset: '黑胡桃木',
+      category: '木作工艺',
+      duration: '20分40秒',
+    ),
+    LibraryItem(
+      id: 'insp-4',
+      title: '亚克力展示盒',
+      author: 'AcrylicPro',
+      imageUrl:
+          'https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?auto=format&fit=crop&w=300&q=80',
+      isPublic: true,
+      materialPreset: '透明亚克力',
+      category: '亚克力',
+      duration: '6分35秒',
+    ),
+    LibraryItem(
+      id: 'insp-5',
+      title: 'PCB 开发板夹具',
+      author: 'Maker_X',
+      imageUrl:
+          'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=300&q=80',
+      isPublic: true,
+      materialPreset: '覆铜板 PCB',
+      category: 'PCB 电路',
+      duration: '11分20秒',
+    ),
+  ];
+
+  static const List<LibraryItem> _mine = [
+    LibraryItem(
+      id: 'mine-1',
+      title: '定制化_父亲节底座_V2',
+      author: 'me',
+      isPublic: false,
+      materialPreset: '松木板',
+      syncTime: '今天 14:30 同步',
+    ),
+    LibraryItem(
+      id: 'mine-2',
+      title: '圆孔阵列_测试治具',
+      author: 'me',
+      isPublic: false,
+      materialPreset: '亚克力',
+      syncTime: '昨天 09:15 同步',
+    ),
+    // 成功加工记录（历史复用）
+    LibraryItem(
+      id: 'hist-1',
+      title: '官方_几何木质杯垫',
+      author: 'me',
+      isPublic: false,
+      materialPreset: '黑胡桃木',
+      duration: '耗时 12分35秒',
+      syncTime: '2026/07/20',
+      isHistory: true,
+    ),
+  ];
+
+  static const List<String> _cats = ['推荐灵感', '木作工艺', 'PCB 电路', '亚克力'];
+  static const List<String> _tags = ['复古', '木质', '亚克力', 'PCB', '小夜灯', '礼物'];
 
   @override
   Future<TaskMetadata?> getActiveTask() async {
@@ -30,9 +129,7 @@ class MockCloudService implements CloudService {
   @override
   Future<TaskMetadata?> getTaskById(String id) async {
     await Future.delayed(const Duration(milliseconds: 200));
-    // Stand-in: synthesize task metadata for the selected model. The real
-    // cloud returns the actual dimensions/material parameters uploaded from PC.
-    // 对齐 Step 4 原稿 GlobalState：复古木雕花纹板 145×95 松木 3.0mm rpm10000 feed1500
+    // 对齐 Step 4 原稿：复古木雕花纹板 145×95 松木 3.0mm rpm10000 feed1500
     final isRetro = id == 'insp-hero' ||
         id.contains('retro') ||
         id.contains('wood') ||
@@ -47,17 +144,9 @@ class MockCloudService implements CloudService {
         boardThicknessMm: 3,
         recommendedSpindleRpm: 10000,
         recommendedFeedRate: 1500,
-        defaultMaterialKey: 'pine', // Step1 默认雕刻材料：松木
-        defaultToolId: 't_flat_3175', // Step1 默认刀具：3.175 平底刀
-        // 有序工序刀具：先粗雕（平底刀）后精雕（V 型刀），与物理刀兜解耦
-        requiredTools: const [
-          RequiredTool('t_flat_3175', '粗雕 / 轮廓'),
-          RequiredTool('t_v60', '精雕 / 刻线'),
-        ],
       );
     }
     final isAcrylic = id.contains('acrylic');
-    final matKey = isAcrylic ? 'acrylic' : 'pine';
     return TaskMetadata(
       id: id,
       name: id.startsWith('insp') ? '灵感作品' : '我的工程包',
@@ -66,132 +155,43 @@ class MockCloudService implements CloudService {
       depthMm: 3,
       boardThicknessMm: 8,
       recommendedSpindleRpm: isAcrylic ? 14000 : 12000,
-      recommendedFeedRate: isAcrylic ? 800 : 1500,
-      defaultMaterialKey: matKey,
-      defaultToolId: matKey == 'acrylic' ? 't_o_single_3175' : 't_flat_3175',
-      requiredTools: matKey == 'acrylic'
-          ? const [
-              RequiredTool('t_o_single_3175', '亚克力粗雕'),
-              RequiredTool('t_v60', '精雕 / 刻线'),
-            ]
-          : const [
-              RequiredTool('t_flat_3175', '粗雕 / 轮廓'),
-              RequiredTool('t_v60', '精雕 / 刻线'),
-            ],
+      recommendedFeedRate: 600,
     );
   }
 
   @override
   Future<List<LibraryItem>> getInspiration({int page = 0}) async {
     await Future.delayed(const Duration(milliseconds: 200));
-    return const [
-      LibraryItem(
-        id: 'insp-hero',
-        title: '复古几何木质杯垫套组',
-        author: '官方精选',
-        imageUrl:
-            'https://images.unsplash.com/photo-1546554137-f86b9593a222?auto=format&fit=crop&w=600&q=80',
-        isPublic: true,
-        materialPreset: '黑胡桃木 (3mm)',
-        category: '木作工艺',
-        duration: '12分30秒',
-        isHero: true,
-        heroTag: '周末主推干货',
-      ),
-      LibraryItem(
-        id: 'insp-1',
-        title: '赛博朋克发光铭牌',
-        author: 'NeoCraft',
-        imageUrl:
-            'https://images.unsplash.com/photo-1517055729424-69974240954b?auto=format&fit=crop&w=300&q=80',
-        isPublic: true,
-        materialPreset: '双色亚克力',
-        category: '亚克力',
-        duration: '8分10秒',
-      ),
-      LibraryItem(
-        id: 'insp-2',
-        title: 'Arduino 扩展板打样',
-        author: 'PCB_Lab',
-        imageUrl:
-            'https://images.unsplash.com/photo-1592659762303-90081d34b277?auto=format&fit=crop&w=300&q=80',
-        isPublic: true,
-        materialPreset: '覆铜板 PCB',
-        category: 'PCB 电路',
-        duration: '15分02秒',
-      ),
-      LibraryItem(
-        id: 'insp-3',
-        title: '胡桃木手机支架',
-        author: '木作老张',
-        imageUrl:
-            'https://images.unsplash.com/photo-1610701596007-11502861dcfa?auto=format&fit=crop&w=300&q=80',
-        isPublic: true,
-        materialPreset: '黑胡桃木',
-        category: '木作工艺',
-        duration: '20分40秒',
-      ),
-      LibraryItem(
-        id: 'insp-4',
-        title: '亚克力展示盒',
-        author: 'AcrylicPro',
-        imageUrl:
-            'https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?auto=format&fit=crop&w=300&q=80',
-        isPublic: true,
-        materialPreset: '透明亚克力',
-        category: '亚克力',
-        duration: '6分35秒',
-      ),
-      LibraryItem(
-        id: 'insp-5',
-        title: 'PCB 开发板夹具',
-        author: 'Maker_X',
-        imageUrl:
-            'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=300&q=80',
-        isPublic: true,
-        materialPreset: '覆铜板 PCB',
-        category: 'PCB 电路',
-        duration: '11分20秒',
-      ),
-    ];
+    return _seed;
   }
 
   @override
   Future<List<LibraryItem>> getMySpace() async {
     await Future.delayed(const Duration(milliseconds: 200));
-    return const [
-      LibraryItem(
-        id: 'mine-1',
-        title: '定制化_父亲节底座_V2',
-        author: 'me',
-        isPublic: false,
-        materialPreset: '松木板',
-        syncTime: '今天 14:30 同步',
-      ),
-      LibraryItem(
-        id: 'mine-2',
-        title: '圆孔阵列_测试治具',
-        author: 'me',
-        isPublic: false,
-        materialPreset: '亚克力',
-        syncTime: '昨天 09:15 同步',
-      ),
-      // 成功加工记录（历史复用）
-      LibraryItem(
-        id: 'hist-1',
-        title: '官方_几何木质杯垫',
-        author: 'me',
-        isPublic: false,
-        materialPreset: '黑胡桃木',
-        duration: '耗时 12分35秒',
-        syncTime: '2026/07/20',
-        isHistory: true,
-      ),
-    ];
+    return _mine;
   }
 
-  // ===================== 模型库 REST 接口（Mock 兜底） =====================
-  // 形状对齐 模型库接口文档.md，保证离线/未部署后端时 App 仍能打开图库。
+  @override
+  Future<void> pushDiagnostics(String log) async {
+    await Future.delayed(const Duration(milliseconds: 200));
+  }
+
+  // ===================== 模型库 REST 接口（Mock 实现） =====================
+
+  List<LibraryItem> _filter(List<LibraryItem> items,
+      {String? keyword, String? category}) {
+    var out = items;
+    if (keyword != null && keyword.isNotEmpty) {
+      out = out
+          .where((e) =>
+              e.title.contains(keyword) || e.author.contains(keyword))
+          .toList();
+    }
+    if (category != null && category.isNotEmpty && category != 'all') {
+      out = out.where((e) => e.category == category).toList();
+    }
+    return out;
+  }
 
   @override
   Future<ModelLibraryHome> getModelLibraryHome({
@@ -204,19 +204,14 @@ class MockCloudService implements CloudService {
     String sortBy = 'recommend',
   }) async {
     await Future.delayed(const Duration(milliseconds: 200));
-    final items = await getInspiration();
-    final cats = <String>{};
-    for (final e in items) {
-      if (e.category != null && e.category!.isNotEmpty) cats.add(e.category!);
-    }
-    final list = _filter(items, keyword: keyword, category: category, tag: tag);
-    final heroes = items.where((e) => e.isHero).toList();
+    final filtered = _filter(_seed, keyword: keyword, category: category);
+    final heroes = filtered.where((e) => e.isHero).toList();
     return ModelLibraryHome(
       heroModels: heroes,
-      categories: ['all', ...cats],
-      models: list,
-      total: list.length,
-      pageNo: pageNo,
+      categories: _cats,
+      models: filtered,
+      total: filtered.length,
+      pageNo: 1,
       pageSize: pageSize,
       pages: 1,
     );
@@ -233,93 +228,54 @@ class MockCloudService implements CloudService {
     String sortBy = 'recommend',
   }) async {
     await Future.delayed(const Duration(milliseconds: 200));
-    final items = await getInspiration();
-    final list = _filter(items, keyword: keyword, category: category, tag: tag);
+    final filtered = _filter(_seed, keyword: keyword, category: category);
+    final total = filtered.length;
+    final pages = total == 0 ? 1 : (total / pageSize).ceil();
+    final start = (pageNo - 1) * pageSize;
+    final end = start + pageSize;
+    final items = start < total
+        ? filtered.sublist(start, end > total ? total : end)
+        : const <LibraryItem>[];
     return ModelLibraryPage(
-      items: list,
-      total: list.length,
+      items: items,
+      total: total,
       pageNo: pageNo,
       pageSize: pageSize,
-      pages: 1,
+      pages: pages,
     );
   }
 
   @override
   Future<LibraryItem?> getModelLibraryDetail(String id) async {
-    await Future.delayed(const Duration(milliseconds: 150));
-    final items = await getInspiration();
-    if (items.isEmpty) return null;
-    final base = items.firstWhere((e) => e.id == id, orElse: () => items.first);
-    final task = await getTaskById(id);
-    // 用 TaskMetadata 的合尺寸/参数合成详情字段，让详情页完整渲染
-    final toolNames = task?.requiredTools.map((t) => t.toolId).join(',');
+    await Future.delayed(const Duration(milliseconds: 200));
+    final base = _seed.firstWhere((e) => e.id == id,
+        orElse: () => _mine.firstWhere((e) => e.id == id, orElse: () => _seed.first));
+    final isRetro =
+        id.contains('retro') || id.contains('wood') || id.contains('复古');
     return base.copyWith(
-      imageUrls: base.coverUrl != null ? [base.coverUrl!] : const [],
-      description: '示例模型：${base.title}。可在电脑端上传更丰富的实物图与刀路。',
-      widthMm: task?.widthMm ?? 100,
-      heightMm: task?.heightMm ?? 100,
-      depthMm: task?.depthMm ?? 6,
-      boardThicknessMm: task?.boardThicknessMm ?? 12,
-      durationSec: 600,
-      tools: toolNames,
-      recommendedSpindleRpm: task?.recommendedSpindleRpm?.toInt(),
-      recommendedFeedRate: task?.recommendedFeedRate,
+      recommendedSpindleRpm: isRetro ? 10000 : 12000,
+      recommendedFeedRate: isRetro ? 1500 : 600,
+      widthMm: isRetro ? 145 : 90,
+      heightMm: isRetro ? 95 : 90,
+      depthMm: 3,
+      boardThicknessMm: 8,
       gcodeStatus: 'sliced',
+      requiredTools: const [
+        RequiredTool('3.175mm 平底刀', '粗雕'),
+        RequiredTool('1.5mm 球头刀', '精雕/刻线'),
+      ],
     );
   }
 
   @override
   Future<List<String>> getModelLibraryCategories() async {
-    await Future.delayed(const Duration(milliseconds: 120));
-    final items = await getInspiration();
-    final cats = <String>{};
-    for (final e in items) {
-      if (e.category != null && e.category!.isNotEmpty) cats.add(e.category!);
-    }
-    return ['all', ...cats];
+    await Future.delayed(const Duration(milliseconds: 100));
+    return _cats;
   }
 
   @override
   Future<List<String>> getModelLibraryTags() async {
-    await Future.delayed(const Duration(milliseconds: 120));
-    final items = await getInspiration();
-    final tags = <String>{};
-    for (final e in items) {
-      for (final t in e.tags) tags.add(t);
-    }
-    return tags.toList();
-  }
-
-  /// 按关键字 / 分类 / 标签过滤（Mock 联调用）。
-  List<LibraryItem> _filter(List<LibraryItem> items,
-      {String? keyword, String? category, String? tag}) {
-    var list = items;
-    if (category != null && category.isNotEmpty && category != 'all') {
-      list = list.where((e) => e.category == category).toList();
-    }
-    if (tag != null && tag.isNotEmpty) {
-      list = list.where((e) => e.tags.contains(tag)).toList();
-    }
-    final kw = (keyword ?? '').trim().toLowerCase();
-    if (kw.isNotEmpty) {
-      list = list
-          .where((e) =>
-              e.title.toLowerCase().contains(kw) ||
-              e.tags.any((t) => t.toLowerCase().contains(kw)))
-          .toList();
-    }
-    return list;
-  }
-
-  @override
-  Future<bool> deleteModel(String id) async {
-    await Future.delayed(const Duration(milliseconds: 200));
-    // Mock 下始终成功（真实删除由 RealCloudService → 云端执行）
-    return true;
-  }
-
-  @override
-  Future<void> pushDiagnostics(String log) async {
-    await Future.delayed(const Duration(milliseconds: 200));
+    await Future.delayed(const Duration(milliseconds: 100));
+    return _tags;
   }
 }
