@@ -262,7 +262,7 @@ class MockCloudService implements CloudService {
       boardThicknessMm: task?.boardThicknessMm ?? 12,
       durationSec: 600,
       tools: toolNames,
-      recommendedSpindleRpm: task?.recommendedSpindleRpm,
+      recommendedSpindleRpm: task?.recommendedSpindleRpm?.toInt(),
       recommendedFeedRate: task?.recommendedFeedRate,
       gcodeStatus: 'sliced',
     );
