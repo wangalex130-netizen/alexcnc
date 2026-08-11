@@ -1,5 +1,6 @@
 import '../data/material_db.dart';
 import '../models/library_item.dart';
+import '../models/model_library.dart';
 import '../models/task_metadata.dart';
 import 'cloud_service.dart';
 
@@ -187,6 +188,127 @@ class MockCloudService implements CloudService {
         isHistory: true,
       ),
     ];
+  }
+
+  // ===================== 模型库 REST 接口（Mock 兜底） =====================
+  // 形状对齐 模型库接口文档.md，保证离线/未部署后端时 App 仍能打开图库。
+
+  @override
+  Future<ModelLibraryHome> getModelLibraryHome({
+    int pageNo = 1,
+    int pageSize = 12,
+    String? keyword,
+    String? category,
+    String? tag,
+    bool? hero,
+    String sortBy = 'recommend',
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 200));
+    final items = await getInspiration();
+    final cats = <String>{};
+    for (final e in items) {
+      if (e.category != null && e.category!.isNotEmpty) cats.add(e.category!);
+    }
+    final list = _filter(items, keyword: keyword, category: category, tag: tag);
+    final heroes = items.where((e) => e.isHero).toList();
+    return ModelLibraryHome(
+      heroModels: heroes,
+      categories: ['all', ...cats],
+      models: list,
+      total: list.length,
+      pageNo: pageNo,
+      pageSize: pageSize,
+      pages: 1,
+    );
+  }
+
+  @override
+  Future<ModelLibraryPage> getModelLibraryList({
+    int pageNo = 1,
+    int pageSize = 12,
+    String? keyword,
+    String? category,
+    String? tag,
+    bool? hero,
+    String sortBy = 'recommend',
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 200));
+    final items = await getInspiration();
+    final list = _filter(items, keyword: keyword, category: category, tag: tag);
+    return ModelLibraryPage(
+      items: list,
+      total: list.length,
+      pageNo: pageNo,
+      pageSize: pageSize,
+      pages: 1,
+    );
+  }
+
+  @override
+  Future<LibraryItem?> getModelLibraryDetail(String id) async {
+    await Future.delayed(const Duration(milliseconds: 150));
+    final items = await getInspiration();
+    if (items.isEmpty) return null;
+    final base = items.firstWhere((e) => e.id == id, orElse: () => items.first);
+    final task = await getTaskById(id);
+    // 用 TaskMetadata 的合尺寸/参数合成详情字段，让详情页完整渲染
+    final toolNames = task?.requiredTools.map((t) => t.toolId).join(',');
+    return base.copyWith(
+      imageUrls: base.coverUrl != null ? [base.coverUrl!] : const [],
+      description: '示例模型：${base.title}。可在电脑端上传更丰富的实物图与刀路。',
+      widthMm: task?.widthMm ?? 100,
+      heightMm: task?.heightMm ?? 100,
+      depthMm: task?.depthMm ?? 6,
+      boardThicknessMm: task?.boardThicknessMm ?? 12,
+      durationSec: 600,
+      tools: toolNames,
+      recommendedSpindleRpm: task?.recommendedSpindleRpm,
+      recommendedFeedRate: task?.recommendedFeedRate,
+      gcodeStatus: 'sliced',
+    );
+  }
+
+  @override
+  Future<List<String>> getModelLibraryCategories() async {
+    await Future.delayed(const Duration(milliseconds: 120));
+    final items = await getInspiration();
+    final cats = <String>{};
+    for (final e in items) {
+      if (e.category != null && e.category!.isNotEmpty) cats.add(e.category!);
+    }
+    return ['all', ...cats];
+  }
+
+  @override
+  Future<List<String>> getModelLibraryTags() async {
+    await Future.delayed(const Duration(milliseconds: 120));
+    final items = await getInspiration();
+    final tags = <String>{};
+    for (final e in items) {
+      for (final t in e.tags) tags.add(t);
+    }
+    return tags.toList();
+  }
+
+  /// 按关键字 / 分类 / 标签过滤（Mock 联调用）。
+  List<LibraryItem> _filter(List<LibraryItem> items,
+      {String? keyword, String? category, String? tag}) {
+    var list = items;
+    if (category != null && category.isNotEmpty && category != 'all') {
+      list = list.where((e) => e.category == category).toList();
+    }
+    if (tag != null && tag.isNotEmpty) {
+      list = list.where((e) => e.tags.contains(tag)).toList();
+    }
+    final kw = (keyword ?? '').trim().toLowerCase();
+    if (kw.isNotEmpty) {
+      list = list
+          .where((e) =>
+              e.title.toLowerCase().contains(kw) ||
+              e.tags.any((t) => t.toLowerCase().contains(kw)))
+          .toList();
+    }
+    return list;
   }
 
   @override

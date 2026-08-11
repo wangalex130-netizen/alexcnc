@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/material_db.dart';
 import '../models/library_item.dart';
+import '../models/model_library.dart';
 import '../models/task_metadata.dart';
 import '../app/config.dart';
 import 'cloud_service.dart';
@@ -30,6 +31,37 @@ class RealCloudService implements CloudService {
   Future<Map<String, String>> get _headers async {
     // TODO: 接入登录态后在此附加 Authorization: Bearer <token>
     return {'content-type': 'application/json'};
+  }
+
+  /// 把可选查询参数拼成 URL query（自动跳过 null，中文自动编码）。
+  String _buildQuery(Map<String, dynamic> q) {
+    final parts = <String>[];
+    q.forEach((k, v) {
+      if (v == null) return;
+      parts.add(
+          '${Uri.encodeQueryComponent(k)}=${Uri.encodeQueryComponent(v.toString())}');
+    });
+    return parts.isEmpty ? '' : '?${parts.join('&')}';
+  }
+
+  /// GET 模型库接口，返回响应体的 `data` 字段（已校验 code==200）。
+  /// 失败（网络/非 200/无 data）返回 null，调用方回退 Mock。
+  Future<dynamic> _mlGet(String path, [Map<String, dynamic> q = const {}]) async {
+    try {
+      final url = '$baseUrl$path${_buildQuery(q)}';
+      final res = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body);
+        if (body is Map<String, dynamic> && body['code'] == 200) {
+          return body['data'];
+        }
+      }
+    } catch (_) {
+      // 云端不可达 -> 回退
+    }
+    return null;
   }
 
   @override
@@ -115,6 +147,99 @@ class RealCloudService implements CloudService {
   @override
   Future<List<LibraryItem>> getMySpace() async =>
       await _tryGetList('/api/v1/library/mine') ?? _fallback.getMySpace();
+
+  // ===================== 模型库 REST 接口 =====================
+
+  @override
+  Future<ModelLibraryHome> getModelLibraryHome({
+    int pageNo = 1,
+    int pageSize = 12,
+    String? keyword,
+    String? category,
+    String? tag,
+    bool? hero,
+    String sortBy = 'recommend',
+  }) async {
+    final q = {
+      'pageNo': pageNo,
+      'pageSize': pageSize,
+      'sortBy': sortBy,
+      'keyword': keyword,
+      'category': category,
+      'tag': tag,
+      'hero': hero,
+    };
+    final data = await _mlGet('/api/model-library/home', q);
+    if (data is Map<String, dynamic>) {
+      return ModelLibraryHome.fromJson(data);
+    }
+    return _fallback.getModelLibraryHome(
+      pageNo: pageNo,
+      pageSize: pageSize,
+      keyword: keyword,
+      category: category,
+      tag: tag,
+      hero: hero,
+      sortBy: sortBy,
+    );
+  }
+
+  @override
+  Future<ModelLibraryPage> getModelLibraryList({
+    int pageNo = 1,
+    int pageSize = 12,
+    String? keyword,
+    String? category,
+    String? tag,
+    bool? hero,
+    String sortBy = 'recommend',
+  }) async {
+    final q = {
+      'pageNo': pageNo,
+      'pageSize': pageSize,
+      'sortBy': sortBy,
+      'keyword': keyword,
+      'category': category,
+      'tag': tag,
+      'hero': hero,
+    };
+    final data = await _mlGet('/api/model-library/list', q);
+    if (data is Map<String, dynamic>) {
+      return ModelLibraryPage.fromJson(data);
+    }
+    return _fallback.getModelLibraryList(
+      pageNo: pageNo,
+      pageSize: pageSize,
+      keyword: keyword,
+      category: category,
+      tag: tag,
+      hero: hero,
+      sortBy: sortBy,
+    );
+  }
+
+  @override
+  Future<LibraryItem?> getModelLibraryDetail(String id) async {
+    final data = await _mlGet('/api/model-library/detail/$id');
+    if (data is Map<String, dynamic>) {
+      return LibraryItem.fromJson(data);
+    }
+    return _fallback.getModelLibraryDetail(id);
+  }
+
+  @override
+  Future<List<String>> getModelLibraryCategories() async {
+    final data = await _mlGet('/api/model-library/categories');
+    if (data is List) return data.map((e) => e.toString()).toList();
+    return _fallback.getModelLibraryCategories();
+  }
+
+  @override
+  Future<List<String>> getModelLibraryTags() async {
+    final data = await _mlGet('/api/model-library/tags');
+    if (data is List) return data.map((e) => e.toString()).toList();
+    return _fallback.getModelLibraryTags();
+  }
 
   @override
   Future<bool> deleteModel(String id) async {

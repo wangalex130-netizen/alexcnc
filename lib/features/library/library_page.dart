@@ -4,6 +4,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
 import '../../models/library_item.dart';
+import '../../models/model_library.dart';
 import '../../state/providers.dart';
 import 'model_detail_page.dart';
 
@@ -18,10 +19,15 @@ class LibraryPage extends ConsumerStatefulWidget {
 }
 
 class _LibraryPageState extends ConsumerState<LibraryPage> {
-  int _tab = 0; // 0 = 灵感共享库, 1 = 我的云端空间
+  int _tab = 0; // 0 = 模型库（公开图库）, 1 = 我的云端空间
   String _category = ''; // 当前分类（'' = 全部）
   String _keyword = ''; // 搜索关键字
-  late Future<List<LibraryItem>> _future;
+  List<String> _cats = const ['全部'];
+  late Future<ModelLibraryHome> _homeFuture;
+  Future<ModelLibraryPage>? _listFuture;
+  late Future<List<LibraryItem>> _myFuture;
+
+  bool get _filtering => _category.isNotEmpty || _keyword.trim().isNotEmpty;
 
   @override
   void initState() {
@@ -31,23 +37,97 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
   void _load() {
     final cloud = ref.read(cloudServiceProvider);
-    _future = _tab == 0 ? cloud.getInspiration() : cloud.getMySpace();
-  }
-
-  /// 动态聚合分类（从模型数据提取，电脑端传什么分类就显示什么）。
-  List<String> _categoriesOf(List<LibraryItem> items) {
-    final set = <String>{};
-    for (final e in items) {
-      final c = e.category;
-      if (c != null && c.isNotEmpty) set.add(c);
+    if (_tab == 1) {
+      _myFuture = cloud.getMySpace();
+      return;
     }
-    return ['全部', ...set];
+    // 分类 Tab 拉一次（真实后端来自 /categories；Mock 兜底）。
+    cloud.getModelLibraryCategories().then((c) {
+      if (!mounted) return;
+      final set = <String>{};
+      for (final e in c) {
+        if (e != 'all' && e != '全部') set.add(e);
+      }
+      setState(() => _cats = ['全部', ...set]);
+    }).catchError((_) {});
+    // 无筛选 -> 首页聚合（焦点+分类+首屏）；有筛选 -> 分页列表
+    if (_filtering) {
+      _listFuture = cloud.getModelLibraryList(
+        keyword: _keyword.trim(),
+        category: _category.isEmpty ? null : _category,
+      );
+    } else {
+      _homeFuture = cloud.getModelLibraryHome();
+    }
   }
 
-  void _openModel(LibraryItem item) {
-    // 先看模型详情（多图/尺寸/时长/材质/刀具），点「开始雕刻」再进向导
+  void _openModel(LibraryItem item) async {
+    // 先拉详情（多图/尺寸/时长/材质/刀具/刀路地址），再进详情页
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(
+          child: CircularProgressIndicator(color: CncColors.primary)),
+    );
+    LibraryItem? detail;
+    try {
+      detail = await ref
+          .read(cloudServiceProvider)
+          .getModelLibraryDetail(item.id);
+    } catch (_) {
+      // 详情接口异常时退回卡片数据
+    }
+    if (!mounted) return;
+    Navigator.of(context).pop(); // 关闭 loading
+    if (!mounted) return;
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => ModelDetailPage(item: item)),
+      MaterialPageRoute(builder: (_) => ModelDetailPage(item: detail ?? item)),
+    );
+  }
+
+  Widget _buildInspiration() {
+    final future = _filtering ? _listFuture : _homeFuture;
+    return FutureBuilder<dynamic>(
+      key: ValueKey(_filtering ? 'list' : 'home'),
+      future: future,
+      builder: (c, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return const SliverToBoxAdapter(
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.only(top: 80),
+                child: CircularProgressIndicator(color: CncColors.primary),
+              ),
+            ),
+          );
+        }
+        List<LibraryItem> items;
+        List<LibraryItem> heroes = const [];
+        if (_filtering) {
+          final page = snap.data as ModelLibraryPage?;
+          items = page?.items ?? [];
+        } else {
+          final home = snap.data as ModelLibraryHome?;
+          items = home?.models ?? [];
+          heroes = home?.heroModels ?? [];
+        }
+        return _InspirationSliver(
+          items: items,
+          heroModels: heroes,
+          categories: _cats,
+          category: _category,
+          keyword: _keyword,
+          onKeyword: (k) => setState(() {
+            _keyword = k;
+            _load();
+          }),
+          onCategory: (cName) => setState(() {
+            _category = cName;
+            _load();
+          }),
+          onOpen: _openModel,
+        );
+      },
     );
   }
 
@@ -85,35 +165,29 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
         ),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
-          sliver: FutureBuilder<List<LibraryItem>>(
-            key: ValueKey(_tab),
-            future: _future,
-            builder: (c, snap) {
-              if (snap.connectionState != ConnectionState.done) {
-                return const SliverToBoxAdapter(
-                  child: Center(
-                    child: Padding(
-                      padding: EdgeInsets.only(top: 80),
-                      child: CircularProgressIndicator(color: CncColors.primary),
-                    ),
-                  ),
-                );
-              }
-              final items = snap.data ?? [];
-              return _tab == 0
-                  ? _InspirationSliver(
-                      items: items,
-                      categories: _categoriesOf(items),
-                      category: _category,
-                      keyword: _keyword,
-                      onKeyword: (k) => setState(() => _keyword = k),
-                      onCategory: (c) => setState(() => _category = c),
-                      onOpen: _openModel,
-                    )
-                  : _MySpaceSliver(
-                      items: items, onOpen: _openModel, onDelete: _deleteModel);
-            },
-          ),
+          sliver: _tab == 1
+              ? FutureBuilder<List<LibraryItem>>(
+                  key: const ValueKey('myspace'),
+                  future: _myFuture,
+                  builder: (c, snap) {
+                    if (snap.connectionState != ConnectionState.done) {
+                      return const SliverToBoxAdapter(
+                        child: Center(
+                          child: Padding(
+                            padding: EdgeInsets.only(top: 80),
+                            child: CircularProgressIndicator(
+                                color: CncColors.primary),
+                          ),
+                        ),
+                      );
+                    }
+                    return _MySpaceSliver(
+                        items: snap.data ?? [],
+                        onOpen: _openModel,
+                        onDelete: _deleteModel);
+                  },
+                )
+              : _buildInspiration(),
         ),
       ],
     );
@@ -204,7 +278,8 @@ class _StickySegmented extends SliverPersistentHeaderDelegate {
 
 class _InspirationSliver extends StatelessWidget {
   final List<LibraryItem> items;
-  final List<String> categories; // 动态聚合分类（首项「全部」）
+  final List<LibraryItem> heroModels; // 首页焦点模型（来自 /home，与网格分离）
+  final List<String> categories; // 分类 Tab（首项「全部」）
   final String category; // 当前分类（'' = 全部）
   final String keyword;
   final void Function(String) onKeyword;
@@ -212,6 +287,7 @@ class _InspirationSliver extends StatelessWidget {
   final void Function(LibraryItem) onOpen;
   const _InspirationSliver({
     required this.items,
+    this.heroModels = const [],
     required this.categories,
     required this.category,
     required this.keyword,
@@ -222,9 +298,14 @@ class _InspirationSliver extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final heroList = items.where((e) => e.isHero).toList();
+    // 焦点模型优先用接口单独返回的 heroModels；否则从网格里挑 isHero
+    final heroList = heroModels.isNotEmpty
+        ? heroModels
+        : items.where((e) => e.isHero).toList();
     final hero = heroList.isEmpty ? null : heroList.first;
-    var grid = items.where((e) => !e.isHero).toList();
+    // 网格排除已作为焦点展示的模型，避免重复
+    final heroIds = heroModels.map((e) => e.id).toSet();
+    var grid = items.where((e) => !heroIds.contains(e.id)).toList();
     if (category.isNotEmpty) {
       grid = grid.where((e) => e.category == category).toList();
     }
