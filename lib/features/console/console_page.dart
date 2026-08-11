@@ -1,11 +1,19 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
+import '../../app/config.dart';
+import '../../app/runtime_config.dart';
 import '../../app/theme.dart';
+import '../../data/tool_library.dart';
+import '../../widgets/tool_icon.dart';
 import '../../models/machine_status.dart';
 import '../../models/tool.dart';
 import '../../state/providers.dart';
+import '../preview/rtsp_preview_widget.dart';
+import '../wizard/job_monitor_page.dart';
+import '../wizard/self_check_page.dart';
 
 /// 状态驱动设备控制台 (Core 3) —— 严格对齐 控制页面.html。
 ///
@@ -32,13 +40,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   bool _spindleOn = false;
   int _rpm = 12000;
 
-  // ATC 刀仓（与 HTML 一致）
-  final List<Tool> _tools = const [
-    Tool(index: 1, name: '🔴 3.175 平底刀', lengthMm: 12, installed: true),
-    Tool(index: 2, name: '🟢 60° V型刀', lengthMm: 10, installed: true),
-    Tool(index: 3, name: '未挂载刀具 (空位)', installed: false),
-  ];
-
   @override
   void dispose() {
     _rec.dispose();
@@ -62,13 +63,12 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
           // ---- 视频监控区 ----
           Stack(
             children: [
-              Container(
+              // 机器侧面固定头：纯裸画面（无叠加层），默认用配置里的固定地址，
+              // 自动发现作为兜底（见 lib/features/preview/ ）。
+              SizedBox(
                 height: 220,
-                width: double.infinity,
-                color: const Color(0xFF0a0a0a),
-                child: const Center(
-                  child: Icon(Icons.videocam, size: 48, color: Color(0xFF333333)),
-                ),
+                child: RtspPreviewWidget(
+                    rtspUrl: ref.watch(runtimeConfigProvider).resolvedCameraRtsp),
               ),
               Positioned(
                 top: 40,
@@ -118,14 +118,21 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     ),
                     child: Row(
                       children: [
-                        Icon(isLocal ? Icons.wifi : Icons.cloud,
+                        Icon(isLocal ? Symbols.wifi : Symbols.cloud,
                             size: 12, color: isLocal ? CncColors.primary : CncColors.warning),
                         const SizedBox(width: 4),
-                        Text(isLocal ? '🟢 局域网直连' : '🔴 远程监视',
-                            style: TextStyle(
-                                fontSize: 10,
-                                color: isLocal ? CncColors.primary : CncColors.warning,
-                                fontWeight: FontWeight.bold)),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _statusDot(isLocal ? CncColors.primary : CncColors.warning),
+                            const SizedBox(width: 5),
+                            Text(isLocal ? '局域网直连' : '远程监视',
+                                style: TextStyle(
+                                    fontSize: 10,
+                                    color: isLocal ? CncColors.primary : CncColors.warning,
+                                    fontWeight: FontWeight.bold)),
+                          ],
+                        ),
                       ],
                     ),
                   ),
@@ -137,17 +144,26 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
           // ---- 快捷开关 ----
           Row(
             children: [
-              _ToggleBtn(icon: '💡', label: '机箱照明', active: _light,
+              _ToggleBtn(
+                  icon: Symbols.lightbulb,
+                  label: '机箱照明',
+                  active: _light,
                   onTap: () {
                     setState(() => _light = !_light);
                     hw.setAux('light', _light);
                   }),
-              _ToggleBtn(icon: '🎯', label: '红点激光', active: _laser,
+              _ToggleBtn(
+                  icon: Symbols.gps_fixed,
+                  label: '红点激光',
+                  active: _laser,
                   onTap: () {
                     setState(() => _laser = !_laser);
                     hw.setAux('laser', _laser);
                   }),
-              _ToggleBtn(icon: '⏱️', label: '延时摄影', active: _timelapse,
+              _ToggleBtn(
+                  icon: Symbols.schedule,
+                  label: '延时摄影',
+                  active: _timelapse,
                   onTap: () {
                     setState(() => _timelapse = !_timelapse);
                     hw.setAux('timelapse', _timelapse);
@@ -170,9 +186,110 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: CncColors.warning.withOpacity(0.4)),
                     ),
-                    child: const Text('🔒 远程监视模式：主动移动/开切已锁定，仅可查看状态与软停止/暂停。',
-                        style: TextStyle(fontSize: 11, color: CncColors.warning)),
+                    child: Row(
+                      children: [
+                        const Icon(Symbols.lock, size: 14, color: CncColors.warning),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text('远程监视模式：主动移动/开切已锁定，仅可查看状态与软停止/暂停。',
+                              style: const TextStyle(fontSize: 11, color: CncColors.warning)),
+                        ),
+                      ],
+                    ),
                   ),
+
+                // 当前加工任务入口（解决监控页被叉掉后找不到入口的 bug）
+                Consumer(
+                  builder: (context, ref, child) {
+                    final job = ref.watch(activeJobProvider);
+                    if (job == null) return const SizedBox.shrink();
+                    final completed = job.completed;
+                    final progress = completed
+                        ? 100
+                        : (status.progress.clamp(0.0, 1.0) * 100).round();
+                    return GestureDetector(
+                      onTap: () {
+                        if (completed || job.selfCheckDone) {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                                builder: (_) => const JobMonitorPage()),
+                          );
+                        } else {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => SelfCheckPage(
+                                materialKey: job.materialKey,
+                                requiredTools: job.task.requiredTools,
+                                procSlot: job.procSlot,
+                              ),
+                            ),
+                          );
+                        }
+                      },
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: completed
+                              ? CncColors.primary.withOpacity(0.1)
+                              : CncColors.warning.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                              color: completed
+                                  ? CncColors.primary.withOpacity(0.4)
+                                  : CncColors.warning.withOpacity(0.4)),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: completed
+                                    ? CncColors.primary.withOpacity(0.15)
+                                    : CncColors.warning.withOpacity(0.15),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                  completed ? Symbols.check_circle : Symbols.play_circle,
+                                  color: completed
+                                      ? CncColors.primary
+                                      : CncColors.warning,
+                                  size: 18),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    completed
+                                        ? '加工已完成'
+                                        : '当前加工中 · $progress%',
+                                    style: TextStyle(
+                                        fontSize: 10,
+                                        color: completed
+                                            ? CncColors.primaryInk
+                                            : CncColors.warning),
+                                  ),
+                                  Text(job.item.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.bold,
+                                          color: CncColors.textMain)),
+                                ],
+                              ),
+                            ),
+                            const Icon(Symbols.chevron_right,
+                                color: CncColors.textSub),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
 
                 // 全局 DRO
                 Container(
@@ -191,12 +308,19 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                               color: busy ? CncColors.warning.withOpacity(0.15) : CncColors.primary.withOpacity(0.15),
                               borderRadius: BorderRadius.circular(6),
                             ),
-                            child: Text(
-                              busy ? '🟠 加工中 (BUSY)' : '🟢 待机 (IDLE)',
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: busy ? CncColors.warning : CncColors.primary),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _statusDot(busy ? CncColors.warning : CncColors.primary),
+                                const SizedBox(width: 5),
+                                Text(
+                                  busy ? '加工中 (BUSY)' : '待机 (IDLE)',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: busy ? CncColors.warning : CncColors.primaryInk),
+                                ),
+                              ],
                             ),
                           ),
                         ],
@@ -205,7 +329,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                       Row(
                         children: [
                           _DroAxis(label: 'X 轴', color: CncColors.danger, value: status.position.x),
-                          _DroAxis(label: 'Y 轴', color: CncColors.primary, value: status.position.y),
+                          _DroAxis(label: 'Y 轴', color: CncColors.primaryInk, value: status.position.y),
                           _DroAxis(label: 'Z 轴', color: CncColors.blue, value: status.position.z),
                         ],
                       ),
@@ -215,10 +339,11 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                 const SizedBox(height: 12),
 
-                // IDLE 控制区（远程模式锁死）
-                if (canControl) ...[
+                // 主动控制区：局域网直连始终展示，加工中仅禁用不隐藏
+                if (isLocal) ...[
                   const _SectionTitle('定位与回零'),
                   _JogCard(
+                    enabled: canControl,
                     onJog: (axis, d) => hw.jog(axis, d),
                     onSetZero: () => hw.setWorkZero(),
                     onHome: () => hw.home(),
@@ -226,6 +351,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   const SizedBox(height: 12),
                   const _SectionTitle('主轴调试 (Spindle)'),
                   _SpindleCard(
+                    enabled: canControl,
                     rpm: _rpm,
                     onRpm: (v) => setState(() => _rpm = v),
                     spindleOn: _spindleOn,
@@ -236,10 +362,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   ),
                   const SizedBox(height: 12),
                   const _SectionTitle('安全与刀仓配置'),
-                  _AtcEntry(onOpen: () => _openAtc(context, hw)),
-                ] else if (isLocal && !idle) ...[
-                  const SizedBox(height: 8),
-                  const Center(child: Text('加工中… 危险操作已收起', style: TextStyle(color: CncColors.textSub))),
+                  _AtcEntry(enabled: canControl, onOpen: () => _openAtc(context, hw)),
                 ],
 
                 const SizedBox(height: 12),
@@ -255,21 +378,57 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
               children: [
                 Expanded(
                   child: _ActionBtn(
-                    label: '🚨 停止',
+                    icon: Symbols.stop,
+                    label: '停止',
                     fg: CncColors.danger,
                     bg: CncColors.danger.withOpacity(0.15),
                     border: CncColors.danger,
-                    onTap: () => hw.stopJob(),
+                    onTap: () {
+                      showDialog(
+                        context: context,
+                        builder: (_) => AlertDialog(
+                          backgroundColor: CncColors.card,
+                          title: const Text('确认停止雕刻吗？',
+                              style: TextStyle(color: CncColors.danger)),
+                          content: const Text('停止后主轴将刹停，本次加工会中断。',
+                              style: TextStyle(color: CncColors.textMain)),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              child: const Text('取消',
+                                  style: TextStyle(color: CncColors.textMain)),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                hw.stopJob();
+                                ref.read(activeJobProvider.notifier).clear();
+                                Navigator.of(context).pop();
+                              },
+                              child: const Text('确认停止',
+                                  style: TextStyle(color: CncColors.danger)),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: _ActionBtn(
-                    label: '⏸️ 暂停',
+                    icon: status.state == MachineState.paused ? Symbols.play_arrow : Symbols.pause,
+                    label: status.state == MachineState.paused ? '继续' : '暂停',
                     fg: CncColors.textMain,
-                    bg: const Color(0xFF222222),
+                    bg: const Color(0xFFEDEFF2),
                     border: CncColors.border,
-                    onTap: () => busy ? hw.pauseJob() : hw.resumeJob(),
+                    onTap: () {
+                      // 暂停/继续状态来自机器（与监控页共享同一状态源，自动同步）
+                      if (status.state == MachineState.paused) {
+                        hw.resumeJob();
+                      } else {
+                        hw.pauseJob();
+                      }
+                    },
                   ),
                 ),
               ],
@@ -286,12 +445,23 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (_) => _AtcSheet(
-        tools: _tools,
         onSync: () {
-          hw.updateToolMap(_tools);
+          final magazine = ref.read(toolMagazineProvider);
+          final tools = [1, 2, 3, 4].map((slot) {
+            final id = magazine[slot];
+            final def = id != null ? toolById(id) : null;
+            return Tool(
+              index: slot,
+              name: def != null ? '${ringEmoji(def.ring)} ${def.name}' : '空位',
+              material: def != null ? def.material : null,
+              installed: def != null,
+              defId: id,
+            );
+          }).toList();
+          hw.updateToolMap(tools);
           Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('✓ 同步到机器')),
+            const SnackBar(content: Text('同步到机器')),
           );
         },
       ),
@@ -307,34 +477,47 @@ BoxDecoration _cardDeco() => BoxDecoration(
       border: Border.all(color: CncColors.border),
     );
 
+/// 状态指示圆点：替代彩色 emoji 色点，统一为纯色圆，跟随语义色。
+Widget _statusDot(Color color) => Container(
+      width: 8,
+      height: 8,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    );
+
 // ===================== 快捷开关 =====================
 
 class _ToggleBtn extends StatelessWidget {
-  final String icon;
+  final IconData icon;
   final String label;
   final bool active;
+  final bool enabled;
   final VoidCallback onTap;
-  const _ToggleBtn({required this.icon, required this.label, required this.active, required this.onTap});
+  const _ToggleBtn({required this.icon, required this.label, required this.active, this.enabled = true, required this.onTap});
 
   @override
   Widget build(BuildContext context) => Expanded(
         child: GestureDetector(
-          onTap: onTap,
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            decoration: BoxDecoration(
-              color: active ? CncColors.card : const Color(0xFF111111),
-              border: Border(
-                right: BorderSide(color: CncColors.border.withOpacity(0.5)),
+          onTap: enabled ? onTap : null,
+          child: Opacity(
+            opacity: enabled ? 1 : 0.45,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              decoration: BoxDecoration(
+                color: active && enabled ? CncColors.card : const Color(0xFFE6E9ED),
+                border: Border(
+                  right: BorderSide(color: CncColors.border.withOpacity(0.5)),
+                ),
               ),
-            ),
-            child: Column(
-              children: [
-                Text(icon, style: const TextStyle(fontSize: 18)),
-                const SizedBox(height: 4),
-                Text(label,
-                    style: TextStyle(fontSize: 10, color: active ? CncColors.primary : CncColors.textSub)),
-              ],
+              child: Column(
+                children: [
+                  Icon(icon,
+                      size: 20,
+                      color: active && enabled ? CncColors.primary : CncColors.textSub),
+                  const SizedBox(height: 4),
+                  Text(label,
+                      style: TextStyle(fontSize: 10, color: active && enabled ? CncColors.primary : CncColors.textSub)),
+                ],
+              ),
             ),
           ),
         ),
@@ -355,7 +538,7 @@ class _DroAxis extends StatelessWidget {
           margin: const EdgeInsets.symmetric(horizontal: 4),
           padding: const EdgeInsets.symmetric(vertical: 6),
           decoration: BoxDecoration(
-            color: const Color(0xFF111111),
+            color: const Color(0xFFE6E9ED),
             borderRadius: BorderRadius.circular(6),
             border: Border.all(color: CncColors.border),
           ),
@@ -387,10 +570,11 @@ class _SectionTitle extends StatelessWidget {
 // ===================== Jog 摇杆 =====================
 
 class _JogCard extends StatelessWidget {
+  final bool enabled;
   final void Function(String axis, double d) onJog;
   final VoidCallback onSetZero;
   final VoidCallback onHome;
-  const _JogCard({required this.onJog, required this.onSetZero, required this.onHome});
+  const _JogCard({this.enabled = true, required this.onJog, required this.onSetZero, required this.onHome});
 
   @override
   Widget build(BuildContext context) => Container(
@@ -409,19 +593,19 @@ class _JogCard extends StatelessWidget {
                 crossAxisSpacing: 4,
                 children: [
                   const SizedBox(),
-                  _JogBtn('Y+', () => onJog('y', 1)),
+                  _JogBtn('Y+', () => onJog('y', 1), enabled: enabled),
                   const SizedBox(),
-                  _JogBtn('X-', () => onJog('x', -1)),
+                  _JogBtn('X-', () => onJog('x', -1), enabled: enabled),
                   Container(
                     decoration: BoxDecoration(
-                      color: const Color(0xFF111111),
+                      color: const Color(0xFFE6E9ED),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: const Center(child: Text('XY', style: TextStyle(fontSize: 10, color: Color(0xFF555555)))),
                   ),
-                  _JogBtn('X+', () => onJog('x', 1)),
+                  _JogBtn('X+', () => onJog('x', 1), enabled: enabled),
                   const SizedBox(),
-                  _JogBtn('Y-', () => onJog('y', -1)),
+                  _JogBtn('Y-', () => onJog('y', -1), enabled: enabled),
                   const SizedBox(),
                 ],
               ),
@@ -432,9 +616,9 @@ class _JogCard extends StatelessWidget {
               width: 45,
               child: Column(
                 children: [
-                  _JogBtn('Z+', () => onJog('z', 1)),
-                  _JogBtn('Z', () => onJog('z', 0), plain: true),
-                  _JogBtn('Z-', () => onJog('z', -1)),
+                  _JogBtn('Z+', () => onJog('z', 1), enabled: enabled),
+                  _JogBtn('Z', () => onJog('z', 0), plain: true, enabled: enabled),
+                  _JogBtn('Z-', () => onJog('z', -1), enabled: enabled),
                 ],
               ),
             ),
@@ -444,9 +628,9 @@ class _JogCard extends StatelessWidget {
               width: 50,
               child: Column(
                 children: [
-                  _HomeBtn('📍\n定原点', onSetZero),
+                  _HomeBtn(icon: Symbols.add_location, label: '定原点', onTap: onSetZero, enabled: enabled),
                   const SizedBox(height: 4),
-                  _HomeBtn('🏠\n回零', onHome),
+                  _HomeBtn(icon: Symbols.home, label: '回零', onTap: onHome, enabled: enabled),
                 ],
               ),
             ),
@@ -459,40 +643,55 @@ class _JogBtn extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
   final bool plain;
-  const _JogBtn(this.label, this.onTap, {this.plain = false});
+  final bool enabled;
+  const _JogBtn(this.label, this.onTap, {this.plain = false, this.enabled = true});
   @override
   Widget build(BuildContext context) => GestureDetector(
-        onTap: onTap,
-        child: Container(
-          height: 38,
-          decoration: BoxDecoration(
-            color: plain ? const Color(0xFF111111) : const Color(0xFF222222),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: CncColors.border),
+        onTap: enabled ? onTap : null,
+        child: Opacity(
+          opacity: enabled ? 1 : 0.45,
+          child: Container(
+            height: 38,
+            decoration: BoxDecoration(
+              color: plain ? const Color(0xFFE6E9ED) : const Color(0xFFEDEFF2),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: CncColors.border),
+            ),
+            child: Center(child: Text(label, style: const TextStyle(fontSize: 14, color: CncColors.textMain))),
           ),
-          child: Center(child: Text(label, style: const TextStyle(fontSize: 14, color: CncColors.textMain))),
         ),
       );
 }
 
 class _HomeBtn extends StatelessWidget {
+  final IconData icon;
   final String label;
   final VoidCallback onTap;
-  const _HomeBtn(this.label, this.onTap);
+  final bool enabled;
+  const _HomeBtn({required this.icon, required this.label, required this.onTap, this.enabled = true});
   @override
   Widget build(BuildContext context) => GestureDetector(
-        onTap: onTap,
-        child: Container(
-          height: 38,
-          decoration: BoxDecoration(
-            color: const Color(0xFF222222),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: CncColors.border),
-          ),
-          child: Center(
-            child: Text(label,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: CncColors.textSub)),
+        onTap: enabled ? onTap : null,
+        child: Opacity(
+          opacity: enabled ? 1 : 0.45,
+          child: Container(
+            height: 44,
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEDEFF2),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: CncColors.border),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: 18, color: CncColors.textSub),
+                const SizedBox(height: 3),
+                Text(label,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: CncColors.textSub)),
+              ],
+            ),
           ),
         ),
       );
@@ -501,71 +700,93 @@ class _HomeBtn extends StatelessWidget {
 // ===================== 主轴 =====================
 
 class _SpindleCard extends StatelessWidget {
+  final bool enabled;
   final int rpm;
   final ValueChanged<int> onRpm;
   final bool spindleOn;
   final VoidCallback onToggle;
-  const _SpindleCard({required this.rpm, required this.onRpm, required this.spindleOn, required this.onToggle});
+  const _SpindleCard({this.enabled = true, required this.rpm, required this.onRpm, required this.spindleOn, required this.onToggle});
 
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.all(12),
         decoration: _cardDeco(),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('目标转速: ${rpm.toString()} RPM',
-                    style: const TextStyle(fontSize: 12, color: CncColors.textSub)),
-                GestureDetector(
-                  onTap: onToggle,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: spindleOn ? CncColors.danger.withOpacity(0.15) : const Color(0xFF222222),
-                      border: Border.all(color: spindleOn ? CncColors.danger : CncColors.border),
-                      borderRadius: BorderRadius.circular(6),
+        child: Opacity(
+          opacity: enabled ? 1 : 0.45,
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('目标转速: ${rpm.toString()} RPM',
+                      style: const TextStyle(fontSize: 12, color: CncColors.textSub)),
+                  GestureDetector(
+                    onTap: enabled ? onToggle : null,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: spindleOn && enabled ? CncColors.danger.withOpacity(0.15) : const Color(0xFFEDEFF2),
+                        border: Border.all(color: spindleOn && enabled ? CncColors.danger : CncColors.border),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(spindleOn && enabled ? Symbols.stop_circle : Symbols.play_arrow,
+                              size: 14, color: spindleOn && enabled ? CncColors.danger : CncColors.textMain),
+                          const SizedBox(width: 6),
+                          Text(spindleOn && enabled ? '停止转动' : '测试启动',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: spindleOn && enabled ? CncColors.danger : CncColors.textMain)),
+                        ],
+                      ),
                     ),
-                    child: Text(spindleOn ? '🚨 停止转动' : '🌀 测试启动',
-                        style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: spindleOn ? CncColors.danger : CncColors.textMain)),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                const Text('0', style: TextStyle(fontSize: 10, color: Color(0xFF555555))),
-                Expanded(
-                  child: Slider(
-                    value: rpm.toDouble(),
-                    min: 0,
-                    max: 24000,
-                    divisions: 24,
-                    activeColor: CncColors.primary,
-                    onChanged: (v) => onRpm(v.round()),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  const Text('0', style: TextStyle(fontSize: 10, color: Color(0xFF555555))),
+                  Expanded(
+                    child: Slider(
+                      value: rpm.toDouble(),
+                      min: 0,
+                      max: 24000,
+                      divisions: 24,
+                      activeColor: enabled ? CncColors.primary : CncColors.textSub,
+                      onChanged: enabled ? (v) => onRpm(v.round()) : null,
+                    ),
                   ),
-                ),
-                const Text('24k', style: TextStyle(fontSize: 10, color: Color(0xFF555555))),
-              ],
-            ),
-          ],
+                  const Text('24k', style: TextStyle(fontSize: 10, color: Color(0xFF555555))),
+                ],
+              ),
+            ],
+          ),
         ),
       );
 }
 
 // ===================== ATC 入口 + 抽屉 =====================
+// 与向导 Step3 共用 toolMagazineProvider：任一处修改，另一处立即同步。
 
-class _AtcEntry extends StatelessWidget {
+class _AtcEntry extends ConsumerWidget {
+  final bool enabled;
   final VoidCallback onOpen;
-  const _AtcEntry({required this.onOpen});
+  const _AtcEntry({this.enabled = true, required this.onOpen});
   @override
-  Widget build(BuildContext context) => GestureDetector(
-        onTap: onOpen,
+  Widget build(BuildContext context, WidgetRef ref) {
+    final magazine = ref.watch(toolMagazineProvider);
+    final t1 = magazine[1] != null ? toolById(magazine[1]!) : null;
+    final sub = t1 != null
+        ? '当前主轴 T1: ${ringEmoji(t1.ring)} ${t1.name}'
+        : '当前主轴: 空';
+    return GestureDetector(
+      onTap: enabled ? onOpen : null,
+      child: Opacity(
+        opacity: enabled ? 1 : 0.45,
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: _cardDeco(),
@@ -574,37 +795,57 @@ class _AtcEntry extends StatelessWidget {
             children: [
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text('ATC 自动换刀系统', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
-                  SizedBox(height: 2),
-                  Text('当前主轴: T1 (🔴3.175平底刀)', style: TextStyle(fontSize: 10, color: Color(0xFF666666))),
+                children: [
+                  const Text('ATC 自动换刀系统', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                  const SizedBox(height: 2),
+                  Text(sub, style: const TextStyle(fontSize: 10, color: Color(0xFF666666))),
                 ],
               ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF222222),
+                  color: const Color(0xFFEDEFF2),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: CncColors.border),
                 ),
-                child: const Text('管理刀仓 ❯', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: CncColors.blue)),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Text('管理刀仓', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: CncColors.blue)),
+                    SizedBox(width: 4),
+                    Icon(Symbols.chevron_right, size: 14, color: CncColors.blue),
+                  ],
+                ),
               ),
             ],
           ),
         ),
-      );
+      ),
+    );
+  }
 }
 
-class _AtcSheet extends StatelessWidget {
-  final List<Tool> tools;
+class _AtcSheet extends ConsumerStatefulWidget {
   final VoidCallback onSync;
-  const _AtcSheet({required this.tools, required this.onSync});
+  const _AtcSheet({required this.onSync});
 
   @override
-  Widget build(BuildContext context) => Container(
-        height: 400,
+  ConsumerState<_AtcSheet> createState() => _AtcSheetState();
+}
+
+class _AtcSheetState extends ConsumerState<_AtcSheet> {
+  int? _pickerSlot; // 正在选择刀具的卡槽
+
+  @override
+  Widget build(BuildContext context) {
+    final magazine = ref.watch(toolMagazineProvider);
+
+    if (_pickerSlot != null) {
+      // 刀具选择面板（从刀库选择填入该刀位）
+      return Container(
+        height: 460,
         decoration: const BoxDecoration(
-          color: Color(0xFF151515),
+          color: Color(0xFFE0E3E8),
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           border: Border(top: BorderSide(color: CncColors.border)),
         ),
@@ -614,9 +855,12 @@ class _AtcSheet extends StatelessWidget {
               padding: const EdgeInsets.all(20),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: const [
-                  Text('配置 ATC 刀具映射表', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: CncColors.textMain)),
-                  Text('×', style: TextStyle(fontSize: 22, color: Color(0xFF666666))),
+                children: [
+                  Text('选择刀具 → T$_pickerSlot', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                  GestureDetector(
+                    onTap: () => setState(() => _pickerSlot = null),
+                    child: const Text('×', style: TextStyle(fontSize: 22, color: Color(0xFF666666))),
+                  ),
                 ],
               ),
             ),
@@ -624,74 +868,185 @@ class _AtcSheet extends StatelessWidget {
               child: ListView(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 children: [
-                  const Text('选择物理卡槽对应的实际刀具，同步后机器将自动更新设定。',
-                      style: TextStyle(fontSize: 10, color: CncColors.textSub)),
-                  const SizedBox(height: 10),
-                  ...tools.map((t) => Container(
+                  ...toolCatalog.map((def) => Container(
                         margin: const EdgeInsets.only(bottom: 10),
                         padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
                         decoration: _cardDeco(),
                         child: Row(
                           children: [
-                            Text('T${t.index}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF555555))),
+                            ToolIcon(def: def, size: 38),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(t.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                                  Text(def.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: CncColors.textMain)),
                                   const SizedBox(height: 2),
-                                  Text(t.installed ? '刃长: ${t.lengthMm}mm / 适合粗雕' : '空位',
+                                  Text('${def.type} · ⌀${def.diameterMm}mm · ${def.flutes}刃 · ${def.material}',
                                       style: const TextStyle(fontSize: 10, color: Color(0xFF666666))),
+                                  const SizedBox(height: 2),
+                                  Text(def.desc, style: const TextStyle(fontSize: 9, color: CncColors.textSub)),
                                 ],
                               ),
                             ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: t.installed ? CncColors.blue.withOpacity(0.1) : CncColors.primary.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(6),
+                            GestureDetector(
+                              onTap: () {
+                                ref.read(toolMagazineProvider.notifier).assign(_pickerSlot!, def.id);
+                                setState(() => _pickerSlot = null);
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: CncColors.primary.withOpacity(0.12),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: CncColors.primary.withOpacity(0.5)),
+                                ),
+                                child: const Text('填入', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.primaryInk)),
                               ),
-                              child: Text(t.installed ? '更换 ❯' : '添加 +',
-                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold,
-                                      color: t.installed ? CncColors.blue : CncColors.primary)),
                             ),
                           ],
                         ),
                       )),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-              child: SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: onSync,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: CncColors.primary,
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  const SizedBox(height: 8),
+                  GestureDetector(
+                    onTap: () {
+                      ref.read(toolMagazineProvider.notifier).assign(_pickerSlot!, null);
+                      setState(() => _pickerSlot = null);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: CncColors.danger.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: CncColors.danger.withOpacity(0.4)),
+                      ),
+                      child: const Center(
+                        child: Text('清空此刀位 (空)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.danger)),
+                      ),
+                    ),
                   ),
-                  child: const Text('✓ 同步到机器', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                ),
+                ],
               ),
             ),
           ],
         ),
       );
+    }
+
+    // 主映射表
+    return Container(
+      height: 460,
+      decoration: const BoxDecoration(
+        color: Color(0xFFE0E3E8),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        border: Border(top: BorderSide(color: CncColors.border)),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: const [
+                Text('配置 ATC 刀具映射表', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                Text('×', style: TextStyle(fontSize: 22, color: Color(0xFF666666))),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              children: [
+                const Text('选择物理卡槽对应的实际刀具（刀库与向导共用，任一处修改自动同步）。',
+                    style: TextStyle(fontSize: 10, color: CncColors.textSub)),
+                const SizedBox(height: 10),
+                for (final slot in [1, 2, 3, 4]) ...[
+                  Builder(builder: (c) {
+                    final id = magazine[slot];
+                    final def = id != null ? toolById(id) : null;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
+                      decoration: _cardDeco(),
+                        child: Row(
+                        children: [
+                          Opacity(
+                            opacity: def != null ? 1 : 0.28,
+                            child: ToolIcon(def: def ?? toolCatalog.first, size: 40, showRing: def != null),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(def != null ? 'T$slot · ${def.name}' : 'T$slot · 未挂载刀具 (空位)',
+                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                                const SizedBox(height: 2),
+                                Text(def != null ? '${def.type} · ⌀${def.diameterMm}mm · ${def.desc}' : '点击添加刀具',
+                                    style: const TextStyle(fontSize: 10, color: Color(0xFF666666))),
+                              ],
+                            ),
+                          ),
+                          GestureDetector(
+                            onTap: () => setState(() => _pickerSlot = slot),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: def != null ? CncColors.blue.withOpacity(0.1) : CncColors.primary.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(def != null ? '更换' : '添加 +',
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold,
+                                      color: def != null ? CncColors.blue : CncColors.primaryInk)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: widget.onSync,
+                style: FilledButton.styleFrom(
+                  backgroundColor: CncColors.primary,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Symbols.sync, size: 18, color: Colors.black),
+                    SizedBox(width: 8),
+                    Text('同步到机器', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ===================== 底部动作 =====================
 
 class _ActionBtn extends StatelessWidget {
   final String label;
+  final IconData? icon;
   final Color fg;
   final Color bg;
   final Color border;
   final VoidCallback onTap;
-  const _ActionBtn({required this.label, required this.fg, required this.bg, required this.border, required this.onTap});
+  const _ActionBtn({required this.label, this.icon, required this.fg, required this.bg, required this.border, required this.onTap});
 
   @override
   Widget build(BuildContext context) => GestureDetector(
@@ -704,7 +1059,16 @@ class _ActionBtn extends StatelessWidget {
             borderRadius: BorderRadius.circular(10),
           ),
           child: Center(
-            child: Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: fg)),
+            child: icon == null
+                ? Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: fg))
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(icon, size: 18, color: fg),
+                      const SizedBox(width: 6),
+                      Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: fg)),
+                    ],
+                  ),
           ),
         ),
       );

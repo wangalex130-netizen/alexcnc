@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
 import '../settings/debug_settings_page.dart';
 
 /// Core 5: personal hub & device manager.
-/// Strictly aligned to 我的页面.html —— 荧光绿 #00ff7f / 纯黑底 / emoji 图标 / 原名。
+/// Strictly aligned to 我的页面.html —— 荧光绿 #00ff7f / 纯黑底 / 线性图标 / 原名。
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
 
@@ -66,7 +67,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   ],
                 ),
               ),
-              const Text('⚙️', style: TextStyle(fontSize: 22)),
+              const Icon(Symbols.settings, size: 22, color: CncColors.textMain),
             ],
           ),
         ),
@@ -77,14 +78,14 @@ class _ProfilePageState extends State<ProfilePage> {
         _MenuGroup(
           children: [
             _MenuItem(
-              emoji: '📡',
+              icon: Symbols.wifi,
               title: '网络配对与连接',
               trailing: const Text('已连 Wi-Fi',
-                  style: TextStyle(fontSize: 12, color: CncColors.primary)),
+                  style: TextStyle(fontSize: 12, color: CncColors.primaryInk)),
               onTap: () => _openSheet(const _PairingSheet()),
             ),
             _MenuItem(
-              emoji: '⬆️',
+              icon: Symbols.system_update,
               title: '固件 OTA 升级',
               trailing: Container(
                 padding:
@@ -108,21 +109,21 @@ class _ProfilePageState extends State<ProfilePage> {
         _MenuGroup(
           children: [
             _MenuItem(
-              emoji: '🔔',
+              icon: Symbols.notifications,
               title: '系统消息与历史告警',
               trailing: const Text('2 条未读',
                   style: TextStyle(fontSize: 12, color: CncColors.danger)),
               onTap: () => _openSheet(const _MessagesSheet()),
             ),
             _MenuItem(
-              emoji: '✅',
+              icon: Symbols.notifications_active,
               title: '允许推送设备完成状态',
               trailing: _Switch(
                   value: _pushComplete,
                   onChanged: (v) => setState(() => _pushComplete = v)),
             ),
             _MenuItem(
-              emoji: '⚠️',
+              icon: Symbols.warning,
               title: '允许推送硬件异常告警',
               trailing: _Switch(
                   value: _pushAlert,
@@ -136,25 +137,27 @@ class _ProfilePageState extends State<ProfilePage> {
         _MenuGroup(
           children: [
             _MenuItem(
-              emoji: '🩺',
+              icon: Symbols.build,
               title: '智能诊断与日志提取',
               onTap: () => _openSheet(const _DiagSheet()),
             ),
             _MenuItem(
-              emoji: '🎧',
+              icon: Symbols.tune,
+              title: '联调设置（云端 / MQTT / 设备）',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const DebugSettingsPage()),
+              ),
+            ),
+            _MenuItem(
+              icon: Symbols.headset,
               title: '在线售后客服',
               onTap: () {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('正在接通在线客服...')),
                 );
               },
-            ),
-            _MenuItem(
-              emoji: '🔧',
-              title: '联调设置（云端/后端）',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const DebugSettingsPage()),
-              ),
             ),
           ],
         ),
@@ -192,12 +195,12 @@ class _MenuGroup extends StatelessWidget {
 }
 
 class _MenuItem extends StatelessWidget {
-  final String emoji;
+  final IconData icon;
   final String title;
   final Widget? trailing;
   final VoidCallback? onTap;
   const _MenuItem(
-      {required this.emoji,
+      {required this.icon,
       required this.title,
       this.trailing,
       this.onTap});
@@ -215,9 +218,8 @@ class _MenuItem extends StatelessWidget {
             children: [
               SizedBox(
                   width: 24,
-                  child: Text(emoji,
-                      style: const TextStyle(fontSize: 18),
-                      textAlign: TextAlign.center)),
+                  child: Icon(icon,
+                      size: 20, color: CncColors.textMain)),
               const SizedBox(width: 12),
               Expanded(
                   child: Text(title,
@@ -230,7 +232,7 @@ class _MenuItem extends StatelessWidget {
                   trailing!,
                   const SizedBox(width: 6),
                   if (onTap != null)
-                    const Icon(Icons.chevron_right,
+                    const Icon(Symbols.chevron_right,
                         color: CncColors.textSub),
                 ],
             ],
@@ -263,7 +265,7 @@ class _Switch extends StatelessWidget {
               height: 16,
               margin: const EdgeInsets.all(2),
               decoration: BoxDecoration(
-                color: value ? Colors.black : Colors.white,
+                color: value ? Colors.white : CncColors.textSub,
                 shape: BoxShape.circle,
               ),
             ),
@@ -303,7 +305,7 @@ class _SheetFrame extends StatelessWidget {
                           fontWeight: FontWeight.bold,
                           color: CncColors.textMain)),
                   IconButton(
-                    icon: const Icon(Icons.close,
+                    icon: const Icon(Symbols.close,
                         color: CncColors.textSub, size: 22),
                     onPressed: () => Navigator.pop(context),
                   ),
@@ -335,7 +337,7 @@ class _PairingSheet extends StatelessWidget {
             const Center(
               child: Column(
                 children: [
-                  Text('📡', style: TextStyle(fontSize: 40)),
+                  Icon(Symbols.wifi, size: 48, color: CncColors.primary),
                   SizedBox(height: 10),
                   Text('当前连接：Smart_Studio_5G',
                       style: TextStyle(
@@ -421,7 +423,7 @@ class _SendConfigButtonState extends State<_SendConfigButton> {
     });
     Future.delayed(const Duration(milliseconds: 1500), () {
       if (!mounted) return;
-      setState(() => _label = '✓ 网络已重新连接');
+      setState(() => _label = '网络已重新连接');
       Future.delayed(const Duration(milliseconds: 1000), () {
         if (mounted) Navigator.pop(context);
       });
@@ -477,7 +479,7 @@ class _OtaSheet extends StatelessWidget {
                           style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
-                              color: CncColors.primary)),
+                              color: CncColors.primaryInk)),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -591,16 +593,22 @@ class _MessagesSheet extends StatelessWidget {
   const _MessagesSheet();
   static const _msgs = [
     _Msg(
-        title: '🚨 加工异常中断',
+        icon: Symbols.error,
+        iconColor: CncColors.danger,
+        title: '加工异常中断',
         time: '今天 15:30',
         desc: '检测到加工过程中机箱防护门被物理打开。为保障安全，主轴已急停。请检查并复位机器。',
         error: true),
     _Msg(
-        title: '✅ 雕刻任务已完成',
+        icon: Symbols.check_circle,
+        iconColor: CncColors.primary,
+        title: '雕刻任务已完成',
         time: '今天 11:20',
         desc: '工程包“定制化_父亲节底座_V2”已成功完成加工。延时摄影视频已保存至云端相册。'),
     _Msg(
-        title: '🔧 刀具保养提醒',
+        icon: Symbols.build,
+        iconColor: CncColors.textSub,
+        title: '刀具保养提醒',
         time: '昨天 09:10',
         desc: 'T1 槽位 3.175 平底刀累计切削时长已达 50 小时，建议检查刃口磨损情况。'),
   ];
@@ -625,11 +633,19 @@ class _MessagesSheet extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(m.title,
-                            style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                color: CncColors.textMain)),
+                        Row(
+                          children: [
+                            Icon(m.icon, size: 16, color: m.iconColor),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(m.title,
+                                  style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      color: CncColors.textMain)),
+                            ),
+                          ],
+                        ),
                         const SizedBox(height: 4),
                         Text(m.time,
                             style: const TextStyle(
@@ -649,12 +665,16 @@ class _MessagesSheet extends StatelessWidget {
 }
 
 class _Msg {
+  final IconData icon;
+  final Color iconColor;
   final String title;
   final String time;
   final String desc;
   final bool error;
   const _Msg(
-      {required this.title,
+      {required this.icon,
+      required this.iconColor,
+      required this.title,
       required this.time,
       required this.desc,
       this.error = false});
@@ -733,7 +753,7 @@ class _DiagProgressButtonState extends State<_DiagProgressButton> {
               onPressed: _running ? null : _start,
               style: FilledButton.styleFrom(
                 backgroundColor: CncColors.bg,
-                foregroundColor: CncColors.primary,
+                foregroundColor: CncColors.primaryInk,
                 disabledBackgroundColor: CncColors.border,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
@@ -741,10 +761,17 @@ class _DiagProgressButtonState extends State<_DiagProgressButton> {
                   side: BorderSide(color: CncColors.border),
                 ),
               ),
-              child: Text(
-                  _running ? '打包中 ${_progress.toInt()}%' : '📤 一键打包提取机器日志',
-                  style: const TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.bold)),
+              child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (!_running)
+                      const Icon(Symbols.archive, size: 18, color: CncColors.primary),
+                    if (!_running) const SizedBox(width: 8),
+                    Text(
+                        _running ? '打包中 ${_progress.toInt()}%' : '一键打包提取机器日志',
+                        style: const TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.bold)),
+                  ]),
             ),
           ),
         ],
