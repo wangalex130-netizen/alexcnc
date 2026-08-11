@@ -147,59 +147,60 @@ jobs:
           echo "Full log committed to ci-log.txt on ${GITHUB_REF_NAME}."
           exit 1
 
-  # iOS 目前不是主线（用户要的是 APK）。失败不再把整个流水线拖红。
-  build-ios:
-    runs-on: macos-latest
-    continue-on-error: true
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Flutter (stable)
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.29.0'
-          channel: 'stable'
-
-      - name: Backup custom entry files
-        run: |
-          cp lib/main.dart /tmp/main.dart.bak
-          cp pubspec.yaml /tmp/pubspec.yaml.bak
-
-      - name: Generate iOS platform
-        run: flutter create --platforms=ios --org com.alexcnc .
-
-      - name: Restore custom entry files
-        run: |
-          cp /tmp/main.dart.bak lib/main.dart
-          cp /tmp/pubspec.yaml.bak pubspec.yaml
-
-      - name: Inject iOS network permissions (Info.plist)
-        run: |
-          PLIST=ios/Runner/Info.plist
-          /usr/libexec/PlistBuddy -c "Add :NSLocalNetworkUsageDescription string '用于发现并连接局域网内的 CNC 雕刻机与摄像头'" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Add :NSBonjourServices array" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Add :NSBonjourServices:0 string _alexcnc._tcp" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Add :NSBonjourServices:1 string _http._tcp" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" "$PLIST"
-
-      - name: Install dependencies
-        run: flutter pub get
-
-      - name: Build iOS (no codesign)
-        run: flutter build ios --release --no-codesign
-
-      - name: Package unsigned IPA
-        run: |
-          cd build/ios/iphoneos
-          mkdir -p Payload
-          cp -r Runner.app Payload/
-          zip -qry alexcnc-ios-unsigned.ipa Payload
-
-      - name: Upload IPA artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: alexcnc-ios-unsigned
-          path: build/ios/iphoneos/alexcnc-ios-unsigned.ipa
+  # iOS 构建暂时关闭（省 GitHub Actions 分钟数；macOS runner 按 10 倍扣额）。
+  # 需要时去掉下面的注释即可恢复。
+  # build-ios:
+  #   runs-on: macos-latest
+  #   continue-on-error: true
+  #   permissions:
+  #     contents: read
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #
+  #     - name: Setup Flutter (stable)
+  #       uses: subosito/flutter-action@v2
+  #       with:
+  #         flutter-version: '3.29.0'
+  #         channel: 'stable'
+  #
+  #     - name: Backup custom entry files
+  #       run: |
+  #         cp lib/main.dart /tmp/main.dart.bak
+  #         cp pubspec.yaml /tmp/pubspec.yaml.bak
+  #
+  #     - name: Generate iOS platform
+  #       run: flutter create --platforms=ios --org com.alexcnc .
+  #
+  #     - name: Restore custom entry files
+  #       run: |
+  #         cp /tmp/main.dart.bak lib/main.dart
+  #         cp /tmp/pubspec.yaml.bak pubspec.yaml
+  #
+  #     - name: Inject iOS network permissions (Info.plist)
+  #       run: |
+  #         PLIST=ios/Runner/Info.plist
+  #         /usr/libexec/PlistBuddy -c "Add :NSLocalNetworkUsageDescription string '用于发现并连接局域网内的 CNC 雕刻机与摄像头'" "$PLIST"
+  #         /usr/libexec/PlistBuddy -c "Add :NSBonjourServices array" "$PLIST"
+  #         /usr/libexec/PlistBuddy -c "Add :NSBonjourServices:0 string _alexcnc._tcp" "$PLIST"
+  #         /usr/libexec/PlistBuddy -c "Add :NSBonjourServices:1 string _http._tcp" "$PLIST"
+  #         /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$PLIST"
+  #         /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" "$PLIST"
+  #
+  #     - name: Install dependencies
+  #       run: flutter pub get
+  #
+  #     - name: Build iOS (no codesign)
+  #       run: flutter build ios --release --no-codesign
+  #
+  #     - name: Package unsigned IPA
+  #       run: |
+  #         cd build/ios/iphoneos
+  #         mkdir -p Payload
+  #         cp -r Runner.app Payload/
+  #         zip -qry alexcnc-ios-unsigned.ipa Payload
+  #
+  #     - name: Upload IPA artifact
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: alexcnc-ios-unsigned
+  #         path: build/ios/iphoneos/alexcnc-ios-unsigned.ipa
