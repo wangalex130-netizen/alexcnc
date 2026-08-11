@@ -1770,7 +1770,7 @@ class _J extends StatelessWidget {
         onTap: onTap,
         child: Container(
           decoration: BoxDecoration(
-            color: primary ? CncColors.primary.withOpacity(0.15) : const Color(0xFFEDEFF2),
+            color: primary ? CncColors.primary.withOpacity(0.15) : CncColors.panelAlt,
             borderRadius: BorderRadius.circular(6),
             border: Border.all(
                 color: primary ? CncColors.primary : CncColors.border),
@@ -1800,7 +1800,7 @@ class _StepChip extends StatelessWidget {
           margin: const EdgeInsets.only(bottom: 4),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: active ? CncColors.primary : const Color(0xFFEDEFF2),
+            color: active ? CncColors.primary : CncColors.panelAlt,
             borderRadius: BorderRadius.circular(6),
             border: Border.all(
                 color: active ? CncColors.primary : CncColors.border),

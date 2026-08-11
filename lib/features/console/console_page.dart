@@ -75,6 +75,18 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 left: 15,
                 child: Row(
                   children: [
+                    // KARVA 品牌角标（logo + 浅色面板，视频上也能看清）
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: CncColors.panel,
+                        borderRadius: BorderRadius.circular(CncSizes.r4),
+                        border: Border.all(color: CncColors.border, width: 0.5),
+                      ),
+                      child: Image.asset(CncAssets.logo, height: 12, fit: BoxFit.contain),
+                    ),
+                    const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
@@ -419,7 +431,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     icon: status.state == MachineState.paused ? Symbols.play_arrow : Symbols.pause,
                     label: status.state == MachineState.paused ? '继续' : '暂停',
                     fg: CncColors.textMain,
-                    bg: const Color(0xFFEDEFF2),
+                    bg: CncColors.panelAlt,
                     border: CncColors.border,
                     onTap: () {
                       // 暂停/继续状态来自机器（与监控页共享同一状态源，自动同步）
@@ -653,7 +665,7 @@ class _JogBtn extends StatelessWidget {
           child: Container(
             height: 38,
             decoration: BoxDecoration(
-              color: plain ? const Color(0xFFE6E9ED) : const Color(0xFFEDEFF2),
+              color: plain ? const Color(0xFFE6E9ED) : CncColors.panelAlt,
               borderRadius: BorderRadius.circular(6),
               border: Border.all(color: CncColors.border),
             ),
@@ -678,7 +690,7 @@ class _HomeBtn extends StatelessWidget {
             height: 44,
             padding: const EdgeInsets.symmetric(horizontal: 4),
             decoration: BoxDecoration(
-              color: const Color(0xFFEDEFF2),
+              color: CncColors.panelAlt,
               borderRadius: BorderRadius.circular(6),
               border: Border.all(color: CncColors.border),
             ),
@@ -725,7 +737,7 @@ class _SpindleCard extends StatelessWidget {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       decoration: BoxDecoration(
-                        color: spindleOn && enabled ? CncColors.danger.withOpacity(0.15) : const Color(0xFFEDEFF2),
+                        color: spindleOn && enabled ? CncColors.danger.withOpacity(0.15) : CncColors.panelAlt,
                         border: Border.all(color: spindleOn && enabled ? CncColors.danger : CncColors.border),
                         borderRadius: BorderRadius.circular(6),
                       ),
@@ -804,7 +816,7 @@ class _AtcEntry extends ConsumerWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEDEFF2),
+                  color: CncColors.panelAlt,
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: CncColors.border),
                 ),
