@@ -354,9 +354,10 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 // 主动控制区：局域网直连始终展示，加工中仅禁用不隐藏
                 if (isLocal) ...[
                   const _SectionTitle('定位与回零'),
+                  _StepSelector(),
                   _JogCard(
                     enabled: canControl,
-                    onJog: (axis, d) => hw.jog(axis, d),
+                    onJog: (axis, sign) => hw.jog(axis, ref.watch(jogStepProvider) * sign),
                     onSetZero: () => hw.setWorkZero(),
                     onHome: () => hw.home(),
                   ),
@@ -577,6 +578,54 @@ class _SectionTitle extends StatelessWidget {
         child: Text(text,
             style: const TextStyle(fontSize: 11, color: CncColors.textSub, letterSpacing: 0.5)),
       );
+}
+
+// ===================== Jog 步进档位（全局共享） =====================
+
+class _StepSelector extends ConsumerWidget {
+  const _StepSelector();
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final step = ref.watch(jogStepProvider);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          const Text('步进', style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+          const SizedBox(width: 10),
+          ...[0.1, 1.0, 10.0].map((v) {
+            final sel = step == v;
+            return Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: GestureDetector(
+                  onTap: () => ref.read(jogStepProvider.notifier).state = v,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 7),
+                    decoration: BoxDecoration(
+                      color: sel ? CncColors.primary : CncColors.bg,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: sel ? CncColors.primary : CncColors.border,
+                      ),
+                    ),
+                    child: Center(
+                      child: Text('${v.toStringAsFixed(1)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: sel ? Colors.black : CncColors.textMain,
+                          )),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
 }
 
 // ===================== Jog 摇杆 =====================

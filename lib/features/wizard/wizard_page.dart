@@ -24,7 +24,8 @@ import 'job_monitor_page.dart';
 /// Visual language strictly aligned to step1-6.html (荧光绿 #00ff7f / 黑底).
 class WizardPage extends ConsumerStatefulWidget {
   final LibraryItem item;
-  const WizardPage({super.key, required this.item});
+  final int initialStep;
+  const WizardPage({super.key, required this.item, this.initialStep = 0});
 
   @override
   ConsumerState<WizardPage> createState() => _WizardPageState();
@@ -56,15 +57,17 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   static const _titles = [
     '解析任务',
     '材质确认',
-    '刀仓映射',
-    '定原点防撞',
-    '智能调平',
+    '配置刀具',
+    '激光找原点',
+    '自动调平',
     '开始雕刻',
   ];
 
   @override
   void initState() {
     super.initState();
+    _step = widget.initialStep;
+    ref.read(wizardStepProvider.notifier).state = _step;
     _thicknessFocus = FocusNode();
     _thicknessFocus.addListener(() {
       if (!_thicknessFocus.hasFocus) {
@@ -187,12 +190,14 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           );
     }
     setState(() => _step++);
+    ref.read(wizardStepProvider.notifier).state = _step;
   }
 
   @override
   void dispose() {
     _thicknessFocus.dispose();
     _thicknessCtl.dispose();
+    ref.read(wizardStepProvider.notifier).state = 0;
     super.dispose();
   }
 
@@ -260,7 +265,10 @@ class _WizardPageState extends ConsumerState<WizardPage> {
               children: [
                 if (_step > 0)
                   OutlinedButton(
-                    onPressed: () => setState(() => _step--),
+                    onPressed: () {
+                      setState(() => _step--);
+                      ref.read(wizardStepProvider.notifier).state = _step;
+                    },
                     style: OutlinedButton.styleFrom(
                       foregroundColor: CncColors.textMain,
                       side: BorderSide(color: CncColors.border),
@@ -939,7 +947,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Step 3 · 刀仓映射',
+        Text('Step 3 · 配置刀具',
             style: t.titleMedium?.copyWith(color: CncColors.textMain)),
         const SizedBox(height: 6),
         const Text('模型需按工序顺序使用以下刀具。已自动沿用控制台刀仓中已配置的刀位；'
@@ -1427,7 +1435,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Step 4 · 定原点防撞',
+        Text('Step 4 · 激光找原点',
             style: t.titleMedium?.copyWith(color: CncColors.textMain)),
         const SizedBox(height: 8),
         // 继承 Step 1 的任务信息卡
@@ -1959,7 +1967,7 @@ class _StepLeveling extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Step 5 · 智能调平',
+        Text('Step 5 · 自动调平',
             style: t.titleMedium?.copyWith(color: CncColors.textMain)),
         const SizedBox(height: 8),
         const Text('基于加工面积自动匹配探测点。选择调平模式以平衡精度与耗时：',

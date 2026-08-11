@@ -54,6 +54,14 @@ final networkProbeProvider = Provider<NetworkProbe>((ref) => NetworkProbe());
 /// true = same Wi-Fi as controller (full control); false = remote (monitor only).
 final isLocalLANProvider = StateProvider<bool>((ref) => true);
 
+/// Jog 步进档位（0.1 / 1.0 / 10 mm），全局共享三处 Jog 入口
+/// （首页机器卡浮层 / 向导 Step4 定原点 / 全屏监控浮层），任一处切换其余同步。
+final jogStepProvider = StateProvider<double>((ref) => 1.0);
+
+/// 向导当前步骤（0..5）。工作台可读取渲染「雕刻流程」进度；
+/// 进入向导时由 WizardPage 写入，离开时复位为 0。
+final wizardStepProvider = StateProvider<int>((ref) => 0);
+
 /// 共享刀仓映射（slot 1..4 → 刀库 ToolDef.id，null=空位）。
 ///
 /// 控制台「管理刀仓」与向导 Step3 共用同一份本地状态（己方信息同步）：
