@@ -236,7 +236,22 @@ class _WizardPageState extends ConsumerState<WizardPage> {
                   ? const Center(
                       child: CircularProgressIndicator(
                           color: CncColors.primary))
-                  : _stepContent(),
+                  : AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 220),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeInCubic,
+                      transitionBuilder: (child, anim) => SlideTransition(
+                        position: Tween<Offset>(
+                          begin: const Offset(0.06, 0),
+                          end: Offset.zero,
+                        ).animate(anim),
+                        child: FadeTransition(opacity: anim, child: child),
+                      ),
+                      child: KeyedSubtree(
+                        key: ValueKey(_step),
+                        child: _stepContent(),
+                      ),
+                    ),
             ),
           ),
           const SizedBox(height: 16),
@@ -330,7 +345,6 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           focusNode: _thicknessFocus,
           chkThick: _chkThick,
           chkMatch: _chkMatch,
-          onMaterial: (k) => setState(() => _materialKey = k),
           onThickness: (v) => setState(() => _thickness = v),
           onChkThick: (v) => setState(() => _chkThick = v),
           onChkMatch: (v) => setState(() => _chkMatch = v),
@@ -576,7 +590,6 @@ class _StepMaterial extends StatelessWidget {
   final FocusNode focusNode; // 失去焦点时父级吸附到最小板厚
   final bool chkThick;
   final bool chkMatch; // 材质/尺寸厚度与实物完全一致
-  final void Function(String) onMaterial;
   final void Function(String) onThickness;
   final void Function(bool) onChkThick;
   final void Function(bool) onChkMatch;
@@ -589,7 +602,6 @@ class _StepMaterial extends StatelessWidget {
     required this.focusNode,
     required this.chkThick,
     required this.chkMatch,
-    required this.onMaterial,
     required this.onThickness,
     required this.onChkThick,
     required this.onChkMatch,
@@ -606,9 +618,6 @@ class _StepMaterial extends StatelessWidget {
     // 避免用户输入 "10" 时因先输入 "1" 而被误判为小于最小厚度。
     // 真正吸附在父级 FocusNode 失去焦点时完成。
     void onChanged(String v) => onThickness(v);
-    // 材料库列表：默认材质排第一位。
-    final ordered = [def, ...materials.where((m) => m.key != def.key)];
-    final selectedIsDefault = materialKey == defaultKey;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -616,7 +625,7 @@ class _StepMaterial extends StatelessWidget {
         Text('Step 2 · 材质确认',
             style: t.titleMedium?.copyWith(color: CncColors.textMain)),
         const SizedBox(height: 6),
-        Text('耗材材质（默认「${def.name}」来自模型；可切换，雕刻参数自动联动）',
+        Text('耗材材质由模型指定（「${def.name}」），雕刻参数已随模型生成，不可更改',
             style: const TextStyle(fontSize: 12, color: CncColors.textSub)),
         const SizedBox(height: 12),
 
@@ -660,7 +669,7 @@ class _StepMaterial extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 4),
-                    const Text('模型库自带材质，建议优先使用（点下方可换其它材料）',
+                    const Text('模型库自带材质，雕刻参数已随模型生成',
                         style: TextStyle(
                             fontSize: 11, color: CncColors.textSub)),
                   ],
@@ -671,62 +680,25 @@ class _StepMaterial extends StatelessWidget {
         ),
         const SizedBox(height: 12),
 
-        // 选择其它材料（材料库下拉；默认排第一并标记）
-        const Text('更换为其它材料（材料库）',
-            style: TextStyle(fontSize: 11, color: CncColors.textSub)),
-        const SizedBox(height: 6),
+        // 材料由模型绑定，不支持中途切换（切换需重新生成 G-code，App 端不做 CAM）。
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             color: CncColors.bg,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: CncColors.border),
           ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: materialKey,
-              isExpanded: true,
-              dropdownColor: CncColors.card,
-              icon: const Icon(Icons.arrow_drop_down,
-                  color: CncColors.primary),
-              style: const TextStyle(
-                  color: CncColors.textMain, fontSize: 14),
-              onChanged: (k) {
-                if (k != null) onMaterial(k);
-              },
-              items: ordered
-                  .map((m) => DropdownMenuItem(
-                        value: m.key,
-                        child: Row(
-                          children: [
-                            MaterialIcon(
-                                visual: m.visual, swatch: m.swatch, size: 28),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(m.name,
-                                  style: const TextStyle(
-                                      fontSize: 14,
-                                      color: CncColors.textMain)),
-                            ),
-                            if (m.key == defaultKey)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color:
-                                      CncColors.primary.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: const Text('默认',
-                                    style: TextStyle(
-                                        fontSize: 10,
-                                        color: CncColors.primary)),
-                              ),
-                          ],
-                        ),
-                      ))
-                  .toList(),
-            ),
+          child: Row(
+            children: [
+              Icon(Icons.lock_outline, size: 16, color: CncColors.textSub),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '材料已随模型锁定，如需更换请重新选择模型（换材料需云端重新生成刀路）',
+                  style: TextStyle(fontSize: 11, color: CncColors.textSub),
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 14),
@@ -742,7 +714,7 @@ class _StepMaterial extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('云端注入最佳参数（随材质自动调整）',
+              const Text('雕刻参数（由模型材料决定，已随模型生成）',
                   style: TextStyle(fontSize: 11, color: CncColors.textSub)),
               const SizedBox(height: 8),
               _Param('主轴转速', '${mat.rpm} RPM'),
@@ -799,9 +771,7 @@ class _StepMaterial extends StatelessWidget {
         _CheckTile(
           value: chkMatch,
           onChanged: onChkMatch,
-          label: selectedIsDefault
-              ? '材质/尺寸厚度与实物完全一致'
-              : '材质/尺寸厚度与实物完全一致（已切换材料，请确认）',
+          label: '材质/尺寸厚度与实物完全一致',
         ),
       ],
     );
