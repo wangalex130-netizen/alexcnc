@@ -11,6 +11,7 @@ import '../../services/hardware_service.dart';
 import '../../state/providers.dart';
 import '../console/console_page.dart';
 import '../preview/rtsp_preview_widget.dart';
+import '../shell/app_shell.dart';
 import '../wizard/job_monitor_page.dart';
 import '../wizard/self_check_page.dart';
 import '../wizard/wizard_page.dart';

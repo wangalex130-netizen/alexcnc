@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
+import '../../models/machine_status.dart';
 import '../../services/hardware_service.dart';
 import '../../state/providers.dart';
 
