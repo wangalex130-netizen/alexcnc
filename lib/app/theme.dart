@@ -331,8 +331,7 @@ class AppTheme {
         fillColor: MaterialStateProperty.resolveWith((s) =>
             s.contains(MaterialState.selected) ? CncColors.primary : Colors.transparent),
         checkColor: const MaterialStatePropertyAll(Colors.black),
-        side: const MaterialStatePropertyAll(
-            BorderSide(color: CncColors.border, width: 1.5)),
+        side: const BorderSide(color: CncColors.border, width: 1.5),
         shape:
             RoundedRectangleBorder(borderRadius: BorderRadius.circular(CncSizes.r4)),
       ),
