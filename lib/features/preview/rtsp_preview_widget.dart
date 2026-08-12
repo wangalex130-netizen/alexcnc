@@ -935,7 +935,7 @@ class _FullscreenPlayerState extends State<_FullscreenPlayer> {
     }
   }
 
-  void _onMjpegEvent(dynamic _) {
+  void _onMjpegPlaying() {
     if (!mounted) return;
     setState(() => _isPaused = false);
   }
@@ -1019,7 +1019,7 @@ class _FullscreenPlayerState extends State<_FullscreenPlayer> {
                 url: widget.url,
                 playing: _mjpegPlaying,
                 fit: BoxFit.contain,
-                onPlaying: _onMjpegEvent,
+                onPlaying: _onMjpegPlaying,
                 onError: (msg) => debugPrint('[Fullscreen MJPEG] $msg'),
               )
             else
