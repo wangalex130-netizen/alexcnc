@@ -317,133 +317,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                                 requiredTools: job.task.requiredTools,
                                 procSlot: job.procSlot,
                               ),
-                            ),
-                ),
-        ),
-      );
-  }
-}
-
-// ===================== 延时摄影状态卡 =====================
-// 与向导 Step6 共用 timeLapseJobProvider：carve 联动或控制台手动开启都在此呈现，
-// 结束后提供「查看 / 下载」入口，视频全程只存服务器、本机不落照片。
-
-class _TimeLapseStatusCard extends StatelessWidget {
-  final String jobId;
-  final Map<String, dynamic>? status;
-  final VoidCallback onView;
-  final VoidCallback onDownload;
-  const _TimeLapseStatusCard({
-    required this.jobId,
-    this.status,
-    required this.onView,
-    required this.onDownload,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final st = status?['status'];
-    final count = status?['count'] ?? 0;
-    final target = status?['frames_target'] ?? 0;
-    final ready = status?['video_ready'] == true;
-    final failed = st == 'failed';
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: CncColors.blue.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: CncColors.blue.withOpacity(0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Symbols.schedule, size: 16, color: CncColors.blue),
-              const SizedBox(width: 6),
-              const Text('延时摄影',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: CncColors.textMain)),
-              const Spacer(),
-              if (st == 'running')
-                Text('采集中 $count/$target',
-                    style: const TextStyle(fontSize: 11, color: CncColors.blue)),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (st == 'running')
-            const Text('服务器正按雕刻时长自动抽样拍照，结束后自动拼接 15 秒回顾视频。',
-                style: TextStyle(fontSize: 11, color: CncColors.textSub))
-          else if (ready)
-            Row(
-              children: [
-                Expanded(
-                  child: Text('回顾视频已生成',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.primaryInk)),
-                ),
-                TextButton(onPressed: onView, child: const Text('查看', style: TextStyle(color: CncColors.primary))),
-                TextButton(onPressed: onDownload, child: const Text('下载', style: TextStyle(color: CncColors.blue))),
-              ],
-            )
-          else if (failed)
-            Text('生成失败：${status?['error'] ?? ''}',
-                style: const TextStyle(fontSize: 11, color: CncColors.danger))
-          else
-            const Text('处理中…', style: TextStyle(fontSize: 11, color: CncColors.textSub)),
-        ],
-      ),
-    );
-  }
-}
-
-// ===================== 延时视频播放页 =====================
-// 用已有的 native_vlc_player 直接播服务器下发的 HTTP mp4（无需新增依赖）。
-
-class _TimeLapseVideoPage extends StatefulWidget {
-  final String url;
-  final VoidCallback onClose;
-  const _TimeLapseVideoPage({required this.url, required this.onClose});
-
-  @override
-  State<_TimeLapseVideoPage> createState() => _TimeLapseVideoPageState();
-}
-
-class _TimeLapseVideoPageState extends State<_TimeLapseVideoPage> {
-  final GlobalKey<NativeVlcPlayerState> _playerKey = GlobalKey();
-
-  void _onEvent(NativeVlcEvent event) {
-    debugPrint('[TL Video] ${event.event} / ${event.message}');
-  }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        backgroundColor: Colors.black,
-        body: Stack(
-          fit: StackFit.expand,
-          children: [
-            NativeVlcPlayer(
-              key: _playerKey,
-              url: widget.url,
-              onEvent: _onEvent,
-            ),
-            Positioned(
-              left: 16,
-              top: 16,
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: widget.onClose,
-                  child: const Padding(
-                    padding: EdgeInsets.all(8),
-                    child: Icon(Icons.arrow_back_ios_rounded, color: Colors.white),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-},
+                            );
+                        }
+                      },
                       child: Container(
                         margin: const EdgeInsets.only(bottom: 12),
                         padding: const EdgeInsets.all(12),
@@ -1300,4 +1176,127 @@ class _ActionBtn extends StatelessWidget {
           ),
         ),
       );
+}
+
+// ===================== 延时摄影状态卡 =====================
+// 与向导 Step6 共用 timeLapseJobProvider：carve 联动或控制台手动开启都在此呈现，
+// 结束后提供「查看 / 下载」入口，视频全程只存服务器、本机不落照片。
+
+class _TimeLapseStatusCard extends StatelessWidget {
+  final String jobId;
+  final Map<String, dynamic>? status;
+  final VoidCallback onView;
+  final VoidCallback onDownload;
+  const _TimeLapseStatusCard({
+    required this.jobId,
+    this.status,
+    required this.onView,
+    required this.onDownload,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final st = status?['status'];
+    final count = status?['count'] ?? 0;
+    final target = status?['frames_target'] ?? 0;
+    final ready = status?['video_ready'] == true;
+    final failed = st == 'failed';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: CncColors.blue.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: CncColors.blue.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Symbols.schedule, size: 16, color: CncColors.blue),
+              const SizedBox(width: 6),
+              const Text('延时摄影',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+              const Spacer(),
+              if (st == 'running')
+                Text('采集中 $count/$target',
+                    style: const TextStyle(fontSize: 11, color: CncColors.blue)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (st == 'running')
+            const Text('服务器正按雕刻时长自动抽样拍照，结束后自动拼接 15 秒回顾视频。',
+                style: TextStyle(fontSize: 11, color: CncColors.textSub))
+          else if (ready)
+            Row(
+              children: [
+                Expanded(
+                  child: Text('回顾视频已生成',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.primaryInk)),
+                ),
+                TextButton(onPressed: onView, child: const Text('查看', style: TextStyle(color: CncColors.primary))),
+                TextButton(onPressed: onDownload, child: const Text('下载', style: TextStyle(color: CncColors.blue))),
+              ],
+            )
+          else if (failed)
+            Text('生成失败：${status?['error'] ?? ''}',
+                style: const TextStyle(fontSize: 11, color: CncColors.danger))
+          else
+            const Text('处理中…', style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+        ],
+      ),
+    );
+  }
+}
+
+// ===================== 延时视频播放页 =====================
+// 用已有的 native_vlc_player 直接播服务器下发的 HTTP mp4（无需新增依赖）。
+
+class _TimeLapseVideoPage extends StatefulWidget {
+  final String url;
+  final VoidCallback onClose;
+  const _TimeLapseVideoPage({required this.url, required this.onClose});
+
+  @override
+  State<_TimeLapseVideoPage> createState() => _TimeLapseVideoPageState();
+}
+
+class _TimeLapseVideoPageState extends State<_TimeLapseVideoPage> {
+  final GlobalKey<NativeVlcPlayerState> _playerKey = GlobalKey();
+
+  void _onEvent(NativeVlcEvent event) {
+    debugPrint('[TL Video] ${event.event} / ${event.message}');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          NativeVlcPlayer(
+            key: _playerKey,
+            url: widget.url,
+            onEvent: _onEvent,
+          ),
+          Positioned(
+            left: 16,
+            top: 16,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: widget.onClose,
+                child: const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: Icon(Icons.arrow_back_ios_rounded, color: Colors.white),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
