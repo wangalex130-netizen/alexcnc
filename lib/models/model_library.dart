@@ -19,12 +19,21 @@ class ModelLibraryHome {
     List<LibraryItem> parseList(dynamic v) => (v as List? ?? [])
         .map((e) => LibraryItem.fromJson(e as Map<String, dynamic>))
         .toList();
+    // 兼容：后端 models 可能是数组，也可能是分页对象 {list,records,items,...}
+    List<LibraryItem> extractModels(dynamic v) {
+      if (v is List) return parseList(v);
+      if (v is Map) {
+        return parseList(v['list'] ?? v['records'] ?? v['items']);
+      }
+      return const [];
+    }
+
     List<String> parseCats(dynamic v) =>
         (v as List? ?? []).map((e) => e.toString()).toList();
     return ModelLibraryHome(
       heroModels: parseList(j['heroModels'] ?? j['heros'] ?? j['hero']),
       categories: parseCats(j['categories'] ?? j['categoryList']),
-      models: parseList(
+      models: extractModels(
           j['models'] ?? j['list'] ?? j['records'] ?? j['items']),
     );
   }
@@ -50,9 +59,19 @@ class ModelLibraryPage {
     List<LibraryItem> parseList(dynamic v) => (v as List? ?? [])
         .map((e) => LibraryItem.fromJson(e as Map<String, dynamic>))
         .toList();
+    // 兼容：data 可能是数组，也可能是分页对象 {list,records,items,models,...}
+    List<LibraryItem> extractItems(dynamic v) {
+      if (v is List) return parseList(v);
+      if (v is Map) {
+        return parseList(
+            v['list'] ?? v['records'] ?? v['items'] ?? v['models']);
+      }
+      return const [];
+    }
+
+    final listSrc = j['list'] ?? j['records'] ?? j['items'] ?? j['models'];
     return ModelLibraryPage(
-      items: parseList(
-          j['list'] ?? j['records'] ?? j['items'] ?? j['models']),
+      items: extractItems(listSrc),
       pageNo: (j['pageNo'] as num? ?? 1).toInt(),
       pageSize: (j['pageSize'] as num? ?? 12).toInt(),
       total: (j['total'] as num? ?? 0).toInt(),

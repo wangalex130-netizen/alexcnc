@@ -74,8 +74,11 @@ class LibraryItem {
   });
 
   /// 从云端 REST JSON 解析（字段对齐 docs/模型库数据格式与接口定义.md）。
+  ///
+  /// 注意：后端 `id` 实测为 int（如 6），统一 toString() 成 String，
+  /// 避免 `(j['id'] as String?)` 对 int 强转抛 CastError。
   factory LibraryItem.fromJson(Map<String, dynamic> j) => LibraryItem(
-        id: (j['id'] as String?) ?? '',
+        id: (j['id']?.toString()) ?? '',
         title: (j['title'] as String?) ?? '',
         author: (j['author'] as String?) ?? '',
         imageUrl: j['imageUrl'] as String?,
@@ -95,7 +98,11 @@ class LibraryItem {
         materialKey: j['materialKey'] as String?,
         toolId: j['toolId'] as String?,
         durationSec: (j['durationSec'] as num?)?.toInt(),
-        gcodeStatus: j['gcodeStatus'] as String?,
+        // gcodeStatus 后端不回传时，按约定由刀路 URL 推导（任一非空即已切片）。
+        gcodeStatus: (j['gcodeStatus'] as String?) ??
+            ((j['roughingGcodeUrl'] != null || j['finishingGcodeUrl'] != null)
+                ? 'sliced'
+                : 'unsliced'),
         description: j['description'] as String?,
         widthMm: (j['widthMm'] as num? ?? 0).toDouble(),
         heightMm: (j['heightMm'] as num? ?? 0).toDouble(),
