@@ -23,6 +23,23 @@ class AppConfig {
     defaultValue: '',
   );
 
+  // ---- 摄像头云中继（远程监视模式）----
+  // 摄像头把 JPEG 帧直推到这台服务器，App 在远程网络下从中继拉 MJPEG 流。
+  // 与固件 RELAY: 指令一致：RELAY:<baseUrl>|<token>|<device>|<fps>
+  // 示例：--dart-define=CAMERA_RELAY_BASE_URL=http://43.154.192.242:8080
+  static const String cameraRelayBaseUrl = String.fromEnvironment(
+    'CAMERA_RELAY_BASE_URL',
+    defaultValue: 'http://43.154.192.242:8080',
+  );
+  static const String cameraRelayToken = String.fromEnvironment(
+    'CAMERA_RELAY_TOKEN',
+    defaultValue: 'lunyee-cnc-relay-7k2p',
+  );
+  static const String cameraRelayDevice = String.fromEnvironment(
+    'CAMERA_RELAY_DEVICE',
+    defaultValue: 'cnc-cam-01',
+  );
+
   // ---- 后端选择 ----
   // false = 用 Mock 实现（演示/无硬件也可跑）；true = 接真 MQTT/TCP/云端。
   static const bool useRealBackend =

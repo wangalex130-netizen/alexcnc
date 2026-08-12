@@ -26,6 +26,9 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
   final _tcpPort = TextEditingController();
   final _deviceId = TextEditingController();
   final _rtsp = TextEditingController();
+  final _relayBase = TextEditingController();
+  final _relayToken = TextEditingController();
+  final _relayDevice = TextEditingController();
   bool _useReal = false;
 
   @override
@@ -49,6 +52,9 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
       _tcpPort.text = c.deviceTcpPort > 0 ? '${c.deviceTcpPort}' : '';
       _deviceId.text = c.deviceId;
       _rtsp.text = c.cameraRtspUrl;
+      _relayBase.text = c.cameraRelayBaseUrl;
+      _relayToken.text = c.cameraRelayToken;
+      _relayDevice.text = c.cameraRelayDevice;
     });
   }
 
@@ -64,6 +70,9 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
       _tcpPort,
       _deviceId,
       _rtsp,
+      _relayBase,
+      _relayToken,
+      _relayDevice,
     ]) {
       c.dispose();
     }
@@ -87,6 +96,9 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
       deviceTcpPort: _toPort(_tcpPort.text),
       deviceId: _deviceId.text.trim(),
       cameraRtspUrl: _rtsp.text.trim(),
+      cameraRelayBaseUrl: _relayBase.text.trim(),
+      cameraRelayToken: _relayToken.text.trim(),
+      cameraRelayDevice: _relayDevice.text.trim(),
     );
     ref.read(runtimeConfigProvider.notifier).save(cfg);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -168,6 +180,18 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
           _Field(label: '设备局域网 TCP 主机', hint: '192.168.1.50', c: _tcpHost),
           _Field(label: '设备 ID', hint: 'alexcnc-001', c: _deviceId),
           _Field(label: '摄像头 RTSP', hint: 'rtsp://...', c: _rtsp),
+          _Field(
+              label: '摄像头中继地址 (Camera Relay Base URL)',
+              hint: 'http://43.154.192.242:8080',
+              c: _relayBase),
+          _Field(
+              label: '摄像头中继 Token',
+              hint: 'lunyee-cnc-relay-7k2p',
+              c: _relayToken),
+          _Field(
+              label: '摄像头中继设备 ID',
+              hint: 'cnc-cam-01',
+              c: _relayDevice),
           const SizedBox(height: 22),
           SizedBox(
             width: double.infinity,

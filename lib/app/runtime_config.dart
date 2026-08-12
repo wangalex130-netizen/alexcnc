@@ -21,6 +21,9 @@ class RuntimeConfig {
   final int deviceTcpPort;
   final String deviceId;
   final String cameraRtspUrl;
+  final String cameraRelayBaseUrl;
+  final String cameraRelayToken;
+  final String cameraRelayDevice;
 
   const RuntimeConfig({
     this.useRealBackend = false,
@@ -33,6 +36,9 @@ class RuntimeConfig {
     this.deviceTcpPort = 0,
     this.deviceId = '',
     this.cameraRtspUrl = '',
+    this.cameraRelayBaseUrl = '',
+    this.cameraRelayToken = '',
+    this.cameraRelayDevice = '',
   });
 
   // ---- resolved：空值 / 0 回落 AppConfig（--dart-define 默认值）----
@@ -54,6 +60,14 @@ class RuntimeConfig {
       deviceId.isNotEmpty ? deviceId : AppConfig.deviceId;
   String get resolvedCameraRtsp =>
       cameraRtspUrl.isNotEmpty ? cameraRtspUrl : AppConfig.cameraRtspUrl;
+  String get resolvedCameraRelayBaseUrl => cameraRelayBaseUrl.isNotEmpty
+      ? cameraRelayBaseUrl
+      : AppConfig.cameraRelayBaseUrl;
+  String get resolvedCameraRelayToken =>
+      cameraRelayToken.isNotEmpty ? cameraRelayToken : AppConfig.cameraRelayToken;
+  String get resolvedCameraRelayDevice => cameraRelayDevice.isNotEmpty
+      ? cameraRelayDevice
+      : AppConfig.cameraRelayDevice;
 
   Map<String, dynamic> toJson() => {
         'useRealBackend': useRealBackend,
@@ -66,6 +80,9 @@ class RuntimeConfig {
         'deviceTcpPort': deviceTcpPort,
         'deviceId': deviceId,
         'cameraRtspUrl': cameraRtspUrl,
+        'cameraRelayBaseUrl': cameraRelayBaseUrl,
+        'cameraRelayToken': cameraRelayToken,
+        'cameraRelayDevice': cameraRelayDevice,
       };
 
   factory RuntimeConfig.fromJson(Map<String, dynamic> j) => RuntimeConfig(
@@ -79,6 +96,9 @@ class RuntimeConfig {
         deviceTcpPort: (j['deviceTcpPort'] as num?)?.toInt() ?? 0,
         deviceId: (j['deviceId'] as String?) ?? '',
         cameraRtspUrl: (j['cameraRtspUrl'] as String?) ?? '',
+        cameraRelayBaseUrl: (j['cameraRelayBaseUrl'] as String?) ?? '',
+        cameraRelayToken: (j['cameraRelayToken'] as String?) ?? '',
+        cameraRelayDevice: (j['cameraRelayDevice'] as String?) ?? '',
       );
 }
 

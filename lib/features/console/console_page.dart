@@ -50,6 +50,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   Widget build(BuildContext context) {
     final status = ref.watch(machineStatusProvider).value ?? const MachineStatus();
     final isLocal = ref.watch(isLocalLANProvider);
+    final cfg = ref.watch(runtimeConfigProvider);
     final hw = ref.read(hardwareServiceProvider);
 
     final idle = status.state == MachineState.idle;
@@ -68,7 +69,11 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
               SizedBox(
                 height: 220,
                 child: RtspPreviewWidget(
-                    rtspUrl: ref.watch(runtimeConfigProvider).resolvedCameraRtsp),
+                  rtspUrl: isLocal ? cfg.resolvedCameraRtsp : null,
+                  relayUrl: isLocal
+                      ? null
+                      : '${cfg.resolvedCameraRelayBaseUrl}/stream/${cfg.resolvedCameraRelayDevice}?token=${cfg.resolvedCameraRelayToken}',
+                ),
               ),
               Positioned(
                 top: 40,
