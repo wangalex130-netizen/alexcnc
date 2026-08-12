@@ -218,3 +218,16 @@ final activeJobProvider = StateNotifierProvider<ActiveJobNotifier, ActiveJob?>(
     return notifier;
   },
 );
+
+// ===================== 延时摄影 job =====================
+/// 保存本次雕刻开启的延时摄影 jobId，供「查看视频」入口读取。
+class TimeLapseJobNotifier extends StateNotifier<String?> {
+  TimeLapseJobNotifier() : super(null);
+  void setJob(String id) => state = id;
+  void clear() => state = null;
+}
+
+final timeLapseJobProvider =
+    StateNotifierProvider<TimeLapseJobNotifier, String?>(
+  (ref) => TimeLapseJobNotifier(),
+);
