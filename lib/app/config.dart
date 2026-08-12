@@ -31,7 +31,7 @@ class AppConfig {
   // ---- 云端（材质主表 / 任务元数据 / G-code 推送）----
   static const String cloudBaseUrl = String.fromEnvironment(
     'CLOUD_BASE_URL',
-    defaultValue: 'https://cnc-api.local',
+    defaultValue: 'https://037123.xyz',
   );
 
   // ---- MQTT（云端 Broker，主链路：状态订阅 + 命令下发）----
