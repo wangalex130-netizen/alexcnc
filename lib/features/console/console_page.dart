@@ -317,7 +317,8 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                                 requiredTools: job.task.requiredTools,
                                 procSlot: job.procSlot,
                               ),
-                            );
+                            ),
+                          );
                         }
                       },
                       child: Container(

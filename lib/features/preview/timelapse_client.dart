@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import '../app/config.dart';
+import '../../app/config.dart';
 
 /// 云端延时摄影客户端。
 ///
