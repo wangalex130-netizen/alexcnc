@@ -44,6 +44,7 @@ class MjpegStreamPlayer extends StatefulWidget {
 class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
   http.Client? _client;
   StreamSubscription<List<int>>? _subscription;
+  Timer? _firstFrameTimer;
 
   final _parser = _MjpegParser();
   Uint8List? _frame;
@@ -115,12 +116,24 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
         onDone: _onDone,
         cancelOnError: true,
       );
+
+      // 无帧超时：连接成功但 12s 内没收到任何画面（摄像头未推流 / 中继无数据），
+      // 明确报错而非永久转圈，让上层显示可重试的错误。
+      _firstFrameTimer?.cancel();
+      _firstFrameTimer = Timer(const Duration(seconds: 12), () {
+        if (!_hasReportedPlaying && mounted) {
+          _onError('摄像头无信号：连接成功但 12 秒内未收到画面，'
+              '可能摄像头未推流或网络中断');
+        }
+      });
     } catch (e) {
       _onError(e);
     }
   }
 
   void _stop({bool keepFrame = false}) {
+    _firstFrameTimer?.cancel();
+    _firstFrameTimer = null;
     _subscription?.cancel();
     _subscription = null;
     _client?.close();
@@ -148,6 +161,8 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
   }
 
   void _onFrame(Uint8List frame) {
+    _firstFrameTimer?.cancel();
+    _firstFrameTimer = null;
     widget.onFrame?.call(frame);
     if (!mounted) return;
     setState(() {

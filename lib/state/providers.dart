@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app/config.dart';
 import '../app/runtime_config.dart';
@@ -51,8 +52,41 @@ final cloudServiceProvider = Provider<CloudService>((ref) {
 
 final networkProbeProvider = Provider<NetworkProbe>((ref) => NetworkProbe());
 
-/// true = same Wi-Fi as controller (full control); false = remote (monitor only).
-final isLocalLANProvider = StateProvider<bool>((ref) => true);
+/// true = 与控制器同 Wi-Fi（可完整控制）；false = 远程监视（仅看画面）。
+///
+/// 历史坑：原先是内存态 StateProvider 且默认 true（局域网直连），
+/// 控制台的摄像头预览在 isLocal=true 时会把 relayUrl 置空、改走局域网自动发现，
+/// 于是外网中继摄像头永远连不上、一直转圈；且状态不持久化，重装/重启 App 后
+/// 丢失用户手动切到的「远程监视」。现改为持久化 + 默认远程监视，外网摄像头开箱即用。
+final isLocalLANProvider =
+    NotifierProvider<LocalModeNotifier, bool>(LocalModeNotifier.new);
+
+class LocalModeNotifier extends Notifier<bool> {
+  static const _key = 'is_local_lan_v1';
+
+  @override
+  bool build() {
+    _hydrate();
+    return false; // 默认远程监视：外网中继摄像头开箱即用
+  }
+
+  Future<void> _hydrate() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      final v = p.getBool(_key);
+      if (v != null) state = v;
+    } catch (_) {
+      // 解析失败忽略，保持默认远程监视
+    }
+  }
+
+  void setLocal(bool v) {
+    state = v;
+    SharedPreferences.getInstance()
+        .then((p) => p.setBool(_key, v))
+        .catchError((_) {});
+  }
+}
 
 /// 共享刀仓映射（slot 1..4 → 刀库 ToolDef.id，null=空位）。
 ///
