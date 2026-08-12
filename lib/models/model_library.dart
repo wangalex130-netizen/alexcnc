@@ -31,7 +31,9 @@ class ModelLibraryHome {
     List<String> parseCats(dynamic v) =>
         (v as List? ?? []).map((e) => e.toString()).toList();
     return ModelLibraryHome(
-      heroModels: parseList(j['heroModels'] ?? j['heros'] ?? j['hero']),
+      heroModels: parseList(j['heroModels'] ?? j['heros'] ?? j['hero'])
+          .map((e) => e.copyWith(isHero: true))
+          .toList(),
       categories: parseCats(j['categories'] ?? j['categoryList']),
       models: extractModels(
           j['models'] ?? j['list'] ?? j['records'] ?? j['items']),

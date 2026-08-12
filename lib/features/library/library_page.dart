@@ -28,6 +28,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
   ModelLibraryHome? _home;
   List<LibraryItem> _models = const [];
+  List<LibraryItem> _heroModels = const []; // 焦点大图（接口下发）
   List<String> _categories = const ['全部'];
   int _pageNo = 1;
   int _pages = 1;
@@ -57,6 +58,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
       setState(() {
         _home = home;
         _categories = home.categories.isNotEmpty ? home.categories : ['全部'];
+        _heroModels = home.heroModels;
         _models = home.models;
         _pageNo = 1;
         _pages = 1;
@@ -98,6 +100,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
       if (!mounted) return;
       setState(() {
         _models = page.items;
+        _heroModels = const []; // 筛选/搜索时不再显示焦点大图
         _pageNo = page.pageNo;
         _pages = page.pages;
         _total = page.total;
@@ -213,6 +216,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                           ))
                         : _InspirationSliver(
                             items: _models,
+                            heroModels: _heroModels,
                             categories: _categories,
                             category: _category,
                             keyword: _keyword,
@@ -383,6 +387,7 @@ class _StickySegmented extends SliverPersistentHeaderDelegate {
 
 class _InspirationSliver extends StatelessWidget {
   final List<LibraryItem> items;
+  final List<LibraryItem> heroModels; // 焦点大图（接口权威来源）
   final List<String> categories; // 分类标签（接口权威来源，首项「全部」）
   final String category; // 当前分类（'' = 全部）
   final String keyword;
@@ -394,6 +399,7 @@ class _InspirationSliver extends StatelessWidget {
   final bool loadingMore;
   const _InspirationSliver({
     required this.items,
+    required this.heroModels,
     required this.categories,
     required this.category,
     required this.keyword,
@@ -407,9 +413,12 @@ class _InspirationSliver extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final heroList = items.where((e) => e.isHero).toList();
-    final hero = heroList.isEmpty ? null : heroList.first;
-    var grid = items.where((e) => !e.isHero).toList();
+    // 焦点大图直接使用接口下发的 heroModels（home 接口才有，搜索/筛选时清空）。
+    final hero = (category.isEmpty && keyword.isEmpty && heroModels.isNotEmpty)
+        ? heroModels.first
+        : null;
+    var grid = items.toList();
+    // 后端 list 接口已按 category/keyword 过滤，这里只做防御性本地过滤。
     if (category.isNotEmpty) {
       grid = grid.where((e) => e.category == category).toList();
     }
@@ -438,7 +447,7 @@ class _InspirationSliver extends StatelessWidget {
               Expanded(
                 child: TextField(
                   onChanged: onKeyword,
-                  style: const TextStyle(fontSize: 13, color: CncColors.textMain),
+                  style: const TextStyle(fontSize: 13, color: Colors.white),
                   decoration: InputDecoration(
                     hintText: '搜索模型名称或标签...',
                     hintStyle: const TextStyle(

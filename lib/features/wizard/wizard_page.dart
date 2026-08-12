@@ -80,14 +80,15 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   }
 
   Future<void> _load() async {
-    final task =
-        await ref.read(cloudServiceProvider).getTaskById(widget.item.id);
+    // 模型库 5 接口返回的 LibraryItem 已含加工参数、材质、刀具等全部字段，
+    // 直接转 TaskMetadata，不再依赖旧的 /api/v1/tasks/{id} 接口（该接口后端未实现）。
+    final task = widget.item.toTaskMetadata();
     if (!mounted) return;
     setState(() {
       _task = task;
       _loading = false;
-      _materialKey = task?.defaultMaterialKey ?? 'pine';
-      _thickness = (task?.boardThicknessMm ?? 3).toStringAsFixed(1);
+      _materialKey = task.defaultMaterialKey;
+      _thickness = task.boardThicknessMm.toStringAsFixed(1);
       _thicknessCtl = TextEditingController(text: _thickness);
       // 刀仓以「控制台刀仓管理」为准（用户可增删/清空刀位）：
       // 已装好的工序刀沿用当前刀兜；未装的工序刀留空，由用户在 Step3 选择。
@@ -95,7 +96,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       _procSlot = {};
       _procConfirmed = {};
       _syncedToMachine = false;
-      final req = task?.requiredTools ?? [];
+      final req = task.requiredTools;
       if (req.isNotEmpty) {
         final mag = ref.read(toolMagazineProvider);
         for (var i = 0; i < req.length; i++) {

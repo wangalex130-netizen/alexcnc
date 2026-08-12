@@ -4,7 +4,7 @@
 /// `isPublic == false` => 我的云端空间 (private cloud space).
 /// Within the private space, `isHistory` marks a completed-job record.
 
-import 'task_metadata.dart' show RequiredTool;
+import 'task_metadata.dart' show RequiredTool, TaskMetadata;
 
 class LibraryItem {
   final String id;
@@ -30,6 +30,7 @@ class LibraryItem {
   final List<String> tags; // 风格标签
   final String? materialKey; // 默认材质 key（关联材质主表）
   final String? toolId; // 默认刀具 id（关联刀具库）
+  final String? tools; // 后端逗号分隔工序刀具串，如 "ballnose-1.5mm,vbit-30"
   final int? durationSec; // 雕刻时长秒数（排序/统计）
   final String? gcodeStatus; // unsliced / sliced
   final String? description; // 模型简介
@@ -60,6 +61,7 @@ class LibraryItem {
     this.tags = const [],
     this.materialKey,
     this.toolId,
+    this.tools,
     this.durationSec,
     this.gcodeStatus,
     this.description,
@@ -97,6 +99,7 @@ class LibraryItem {
         tags: (j['tags'] as List? ?? []).map((e) => e.toString()).toList(),
         materialKey: j['materialKey'] as String?,
         toolId: j['toolId'] as String?,
+        tools: j['tools'] as String?,
         durationSec: (j['durationSec'] as num?)?.toInt(),
         // gcodeStatus 后端不回传时，按约定由刀路 URL 推导（任一非空即已切片）。
         gcodeStatus: (j['gcodeStatus'] as String?) ??
@@ -123,6 +126,73 @@ class LibraryItem {
   String? get displayImageUrl =>
       coverUrl ?? (imageUrls.isNotEmpty ? imageUrls.first : imageUrl);
 
+  /// 把后端可能为空的 `materialKey` 映射到本地材质表 key。
+  /// 优先用显式 materialKey；否则按 materialPreset / category 模糊匹配。
+  String get effectiveMaterialKey {
+    if (materialKey != null && materialKey!.isNotEmpty) return materialKey!;
+    final clue = '${materialPreset ?? ''} ${category ?? ''}'.toLowerCase();
+    if (clue.contains('亚克力') || clue.contains('acrylic')) return 'acrylic';
+    if (clue.contains('皮革') || clue.contains('leather')) return 'leather';
+    if (clue.contains('pcb') || clue.contains('电路')) return 'pcb';
+    if (clue.contains('金属') || clue.contains('metal') ||
+        clue.contains('铝') || clue.contains('alu')) return 'alu';
+    if (clue.contains('铜') || clue.contains('brass')) return 'brass';
+    if (clue.contains('木') || clue.contains('wood')) return 'pine';
+    return 'pine';
+  }
+
+  /// 把后端 `tools` 逗号字符串或 `requiredTools` 数组解析成本地工序刀具列表。
+  List<RequiredTool> get effectiveRequiredTools {
+    if (requiredTools.isNotEmpty) return requiredTools;
+    // 后端常用 comma-separated tool ids in `tools`
+    final raw = (tools?.isNotEmpty ?? false)
+        ? tools!
+        : ((toolId?.isNotEmpty ?? false) ? toolId! : '');
+    final ids = raw.isEmpty
+        ? <String>[]
+        : raw.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+    if (ids.isEmpty) return const [];
+    return ids.asMap().entries.map((e) {
+      final role = e.key == 0 ? '粗雕' : (e.key == ids.length - 1 ? '精雕' : '半精加工');
+      return RequiredTool(_mapToolId(e.value), role);
+    }).toList();
+  }
+
+  /// 把后端 toolId（如 ballnose-1.5mm / vbit-30）映射到本地刀库 id。
+  static String _mapToolId(String raw) {
+    final id = raw.toLowerCase().trim();
+    final Map<String, String> exact = {
+      'ballnose-1.5mm': 't_ball_15',
+      'vbit-30': 't_v60',
+      'flat-3.175mm': 't_flat_3175',
+      'flat-3.175': 't_flat_3175',
+    };
+    if (exact.containsKey(id)) return exact[id]!;
+    if (id.contains('ball') || id.contains('球')) return 't_ball_15';
+    if (id.contains('vbit') || id.contains('v-') || id.contains('v型') || id.contains('v刀')) return 't_v60';
+    if (id.contains('flat') || id.contains('平底') || id.contains('平刀')) return 't_flat_3175';
+    if (id.contains('single') || id.contains('单刃')) return 't_o_single_3175';
+    if (id.contains('2flute') || id.contains('双刃')) return 't_2flute_3175';
+    if (id.contains('tip') || id.contains('尖')) return 't_vtip_08';
+    return id;
+  }
+
+  /// 转成向导内部使用的 TaskMetadata（不再依赖 /api/v1/tasks/{id}）。
+  TaskMetadata toTaskMetadata() => TaskMetadata(
+        id: id,
+        name: title,
+        widthMm: widthMm,
+        heightMm: heightMm,
+        depthMm: depthMm,
+        boardThicknessMm: boardThicknessMm,
+        recommendedSpindleRpm: recommendedSpindleRpm?.toDouble(),
+        recommendedFeedRate: recommendedFeedRate,
+        thumbnailUrl: displayImageUrl,
+        defaultMaterialKey: effectiveMaterialKey,
+        defaultToolId: effectiveRequiredTools.isNotEmpty ? effectiveRequiredTools.first.toolId : toolId,
+        requiredTools: effectiveRequiredTools,
+      );
+
   LibraryItem copyWith({
     String? id,
     String? title,
@@ -141,6 +211,7 @@ class LibraryItem {
     List<String>? tags,
     String? materialKey,
     String? toolId,
+    String? tools,
     int? durationSec,
     String? gcodeStatus,
     String? description,
@@ -171,6 +242,7 @@ class LibraryItem {
         tags: tags ?? this.tags,
         materialKey: materialKey ?? this.materialKey,
         toolId: toolId ?? this.toolId,
+        tools: tools ?? this.tools,
         durationSec: durationSec ?? this.durationSec,
         gcodeStatus: gcodeStatus ?? this.gcodeStatus,
         description: description ?? this.description,
