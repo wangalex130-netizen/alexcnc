@@ -100,7 +100,8 @@
     "topic": "cnc/{deviceId}/tool_catalog",
     "retain": true,
     "app_subscribes": true,
-    "note": "目录广播；App 收到后刷新本地刀库缓存。绝不携带 toolMap"
+    "note": "目录广播；App 收到后刷新本地刀库缓存。绝不携带 toolMap",
+    "info_fields": "diameter + angle(V型) + color(防呆色 #RRGGBB，2026-08-14 新增，与实物定位环同色)"
   },
   "cloud_bridge": {
     "client_id": "bridge-aliyun",

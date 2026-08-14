@@ -7,7 +7,8 @@ import '../app/theme.dart';
 /// 唯一权威源 = 系统默认刀具表（1/8″=3.175mm 夹具/主轴唯一支持尺寸）。
 /// 当前仅收录官方 5 把（驱动/刀路仅支持这 5 把，其余尺寸主轴装夹不上）：
 ///   3 把 V 型（90°/60°/30°）+ 1/8 平底 + 1/8 球头。
-/// ring 对应物理定位环颜色（红/橙/黄/绿/蓝），用于与主机刀仓传感器一一核对。
+/// ring 对应物理定位环颜色名（红/橙/黄/绿/蓝），用于与主机刀仓传感器一一核对；
+/// colorHex 对应系统表 info.color 防呆色值（与实物定位环同色，App 显示色须与其一致）。
 class ToolDef {
   final String id;
   final int systemId; // 系统默认刀具表 id（1/2/3/5/8）
@@ -19,6 +20,7 @@ class ToolDef {
   final int flutes;
   final String material; // 钨钢 / 硬质合金
   final String ring; // red | orange | yellow | green | blue
+  final String colorHex; // 系统表 info.color 防呆色（#RRGGBB，与实物定位环同色）
   final String desc;
   final List<String> materials; // 适用材质 key
 
@@ -33,6 +35,7 @@ class ToolDef {
     required this.flutes,
     required this.material,
     required this.ring,
+    required this.colorHex,
     required this.desc,
     required this.materials,
   });
@@ -50,6 +53,7 @@ const List<ToolDef> toolCatalog = [
     flutes: 2,
     material: '钨钢',
     ring: 'red',
+    colorHex: '#D32F2F',
     desc: '粗雕 / 轮廓切割',
     materials: ['pine', 'basswood', 'plywood', 'walnut', 'blackwalnut', 'boxwood', 'ebony', 'acrylic', 'abs', 'pvcsheet', 'pcb', 'brass', 'bakelite', 'alu'],
   ),
@@ -63,6 +67,7 @@ const List<ToolDef> toolCatalog = [
     flutes: 2,
     material: '钨钢',
     ring: 'orange',
+    colorHex: '#E65100',
     desc: '浮雕曲面收光',
     materials: ['pine', 'basswood', 'blackwalnut'],
   ),
@@ -77,6 +82,7 @@ const List<ToolDef> toolCatalog = [
     flutes: 2,
     material: '硬质合金',
     ring: 'yellow',
+    colorHex: '#FDD835',
     desc: '精细浮雕 / 走线',
     materials: ['walnut', 'boxwood', 'ebony', 'leather', 'pcb'],
   ),
@@ -91,6 +97,7 @@ const List<ToolDef> toolCatalog = [
     flutes: 2,
     material: '硬质合金',
     ring: 'green',
+    colorHex: '#43A047',
     desc: '刻线 / 精雕文字',
     materials: ['plywood', 'acrylic', 'abs', 'absdual', 'leather'],
   ),
@@ -105,6 +112,7 @@ const List<ToolDef> toolCatalog = [
     flutes: 2,
     material: '硬质合金',
     ring: 'blue',
+    colorHex: '#1E88E5',
     desc: '宽槽 / 大面积刻蚀',
     materials: ['plywood', 'acrylic', 'abs', 'absdual', 'leather'],
   ),
@@ -113,22 +121,28 @@ const List<ToolDef> toolCatalog = [
 ToolDef toolById(String id) =>
     toolCatalog.firstWhere((t) => t.id == id, orElse: () => toolCatalog.first);
 
-/// 定位环颜色（红=主刀/平底，橙=球头，黄=30°V，绿=60°V，蓝=90°V）。
+/// 防呆色值表：系统表 info.color → 定位环实物同色
+/// （红=1/8 平底，橙=1/8 球头，黄=30°V，绿=60°V，蓝=90°V）。
+/// App 显示色必须与实物定位环一致，故用精确 hex，不复用主题令牌。
+const Map<String, int> _kRingHex = {
+  'red': 0xFFD32F2F,
+  'orange': 0xFFE65100,
+  'yellow': 0xFFFDD835,
+  'green': 0xFF43A047,
+  'blue': 0xFF1E88E5,
+};
+
+/// 定位环防呆色（按 ring 名取精确 hex；未知回退次级文字色）。
 Color ringColor(String ring) {
-  switch (ring) {
-    case 'red':
-      return CncColors.danger;
-    case 'orange':
-      return CncColors.warning;
-    case 'yellow':
-      return const Color(0xFFFDD835);
-    case 'green':
-      return CncColors.primary;
-    case 'blue':
-      return CncColors.blue;
-    default:
-      return CncColors.textSub;
-  }
+  final v = _kRingHex[ring];
+  return v != null ? Color(v) : CncColors.textSub;
+}
+
+/// '#RRGGBB' → Color（供 colorHex 解析 / 联调校验用）。
+Color hexColor(String hex) {
+  final s = hex.replaceFirst('#', '');
+  final v = int.tryParse(s, radix: 16);
+  return (s.length == 6 && v != null) ? Color(0xFF000000 | v) : CncColors.textSub;
 }
 
 /// 定位环色点：代码绘制纯色圆（替代原彩色环点 emoji，不依赖 emoji 字体）。
