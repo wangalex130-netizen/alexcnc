@@ -12,6 +12,7 @@ import '../../models/machine_status.dart';
 import '../../models/tool.dart';
 import '../../state/providers.dart';
 import '../preview/rtsp_preview_widget.dart';
+import '../preview/timelapse_gallery_page.dart';
 import '../wizard/job_monitor_page.dart';
 import '../wizard/self_check_page.dart';
 import '../../services/network_auth.dart';
@@ -199,6 +200,27 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 ),
               ),
             ],
+          ),
+
+          // ---- 延时摄影回顾入口 ----
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                      builder: (_) => const TimeLapseGalleryPage()),
+                ),
+                icon: const Icon(Symbols.movie, size: 18),
+                label: const Text('延时摄影回顾'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: CncColors.textMain,
+                  side: BorderSide(color: CncColors.border),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
           ),
 
           // ---- 快捷开关 ----

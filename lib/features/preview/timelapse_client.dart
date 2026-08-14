@@ -78,4 +78,34 @@ class TimeLapseClient {
   /// 视频直链（浏览器/系统播放器可在线播放并下载）。
   static String videoUrl(String jobId) =>
       '$_base/timelapse/video/$jobId?token=$_token';
+
+  /// 缩略图直链（相册网格用）。
+  static String thumbUrl(String jobId) =>
+      '$_base/timelapse/thumb/$jobId?token=$_token';
+
+  /// 列出本设备全部延时摄影任务（相册）。
+  ///
+  /// 返回 job 摘要列表，字段见 relay.py `/timelapse/list`：
+  /// job_id / device / status / count / frames_target / video_ready /
+  /// duration / interval / created_at(epoch 秒) / thumbnail_url / video_url。
+  /// 失败（网络/鉴权）时返回空列表，调用方应展示空态而非崩溃。
+  static Future<List<Map<String, dynamic>>> list() async {
+    final uri = Uri.parse('$_base/timelapse/list').replace(queryParameters: {
+      'device': _device,
+      'token': _token,
+    });
+    try {
+      final r = await http.get(uri).timeout(const Duration(seconds: 15));
+      if (r.statusCode == 200) {
+        final list = jsonDecode(r.body) as List<dynamic>;
+        return list
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList();
+      }
+      debugPrint('[TimeLapse] list HTTP ${r.statusCode}');
+    } catch (e) {
+      debugPrint('[TimeLapse] list failed: $e');
+    }
+    return [];
+  }
 }

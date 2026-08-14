@@ -13,6 +13,7 @@ import '../../models/library_item.dart';
 import '../../models/task_metadata.dart';
 import '../../models/tool.dart';
 import '../../state/providers.dart';
+import '../preview/timelapse_client.dart';
 import 'self_check_page.dart';
 import 'job_monitor_page.dart';
 
@@ -2056,9 +2057,37 @@ class _StepTakeoff extends ConsumerStatefulWidget {
 }
 
 class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
-  void _start() {
+  bool _timeLapse = false;
+  late final TextEditingController _durCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    // 联动模型库：默认取所选模型的雕刻时长（秒），用户仍可手动修改。
+    final secs = widget.item.durationSec ?? 120;
+    _durCtrl = TextEditingController(text: secs.toString());
+  }
+
+  @override
+  void dispose() {
+    _durCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _start() async {
     final task = widget.task;
     if (task == null) return;
+
+    // 延时摄影：开启则让服务器从本刻起按雕刻时长抽样存图（与固件雕刻并行，
+    // 手机/电脑/机器本身均不存照片，全部在服务器完成）。
+    if (_timeLapse) {
+      final dur = double.tryParse(_durCtrl.text) ?? 120.0;
+      final tlJobId = await TimeLapseClient.start(durationSec: dur);
+      if (tlJobId != null) {
+        ref.read(timeLapseJobProvider.notifier).setJob(tlJobId);
+      }
+    }
+
     final req = widget.requiredTools;
     final phases = <String>[
       '防护罩电子门磁锁止',
@@ -2104,6 +2133,9 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
       mat: mat,
       requiredTools: req,
       procSlot: widget.procSlot,
+      timeLapse: _timeLapse,
+      onToggleTimeLapse: (v) => setState(() => _timeLapse = v),
+      durationController: _durCtrl,
       onStart: _start,
     );
   }
@@ -2113,11 +2145,17 @@ class _ReadyPhase extends StatelessWidget {
   final MaterialSpec mat;
   final List<RequiredTool> requiredTools;
   final Map<int, int> procSlot;
+  final bool timeLapse;
+  final ValueChanged<bool> onToggleTimeLapse;
+  final TextEditingController durationController;
   final VoidCallback onStart;
   const _ReadyPhase({
     required this.mat,
     required this.requiredTools,
     required this.procSlot,
+    required this.timeLapse,
+    required this.onToggleTimeLapse,
+    required this.durationController,
     required this.onStart,
   });
 
@@ -2174,6 +2212,50 @@ class _ReadyPhase extends StatelessWidget {
                     '点击后设备将先执行自检流水线，完成后自动进入实时加工监控页。',
                     style: const TextStyle(fontSize: 11, color: CncColors.textMain)),
               ),
+            ],
+          ),
+        ),
+        Container(
+          margin: const EdgeInsets.only(top: 4),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: CncColors.card,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: CncColors.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SwitchListTile(
+                title: const Text('延时摄影',
+                    style: TextStyle(color: CncColors.textMain, fontSize: 13)),
+                subtitle: const Text('雕刻时服务器自动拍照，结束后生成 15 秒回顾视频',
+                    style: TextStyle(fontSize: 11, color: CncColors.textMain)),
+                value: timeLapse,
+                onChanged: onToggleTimeLapse,
+                activeColor: CncColors.blue,
+                contentPadding: EdgeInsets.zero,
+              ),
+              if (timeLapse)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: TextField(
+                    controller: durationController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: '预计雕刻时长（秒）',
+                      labelStyle: const TextStyle(fontSize: 12),
+                      hintText: '例如 120 = 2 分钟',
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 8),
+                    ),
+                    style: const TextStyle(
+                        fontSize: 13, color: CncColors.textMain),
+                  ),
+                ),
             ],
           ),
         ),
