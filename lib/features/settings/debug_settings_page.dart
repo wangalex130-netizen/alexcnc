@@ -40,17 +40,17 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
     final c = await ref.read(runtimeConfigProvider.notifier).hydrated;
     if (!mounted) return;
     setState(() {
-      _useReal = c.useRealBackend;
-      _cloud.text = c.cloudBaseUrl;
-      _broker.text = c.mqttBroker;
-      _mqttPort.text = c.mqttPort > 0 ? '${c.mqttPort}' : '';
-      _mqttUser.text = c.mqttUser;
-      _mqttPass.text = c.mqttPass;
-      _tcpHost.text = c.deviceTcpHost;
-      _tcpPort.text = c.deviceTcpPort > 0 ? '${c.deviceTcpPort}' : '';
-      _deviceId.text = c.deviceId;
-      _appUserId.text = c.appUserId;
-      _rtsp.text = c.cameraRtspUrl;
+      _useReal = c.resolvedUseRealBackend;
+      _cloud.text = c.resolvedCloudBaseUrl;
+      _broker.text = c.resolvedMqttBroker;
+      _mqttPort.text = '${c.resolvedMqttPort}';
+      _mqttUser.text = c.resolvedMqttUser;
+      _mqttPass.text = c.resolvedMqttPass;
+      _tcpHost.text = c.resolvedDeviceTcpHost;
+      _tcpPort.text = '${c.resolvedDeviceTcpPort}';
+      _deviceId.text = c.resolvedDeviceId;
+      _appUserId.text = c.resolvedAppUserId;
+      _rtsp.text = c.resolvedCameraRtsp;
     });
   }
 

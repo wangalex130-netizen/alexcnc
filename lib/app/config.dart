@@ -54,14 +54,14 @@ class AppConfig {
   // ---- MQTT（云端 Broker，主链路：状态订阅 + 命令下发）----
   static const String mqttBroker = String.fromEnvironment(
     'MQTT_BROKER',
-    defaultValue: 'broker.emqx.io',
+    defaultValue: '43.154.192.242',
   );
   static const int mqttPort =
-      int.fromEnvironment('MQTT_PORT', defaultValue: 1883);
+      int.fromEnvironment('MQTT_PORT', defaultValue: 8883);
   static const String mqttUser =
-      String.fromEnvironment('MQTT_USER', defaultValue: '');
+      String.fromEnvironment('MQTT_USER', defaultValue: 'app-demo');
   static const String mqttPass =
-      String.fromEnvironment('MQTT_PASS', defaultValue: '');
+      String.fromEnvironment('MQTT_PASS', defaultValue: 'demo123');
 
   // ---- 设备局域网 TCP（低延迟运动控制：jog / 回零 / 定原点）----
   static const String deviceTcpHost = String.fromEnvironment(
@@ -73,11 +73,11 @@ class AppConfig {
 
   // ---- 设备标识（用于 MQTT topic 与云端任务下发目标）----
   static const String deviceId =
-      String.fromEnvironment('DEVICE_ID', defaultValue: 'alexcnc-001');
+      String.fromEnvironment('DEVICE_ID', defaultValue: 'cnc-demo-01');
 
   // ---- App 用户标识（MQTT clientId = app-<userId>，契约 auth.client_id_pattern）----
   static const String appUserId =
-      String.fromEnvironment('APP_USER_ID', defaultValue: 'local');
+      String.fromEnvironment('APP_USER_ID', defaultValue: 'app-demo');
 
   // ---- 2D 刀路预览（协议 §3.2 渲染矢量）----
   // 2026-08-07 决策链：驱动在电脑端生成 G-code，客户可选择上传至库（上传的是 G-code 本体）。
