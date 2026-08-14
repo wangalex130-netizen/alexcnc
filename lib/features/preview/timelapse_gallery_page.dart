@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../app/theme.dart';
 import 'timelapse_client.dart';
 import 'timelapse_video_page.dart';
 
