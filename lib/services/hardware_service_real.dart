@@ -119,6 +119,8 @@ class RealHardwareService implements HardwareService {
       // ACL 按账号维度鉴权与上下线追踪；同一账号重连保持同一身份。
       final client = MqttServerClient(broker, 'app-$appUserId');
       client.port = mqttPort;
+      client.secure = true;                          // 启用 TLS（8883）
+      client.onBadCertificate = (cert) => true;      // 信任自签证书，仅联调期；上线换正式 CA 后删除此行
       client.keepAlivePeriod = 30;
       client.logging(on: false);
       client.onDisconnected = _onMqttDisconnected;
