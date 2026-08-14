@@ -21,7 +21,7 @@ D9 物理安全确认模拟：
   机身屏弹「确认加工」；默认 --auto-confirm（模拟物理按钮自动按下）0.8s 后自动进入
   自检→加工；加 --no-auto-confirm 则需收到 {"cmd":"confirm"}（联调模拟按钮）才执行。
 
-自检流水线由「固件」拥有：进入加工后先播自检阶段 scIndex 0→5，再进加工进度。
+自检流水线由「固件」拥有：进入加工后先播自检阶段 scIndex 0→8，再进加工进度。
 """
 import json
 import sys
@@ -78,7 +78,7 @@ sc_index = 0
 sc_total = 0
 download_progress = None   # D10 G-code 下载进度 0..1；无下载任务为 None
 awaiting_confirm = False   # D9 等待机旁物理确认
-aux = {"light": False, "laser": False, "timelapse": False, "fan": False}
+aux = {"light": False, "laser": False, "timelapse": False}
 tools = [
     {"index": 1, "name": "3.175平底刀", "installed": True},
     {"index": 2, "name": "1.5球刀", "installed": True},
@@ -127,7 +127,7 @@ def begin_job():
     state = "busy"
     progress = 0.0
     sc_index = 0
-    sc_total = 5          # 固件拥有的自检流水线：5 个阶段
+    sc_total = 8          # 固件拥有的自检流水线：8 个阶段
     eta_sec = 300
     print("[fake_firmware] D9 确认通过 → 进入自检/加工")
 

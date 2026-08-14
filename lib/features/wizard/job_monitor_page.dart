@@ -279,7 +279,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
                 const SizedBox(height: 6),
                 LinearProgressIndicator(
                   value: completed ? 1.0 : prog,
-                  backgroundColor: CncColors.panelAlt,
+                  backgroundColor: const Color(0xFFEDEFF2),
                   color: completed ? CncColors.primary : CncColors.primary,
                   minHeight: 6,
                 ),

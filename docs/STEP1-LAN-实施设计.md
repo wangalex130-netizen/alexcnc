@@ -89,13 +89,13 @@
   "mpos": {"x":0.0,"y":0.0,"z":0.0},
   "rpm": 12000, "feed": 600,
   "progress": 0.42, "etaSec": 174,
-  "scIndex": 3, "scTotal": 5,
+  "scIndex": 3, "scTotal": 8,
   "aux": {"light":false,"laser":false,"timelapse":false},
   "tools": [{"index":1,"installed":true}, ...]
 }
 ```
 
-- **自检流水线由固件拥有**：`job start` 后 `scTotal=5`，固件自行推进 `scIndex 0→5`，完成后转入 `progress` 加工进度。App 只读 `scIndex/scTotal` 渲染，**不自己计时**。
+- **自检流水线由固件拥有**：`job start` 后 `scTotal=8`，固件自行推进 `scIndex 0→8`，完成后转入 `progress` 加工进度。App 只读 `scIndex/scTotal` 渲染，**不自己计时**。
 - 别名兼容：固件可发 `mp`(主轴) / `prog`(进度) / `eta`(秒) 任一风格，App 已容错。
 
 ### 3.4 连接/重连

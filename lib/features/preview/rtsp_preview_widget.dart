@@ -7,8 +7,10 @@ import 'package:flutter/services.dart';
 import 'package:native_vlc_player/native_vlc_player.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 
+import '../../app/config.dart';
 import '../../app/theme.dart';
 import 'camera_discovery.dart';
+import 'mjpeg_stream_player.dart';
 
 /// 控制台顶部「实时监控」——机器内部雕刻过程画面。
 ///
@@ -27,12 +29,17 @@ class RtspPreviewWidget extends StatefulWidget {
   /// 直接指定 RTSP 地址（例如设置页填的固定 IP）。为 null 时走自动发现。
   final String? rtspUrl;
 
+  /// 外网中继 MJPEG 流地址（例如 http://host:8080/stream/cam?token=xxx）。
+  /// 非空时优先走云中继，不启用局域网自动发现。
+  final String? relayUrl;
+
   /// 是否在未指定地址时自动发现局域网摄像头。
   final bool autoDiscover;
 
   const RtspPreviewWidget({
     super.key,
     this.rtspUrl,
+    this.relayUrl,
     this.autoDiscover = true,
   });
 
@@ -82,6 +89,12 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
   /// 原生播放器实例的 key，用于调用 pause/resume/snapshot。
   final GlobalKey<NativeVlcPlayerState> _playerKey = GlobalKey();
 
+  /// MJPEG 模式下最新一帧缓存（用于截图/全屏）。
+  Uint8List? _mjpegFrame;
+
+  /// MJPEG 播放/暂停状态。
+  bool _mjpegPlaying = true;
+
   @override
   void dispose() {
     _connectTimeoutTimer?.cancel();
@@ -98,6 +111,17 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     // 避免被 visibility 首帧误置为 false 导致播放器从不创建、一直转圈。
     _pageVisible = true;
     _preHideState = null;
+
+    final relay = widget.relayUrl?.trim();
+    if (relay != null && relay.isNotEmpty) {
+      _urls = [relay];
+      _urlIndex = 0;
+      _mjpegPlaying = true;
+      _mjpegFrame = null;
+      setState(() => _state = _CamState.connecting);
+      _runCurrentAttempt();
+      return;
+    }
 
     final fixed = widget.rtspUrl?.trim();
     if (fixed != null && fixed.isNotEmpty) {
@@ -142,6 +166,8 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     _lastAttemptLabel = '';
     _diagnosis = '';
     _error = null;
+    _mjpegFrame = null;
+    _mjpegPlaying = true;
   }
 
   /// 为一个 URL 生成尝试候选：RTSP 生成主码流 /11 + 子码流 /12；
@@ -168,6 +194,14 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
   String get _currentUrl =>
       (_urlIndex >= 0 && _urlIndex < _urls.length) ? _urls[_urlIndex] : '';
 
+  bool get _isRelayUrl {
+    final url = _currentUrl;
+    return url.isNotEmpty &&
+        (url.startsWith('http://') || url.startsWith('https://')) &&
+        widget.relayUrl != null &&
+        url == widget.relayUrl;
+  }
+
   void _runCurrentAttempt() {
     if (!mounted) return;
     if (_urlIndex >= _urls.length) {
@@ -192,6 +226,27 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
       _error = null;
       _diagnosis = '';
     });
+  }
+
+  void _onMjpegPlaying() {
+    if (!mounted) return;
+    _connectTimeoutTimer?.cancel();
+    setState(() {
+      _state = _CamState.ready;
+      _isPaused = false;
+    });
+    final url = _currentUrl;
+    if (url.isNotEmpty) CameraDiscovery.saveUrl(url);
+  }
+
+  void _onMjpegError(String msg) {
+    if (!mounted) return;
+    _connectTimeoutTimer?.cancel();
+    if (_state == _CamState.connecting) {
+      _failCurrentAttempt(msg);
+    } else if (_state == _CamState.ready) {
+      _setError('视频流中断', details: msg);
+    }
   }
 
   void _onNativeEvent(NativeVlcEvent event) {
@@ -356,6 +411,15 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
   /// 暂停/恢复播放。
   Future<void> _togglePause() async {
+    if (_isRelayUrl) {
+      setState(() {
+        _isPaused = !_isPaused;
+        _mjpegPlaying = !_isPaused;
+      });
+      _resetControlsHideTimer();
+      return;
+    }
+
     final player = _playerKey.currentState;
     if (player == null) return;
     if (_isPaused) {
@@ -369,6 +433,12 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
   /// 截图并保存到相册。
   Future<void> _takeSnapshot() async {
+    if (_isRelayUrl) {
+      _showHint('远程模式截图暂不支持保存到相册');
+      _resetControlsHideTimer();
+      return;
+    }
+
     final player = _playerKey.currentState;
     if (player == null) return;
     final path = await player.snapshot();
@@ -420,6 +490,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
       useSafeArea: false,
       builder: (_) => _FullscreenPlayer(
         url: _currentUrl,
+        isRelay: _isRelayUrl,
         onClose: _exitFullscreen,
       ),
     );
@@ -629,6 +700,16 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
           content = const Center(
             child: CircularProgressIndicator(color: CncColors.primary),
           );
+        } else if (_isRelayUrl) {
+          content = MjpegStreamPlayer(
+            key: ValueKey('mjpeg_$_refreshToken'),
+            url: url,
+            playing: _mjpegPlaying,
+            fit: BoxFit.contain,
+            onPlaying: _onMjpegPlaying,
+            onError: _onMjpegError,
+            onFrame: (f) => _mjpegFrame = f,
+          );
         } else {
           content = NativeVlcPlayer(
             key: _playerKey,
@@ -820,10 +901,12 @@ class _Placeholder extends StatelessWidget {
 /// 全屏播放页：横屏沉浸，带返回、暂停、截图、退出全屏。
 class _FullscreenPlayer extends StatefulWidget {
   final String url;
+  final bool isRelay;
   final VoidCallback onClose;
 
   const _FullscreenPlayer({
     required this.url,
+    required this.isRelay,
     required this.onClose,
   });
 
@@ -835,6 +918,7 @@ class _FullscreenPlayerState extends State<_FullscreenPlayer> {
   final GlobalKey<NativeVlcPlayerState> _playerKey = GlobalKey();
   bool _isPaused = false;
   bool _controlsVisible = true;
+  bool _mjpegPlaying = true;
   Timer? _controlsHideTimer;
 
   @override
@@ -851,7 +935,21 @@ class _FullscreenPlayerState extends State<_FullscreenPlayer> {
     }
   }
 
+  void _onMjpegPlaying() {
+    if (!mounted) return;
+    setState(() => _isPaused = false);
+  }
+
   Future<void> _togglePause() async {
+    if (widget.isRelay) {
+      setState(() {
+        _isPaused = !_isPaused;
+        _mjpegPlaying = !_isPaused;
+      });
+      _resetControlsHideTimer();
+      return;
+    }
+
     final player = _playerKey.currentState;
     if (player == null) return;
     if (_isPaused) {
@@ -864,6 +962,12 @@ class _FullscreenPlayerState extends State<_FullscreenPlayer> {
   }
 
   Future<void> _takeSnapshot() async {
+    if (widget.isRelay) {
+      _showHint('远程模式截图暂不支持保存到相册');
+      _resetControlsHideTimer();
+      return;
+    }
+
     final player = _playerKey.currentState;
     if (player == null) return;
     final path = await player.snapshot();
@@ -910,11 +1014,20 @@ class _FullscreenPlayerState extends State<_FullscreenPlayer> {
         body: Stack(
           fit: StackFit.expand,
           children: [
-            NativeVlcPlayer(
-              key: _playerKey,
-              url: widget.url,
-              onEvent: _onEvent,
-            ),
+            if (widget.isRelay)
+              MjpegStreamPlayer(
+                url: widget.url,
+                playing: _mjpegPlaying,
+                fit: BoxFit.contain,
+                onPlaying: _onMjpegPlaying,
+                onError: (msg) => debugPrint('[Fullscreen MJPEG] $msg'),
+              )
+            else
+              NativeVlcPlayer(
+                key: _playerKey,
+                url: widget.url,
+                onEvent: _onEvent,
+              ),
             if (_controlsVisible)
               Container(
                 color: Colors.black.withOpacity(0.35),

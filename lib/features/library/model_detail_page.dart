@@ -214,8 +214,6 @@ class _ParamsGrid extends StatelessWidget {
       ('板材厚度', item.boardThicknessMm > 0 ? '${_fmt(item.boardThicknessMm)} mm' : '—'),
       ('雕刻时长', item.duration ?? (item.durationSec != null ? '${item.durationSec! ~/ 60} 分钟' : '—')),
       ('默认材质', item.materialPreset ?? item.materialKey ?? '—'),
-      ('推荐主轴', item.recommendedSpindleRpm != null ? '${item.recommendedSpindleRpm} RPM' : '—'),
-      ('推荐进给', item.recommendedFeedRate != null ? '${_fmt(item.recommendedFeedRate!)} mm/min' : '—'),
     ];
     return Container(
       padding: const EdgeInsets.all(14),

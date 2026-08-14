@@ -28,7 +28,7 @@ abstract class HardwareService {
   // --- Spindle / aux ---
   Future<void> startSpindle(double rpm);
   Future<void> stopSpindle();
-  Future<void> setAux(String key, bool on); // light | laser | timelapse | fan
+  Future<void> setAux(String key, bool on); // light | laser | timelapse
 
   // --- Job control ---
   Future<void> startJob();
