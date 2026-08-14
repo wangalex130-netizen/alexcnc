@@ -25,6 +25,10 @@ class MjpegStreamPlayer extends StatefulWidget {
   /// 帧到达回调（可用于截图等扩展）。
   final ValueChanged<Uint8List>? onFrame;
 
+  /// 是否在挂载后自动开始拉流。默认 true；设为 false 时显示「点击开始预览」遮罩。
+  /// 与 [playing] 同时为 true 才会真正发起请求——可在用户主动触发时再开。
+  final bool autoStart;
+
   final BoxFit fit;
 
   const MjpegStreamPlayer({
@@ -34,6 +38,7 @@ class MjpegStreamPlayer extends StatefulWidget {
     this.onPlaying,
     this.onError,
     this.onFrame,
+    this.autoStart = true,
     this.fit = BoxFit.contain,
   });
 
@@ -51,10 +56,19 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
   bool _loading = true;
   bool _hasReportedPlaying = false;
 
+  /// 「点击开始预览」遮罩：false 时显示播放圆按钮，用户点击后再 _start()。
+  bool _started = false;
+
+  /// 最近一次错误信息；非空时 build() 显示错误覆盖层（黑底 + 原因 + 重试按钮）。
+  String? _errorMsg;
+
   @override
   void initState() {
     super.initState();
-    if (widget.playing) _start();
+    if (widget.autoStart && widget.playing) {
+      _started = true;
+      _start();
+    }
   }
 
   @override
@@ -85,7 +99,10 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
     _client = http.Client();
     final client = _client!;
 
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _errorMsg = null;
+    });
 
     try {
       final request = http.Request('GET', Uri.parse(widget.url));
@@ -178,19 +195,32 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
   void _onError(Object error) {
     debugPrint('[MJPEG] error: $error');
     widget.onError?.call(error.toString());
-    if (mounted) setState(() => _loading = false);
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _errorMsg = error.toString();
+    });
   }
 
   void _onDone() {
     // 正常结束可能是网络断开；让上层决定是否重试。
     if (mounted && widget.playing) {
       widget.onError?.call('视频流已断开');
+      setState(() => _errorMsg = '视频流已断开');
     }
+  }
+
+  /// 用户点击「重试」按钮：从干净的连接重新拉流。
+  Future<void> _retry() async {
+    if (_client != null) _stop(keepFrame: false);
+    _started = true;
+    await _start();
   }
 
   @override
   Widget build(BuildContext context) {
     final frame = _frame;
+    final showPlayOverlay = !_started && !widget.autoStart;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -203,9 +233,54 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
           )
         else
           const SizedBox.expand(),
-        if (_loading)
+        if (_loading && _errorMsg == null)
           const Center(
             child: CircularProgressIndicator(color: Color(0xFF00D97E)),
+          ),
+        if (showPlayOverlay)
+          // 用户场景下，遮罩显示播放圆按钮，点击后才真正开始拉流。
+          GestureDetector(
+            onTap: () {
+              _started = true;
+              _start();
+            },
+            child: Container(
+              color: Colors.black.withOpacity(0.55),
+              child: const Center(
+                child: Icon(Icons.play_circle_fill_rounded,
+                    size: 56, color: Colors.white),
+              ),
+            ),
+          ),
+        if (_errorMsg != null && !_loading)
+          // 错误覆盖层：黑底 + 原因 + 重试按钮。点了「重试」走 _retry()。
+          Container(
+            color: Colors.black.withOpacity(0.85),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.error_outline,
+                        size: 36, color: Color(0xFFFF6B6B)),
+                    const SizedBox(height: 10),
+                    Text(
+                      _errorMsg!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                    ),
+                    const SizedBox(height: 14),
+                    TextButton.icon(
+                      onPressed: _retry,
+                      icon: const Icon(Icons.refresh, color: Color(0xFF00D97E)),
+                      label: const Text('重试',
+                          style: TextStyle(color: Color(0xFF00D97E))),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
       ],
     );

@@ -17,6 +17,9 @@ import '../../models/tool.dart';
 import '../../state/providers.dart';
 import '../preview/rtsp_preview_widget.dart';
 import '../preview/timelapse_client.dart';
+import '../preview/mjpeg_stream_player.dart';
+import '../preview/fullscreen_preview_page.dart';
+import '../../services/network_auth.dart';
 import '../wizard/job_monitor_page.dart';
 import '../wizard/self_check_page.dart';
 
@@ -33,7 +36,7 @@ class ConsolePage extends ConsumerStatefulWidget {
 }
 
 class _ConsolePageState extends ConsumerState<ConsolePage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _rec = AnimationController(
     vsync: this,
     duration: const Duration(seconds: 1),
@@ -49,18 +52,53 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   Timer? _tlTimer;
   Map<String, dynamic>? _tlStatus;
 
+  /// 网络自动探测周期器：每 10s 探测一次控制器 TCP 8899，写回 isLocalLANProvider。
+  Timer? _netTimer;
+
   @override
   void initState() {
     super.initState();
     // 每 2s 轮询一次服务器，刷新延时摄影进度（有 job 时才有意义）。
     _tlTimer = Timer.periodic(const Duration(seconds: 2), (_) => _pollTimeLapse());
+
+    // 自动探测网络模式（LAN = 完整控制 / WAN = 远程监视）。
+    WidgetsBinding.instance.addObserver(this);
+    Future.delayed(const Duration(milliseconds: 300), _autoDetectNetwork);
+    _netTimer = Timer.periodic(
+        const Duration(seconds: 10), (_) => _autoDetectNetwork());
   }
 
   @override
   void dispose() {
     _rec.dispose();
     _tlTimer?.cancel();
+    _netTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // 切回前台立即重探一次，避免后台期间网络切换回来后状态还停在旧值。
+    if (state == AppLifecycleState.resumed) _autoDetectNetwork();
+  }
+
+  /// TCP 探测控制器局域网可达性，结果写入 [isLocalLANProvider]。
+  /// 可达 → 直连（解锁控制）；不可达 → 远程监视（锁控制、走香港中继）。
+  Future<void> _autoDetectNetwork() async {
+    if (!mounted) return;
+    final cfg = ref.read(runtimeConfigProvider);
+    try {
+      final reachable = await NetworkProbe.probe(
+        cfg.resolvedDeviceTcpHost,
+        cfg.resolvedDeviceTcpPort,
+        timeout: const Duration(seconds: 2),
+      );
+      if (!mounted) return;
+      ref.read(isLocalLANProvider.notifier).setLocal(reachable);
+    } catch (_) {
+      // 探测异常忽略，保持当前状态不变。
+    }
   }
 
   /// 轮询服务器，更新当前延时摄影 job 的状态（采集中 / 视频已生成 / 失败）。
@@ -198,12 +236,16 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   ],
                 ),
               ),
-              // LAN / WAN 状态（点击切换，驱动门禁）
+              // LAN / WAN 状态：点击触发「重新探测」，避免后台/网络切换后状态过期。
+              // 自动探测也会在启动 300ms / 每 10s / 切回前台时跑，无需手动切。
               Positioned(
                 top: 40,
                 right: 15,
                 child: GestureDetector(
-                  onTap: () => ref.read(isLocalLANProvider.notifier).setLocal(!isLocal),
+                  onTap: () {
+                    _showHint('重新检测网络模式…');
+                    _autoDetectNetwork();
+                  },
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
@@ -233,6 +275,32 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   ),
                 ),
               ),
+              // 外网 MJPEG 模式下，右下角放一个「进入全屏 + 截图存相册」入口。
+              // LAN (RTSP) 模式不显示——RtspPreviewWidget 内部已有自己的全屏控制。
+              if (!isLocal)
+                Positioned(
+                  right: 10,
+                  bottom: 8,
+                  child: GestureDetector(
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const FullscreenPreviewPage(),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.6),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: CncColors.border),
+                      ),
+                      child: const Icon(Icons.fullscreen_rounded,
+                          size: 16, color: Colors.white),
+                    ),
+                  ),
+                ),
             ],
           ),
 
