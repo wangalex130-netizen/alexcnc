@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'timelapse_client.dart';
+import 'timelapse_video_page.dart';
 
 /// 延时摄影回顾（类拓竹清单页）。
 ///
 /// 竖屏网格 + 缩略图卡片，每张卡片展示：状态角标、雕刻时长角标、创建时间、
-/// 查看 / 下载按钮。点按卡片或「查看」用系统播放器打开视频（系统播放器自带
-/// 横屏 + 分享/保存）；「下载」用浏览器打开直链触发下载。所有数据来自中继
-/// 服务器，手机本地不落地，解决了旧版「竖屏模拟 + 文件难找」的问题。
+/// 查看 / 下载按钮。「查看」用 App 内竖屏原比例播放页（不强制横屏、不沉浸全屏，
+/// 低清画面按比例居中、上下留白）；「下载」直接保存到系统相册（相册可见，根治
+/// 「保存后找不到文件」）。所有数据来自中继服务器，手机本地不落地。
 class TimeLapseGalleryPage extends StatefulWidget {
   const TimeLapseGalleryPage({super.key});
 
@@ -42,20 +42,22 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
   }
 
   Future<void> _open(String jobId, {bool download = false}) async {
-    final url = TimeLapseClient.videoUrl(jobId);
-    try {
-      final ok = await launchUrl(
-        Uri.parse(url),
-        mode: download
-            ? LaunchMode.externalApplication
-            : LaunchMode.platformDefault,
-      );
-      if (!ok && mounted) {
-        _snack('无法打开视频链接：$url');
-      }
-    } catch (e) {
-      if (mounted) _snack('打开失败：$e');
+    if (download) {
+      final path = await TimeLapseClient.saveToGallery(jobId);
+      if (!mounted) return;
+      _snack(path != null ? '已保存到相册' : '保存失败，请重试');
+      return;
     }
+    if (!mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => TimeLapseVideoPage(
+          url: TimeLapseClient.videoUrl(jobId),
+          jobId: jobId,
+          onClose: () => Navigator.of(context).pop(),
+        ),
+      ),
+    );
   }
 
   void _snack(String msg) =>

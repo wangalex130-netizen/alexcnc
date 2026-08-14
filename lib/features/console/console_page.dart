@@ -1,11 +1,8 @@
 import 'dart:async';
-import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:native_vlc_player/native_vlc_player.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../../app/config.dart';
 import '../../app/runtime_config.dart';
@@ -19,6 +16,7 @@ import '../preview/rtsp_preview_widget.dart';
 import '../preview/timelapse_client.dart';
 import '../preview/mjpeg_stream_player.dart';
 import '../preview/fullscreen_preview_page.dart';
+import '../preview/timelapse_video_page.dart';
 import '../../services/network_auth.dart';
 import '../wizard/job_monitor_page.dart';
 import '../wizard/self_check_page.dart';
@@ -127,39 +125,25 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     }
   }
 
-  /// 在 App 内用 LibVLC 播放服务器生成的 15s 回顾视频。
+  /// 在 App 内用竖屏原比例播放页看服务器生成的 15s 回顾视频。
   void _openTimeLapseVideo(String jobId) {
     final url = TimeLapseClient.videoUrl(jobId);
-    showDialog(
-      context: context,
-      useSafeArea: false,
-      builder: (_) => _TimeLapseVideoPage(
-        url: url,
-        onClose: () => Navigator.of(context).pop(),
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => TimeLapseVideoPage(
+          url: url,
+          jobId: jobId,
+          onClose: () => Navigator.of(context).pop(),
+        ),
       ),
     );
   }
 
-  /// 把视频下载到本机存储（供客户离线保存）。
+  /// 把视频保存到系统相册（相册可见，根治「保存后找不到文件」）。
   Future<void> _downloadTimeLapse(String jobId) async {
-    try {
-      final url = TimeLapseClient.videoUrl(jobId);
-      final resp = await http.get(Uri.parse(url));
-      if (resp.statusCode != 200) {
-        _showHint('下载失败 (HTTP ${resp.statusCode})');
-        return;
-      }
-      final dir = await getExternalStorageDirectory();
-      if (dir == null) {
-        _showHint('无法定位本机存储目录');
-        return;
-      }
-      final out = File('${dir.path}/timelapse_$jobId.mp4');
-      await out.writeAsBytes(resp.bodyBytes);
-      _showHint('已下载：${out.path}');
-    } catch (e) {
-      _showHint('下载失败：$e');
-    }
+    final path = await TimeLapseClient.saveToGallery(jobId);
+    if (!mounted) return;
+    _showHint(path != null ? '已保存到相册' : '保存失败，请重试');
   }
 
   void _showHint(String msg) {
@@ -1319,53 +1303,3 @@ class _TimeLapseStatusCard extends StatelessWidget {
   }
 }
 
-// ===================== 延时视频播放页 =====================
-// 用已有的 native_vlc_player 直接播服务器下发的 HTTP mp4（无需新增依赖）。
-
-class _TimeLapseVideoPage extends StatefulWidget {
-  final String url;
-  final VoidCallback onClose;
-  const _TimeLapseVideoPage({required this.url, required this.onClose});
-
-  @override
-  State<_TimeLapseVideoPage> createState() => _TimeLapseVideoPageState();
-}
-
-class _TimeLapseVideoPageState extends State<_TimeLapseVideoPage> {
-  final GlobalKey<NativeVlcPlayerState> _playerKey = GlobalKey();
-
-  void _onEvent(NativeVlcEvent event) {
-    debugPrint('[TL Video] ${event.event} / ${event.message}');
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          NativeVlcPlayer(
-            key: _playerKey,
-            url: widget.url,
-            onEvent: _onEvent,
-          ),
-          Positioned(
-            left: 16,
-            top: 16,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: widget.onClose,
-                child: const Padding(
-                  padding: EdgeInsets.all(8),
-                  child: Icon(Icons.arrow_back_ios_rounded, color: Colors.white),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}

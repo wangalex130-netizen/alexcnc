@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
+import '../preview/timelapse_gallery_page.dart';
 import '../settings/debug_settings_page.dart';
 
 /// Core 5: personal hub & device manager.
@@ -128,6 +129,22 @@ class _ProfilePageState extends State<ProfilePage> {
               trailing: _Switch(
                   value: _pushAlert,
                   onChanged: (v) => setState(() => _pushAlert = v)),
+            ),
+          ],
+        ),
+
+        // 模块 2.5：创作与回顾
+        _SectionTitle('创作与回顾'),
+        _MenuGroup(
+          children: [
+            _MenuItem(
+              icon: Symbols.movie,
+              title: '延时摄影回顾',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const TimeLapseGalleryPage()),
+              ),
             ),
           ],
         ),

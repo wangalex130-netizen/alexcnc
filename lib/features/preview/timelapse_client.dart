@@ -1,6 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:image_gallery_saver_plus/image_gallery_saver_plus.dart';
+import 'package:path_provider/path_provider.dart';
+
 import '../../app/config.dart';
 
 /// 云端延时摄影客户端。
@@ -75,7 +80,63 @@ class TimeLapseClient {
     return null;
   }
 
+  /// 列出本设备全部延时摄影 job（按创建时间倒序）。失败/无记录返回空列表。
+  static Future<List<Map<String, dynamic>>> list() async {
+    final uri = Uri.parse('$_base/timelapse/list').replace(queryParameters: {
+      'device': _device,
+      'token': _token,
+    });
+    try {
+      final r = await http.get(uri).timeout(const Duration(seconds: 15));
+      if (r.statusCode == 200) {
+        final list = jsonDecode(r.body) as List<dynamic>;
+        return list
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList();
+      }
+      debugPrint('[TimeLapse] list HTTP ${r.statusCode}');
+    } catch (e) {
+      debugPrint('[TimeLapse] list failed: $e');
+    }
+    return const [];
+  }
+
+  /// 缩略图直链（未生成时可能 404，UI 已有降级占位）。
+  static String thumbUrl(String jobId) =>
+      '$_base/timelapse/thumb/$jobId?token=$_token';
+
   /// 视频直链（浏览器/系统播放器可在线播放并下载）。
   static String videoUrl(String jobId) =>
       '$_base/timelapse/video/$jobId?token=$_token';
+
+  /// 下载视频并保存到系统相册（根治「保存后找不到文件」痛点）。
+  /// 返回相册路径；失败返回 null。
+  static Future<String?> saveToGallery(String jobId) async {
+    try {
+      final url = videoUrl(jobId);
+      final resp = await http.get(Uri.parse(url));
+      if (resp.statusCode != 200) {
+        debugPrint('[TimeLapse] saveToGallery HTTP ${resp.statusCode}');
+        return null;
+      }
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/timelapse_$jobId.mp4');
+      await file.writeAsBytes(resp.bodyBytes);
+      final res = await ImageGallerySaverPlus.saveFile(
+        file.path,
+        name: 'timelapse_$jobId.mp4',
+      );
+      if (res is Map &&
+          (res['isSuccess'] == true ||
+              res['success'] == true ||
+              res['filePath'] != null)) {
+        return (res['filePath'] as String?) ?? '已保存到相册';
+      }
+      debugPrint('[TimeLapse] saveToGallery result: $res');
+      return null;
+    } catch (e) {
+      debugPrint('[TimeLapse] saveToGallery failed: $e');
+      return null;
+    }
+  }
 }
