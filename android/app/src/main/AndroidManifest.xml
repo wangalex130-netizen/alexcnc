@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
     <application android:usesCleartextTraffic="true"
+        android:requestLegacyExternalStorage="true"
         android:label="alexcnc"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">

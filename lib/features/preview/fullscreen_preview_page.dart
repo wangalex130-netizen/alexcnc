@@ -2,7 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:image_gallery_saver/image_gallery_saver.dart';
+import 'package:image_gallery_saver_plus/image_gallery_saver_plus.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/config.dart';
@@ -12,7 +12,7 @@ import 'mjpeg_stream_player.dart';
 ///
 /// 进入时强制横屏沉浸；内部复用 [MjpegStreamPlayer]，通过
 /// [MjpegStreamPlayer.onFrame] 缓存最新一帧，提供「截图」按钮把当前帧
-/// 经 [ImageGallerySaver] 直接写入系统相册（根治「保存后找不到文件」痛点）。
+/// 经 [ImageGallerySaverPlus] 直接写入系统相册（根治「保存后找不到文件」痛点）。
 class FullscreenPreviewPage extends StatefulWidget {
   /// 流地址；缺省时回退到配置的香港中继地址。
   final String? url;
@@ -61,12 +61,13 @@ class _FullscreenPreviewPageState extends State<FullscreenPreviewPage> {
     if (_saving) return;
     setState(() => _saving = true);
     try {
-      final result = await ImageGallerySaver.saveImage(
+      final result = await ImageGallerySaverPlus.saveImage(
         frame,
         quality: 100,
         name: 'cnc_${DateTime.now().millisecondsSinceEpoch}',
       );
-      final ok = result is Map && (result['isSuccess'] == true);
+      final ok = result is Map &&
+          (result['isSuccess'] == true || result['success'] == true);
       _showToast(ok ? '已保存到相册' : '保存失败，请重试');
     } catch (e) {
       _showToast('保存出错：$e');

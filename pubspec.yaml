@@ -27,8 +27,9 @@ dependencies:
   # 根治切换 tab 时的画面滞留与后台解码卡顿。
   visibility_detector: ^0.4.0+2
   path_provider: ^2.1.3
-  # 外网 MJPEG 截图：把当前帧直接保存到系统相册（避免「保存后找不到文件」）
-  image_gallery_saver: ^1.7.1
+  # 外网 MJPEG 截图：把当前帧直接保存到系统相册（避免「保存后找不到文件」）。
+  # 用维护版 image_gallery_saver_plus 取代已停更、与 AGP 8.x 不兼容的 image_gallery_saver。
+  image_gallery_saver_plus: ^5.1.1
 
 dev_dependencies:
   flutter_test:
