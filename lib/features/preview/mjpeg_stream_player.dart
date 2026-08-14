@@ -25,6 +25,10 @@ class MjpegStreamPlayer extends StatefulWidget {
   /// 帧到达回调（可用于截图等扩展）。
   final ValueChanged<Uint8List>? onFrame;
 
+  /// 是否自动开始播放。为 false 时先显示「点击开始预览」遮罩，
+  /// 用户点击后才拉流（省流量、避免一进页面就卡在连接）。
+  final bool autoStart;
+
   final BoxFit fit;
 
   const MjpegStreamPlayer({
@@ -34,6 +38,7 @@ class MjpegStreamPlayer extends StatefulWidget {
     this.onPlaying,
     this.onError,
     this.onFrame,
+    this.autoStart = true,
     this.fit = BoxFit.contain,
   });
 
@@ -50,11 +55,16 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
   Uint8List? _frame;
   bool _loading = true;
   bool _hasReportedPlaying = false;
+  bool _started = false;
+  String? _errorMsg;
 
   @override
   void initState() {
     super.initState();
-    if (widget.playing) _start();
+    if (widget.autoStart && widget.playing) {
+      _started = true;
+      _start();
+    }
   }
 
   @override
@@ -85,7 +95,10 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
     _client = http.Client();
     final client = _client!;
 
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _errorMsg = null;
+    });
 
     try {
       final request = http.Request('GET', Uri.parse(widget.url));
@@ -177,8 +190,20 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
 
   void _onError(Object error) {
     debugPrint('[MJPEG] error: $error');
-    widget.onError?.call(error.toString());
-    if (mounted) setState(() => _loading = false);
+    final msg = error.toString();
+    widget.onError?.call(msg);
+    if (mounted) {
+      setState(() {
+        _loading = false;
+        _errorMsg = msg;
+      });
+    }
+  }
+
+  void _retry() {
+    if (_client != null) _stop(keepFrame: false);
+    _started = true;
+    _start();
   }
 
   void _onDone() {
@@ -191,6 +216,7 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
   @override
   Widget build(BuildContext context) {
     final frame = _frame;
+    final showPlayOverlay = !_started && !widget.autoStart;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -203,9 +229,94 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
           )
         else
           const SizedBox.expand(),
-        if (_loading)
+
+        // 加载中
+        if (_loading && !showPlayOverlay && _errorMsg == null)
           const Center(
             child: CircularProgressIndicator(color: Color(0xFF00D97E)),
+          ),
+
+        // 错误覆盖层 + 重试
+        if (_errorMsg != null)
+          Positioned.fill(
+            child: Container(
+              color: Colors.black.withOpacity(0.72),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.wifi_off_rounded,
+                        color: Color(0xFFF5F5F7), size: 34),
+                    const SizedBox(height: 12),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Text(
+                        _errorMsg!.replaceFirst('Exception: ', ''),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                            color: Color(0xFFF5F5F7), fontSize: 12),
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextButton.icon(
+                      onPressed: _retry,
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                      label: const Text('重试'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Color(0xFF00D97E),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+        // 点击开始预览遮罩（autoStart=false 时）
+        if (showPlayOverlay)
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: () {
+                if (!mounted) return;
+                setState(() => _started = true);
+                _start();
+              },
+              child: Container(
+                color: Colors.black.withOpacity(0.55),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF00D97E),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF00D97E).withOpacity(0.4),
+                              blurRadius: 16,
+                              spreadRadius: 2,
+                            ),
+                          ],
+                        ),
+                        child: const Icon(Icons.play_arrow_rounded,
+                            color: Colors.black, size: 32),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text('点击开始预览',
+                          style: TextStyle(
+                              color: Color(0xFFF5F5F7),
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           ),
       ],
     );

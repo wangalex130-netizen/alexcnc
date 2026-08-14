@@ -11,7 +11,10 @@ import '../../widgets/tool_icon.dart';
 import '../../models/machine_status.dart';
 import '../../models/tool.dart';
 import '../../state/providers.dart';
+import '../../services/network_auth.dart';
 import '../preview/rtsp_preview_widget.dart';
+import '../preview/mjpeg_stream_player.dart';
+import '../preview/fullscreen_preview_page.dart';
 import '../wizard/job_monitor_page.dart';
 import '../wizard/self_check_page.dart';
 
@@ -28,7 +31,7 @@ class ConsolePage extends ConsumerStatefulWidget {
 }
 
 class _ConsolePageState extends ConsumerState<ConsolePage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _rec = AnimationController(
     vsync: this,
     duration: const Duration(seconds: 1),
@@ -39,11 +42,45 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   bool _timelapse = false;
   bool _spindleOn = false;
   int _rpm = 12000;
+  Timer? _netTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // 启动后稍延迟探测一次，避免首帧布局未完成就弹错误。
+    Future.delayed(const Duration(milliseconds: 300), _autoDetectNetwork);
+    // 每 10s 周期探测：手机在 Wi-Fi/蜂窝间切换时能自动跟随。
+    _netTimer = Timer.periodic(const Duration(seconds: 10), (_) => _autoDetectNetwork());
+  }
 
   @override
   void dispose() {
     _rec.dispose();
+    _netTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  /// 自动探测手机是否与控制器在同一局域网：
+  /// 用 Socket 探测控制器 TCP 8899 是否可达（2s 超时）。
+  /// 可达=同局域网（可完整控制）；不可达=远程监视（控制锁死）。
+  Future<void> _autoDetectNetwork() async {
+    final cfg = ref.read(runtimeConfigProvider);
+    final host = cfg.resolvedDeviceTcpHost;
+    final port = cfg.resolvedDeviceTcpPort;
+    if (host.isEmpty || port <= 0) return;
+    final reachable =
+        await NetworkProbe.probe(host, port, timeout: const Duration(seconds: 2));
+    if (!mounted) return;
+    if (ref.read(isLocalLANProvider) != reachable) {
+      ref.read(isLocalLANProvider.notifier).state = reachable;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _autoDetectNetwork();
   }
 
   @override
@@ -63,12 +100,51 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
           // ---- 视频监控区 ----
           Stack(
             children: [
-              // 机器侧面固定头：纯裸画面（无叠加层），默认用配置里的固定地址，
-              // 自动发现作为兜底（见 lib/features/preview/ ）。
+              // 监控视频源：内网走 RTSP（原生 VLC，画质好延迟低）；
+              // 外网（自动探测 8899 不可达）走香港中继 MJPEG（已优化 ~14fps）。
+              // isLocal 由 _autoDetectNetwork 自动判定，无需手动切换。
               SizedBox(
                 height: 220,
-                child: RtspPreviewWidget(
-                    rtspUrl: ref.watch(runtimeConfigProvider).resolvedCameraRtsp),
+                child: isLocal
+                    ? RtspPreviewWidget(
+                        rtspUrl:
+                            ref.watch(runtimeConfigProvider).resolvedCameraRtsp)
+                    : Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          MjpegStreamPlayer(
+                            // 外网统一走香港中继；autoStart=false 显示
+                            // 「点击开始预览」，用户点一下再拉流省流量。
+                            autoStart: false,
+                            url: '${AppConfig.cameraRelayBaseUrl}'
+                                '/stream/${AppConfig.cameraRelayDevice}'
+                                '?token=${AppConfig.cameraRelayToken}',
+                          ),
+                          // 外网全屏预览（横屏 + 截图保存相册）
+                          Positioned(
+                            bottom: 10,
+                            right: 10,
+                            child: GestureDetector(
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const FullscreenPreviewPage(),
+                                ),
+                              ),
+                              child: Container(
+                                padding: const EdgeInsets.all(7),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.55),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border:
+                                      Border.all(color: CncColors.border),
+                                ),
+                                child: const Icon(Icons.fullscreen_rounded,
+                                    size: 18, color: Colors.white),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
               ),
               Positioned(
                 top: 40,
@@ -115,12 +191,21 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   ],
                 ),
               ),
-              // LAN / WAN 状态（点击切换，驱动门禁）
+              // LAN / WAN 状态（自动探测；点击=立即重探，不再手动切换）
               Positioned(
                 top: 40,
                 right: 15,
                 child: GestureDetector(
-                  onTap: () => ref.read(isLocalLANProvider.notifier).state = !isLocal,
+                  onTap: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content:
+                            Text('重新检测网络模式…', style: TextStyle(fontSize: 13)),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                    _autoDetectNetwork();
+                  },
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(

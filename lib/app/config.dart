@@ -26,6 +26,23 @@ class AppConfig {
     defaultValue: '',
   );
 
+  // ---- 外网摄像头中继（香港服务器 MJPEG 流）----
+  // 当手机与控制器不在同一局域网（自动探测 8899 不可达）时，画面走此中继，
+  // 已优化至 ~14fps，比局域网 RTSP 外网穿透更流畅。
+  // 默认值对应已部署的 HK 中继（43.154.192.242:8080 / device cnc-cam-01）。
+  static const String cameraRelayBaseUrl = String.fromEnvironment(
+    'CAMERA_RELAY_BASE_URL',
+    defaultValue: 'http://43.154.192.242:8080',
+  );
+  static const String cameraRelayDevice = String.fromEnvironment(
+    'CAMERA_RELAY_DEVICE',
+    defaultValue: 'cnc-cam-01',
+  );
+  static const String cameraRelayToken = String.fromEnvironment(
+    'CAMERA_RELAY_TOKEN',
+    defaultValue: 'lunyee-cnc-relay-7k2p',
+  );
+
   // ---- 后端选择 ----
   // false = 用 Mock 实现（演示/无硬件也可跑）；true = 接真 MQTT/TCP/云端。
   static const bool useRealBackend =
