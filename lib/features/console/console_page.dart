@@ -14,6 +14,7 @@ import '../../state/providers.dart';
 import '../preview/rtsp_preview_widget.dart';
 import '../wizard/job_monitor_page.dart';
 import '../wizard/self_check_page.dart';
+import '../../services/network_auth.dart';
 
 /// 状态驱动设备控制台 (Core 3) —— 严格对齐 控制页面.html。
 ///
@@ -28,7 +29,7 @@ class ConsolePage extends ConsumerStatefulWidget {
 }
 
 class _ConsolePageState extends ConsumerState<ConsolePage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _rec = AnimationController(
     vsync: this,
     duration: const Duration(seconds: 1),
@@ -40,10 +41,44 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   bool _spindleOn = false;
   int _rpm = 12000;
 
+  /// 网络模式自动探测定时器（每 10s 周期重探，无需人工点切换）。
+  Timer? _netTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    // 启动即探一次，之后每 10s 周期重探 + 切回前台重探。
+    WidgetsBinding.instance.addObserver(this);
+    Future.delayed(const Duration(milliseconds: 300), _autoDetectNetwork);
+    _netTimer = Timer.periodic(const Duration(seconds: 10), (_) => _autoDetectNetwork());
+  }
+
   @override
   void dispose() {
     _rec.dispose();
+    _netTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  /// 网络模式自动探测：用短超时 TCP 连控制器局域网地址，连得上=局域网直连(可控制)，
+  /// 连不上=远程监视(控制锁死)。结果写入 isLocalLANProvider；视频始终走中继，不受此影响。
+  Future<void> _autoDetectNetwork() async {
+    final cfg = ref.read(runtimeConfigProvider);
+    final host = cfg.resolvedDeviceTcpHost;
+    final port = cfg.resolvedDeviceTcpPort;
+    if (host.isEmpty || port <= 0) return;
+    final reachable =
+        await NetworkProbe.probe(host, port, timeout: const Duration(seconds: 2));
+    if (!mounted) return;
+    if (ref.read(isLocalLANProvider) != reachable) {
+      ref.read(isLocalLANProvider.notifier).state = reachable;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _autoDetectNetwork();
   }
 
   @override
@@ -68,7 +103,12 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
               SizedBox(
                 height: 220,
                 child: RtspPreviewWidget(
-                    rtspUrl: ref.watch(runtimeConfigProvider).resolvedCameraRtsp),
+                  // 画面统一走香港中继 MJPEG（已优化至 ~14fps，比局域网 RTSP 更流畅）；
+                  // isLocal 仅决定「能否主动控制」，不影响视频源。
+                  rtspUrl: null,
+                  relayUrl:
+                      '${cfg.resolvedCameraRelayBaseUrl}/stream/${cfg.resolvedCameraRelayDevice}?token=${cfg.resolvedCameraRelayToken}',
+                ),
               ),
               Positioned(
                 top: 40,
@@ -115,12 +155,20 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   ],
                 ),
               ),
-              // LAN / WAN 状态（点击切换，驱动门禁）
+              // LAN / WAN 状态（自动探测，点击=立即重探，不再手动切换）
               Positioned(
                 top: 40,
                 right: 15,
                 child: GestureDetector(
-                  onTap: () => ref.read(isLocalLANProvider.notifier).state = !isLocal,
+                  onTap: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('重新检测网络模式…', style: TextStyle(fontSize: 13)),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                    _autoDetectNetwork();
+                  },
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
