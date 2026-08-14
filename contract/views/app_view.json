@@ -1,0 +1,115 @@
+{
+  "view": "app",
+  "owner": "App 任务（alexcnc）",
+  "snapshot_at": "2026-08-13T09:46:00+08:00",
+  "basis": "lib/services/hardware_service_real.dart / lib/models/machine_status.dart / lib/app/config.dart / docs/三任务一致性终稿.md",
+  "broker": {
+    "uri": "mqtts://<私有broker>:8883",
+    "tls": true,
+    "note": "生产 8883 TLS + 关匿名 + 私有 broker；1883 仅本地联调"
+  },
+  "auth": {
+    "enabled": true,
+    "acl": true,
+    "username_pattern": "app-<userId>",
+    "client_id_pattern": "app-<userId>"
+  },
+  "lwt": true,
+  "topics": {
+    "cmd": "cnc/{deviceId}/cmd",
+    "status": "cnc/{deviceId}/status",
+    "notify": "cnc/{deviceId}/notify",
+    "telemetry": "cnc/{deviceId}/telemetry",
+    "log": "cnc/{deviceId}/log",
+    "extra": ["cnc/broadcast/#"]
+  },
+  "frame": {
+    "envelope": false,
+    "format": "APP 扁平 JSON 为线协议真值；src/dst/seq/v/ts 由 MQTT 层承载（topic + 5.0 user properties）",
+    "example_cmd": {"cmd": "jog", "axis": "x", "dist": 1.0},
+    "example_status": {"state": "busy", "scIndex": 3, "scTotal": 5}
+  },
+  "qos": {
+    "cmd": 1,
+    "status": 1,
+    "notify": 1,
+    "telemetry": 0,
+    "log": 0
+  },
+  "retain": {
+    "status": true,
+    "cmd": false,
+    "notify": false,
+    "telemetry": false,
+    "log": false
+  },
+  "capabilities": {
+    "jog": "点动",
+    "home": "回机械原点",
+    "setWorkZero": "设置工件原点",
+    "startSpindle": "主轴起转",
+    "stopSpindle": "主轴停止",
+    "setAux": "辅助开关（light/laser/timelapse/fan）",
+    "startJob": "开始雕刻",
+    "pauseJob": "暂停雕刻",
+    "resumeJob": "继续雕刻",
+    "stopJob": "停止雕刻",
+    "setLevelingPlan": "下发调平方案",
+    "updateToolMap": "下发刀仓映射",
+    "confirm": "联调/演示用安全确认"
+  },
+  "capability_mapping": {
+    "setWorkZero": "set_origin",
+    "startSpindle": "set_spindle",
+    "stopSpindle": "set_spindle",
+    "setAux": "set_aux",
+    "startJob": "job_start",
+    "pauseJob": "job_pause",
+    "resumeJob": "job_resume",
+    "stopJob": "job_stop",
+    "setLevelingPlan": "set_leveling",
+    "updateToolMap": "tool_map",
+    "confirm": "confirm"
+  },
+  "lan_direct": {
+    "tcp_8899": true,
+    "note": "TCP:8899 为 LAN 低延迟运动控制通道；旧 8080 已废弃"
+  },
+  "udp_beacon": true,
+  "heartbeat_pause": true,
+  "states": ["disconnected", "idle", "homing", "busy", "paused", "alarm"],
+  "selfcheck": {
+    "scTotal": 5,
+    "phases": ["pp_matched", "pp_lev", "pp_tool", "pp_warm", "pp_all"],
+    "note": "自检不是独立态，由 busy + scIndex/scTotal 表达"
+  },
+  "wan_whitelist": {
+    "allowed": ["monitor", "pauseJob", "resumeJob", "stopJob", "setAux_light", "setAux_fan", "ota"],
+    "forbidden": ["jog", "home", "setWorkZero", "startSpindle", "startJob"]
+  },
+  "rtsp": {
+    "port": 554,
+    "example": "rtsp://admin:abc123456@<ip>:554/11"
+  },
+  "registration": {
+    "deviceId_equals_serial": true,
+    "hello": "连接层身份声明",
+    "sys_register": "broker 层 ACL 同步"
+  },
+  "tool_catalog": {
+    "topic": "cnc/{deviceId}/tool_catalog",
+    "retain": true,
+    "app_subscribes": true,
+    "note": "目录广播；App 收到后刷新本地刀库缓存。绝不携带 toolMap"
+  },
+  "cloud_bridge": {
+    "client_id": "bridge-aliyun",
+    "transport": "mqtts://<私有broker>:8883",
+    "carries": ["acl_sync", "cnc/<deviceId>/cmd", "cnc/<deviceId>/tool_catalog"],
+    "note": "阿里云 API 服务器常驻 broker 客户端，单一通道；ACL 同步走 cnc/sys/acl 控制消息"
+  },
+  "gcode": {
+    "source": "aliyun(037123.xyz)",
+    "delivery": "机器 HTTPS 下载；broker 仅承载 job 命令 + G-code URL，不传字节"
+  }
+}

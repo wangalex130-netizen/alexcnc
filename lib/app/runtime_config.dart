@@ -20,10 +20,8 @@ class RuntimeConfig {
   final String deviceTcpHost;
   final int deviceTcpPort;
   final String deviceId;
+  final String appUserId;
   final String cameraRtspUrl;
-  final String cameraRelayBaseUrl;
-  final String cameraRelayToken;
-  final String cameraRelayDevice;
 
   const RuntimeConfig({
     this.useRealBackend = false,
@@ -35,10 +33,8 @@ class RuntimeConfig {
     this.deviceTcpHost = '',
     this.deviceTcpPort = 0,
     this.deviceId = '',
+    this.appUserId = '',
     this.cameraRtspUrl = '',
-    this.cameraRelayBaseUrl = '',
-    this.cameraRelayToken = '',
-    this.cameraRelayDevice = '',
   });
 
   // ---- resolved：空值 / 0 回落 AppConfig（--dart-define 默认值）----
@@ -58,16 +54,10 @@ class RuntimeConfig {
       deviceTcpPort > 0 ? deviceTcpPort : AppConfig.deviceTcpPort;
   String get resolvedDeviceId =>
       deviceId.isNotEmpty ? deviceId : AppConfig.deviceId;
+  String get resolvedAppUserId =>
+      appUserId.isNotEmpty ? appUserId : AppConfig.appUserId;
   String get resolvedCameraRtsp =>
       cameraRtspUrl.isNotEmpty ? cameraRtspUrl : AppConfig.cameraRtspUrl;
-  String get resolvedCameraRelayBaseUrl => cameraRelayBaseUrl.isNotEmpty
-      ? cameraRelayBaseUrl
-      : AppConfig.cameraRelayBaseUrl;
-  String get resolvedCameraRelayToken =>
-      cameraRelayToken.isNotEmpty ? cameraRelayToken : AppConfig.cameraRelayToken;
-  String get resolvedCameraRelayDevice => cameraRelayDevice.isNotEmpty
-      ? cameraRelayDevice
-      : AppConfig.cameraRelayDevice;
 
   Map<String, dynamic> toJson() => {
         'useRealBackend': useRealBackend,
@@ -79,10 +69,8 @@ class RuntimeConfig {
         'deviceTcpHost': deviceTcpHost,
         'deviceTcpPort': deviceTcpPort,
         'deviceId': deviceId,
+        'appUserId': appUserId,
         'cameraRtspUrl': cameraRtspUrl,
-        'cameraRelayBaseUrl': cameraRelayBaseUrl,
-        'cameraRelayToken': cameraRelayToken,
-        'cameraRelayDevice': cameraRelayDevice,
       };
 
   factory RuntimeConfig.fromJson(Map<String, dynamic> j) => RuntimeConfig(
@@ -95,10 +83,8 @@ class RuntimeConfig {
         deviceTcpHost: (j['deviceTcpHost'] as String?) ?? '',
         deviceTcpPort: (j['deviceTcpPort'] as num?)?.toInt() ?? 0,
         deviceId: (j['deviceId'] as String?) ?? '',
+        appUserId: (j['appUserId'] as String?) ?? '',
         cameraRtspUrl: (j['cameraRtspUrl'] as String?) ?? '',
-        cameraRelayBaseUrl: (j['cameraRelayBaseUrl'] as String?) ?? '',
-        cameraRelayToken: (j['cameraRelayToken'] as String?) ?? '',
-        cameraRelayDevice: (j['cameraRelayDevice'] as String?) ?? '',
       );
 }
 

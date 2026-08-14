@@ -1,11 +1,7 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:native_vlc_player/native_vlc_player.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../../app/config.dart';
 import '../../app/runtime_config.dart';
@@ -16,7 +12,6 @@ import '../../models/machine_status.dart';
 import '../../models/tool.dart';
 import '../../state/providers.dart';
 import '../preview/rtsp_preview_widget.dart';
-import '../preview/timelapse_client.dart';
 import '../wizard/job_monitor_page.dart';
 import '../wizard/self_check_page.dart';
 
@@ -41,107 +36,21 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
   bool _light = false;
   bool _laser = false;
+  bool _timelapse = false;
   bool _spindleOn = false;
   int _rpm = 12000;
-
-  /// 延时摄影：当前 jobId（来自 timeLapseJobProvider，向导或本页开启都会写入）；
-  /// 轮询到的服务器状态（count / status / video_ready）。
-  Timer? _tlTimer;
-  Map<String, dynamic>? _tlStatus;
-
-  @override
-  void initState() {
-    super.initState();
-    // 每 2s 轮询一次服务器，刷新延时摄影进度（有 job 时才有意义）。
-    _tlTimer = Timer.periodic(const Duration(seconds: 2), (_) => _pollTimeLapse());
-  }
 
   @override
   void dispose() {
     _rec.dispose();
-    _tlTimer?.cancel();
     super.dispose();
-  }
-
-  /// 轮询服务器，更新当前延时摄影 job 的状态（采集中 / 视频已生成 / 失败）。
-  Future<void> _pollTimeLapse() async {
-    final jobId = ref.read(timeLapseJobProvider);
-    if (jobId == null) {
-      if (_tlStatus != null && mounted) setState(() => _tlStatus = null);
-      return;
-    }
-    final st = await TimeLapseClient.latestStatus();
-    if (mounted) setState(() => _tlStatus = st);
-  }
-
-  /// 快捷开关「延时摄影」：开 → 让服务器开始抽样；关 → 让服务器停止并拼接。
-  /// 与向导 Step6 共用同一 timeLapseJobProvider，故两端状态一致、可互看视频。
-  Future<void> _toggleTimeLapse() async {
-    final jobId = ref.read(timeLapseJobProvider);
-    if (jobId == null) {
-      // 控制台手动开启：默认 120s（服务器按 15s×fps 自动算采样间隔）。
-      final id = await TimeLapseClient.start(durationSec: 120);
-      if (id != null) ref.read(timeLapseJobProvider.notifier).setJob(id);
-    } else {
-      await TimeLapseClient.stop(jobId);
-      ref.read(timeLapseJobProvider.notifier).clear();
-      if (mounted) setState(() => _tlStatus = null);
-    }
-  }
-
-  /// 在 App 内用 LibVLC 播放服务器生成的 15s 回顾视频。
-  void _openTimeLapseVideo(String jobId) {
-    final url = TimeLapseClient.videoUrl(jobId);
-    showDialog(
-      context: context,
-      useSafeArea: false,
-      builder: (_) => _TimeLapseVideoPage(
-        url: url,
-        onClose: () => Navigator.of(context).pop(),
-      ),
-    );
-  }
-
-  /// 把视频下载到本机存储（供客户离线保存）。
-  Future<void> _downloadTimeLapse(String jobId) async {
-    try {
-      final url = TimeLapseClient.videoUrl(jobId);
-      final resp = await http.get(Uri.parse(url));
-      if (resp.statusCode != 200) {
-        _showHint('下载失败 (HTTP ${resp.statusCode})');
-        return;
-      }
-      final dir = await getExternalStorageDirectory();
-      if (dir == null) {
-        _showHint('无法定位本机存储目录');
-        return;
-      }
-      final out = File('${dir.path}/timelapse_$jobId.mp4');
-      await out.writeAsBytes(resp.bodyBytes);
-      _showHint('已下载：${out.path}');
-    } catch (e) {
-      _showHint('下载失败：$e');
-    }
-  }
-
-  void _showHint(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg, style: const TextStyle(fontSize: 13)),
-        duration: const Duration(seconds: 3),
-        backgroundColor: const Color(0xFF1A1A1A),
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     final status = ref.watch(machineStatusProvider).value ?? const MachineStatus();
     final isLocal = ref.watch(isLocalLANProvider);
-    final cfg = ref.watch(runtimeConfigProvider);
     final hw = ref.read(hardwareServiceProvider);
-    final tlJobId = ref.watch(timeLapseJobProvider);
 
     final idle = status.state == MachineState.idle;
     final busy = status.state == MachineState.busy;
@@ -159,17 +68,25 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
               SizedBox(
                 height: 220,
                 child: RtspPreviewWidget(
-                  rtspUrl: isLocal ? cfg.resolvedCameraRtsp : null,
-                  relayUrl: isLocal
-                      ? null
-                      : '${cfg.resolvedCameraRelayBaseUrl}/stream/${cfg.resolvedCameraRelayDevice}?token=${cfg.resolvedCameraRelayToken}',
-                ),
+                    rtspUrl: ref.watch(runtimeConfigProvider).resolvedCameraRtsp),
               ),
               Positioned(
                 top: 40,
                 left: 15,
                 child: Row(
                   children: [
+                    // KARVA 品牌角标（logo + 浅色面板，视频上也能看清）
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: CncColors.panel,
+                        borderRadius: BorderRadius.circular(CncSizes.r4),
+                        border: Border.all(color: CncColors.border, width: 0.5),
+                      ),
+                      child: Image.asset(CncAssets.logo, height: 12, fit: BoxFit.contain),
+                    ),
+                    const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
@@ -203,7 +120,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 top: 40,
                 right: 15,
                 child: GestureDetector(
-                  onTap: () => ref.read(isLocalLANProvider.notifier).setLocal(!isLocal),
+                  onTap: () => ref.read(isLocalLANProvider.notifier).state = !isLocal,
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
@@ -258,10 +175,10 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
               _ToggleBtn(
                   icon: Symbols.schedule,
                   label: '延时摄影',
-                  active: tlJobId != null,
+                  active: _timelapse,
                   onTap: () {
-                    // 服务器驱动：开 → 服务器开始抽样，关 → 服务器停止并拼接。
-                    _toggleTimeLapse();
+                    setState(() => _timelapse = !_timelapse);
+                    hw.setAux('timelapse', _timelapse);
                   }),
             ],
           ),
@@ -386,16 +303,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   },
                 ),
 
-                // 延时摄影状态卡：采集中显示进度；结束后提供「查看 / 下载」入口。
-                // 与向导 Step6 共用 timeLapseJobProvider，故 carve 联动或本页手动开启都在此呈现。
-                if (tlJobId != null)
-                  _TimeLapseStatusCard(
-                    jobId: tlJobId,
-                    status: _tlStatus,
-                    onView: () => _openTimeLapseVideo(tlJobId),
-                    onDownload: () => _downloadTimeLapse(tlJobId),
-                  ),
-
                 // 全局 DRO
                 Container(
                   padding: const EdgeInsets.all(10),
@@ -447,9 +354,10 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 // 主动控制区：局域网直连始终展示，加工中仅禁用不隐藏
                 if (isLocal) ...[
                   const _SectionTitle('定位与回零'),
+                  _StepSelector(),
                   _JogCard(
                     enabled: canControl,
-                    onJog: (axis, d) => hw.jog(axis, d),
+                    onJog: (axis, sign) => hw.jog(axis, ref.watch(jogStepProvider) * sign),
                     onSetZero: () => hw.setWorkZero(),
                     onHome: () => hw.home(),
                   ),
@@ -524,7 +432,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     icon: status.state == MachineState.paused ? Symbols.play_arrow : Symbols.pause,
                     label: status.state == MachineState.paused ? '继续' : '暂停',
                     fg: CncColors.textMain,
-                    bg: const Color(0xFFEDEFF2),
+                    bg: CncColors.panelAlt,
                     border: CncColors.border,
                     onTap: () {
                       // 暂停/继续状态来自机器（与监控页共享同一状态源，自动同步）
@@ -672,6 +580,54 @@ class _SectionTitle extends StatelessWidget {
       );
 }
 
+// ===================== Jog 步进档位（全局共享） =====================
+
+class _StepSelector extends ConsumerWidget {
+  const _StepSelector();
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final step = ref.watch(jogStepProvider);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          const Text('步进', style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+          const SizedBox(width: 10),
+          ...[0.1, 1.0, 10.0].map((v) {
+            final sel = step == v;
+            return Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: GestureDetector(
+                  onTap: () => ref.read(jogStepProvider.notifier).state = v,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 7),
+                    decoration: BoxDecoration(
+                      color: sel ? CncColors.primary : CncColors.bg,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: sel ? CncColors.primary : CncColors.border,
+                      ),
+                    ),
+                    child: Center(
+                      child: Text('${v.toStringAsFixed(1)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: sel ? Colors.black : CncColors.textMain,
+                          )),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+}
+
 // ===================== Jog 摇杆 =====================
 
 class _JogCard extends StatelessWidget {
@@ -758,7 +714,7 @@ class _JogBtn extends StatelessWidget {
           child: Container(
             height: 38,
             decoration: BoxDecoration(
-              color: plain ? const Color(0xFFE6E9ED) : const Color(0xFFEDEFF2),
+              color: plain ? const Color(0xFFE6E9ED) : CncColors.panelAlt,
               borderRadius: BorderRadius.circular(6),
               border: Border.all(color: CncColors.border),
             ),
@@ -783,7 +739,7 @@ class _HomeBtn extends StatelessWidget {
             height: 44,
             padding: const EdgeInsets.symmetric(horizontal: 4),
             decoration: BoxDecoration(
-              color: const Color(0xFFEDEFF2),
+              color: CncColors.panelAlt,
               borderRadius: BorderRadius.circular(6),
               border: Border.all(color: CncColors.border),
             ),
@@ -830,7 +786,7 @@ class _SpindleCard extends StatelessWidget {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       decoration: BoxDecoration(
-                        color: spindleOn && enabled ? CncColors.danger.withOpacity(0.15) : const Color(0xFFEDEFF2),
+                        color: spindleOn && enabled ? CncColors.danger.withOpacity(0.15) : CncColors.panelAlt,
                         border: Border.all(color: spindleOn && enabled ? CncColors.danger : CncColors.border),
                         borderRadius: BorderRadius.circular(6),
                       ),
@@ -909,7 +865,7 @@ class _AtcEntry extends ConsumerWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEDEFF2),
+                  color: CncColors.panelAlt,
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: CncColors.border),
                 ),
@@ -1177,127 +1133,4 @@ class _ActionBtn extends StatelessWidget {
           ),
         ),
       );
-}
-
-// ===================== 延时摄影状态卡 =====================
-// 与向导 Step6 共用 timeLapseJobProvider：carve 联动或控制台手动开启都在此呈现，
-// 结束后提供「查看 / 下载」入口，视频全程只存服务器、本机不落照片。
-
-class _TimeLapseStatusCard extends StatelessWidget {
-  final String jobId;
-  final Map<String, dynamic>? status;
-  final VoidCallback onView;
-  final VoidCallback onDownload;
-  const _TimeLapseStatusCard({
-    required this.jobId,
-    this.status,
-    required this.onView,
-    required this.onDownload,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final st = status?['status'];
-    final count = status?['count'] ?? 0;
-    final target = status?['frames_target'] ?? 0;
-    final ready = status?['video_ready'] == true;
-    final failed = st == 'failed';
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: CncColors.blue.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: CncColors.blue.withOpacity(0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Symbols.schedule, size: 16, color: CncColors.blue),
-              const SizedBox(width: 6),
-              const Text('延时摄影',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: CncColors.textMain)),
-              const Spacer(),
-              if (st == 'running')
-                Text('采集中 $count/$target',
-                    style: const TextStyle(fontSize: 11, color: CncColors.blue)),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (st == 'running')
-            const Text('服务器正按雕刻时长自动抽样拍照，结束后自动拼接 15 秒回顾视频。',
-                style: TextStyle(fontSize: 11, color: CncColors.textSub))
-          else if (ready)
-            Row(
-              children: [
-                Expanded(
-                  child: Text('回顾视频已生成',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.primaryInk)),
-                ),
-                TextButton(onPressed: onView, child: const Text('查看', style: TextStyle(color: CncColors.primary))),
-                TextButton(onPressed: onDownload, child: const Text('下载', style: TextStyle(color: CncColors.blue))),
-              ],
-            )
-          else if (failed)
-            Text('生成失败：${status?['error'] ?? ''}',
-                style: const TextStyle(fontSize: 11, color: CncColors.danger))
-          else
-            const Text('处理中…', style: TextStyle(fontSize: 11, color: CncColors.textSub)),
-        ],
-      ),
-    );
-  }
-}
-
-// ===================== 延时视频播放页 =====================
-// 用已有的 native_vlc_player 直接播服务器下发的 HTTP mp4（无需新增依赖）。
-
-class _TimeLapseVideoPage extends StatefulWidget {
-  final String url;
-  final VoidCallback onClose;
-  const _TimeLapseVideoPage({required this.url, required this.onClose});
-
-  @override
-  State<_TimeLapseVideoPage> createState() => _TimeLapseVideoPageState();
-}
-
-class _TimeLapseVideoPageState extends State<_TimeLapseVideoPage> {
-  final GlobalKey<NativeVlcPlayerState> _playerKey = GlobalKey();
-
-  void _onEvent(NativeVlcEvent event) {
-    debugPrint('[TL Video] ${event.event} / ${event.message}');
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          NativeVlcPlayer(
-            key: _playerKey,
-            url: widget.url,
-            onEvent: _onEvent,
-          ),
-          Positioned(
-            left: 16,
-            top: 16,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: widget.onClose,
-                child: const Padding(
-                  padding: EdgeInsets.all(8),
-                  child: Icon(Icons.arrow_back_ios_rounded, color: Colors.white),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }

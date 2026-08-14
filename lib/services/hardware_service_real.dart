@@ -9,6 +9,7 @@ import '../app/config.dart';
 import '../models/machine_status.dart';
 import '../models/position.dart';
 import '../models/tool.dart';
+import 'device_discovery.dart';
 import 'hardware_service.dart';
 
 /// 链路连接态：UI 据此显示「连接中 / 已连 / 掉线」，不影响功能逻辑。
@@ -31,10 +32,18 @@ class RealHardwareService implements HardwareService {
   final String mqttUser;
   final String mqttPass;
   final String deviceId;
-  final String tcpHost;
   final int tcpPort;
   /// 第二步外网开关；第一步（LAN）保持 false，MQTT 链路不启用。
   final bool cloudEnabled;
+  /// App 登录身份（契约 auth.client_id_pattern = app-<userId>），用作 MQTT clientId。
+  final String appUserId;
+
+  /// 局域网 TCP 主机（可变：未手动配置时由 UDP beacon 自动发现覆盖）。
+  String _tcpHost;
+  bool _mqttConnected = false;
+  Timer? _heartbeatTimer;
+  /// 固件 15s 内收不到任何命令即 Feed Hold；心跳周期取 10s 留安全余量。
+  static const Duration _heartbeatInterval = Duration(seconds: 10);
 
   final _ctrl = StreamController<MachineStatus>.broadcast();
   MqttServerClient? _mqtt;
@@ -53,6 +62,7 @@ class RealHardwareService implements HardwareService {
     'light': false,
     'laser': false,
     'timelapse': false,
+    'fan': false,
   };
 
   RealHardwareService({
@@ -61,16 +71,20 @@ class RealHardwareService implements HardwareService {
     this.mqttUser = AppConfig.mqttUser,
     this.mqttPass = AppConfig.mqttPass,
     this.deviceId = AppConfig.deviceId,
-    this.tcpHost = AppConfig.deviceTcpHost,
+    String tcpHost = AppConfig.deviceTcpHost,
     this.tcpPort = AppConfig.deviceTcpPort,
     this.cloudEnabled = false,
-  });
+    this.appUserId = AppConfig.appUserId,
+  }) : _tcpHost = tcpHost;
 
   /// MQTT 状态广播主题：cnc/<deviceId>/status（按实例 deviceId 推导）
   String get mqttStatusTopic => 'cnc/$deviceId/status';
 
   /// MQTT 命令下发主题：cnc/<deviceId>/cmd
   String get mqttCmdTopic => 'cnc/$deviceId/cmd';
+
+  /// MQTT 事件通知主题：cnc/<deviceId>/notify（job_done / alarm / confirm_required 等）
+  String get mqttNotifyTopic => 'cnc/$deviceId/notify';
 
   @override
   Stream<MachineStatus> get statusStream => _ctrl.stream;
@@ -81,7 +95,18 @@ class RealHardwareService implements HardwareService {
 
   @override
   Future<void> connect() async {
-    if (cloudEnabled) _connectMqtt();
+    if (cloudEnabled) await _connectMqtt();
+    // 与机器同 Wi-Fi 且用户未手动指定 TCP 主机时，先用 UDP beacon 自动发现真机 IP，
+    // 否则走已配置/兜底地址。WAN 模式（cloudEnabled）下 MQTT 已先行连接。
+    if (_tcpHost == AppConfig.deviceTcpHost) {
+      try {
+        final b = await DeviceDiscovery.discoverViaBeacon(
+            timeout: const Duration(seconds: 3));
+        if (b != null && b.ip.isNotEmpty) _tcpHost = b.ip;
+      } catch (_) {
+        // 无 beacon 网络时静默，走已配置地址
+      }
+    }
     _connectTcp();
   }
 
@@ -89,8 +114,10 @@ class RealHardwareService implements HardwareService {
     if (_conn == ConnectionState.connected) return;
     _setConn(ConnectionState.connecting);
     try {
-      // 每次重连都新建 client，避免复用已断开实例的脏状态
-      final client = MqttServerClient(broker, 'alexcnc_${_shortId()}');
+      // 每次重连都新建 client，避免复用已断开实例的脏状态。
+      // clientId 固定为 app-<userId>（契约 auth.client_id_pattern），便于 Broker 侧
+      // ACL 按账号维度鉴权与上下线追踪；同一账号重连保持同一身份。
+      final client = MqttServerClient(broker, 'app-$appUserId');
       client.port = mqttPort;
       client.keepAlivePeriod = 30;
       client.logging(on: false);
@@ -101,22 +128,30 @@ class RealHardwareService implements HardwareService {
       );
       if (client.connectionStatus?.state == MqttConnectionState.connected) {
         _mqtt = client;
+        _mqttConnected = true;
         client.subscribe(mqttStatusTopic, MqttQos.atLeastOnce);
+        client.subscribe(mqttNotifyTopic, MqttQos.atLeastOnce);
         client.updates!.listen(_onMqtt);
         _reconnectAttempts = 0;
         _setConn(ConnectionState.connected);
+        _updateHeartbeat();
       } else {
+        _mqttConnected = false;
         _setConn(ConnectionState.disconnected);
         _scheduleReconnect();
       }
     } catch (_) {
       // 云端不可达：保持离线并尝试重连，不阻断 App
+      _mqttConnected = false;
+      _updateHeartbeat();
       _setConn(ConnectionState.disconnected);
       _scheduleReconnect();
     }
   }
 
   void _onMqttDisconnected() {
+    _mqttConnected = false;
+    _updateHeartbeat();
     if (_closing) {
       _setConn(ConnectionState.disconnected);
       return;
@@ -155,10 +190,11 @@ class RealHardwareService implements HardwareService {
 
   Future<void> _connectTcp() async {
     try {
-      _tcp = await Socket.connect(tcpHost, tcpPort,
+      _tcp = await Socket.connect(_tcpHost, tcpPort,
           timeout: const Duration(seconds: 3));
       _tcpConnected = true;
       _setConn(ConnectionState.connected); // 第一步唯一通道，TCP 通即"已连"
+      _updateHeartbeat();
       _tcp!.listen((data) {
         final text = utf8.decode(data);
         for (final line in text.split('\n')) {
@@ -168,14 +204,17 @@ class RealHardwareService implements HardwareService {
       }, onDone: () {
         _tcpConnected = false;
         if (!cloudEnabled) _setConn(ConnectionState.disconnected);
+        _updateHeartbeat();
         _scheduleTcpReconnect();
       }, onError: (_) {
         _tcpConnected = false;
         if (!cloudEnabled) _setConn(ConnectionState.disconnected);
+        _updateHeartbeat();
         _scheduleTcpReconnect();
       });
     } catch (_) {
       _tcpConnected = false;
+      _updateHeartbeat();
       _scheduleTcpReconnect();
     }
   }
@@ -191,7 +230,42 @@ class RealHardwareService implements HardwareService {
   void _parseAndEmit(String text) {
     try {
       final j = jsonDecode(text);
-      if (j is Map<String, dynamic>) _ctrl.add(MachineStatus.fromJson(j));
+      if (j is! Map<String, dynamic>) return;
+
+      // notify 事件：固件通过 cnc/<deviceId>/notify 广播的异步事件
+      // （job_done / alarm / error / tool_changed / confirm_required 等）。
+      // App 目前没有独立 notify 流，将其映射为 MachineStatus 以便 UI 统一消费。
+      if (j.containsKey('type')) {
+        final type = j['type']?.toString() ?? '';
+        final msg = j['msg']?.toString() ?? '';
+        MachineStatus notifyStatus;
+        switch (type) {
+          case 'job_done':
+            notifyStatus = const MachineStatus(
+              state: MachineState.idle,
+              progress: 1.0,
+              message: '加工完成',
+            );
+          case 'alarm':
+          case 'error':
+            notifyStatus = MachineStatus(
+              state: MachineState.alarm,
+              message: msg.isEmpty ? type : msg,
+            );
+          case 'confirm_required':
+            notifyStatus = const MachineStatus(
+              state: MachineState.busy,
+              awaitingConfirm: true,
+              message: '等待机旁确认',
+            );
+          default:
+            notifyStatus = MachineStatus(message: msg.isEmpty ? type : msg);
+        }
+        _ctrl.add(notifyStatus);
+        return;
+      }
+
+      _ctrl.add(MachineStatus.fromJson(j));
     } catch (_) {
       // 非 JSON 行（如 Grbl 原始 <...>）可在此扩展解析
     }
@@ -215,17 +289,47 @@ class RealHardwareService implements HardwareService {
     }
   }
 
-  String _shortId() =>
-      DateTime.now().millisecondsSinceEpoch.toRadixString(36);
+  // ---- 心跳：固件 15s 内收不到任何命令即进入 Feed Hold，App 须周期发 hello ----
+  /// 任一条链路（LAN TCP / WAN MQTT）存活即保持心跳，全部断开则停。
+  void _updateHeartbeat() {
+    final up = _tcpConnected || (_mqttConnected && cloudEnabled);
+    if (up) {
+      _startHeartbeat();
+    } else {
+      _stopHeartbeat();
+    }
+  }
+
+  void _startHeartbeat() {
+    if (_heartbeatTimer?.isActive == true) return;
+    _sendHello(); // 立即先发一帧，随后周期发送
+    _heartbeatTimer =
+        Timer.periodic(_heartbeatInterval, (_) => _sendHello());
+  }
+
+  void _stopHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+  }
+
+  /// 心跳帧：同时覆盖 LAN（TCP）与外网（MQTT）两条链路。
+  /// cloudEnabled=false 时 _publish 内部直接返回，不会误发 WAN 帧。
+  void _sendHello() {
+    final cmd = {'cmd': 'hello'};
+    _sendTcp(cmd); // 局域网低延迟通道
+    _publish(cmd); // 外网链路（仅 cloudEnabled 时 _publish 才会真正下发）
+  }
 
   @override
   Future<void> disconnect() async {
     _closing = true;
     _reconnectTimer?.cancel();
     _tcpReconnectTimer?.cancel();
+    _stopHeartbeat();
     _tcp?.destroy();
     _tcp = null;
     _tcpConnected = false;
+    _mqttConnected = false;
     _mqtt?.disconnect();
     _mqtt = null;
     _setConn(ConnectionState.disconnected);
@@ -345,6 +449,7 @@ class RealHardwareService implements HardwareService {
   void dispose() {
     _reconnectTimer?.cancel();
     _tcpReconnectTimer?.cancel();
+    _stopHeartbeat();
     _tcp?.destroy();
     _mqtt?.disconnect();
     _ctrl.close();

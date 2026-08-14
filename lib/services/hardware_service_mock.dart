@@ -14,6 +14,7 @@ class MockHardwareService implements HardwareService {
     'light': false,
     'laser': false,
     'timelapse': false,
+    'fan': false,
   };
   Timer? _timer;
 
@@ -130,7 +131,7 @@ class MockHardwareService implements HardwareService {
       state: MachineState.busy,
       progress: 0,
       selfCheckIndex: 0,
-      selfCheckTotal: 8,
+      selfCheckTotal: 5,
       eta: const Duration(minutes: 5),
     );
     _emit();

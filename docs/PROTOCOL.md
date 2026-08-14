@@ -1,7 +1,9 @@
 # alexcnc · 硬件 / 云端协议对接文档
 
+> **⚠️ 已合并到终版契约**：`docs/三任务一致性终稿.md`。本文档保留面向固件同事的速查内容，**数值/命名冲突时请以终稿为准**。
+
 > **阅读对象**：嵌入式 / 固件同事
-> **目的**：告诉你 App（Flutter）侧预留了什么接口、期望你们（ESP32 固件 + 云端）按什么报文格式对接。
+> **目的**：告诉你 App（Flutter）侧预留了什么接口、期望你们（ESP32-S3 屏幕 + GRBL）按什么报文格式对接。
 > **当前状态**：仓库里现在是 `MockHardwareService` / `MockCloudService`（纯内存模拟），UI 已全部跑通。你们只实现真实通信层，App 其余代码 **0 改动**。
 
 ---
@@ -30,7 +32,7 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
    App 永不下载 / 存储实体 G-code 文件。
 3. **LAN / WAN 鉴权**
    手机与 ESP32 同 Wi-Fi → `isLocalLAN = true`（全功能：Jog、回零、开切）。
-   手机走 4G/5G 公网 / 云端 MQTT → `isLocalLAN = false`（监视模式：锁死 Jog / 开切，仅留监控 + 软停 Stop / Pause）。
+   手机走 4G/5G 公网 / 云端 MQTT → `isLocalLAN = false`（监视模式：锁死 Jog / 开切，仅留监控 + pause/resume/stop + light/fan + OTA）。
 
 ---
 
@@ -57,7 +59,8 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 - 主链路切换为**云端 MQTT Broker**（出厂即用、WAN 远程天然打通）：
   - 状态订阅：`cnc/<deviceId>/status`
   - 命令下发：`cnc/<deviceId>/cmd`
-  - App 默认连 `broker.emqx.io`（测试），量产后换成你们自有 Broker 域名。
+  - 事件通知：`cnc/<deviceId>/notify`（job_done / alarm / confirm_required 等）
+  - 生产端口：**8883 TLS** + 关匿名 + 私有 Broker 域名；**1883 仅本地联调**。
 - ESP32 新增 **MQTT Client** 连同一 Broker；TCP:8899 局域网增强保留（同 Wi-Fi 时运动命令直发降抖动）。
 - App 侧把 `RealHardwareService(cloudEnabled: true)` 即可启用，**命令/状态帧无需改动**。
 
@@ -76,7 +79,7 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 | `setWorkZero(x,y,z)` | `{"cmd":"setWorkZero","x":0,"y":0,"z":0}` | `G10 L20 P1 X0 Y0 Z0`（写 G54 工件零点） |
 | `startSpindle(rpm)` | `{"cmd":"spindle","rpm":12000}` | `M3 S12000`；`rpm=0` → `M5` |
 | `stopSpindle()` | `{"cmd":"spindle","rpm":0}` | `M5` |
-| `setAux(key, on)` | `{"cmd":"aux","key":"light","on":true}` | `key` ∈ `light`(机箱照明) / `laser`(红点激光) / `timelapse`(延时摄影)；自定义 `$` 或 M-code |
+| `setAux(key, on)` | `{"cmd":"aux","key":"light","on":true}` | `key` ∈ `light`(机箱照明) / `laser`(红点激光) / `timelapse`(延时摄影) / `fan`（散热风扇）；自定义 `$` 或 M-code |
 | `startJob()` | `{"cmd":"job","action":"start"}` | 触发 MCU 开始执行**已落盘（SD/Flash）的 G-code**（固件统一跑「物理确认 → 自检 → 加工」）。**App 不发 G-code**；文件经 D10 下载链路先落盘，动作经 D9 物理确认门禁 |
 | `pauseJob()` | `{"cmd":"job","action":"pause"}` | 软暂停（保留坐标） |
 | `resumeJob()` | `{"cmd":"job","action":"resume"}` | 继续 |
@@ -102,10 +105,10 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
   "etaSec": 180,              // 预计剩余秒；无任务为 null；别名 "eta" 也接受
   "msg": "ok",                // 可选状态描述
   "scIndex": 3,               // 自检阶段进度（固件拥有自检流水线）：当前第几阶段
-  "scTotal": 8,               // 自检总阶段数；0 = 无/未上报
+  "scTotal": 5,               // 自检总阶段数（固件源码真值）；0 = 无/未上报
   "download": 0.6,            // D10 G-code 文件下载进度 0..1；无下载任务为 null
   "awaitingConfirm": true,    // D9 是否正等待机旁物理确认；false/null = 不等待
-  "aux": { "light": true, "laser": false, "timelapse": false },
+  "aux": { "light": true, "laser": false, "timelapse": false, "fan": false },
   "tools": [                  // ATC 刀仓（4 槽）
     { "index": 1, "name": "3.175平底刀", "material": "钨钢", "length": 30.0, "installed": true },
     { "index": 2, "name": "1.5球刀",    "material": "钨钢", "length": 22.0, "installed": true },
@@ -115,7 +118,7 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 }
 ```
 
-> **自检流水线（决策②：固件拥有）**：`scIndex`/`scTotal` 由固件在 `startJob()` 后统一广播；App **只渲染**，不自己计时。App 据此显示「自检中 3/8」并自动在 `scIndex>=scTotal` 后进入加工态。
+> **自检流水线（决策②：固件拥有）**：`scIndex`/`scTotal` 由固件在 `startJob()` 后统一广播；App **只渲染**，不自己计时。`scTotal` 固定为 **5**，App 据此显示「自检中 3/5」并自动在 `scIndex>=scTotal` 后进入加工态。
 
 ### 2.4 G-code 下发链路（D10：命令与文件分离，HTTP 下载落盘）
 
@@ -130,7 +133,7 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 ② 下发 job 命令（带 gcodeUrl）：{"cmd":"job","action":"prepare","gcodeUrl":"http://.../gcode/task-001","compensation":"firmware"}
 ③ 机器收到后 HTTP 异步下载 → 广播 download 进度（0..1）→ 完成后 state=ready
 ④ 用户点开始 → 机器广播 awaitingConfirm=true → 机身屏弹「确认加工」→ 机旁物理按钮
-⑤ 确认后固件执行「自检(sc 0→8) → 加工(progress/eta)」，完成后 state=idle
+⑤ 确认后固件执行「自检(sc 0→5) → 加工(progress/eta)」，完成后 state=idle
 ```
 
 - **文件服务**：外网 = ② 的 G-code 托管（预签名 URL）；局域网 = `server.py` 提供
@@ -144,6 +147,8 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 
 - 状态发布：`cnc/<deviceId>/status`
 - 命令订阅：`cnc/<deviceId>/cmd`
+- 事件通知：`cnc/<deviceId>/notify`
+- 生产端口：**8883 TLS**；本地联调可用 **1883**。
 
 payload 与上面 JSON 完全一致（含 `gcodeUrl` 下载链接，**MQTT 不传文件本体**）。第一步请用 §2.1「TCP:8899 直连」实现。
 
@@ -200,7 +205,7 @@ payload 与上面 JSON 完全一致（含 `gcodeUrl` 下载链接，**MQTT 不�
 // 机器广播（等待确认中）
 { "state": "idle", "awaitingConfirm": true, "msg": "请在机身屏确认加工" }
 // 用户按下物理按钮后（固件内部确认，无需网络命令）
-{ "state": "busy", "awaitingConfirm": false, "scIndex": 0, "scTotal": 8 }
+{ "state": "busy", "awaitingConfirm": false, "scIndex": 0, "scTotal": 5 }
 ```
 
 - **触发时机**：`startJob` 后进入实际运动前（回零/移刀/主轴起转之前）；P2 可扩展为「jog 单次
@@ -236,8 +241,8 @@ payload 与上面 JSON 完全一致（含 `gcodeUrl` 下载链接，**MQTT 不�
 >   "id": "pc-task-1", "name": "电脑端设计的铭牌", "widthMm": 120, "heightMm": 60,
 >   "depthMm": 2, "boardThicknessMm": 3, "recommendedSpindleRpm": 12000,
 >   "recommendedFeedRate": 600, "defaultMaterialKey": "absdual",
->   "defaultToolId": "t_v60",
->   "requiredTools": [{"toolId": "t_v60", "role": "精雕/刻线"}],
+>   "defaultToolId": "t_v60_3175",
+>   "requiredTools": [{"toolId": "t_v60_3175", "role": "精雕/刻线"}],
 >   "thumbnailUrl": "https://.../thumb.png",
 >   "gcode": ["G21","G90","G1 X5 Y5 F600","M30"]
 > }'
@@ -257,8 +262,8 @@ payload 与上面 JSON 完全一致（含 `gcodeUrl` 下载链接，**MQTT 不�
   "rpm": 10000,
   "feed": 1500,
   "plunge": 400,
-  "toolIds": ["t_flat_3175", "t_ball_15"],
-  "note": "软木，进给可快；3.175 平底刀粗雕 + 1.5 球头刀浮雕"
+  "toolIds": ["t_flat_3175", "t_ball_3175"],
+  "note": "软木，进给可快；3.175 平底刀粗雕 + 3.175 球头刀浮雕"
 }
 ```
 
@@ -299,7 +304,7 @@ payload 与上面 JSON 完全一致（含 `gcodeUrl` 下载链接，**MQTT 不�
   "toolId": "t_flat_3175",
   "requiredTools": [
     {"toolId": "t_flat_3175", "role": "粗雕/轮廓"},
-    {"toolId": "t_v60", "role": "精雕/刻线"}
+    {"toolId": "t_v60_3175", "role": "精雕/刻线"}
   ],
   "widthMm": 145, "heightMm": 95, "depthMm": 3, "boardThicknessMm": 3,
   "duration": "38分钟", "durationSec": 2280,
@@ -394,7 +399,7 @@ busy ──(异常)──▶ alarm ──(复位)──▶ idle
 
 ### 第一步（局域网，先交付）
 - [ ] ESP32 起 **AsyncTCP Server:8899**（`0.0.0.0`），按 §2.2 解析命令帧、按 §2.3 广播状态帧（含 `scIndex/scTotal` 自检）。
-- [ ] 自检流水线：收到 `job start` 后 `scTotal=8`，固件自行推进 `scIndex 0→8`，再进 `progress` 加工；App 只读不计时。
+- [ ] 自检流水线：收到 `job start` 后 `scTotal=5`，固件自行推进 `scIndex 0→5`，再进 `progress` 加工；App 只读不计时。
 - [ ] **D10 下载链路**：实现 HTTP 下载器 + SD/Flash 存储；支持 `job prepare{gcodeUrl}` → 下载 → 广播 `download` 进度 → `ready`；`gcode` 帧同样落盘进同一执行引擎。
 - [ ] **D9 物理确认**：`ready` 后广播 `awaitingConfirm=true`；机身屏弹「确认加工」高优先级界面；物理按钮按下后进入 `busy`（自检→加工）；未确认保持待命、不运动不起转。
 - [ ] 接收 `leveling` 帧并按网格执行扫描。

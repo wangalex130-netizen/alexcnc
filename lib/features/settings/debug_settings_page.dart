@@ -25,10 +25,8 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
   final _tcpHost = TextEditingController();
   final _tcpPort = TextEditingController();
   final _deviceId = TextEditingController();
+  final _appUserId = TextEditingController();
   final _rtsp = TextEditingController();
-  final _relayBase = TextEditingController();
-  final _relayToken = TextEditingController();
-  final _relayDevice = TextEditingController();
   bool _useReal = false;
 
   @override
@@ -51,10 +49,8 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
       _tcpHost.text = c.deviceTcpHost;
       _tcpPort.text = c.deviceTcpPort > 0 ? '${c.deviceTcpPort}' : '';
       _deviceId.text = c.deviceId;
+      _appUserId.text = c.appUserId;
       _rtsp.text = c.cameraRtspUrl;
-      _relayBase.text = c.cameraRelayBaseUrl;
-      _relayToken.text = c.cameraRelayToken;
-      _relayDevice.text = c.cameraRelayDevice;
     });
   }
 
@@ -69,10 +65,8 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
       _tcpHost,
       _tcpPort,
       _deviceId,
+      _appUserId,
       _rtsp,
-      _relayBase,
-      _relayToken,
-      _relayDevice,
     ]) {
       c.dispose();
     }
@@ -95,10 +89,8 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
       deviceTcpHost: _tcpHost.text.trim(),
       deviceTcpPort: _toPort(_tcpPort.text),
       deviceId: _deviceId.text.trim(),
+      appUserId: _appUserId.text.trim(),
       cameraRtspUrl: _rtsp.text.trim(),
-      cameraRelayBaseUrl: _relayBase.text.trim(),
-      cameraRelayToken: _relayToken.text.trim(),
-      cameraRelayDevice: _relayDevice.text.trim(),
     );
     ref.read(runtimeConfigProvider.notifier).save(cfg);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -179,19 +171,38 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
           _Field(label: 'MQTT 密码', hint: '（留空=匿名）', c: _mqttPass, obscure: true),
           _Field(label: '设备局域网 TCP 主机', hint: '192.168.1.50', c: _tcpHost),
           _Field(label: '设备 ID', hint: 'alexcnc-001', c: _deviceId),
-          _Field(label: '摄像头 RTSP', hint: 'rtsp://...', c: _rtsp),
-          _Field(
-              label: '摄像头中继地址 (Camera Relay Base URL)',
-              hint: 'http://43.154.192.242:8080',
-              c: _relayBase),
-          _Field(
-              label: '摄像头中继 Token',
-              hint: 'lunyee-cnc-relay-7k2p',
-              c: _relayToken),
-          _Field(
-              label: '摄像头中继设备 ID',
-              hint: 'cnc-cam-01',
-              c: _relayDevice),
+          _Field(label: 'App 用户 ID（MQTT clientId = app-<此值>）', hint: 'local', c: _appUserId),
+          // 摄像头地址：留空=自动发现；也可一键填入已知摄像头。
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(left: 2, bottom: 6),
+                child: Text('摄像头地址（留空=自动发现）',
+                    style: TextStyle(color: CncColors.textSub, fontSize: 12)),
+              ),
+              _Field(label: '', hint: 'rtsp://... 或 http://.../stream', c: _rtsp),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _CameraPreset(
+                    label: '原装摄像头',
+                    sub: '192.168.1.205 :554/11',
+                    url: 'rtsp://admin:abc123456@192.168.1.205:554/11',
+                    c: _rtsp,
+                  ),
+                  _CameraPreset(
+                    label: 'ESP32 调试摄像头',
+                    sub: '192.168.1.248 :81/stream',
+                    url: 'http://192.168.1.248:81/stream',
+                    c: _rtsp,
+                  ),
+                ],
+              ),
+            ],
+          ),
           const SizedBox(height: 22),
           SizedBox(
             width: double.infinity,
@@ -227,6 +238,42 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
       ),
     );
   }
+}
+
+/// 已知摄像头一键填入预设。
+class _CameraPreset extends StatelessWidget {
+  final String label;
+  final String sub;
+  final String url;
+  final TextEditingController c;
+  const _CameraPreset({
+    required this.label,
+    required this.sub,
+    required this.url,
+    required this.c,
+  });
+  @override
+  Widget build(BuildContext context) => OutlinedButton(
+        onPressed: () => c.text = url,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: CncColors.textMain,
+          side: BorderSide(color: CncColors.border),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w600)),
+            Text(sub,
+                style: const TextStyle(
+                    fontSize: 10, color: CncColors.textSub)),
+          ],
+        ),
+      );
 }
 
 class _Field extends StatelessWidget {

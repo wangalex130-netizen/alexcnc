@@ -71,7 +71,7 @@ https://github.com/wangalex130-netizen/alexcnc/actions
 - [ ] PC 起 `python server/fake_firmware.py --tcp alexcnc-001` + `python server/server.py 8787`
 - [ ] 我的 → 联调设置 → 启用真实后端 → TCP 主机填 PC 局域网 IP、端口 8899、云端 `http://PC_IP:8787` → 保存重连
 - [ ] 连接态显示「已连」；控制台 Jog 点动，坐标实时变化
-- [ ] 点「开始雕刻」→ 自检 sc 0/8→8/8 → 加工进度推进（验证 MQTT/TCP 链路与状态机）
+- [ ] 点「开始雕刻」→ 自检 sc 0/5→5/5 → 加工进度推进（验证 MQTT/TCP 链路与状态机）
 - [ ] 控制台顶部摄像头区：能显示 RTSP 画面（加载中/出错态可见也算正常，能出图最佳）
 - [ ] 后台切走再回来，App 不崩、状态仍在（iOS 生命周期正常）
 

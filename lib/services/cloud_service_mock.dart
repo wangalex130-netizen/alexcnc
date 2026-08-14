@@ -52,7 +52,7 @@ class MockCloudService implements CloudService {
         // 有序工序刀具：先粗雕（平底刀）后精雕（V 型刀），与物理刀兜解耦
         requiredTools: const [
           RequiredTool('t_flat_3175', '粗雕 / 轮廓'),
-          RequiredTool('t_v60', '精雕 / 刻线'),
+          RequiredTool('t_v60_3175', '精雕 / 刻线'),
         ],
       );
     }
@@ -68,15 +68,15 @@ class MockCloudService implements CloudService {
       recommendedSpindleRpm: isAcrylic ? 14000 : 12000,
       recommendedFeedRate: isAcrylic ? 800 : 1500,
       defaultMaterialKey: matKey,
-      defaultToolId: matKey == 'acrylic' ? 't_o_single_3175' : 't_flat_3175',
+      defaultToolId: 't_flat_3175',
       requiredTools: matKey == 'acrylic'
           ? const [
-              RequiredTool('t_o_single_3175', '亚克力粗雕'),
-              RequiredTool('t_v60', '精雕 / 刻线'),
+              RequiredTool('t_flat_3175', '亚克力粗雕'),
+              RequiredTool('t_v60_3175', '精雕 / 刻线'),
             ]
           : const [
               RequiredTool('t_flat_3175', '粗雕 / 轮廓'),
-              RequiredTool('t_v60', '精雕 / 刻线'),
+              RequiredTool('t_v60_3175', '精雕 / 刻线'),
             ],
     );
   }
@@ -190,6 +190,127 @@ class MockCloudService implements CloudService {
     ];
   }
 
+  // ===================== 模型库 REST 接口（Mock 兜底） =====================
+  // 形状对齐 模型库接口文档.md，保证离线/未部署后端时 App 仍能打开图库。
+
+  @override
+  Future<ModelLibraryHome> getModelLibraryHome({
+    int pageNo = 1,
+    int pageSize = 12,
+    String? keyword,
+    String? category,
+    String? tag,
+    bool? hero,
+    String sortBy = 'recommend',
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 200));
+    final items = await getInspiration();
+    final cats = <String>{};
+    for (final e in items) {
+      if (e.category != null && e.category!.isNotEmpty) cats.add(e.category!);
+    }
+    final list = _filter(items, keyword: keyword, category: category, tag: tag);
+    final heroes = items.where((e) => e.isHero).toList();
+    return ModelLibraryHome(
+      heroModels: heroes,
+      categories: ['all', ...cats],
+      models: list,
+      total: list.length,
+      pageNo: pageNo,
+      pageSize: pageSize,
+      pages: 1,
+    );
+  }
+
+  @override
+  Future<ModelLibraryPage> getModelLibraryList({
+    int pageNo = 1,
+    int pageSize = 12,
+    String? keyword,
+    String? category,
+    String? tag,
+    bool? hero,
+    String sortBy = 'recommend',
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 200));
+    final items = await getInspiration();
+    final list = _filter(items, keyword: keyword, category: category, tag: tag);
+    return ModelLibraryPage(
+      items: list,
+      total: list.length,
+      pageNo: pageNo,
+      pageSize: pageSize,
+      pages: 1,
+    );
+  }
+
+  @override
+  Future<LibraryItem?> getModelLibraryDetail(String id) async {
+    await Future.delayed(const Duration(milliseconds: 150));
+    final items = await getInspiration();
+    if (items.isEmpty) return null;
+    final base = items.firstWhere((e) => e.id == id, orElse: () => items.first);
+    final task = await getTaskById(id);
+    // 用 TaskMetadata 的合尺寸/参数合成详情字段，让详情页完整渲染
+    final toolNames = task?.requiredTools.map((t) => t.toolId).join(',');
+    return base.copyWith(
+      imageUrls: base.coverUrl != null ? [base.coverUrl!] : const [],
+      description: '示例模型：${base.title}。可在电脑端上传更丰富的实物图与刀路。',
+      widthMm: task?.widthMm ?? 100,
+      heightMm: task?.heightMm ?? 100,
+      depthMm: task?.depthMm ?? 6,
+      boardThicknessMm: task?.boardThicknessMm ?? 12,
+      durationSec: 600,
+      tools: toolNames,
+      recommendedSpindleRpm: task?.recommendedSpindleRpm?.toInt(),
+      recommendedFeedRate: task?.recommendedFeedRate,
+      gcodeStatus: 'sliced',
+    );
+  }
+
+  @override
+  Future<List<String>> getModelLibraryCategories() async {
+    await Future.delayed(const Duration(milliseconds: 120));
+    final items = await getInspiration();
+    final cats = <String>{};
+    for (final e in items) {
+      if (e.category != null && e.category!.isNotEmpty) cats.add(e.category!);
+    }
+    return ['all', ...cats];
+  }
+
+  @override
+  Future<List<String>> getModelLibraryTags() async {
+    await Future.delayed(const Duration(milliseconds: 120));
+    final items = await getInspiration();
+    final tags = <String>{};
+    for (final e in items) {
+      for (final t in e.tags) tags.add(t);
+    }
+    return tags.toList();
+  }
+
+  /// 按关键字 / 分类 / 标签过滤（Mock 联调用）。
+  List<LibraryItem> _filter(List<LibraryItem> items,
+      {String? keyword, String? category, String? tag}) {
+    var list = items;
+    if (category != null && category.isNotEmpty && category != 'all') {
+      list = list.where((e) => e.category == category).toList();
+    }
+    if (tag != null && tag.isNotEmpty) {
+      list = list.where((e) => e.tags.contains(tag)).toList();
+    }
+    final kw = (keyword ?? '').trim().toLowerCase();
+    if (kw.isNotEmpty) {
+      list = list
+          .where((e) =>
+              e.title.toLowerCase().contains(kw) ||
+              e.tags.any((t) => t.toLowerCase().contains(kw)))
+          .toList();
+    }
+    return list;
+  }
+
   @override
   Future<bool> deleteModel(String id) async {
     await Future.delayed(const Duration(milliseconds: 200));
@@ -200,96 +321,5 @@ class MockCloudService implements CloudService {
   @override
   Future<void> pushDiagnostics(String log) async {
     await Future.delayed(const Duration(milliseconds: 200));
-  }
-
-  // ===================== 模型库 5 接口（Mock 兜底） =====================
-
-  @override
-  Future<ModelLibraryHome> getModelLibraryHome(
-      {int pageNo = 1,
-      int pageSize = 12,
-      String? keyword,
-      String? category,
-      String? tag,
-      bool? hero,
-      String sortBy = 'recommend'}) async {
-    await Future.delayed(const Duration(milliseconds: 200));
-    final all = await getInspiration();
-    final heros = all.where((e) => e.isHero).toList();
-    final cats = <String>{};
-    for (final e in all) {
-      if (e.category != null && e.category!.isNotEmpty) cats.add(e.category!);
-    }
-    return ModelLibraryHome(
-        heroModels: heros, categories: ['全部', ...cats], models: all);
-  }
-
-  @override
-  Future<ModelLibraryPage> getModelLibraryList(
-      {int pageNo = 1,
-      int pageSize = 12,
-      String? keyword,
-      String? category,
-      String? tag,
-      bool? hero,
-      String sortBy = 'recommend'}) async {
-    await Future.delayed(const Duration(milliseconds: 200));
-    var all = await getInspiration();
-    final kw = keyword?.trim().toLowerCase() ?? '';
-    if (kw.isNotEmpty) {
-      all = all
-          .where((e) =>
-              e.title.toLowerCase().contains(kw) ||
-              e.tags.any((t) => t.toLowerCase().contains(kw)))
-          .toList();
-    }
-    if (category != null && category.isNotEmpty && category != 'all') {
-      all = all.where((e) => e.category == category).toList();
-    }
-    final start = (pageNo - 1) * pageSize;
-    final end = start + pageSize;
-    final slice = all.sublist(start.clamp(0, all.length),
-        end.clamp(0, all.length));
-    return ModelLibraryPage(
-      items: slice,
-      pageNo: pageNo,
-      pageSize: pageSize,
-      total: all.length,
-      pages: all.isEmpty ? 1 : ((all.length + pageSize - 1) ~/ pageSize),
-    );
-  }
-
-  @override
-  Future<LibraryItem?> getModelLibraryDetail(String id) async {
-    await Future.delayed(const Duration(milliseconds: 200));
-    final all = await getInspiration();
-    final base = all.firstWhere((e) => e.id == id, orElse: () => all.first);
-    final isRetro = id.contains('retro') ||
-        id.contains('复古') ||
-        id.contains('wood');
-    return base.copyWith(
-      recommendedSpindleRpm: isRetro ? 10000 : 12000,
-      recommendedFeedRate: isRetro ? 1500 : 600,
-      widthMm: isRetro ? 145 : 90,
-      heightMm: isRetro ? 95 : 90,
-      depthMm: 3,
-      gcodeStatus: 'sliced',
-      requiredTools: const [
-        RequiredTool('t_flat_3175', '粗雕 / 轮廓'),
-        RequiredTool('t_v60', '精雕 / 刻线'),
-      ],
-    );
-  }
-
-  @override
-  Future<List<String>> getModelLibraryCategories() async {
-    await Future.delayed(const Duration(milliseconds: 150));
-    return const ['全部', '木作工艺', '亚克力', 'PCB 电路'];
-  }
-
-  @override
-  Future<List<String>> getModelLibraryTags() async {
-    await Future.delayed(const Duration(milliseconds: 150));
-    return const ['复古', '几何', '发光', 'PCB', '杯垫', '铭牌'];
   }
 }

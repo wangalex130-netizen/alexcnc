@@ -1,83 +1,76 @@
+/// 模型库 REST 接口响应模型（对齐 模型库接口文档.md /api/model-library/*）。
+
 import 'library_item.dart';
 
-/// 模型库首页聚合（/api/model-library/home）。
+/// 首页聚合：`/api/model-library/home`。
 ///
-/// 后端打包上测试环境后，字段以软件工程师的接口文档为准；这里做了多键名
-/// 兼容（heroModels/heros/hero、models/list/records/items），Mock 与真后端都能解析。
+/// 一次返回焦点模型（heroModels，最多 6 个）、分类 Tab（categories）、
+/// 以及按传入分页/筛选参数返回的模型网格（models 为分页对象）。
 class ModelLibraryHome {
-  final List<LibraryItem> heroModels; // 焦点大图（主推）
-  final List<String> categories; // 分类标签（接口权威来源）
-  final List<LibraryItem> models; // 首屏模型列表
+  final List<LibraryItem> heroModels;
+  final List<String> categories;
+  final List<LibraryItem> models;
+  final int total;
+  final int pageNo;
+  final int pageSize;
+  final int pages;
 
   const ModelLibraryHome({
     this.heroModels = const [],
     this.categories = const [],
     this.models = const [],
+    this.total = 0,
+    this.pageNo = 1,
+    this.pageSize = 12,
+    this.pages = 1,
   });
 
   factory ModelLibraryHome.fromJson(Map<String, dynamic> j) {
-    List<LibraryItem> parseList(dynamic v) => (v as List? ?? [])
+    final modelsObj = j['models'] as Map<String, dynamic>? ?? {};
+    final list = (modelsObj['list'] as List? ?? [])
         .map((e) => LibraryItem.fromJson(e as Map<String, dynamic>))
         .toList();
-    // 兼容：后端 models 可能是数组，也可能是分页对象 {list,records,items,...}
-    List<LibraryItem> extractModels(dynamic v) {
-      if (v is List) return parseList(v);
-      if (v is Map) {
-        return parseList(v['list'] ?? v['records'] ?? v['items']);
-      }
-      return const [];
-    }
-
-    List<String> parseCats(dynamic v) =>
-        (v as List? ?? []).map((e) => e.toString()).toList();
     return ModelLibraryHome(
-      heroModels: parseList(j['heroModels'] ?? j['heros'] ?? j['hero'])
-          .map((e) => e.copyWith(isHero: true))
+      heroModels: (j['heroModels'] as List? ?? [])
+          .map((e) => LibraryItem.fromJson(e as Map<String, dynamic>))
           .toList(),
-      categories: parseCats(j['categories'] ?? j['categoryList']),
-      models: extractModels(
-          j['models'] ?? j['list'] ?? j['records'] ?? j['items']),
+      categories: (j['categories'] as List? ?? [])
+          .map((e) => e.toString())
+          .toList(),
+      models: list,
+      total: (modelsObj['total'] as num? ?? 0).toInt(),
+      pageNo: (modelsObj['pageNo'] as num? ?? 1).toInt(),
+      pageSize: (modelsObj['pageSize'] as num? ?? 12).toInt(),
+      pages: (modelsObj['pages'] as num? ?? 1).toInt(),
     );
   }
 }
 
-/// 模型库分页列表（/api/model-library/list）。
+/// 模型分页列表：`/api/model-library/list`。
+///
+/// `data` 直接是分页对象（list/total/pageNo/pageSize/pages）。
 class ModelLibraryPage {
   final List<LibraryItem> items;
+  final int total;
   final int pageNo;
   final int pageSize;
-  final int total;
   final int pages;
 
   const ModelLibraryPage({
     this.items = const [],
+    this.total = 0,
     this.pageNo = 1,
     this.pageSize = 12,
-    this.total = 0,
     this.pages = 1,
   });
 
-  factory ModelLibraryPage.fromJson(Map<String, dynamic> j) {
-    List<LibraryItem> parseList(dynamic v) => (v as List? ?? [])
-        .map((e) => LibraryItem.fromJson(e as Map<String, dynamic>))
-        .toList();
-    // 兼容：data 可能是数组，也可能是分页对象 {list,records,items,models,...}
-    List<LibraryItem> extractItems(dynamic v) {
-      if (v is List) return parseList(v);
-      if (v is Map) {
-        return parseList(
-            v['list'] ?? v['records'] ?? v['items'] ?? v['models']);
-      }
-      return const [];
-    }
-
-    final listSrc = j['list'] ?? j['records'] ?? j['items'] ?? j['models'];
-    return ModelLibraryPage(
-      items: extractItems(listSrc),
-      pageNo: (j['pageNo'] as num? ?? 1).toInt(),
-      pageSize: (j['pageSize'] as num? ?? 12).toInt(),
-      total: (j['total'] as num? ?? 0).toInt(),
-      pages: (j['pages'] as num? ?? 1).toInt(),
-    );
-  }
+  factory ModelLibraryPage.fromJson(Map<String, dynamic> j) => ModelLibraryPage(
+        items: (j['list'] as List? ?? [])
+            .map((e) => LibraryItem.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        total: (j['total'] as num? ?? 0).toInt(),
+        pageNo: (j['pageNo'] as num? ?? 1).toInt(),
+        pageSize: (j['pageSize'] as num? ?? 12).toInt(),
+        pages: (j['pages'] as num? ?? 1).toInt(),
+      );
 }
