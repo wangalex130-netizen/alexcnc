@@ -13,17 +13,31 @@ class AppConfig {
   const AppConfig._();
 
   // ---- 摄像头（机器侧面固定头，纯裸画面，无叠加层）----
-  // 真机实测 RTSP 端口为 554；ESP32 CameraWebServer 调试流为 81。
+  // 当前方案：ESP32 CameraWebServer（MJPEG over HTTP，端口 81，无认证）。
   // 默认地址可留空 → 启动时自动发现（先读上次成功缓存，再扫 Wi-Fi 网段
-  // 的 554 RTSP + 81 HTTP），换网络/换 IP 无需手动配置。
-  // 已知摄像头（App 内「联调设置」可一键填入，免去对自动发现的依赖）：
-  //   原装摄像头：rtsp://admin:abc123456@192.168.1.205:554/11
-  //   ESP32 调试：http://192.168.1.248:81/stream
-  // 如需固定地址：--dart-define=CAMERA_RTSP=rtsp://admin:abc123456@192.168.1.205:554/11 覆盖，
+  // 的 81 端口 + 554 RTSP），换网络/换 IP 无需手动配置。
+  // 如需固定地址：--dart-define=CAMERA_RTSP=http://192.168.1.248:81/stream 覆盖，
   // 或在 App 内「联调设置」里填写。
   static const String cameraRtspUrl = String.fromEnvironment(
     'CAMERA_RTSP',
     defaultValue: '',
+  );
+
+  // ---- 摄像头云中继（远程监视模式）----
+  // 摄像头把 JPEG 帧直推到这台服务器，App 在远程网络下从中继拉 MJPEG 流。
+  // 与固件 RELAY: 指令一致：RELAY:<baseUrl>|<token>|<device>|<fps>
+  // 示例：--dart-define=CAMERA_RELAY_BASE_URL=http://43.154.192.242:8080
+  static const String cameraRelayBaseUrl = String.fromEnvironment(
+    'CAMERA_RELAY_BASE_URL',
+    defaultValue: 'http://43.154.192.242:8080',
+  );
+  static const String cameraRelayToken = String.fromEnvironment(
+    'CAMERA_RELAY_TOKEN',
+    defaultValue: 'lunyee-cnc-relay-7k2p',
+  );
+  static const String cameraRelayDevice = String.fromEnvironment(
+    'CAMERA_RELAY_DEVICE',
+    defaultValue: 'cnc-cam-01',
   );
 
   // ---- 后端选择 ----
@@ -34,12 +48,10 @@ class AppConfig {
   // ---- 云端（材质主表 / 任务元数据 / G-code 推送）----
   static const String cloudBaseUrl = String.fromEnvironment(
     'CLOUD_BASE_URL',
-    defaultValue: 'https://cnc-api.local',
+    defaultValue: 'https://037123.xyz',
   );
 
   // ---- MQTT（云端 Broker，主链路：状态订阅 + 命令下发）----
-  // 生产环境：8883 TLS + 关匿名 + 私有 broker（默认空，需 --dart-define 注入）。
-  // 本地联调：1883 明文（仅限内网/本机，禁止上生产）。
   static const String mqttBroker = String.fromEnvironment(
     'MQTT_BROKER',
     defaultValue: 'broker.emqx.io',
@@ -63,8 +75,7 @@ class AppConfig {
   static const String deviceId =
       String.fromEnvironment('DEVICE_ID', defaultValue: 'alexcnc-001');
 
-  // ---- App 登录身份（用于 MQTT clientId = app-<userId>，契约 auth.client_id_pattern）----
-  // 接入登录态后由账号体系注入；联调期可 --dart-define=APP_USER_ID=xxx 覆盖。
+  // ---- App 用户标识（MQTT clientId = app-<userId>，契约 auth.client_id_pattern）----
   static const String appUserId =
       String.fromEnvironment('APP_USER_ID', defaultValue: 'local');
 
