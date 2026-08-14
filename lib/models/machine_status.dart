@@ -27,6 +27,9 @@ class MachineStatus {
   final int selfCheckIndex; // -1 = 尚未开始 / 未知
   final int selfCheckTotal; // 0 = 无（固件未上报）
 
+  // --- D9 机旁物理确认标志 ---
+  final bool awaitingConfirm;
+
   const MachineStatus({
     this.state = MachineState.idle,
     this.position = const Position(),
@@ -38,6 +41,7 @@ class MachineStatus {
     this.message,
     this.selfCheckIndex = -1,
     this.selfCheckTotal = 0,
+    this.awaitingConfirm = false,
   });
 
   MachineStatus copyWith({
@@ -51,6 +55,7 @@ class MachineStatus {
     String? message,
     int? selfCheckIndex,
     int? selfCheckTotal,
+    bool? awaitingConfirm,
   }) =>
       MachineStatus(
         state: state ?? this.state,
@@ -63,6 +68,7 @@ class MachineStatus {
         message: message ?? this.message,
         selfCheckIndex: selfCheckIndex ?? this.selfCheckIndex,
         selfCheckTotal: selfCheckTotal ?? this.selfCheckTotal,
+        awaitingConfirm: awaitingConfirm ?? this.awaitingConfirm,
       );
 
   /// Active movement is only allowed when idle and on LAN (enforced in UI).
@@ -76,7 +82,7 @@ class MachineStatus {
 
   /// 由固件 JSON 广播解析（见 PROTOCOL.md §2 状态帧）。
   /// 字段缺失时安全回退默认值；同时兼容文档字段名与其历史别名
-  /// （mp/mpos、spindle/rpm、prog/progress、eta/etaSec），便于联调期双向对齐。
+  ///（mp/mpos、spindle/rpm、prog/progress、eta/etaSec），便于联调期双向对齐。
   factory MachineStatus.fromJson(Map<String, dynamic> j) {
     MachineState state = MachineState.idle;
     final s = (j['state'] ?? 'idle').toString();
@@ -120,6 +126,7 @@ class MachineStatus {
           (j['scIndex'] is num) ? (j['scIndex'] as num).toInt() : -1,
       selfCheckTotal:
           (j['scTotal'] is num) ? (j['scTotal'] as num).toInt() : 0,
+      awaitingConfirm: j['awaitingConfirm'] == true,
     );
   }
 }
