@@ -31,6 +31,7 @@ final hardwareServiceProvider = Provider<HardwareService>((ref) {
           tcpHost: cfg.resolvedDeviceTcpHost,
           tcpPort: cfg.resolvedDeviceTcpPort,
           appUserId: cfg.resolvedAppUserId,
+          cloudEnabled: true,   // 启用云端 MQTT（否则 App 不连 broker，只走局域网）
         )
       : MockHardwareService();
   ref.onDispose(svc.dispose);
