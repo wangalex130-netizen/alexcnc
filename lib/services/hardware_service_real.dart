@@ -21,9 +21,10 @@ enum ConnectionState { disconnected, connecting, connected }
 /// **第一步（局域网，默认）**：以 [tcpHost]:[tcpPort]（默认 8899）为**唯一控制 +
 /// 状态通道**，App 直连机器（ESP32 TCP Server）。详见 `docs/PROTOCOL.md` Step1。
 ///
-/// **第二步（外网，[cloudEnabled]=true 时启用）**：额外连接云端 MQTT Broker，命令/
-/// 状态改走主题 cnc/<deviceId>/cmd、cnc/<deviceId>/status；帧格式与 TCP 完全一致，
-/// 仅传输层不同，无需重写命令逻辑。
+/// **第二步（外网，[cloudEnabled]=true 时启用）**：额外连接云端 MQTT Broker，状态/
+/// 事件订阅 cnc/<deviceId>/status、cnc/<deviceId>/notify；命令经网关白名单转发
+/// gw/<deviceId>/cmd（R2），网关回执订阅 gw/<deviceId>/ack。帧格式与 TCP 完全一致，
+/// 仅传输层不同。
 ///
 /// 两条链路汇入同一 [statusStream]，App 其余代码无需区分来源。离线/未连时静默
 /// 不报错，UI 仅显示为 disconnected。连接态以 TCP 为准（第一步唯一通道）。
@@ -218,9 +219,35 @@ class RealHardwareService implements HardwareService {
       if (msg is! MqttPublishMessage) continue;
       final payload =
           MqttPublishPayload.bytesToStringAsString(msg.payload.message);
-      // 网关 ACK 回执：仅确认命令已送达，不作为状态帧/事件处理
-      if (ev.topic == mqttAckTopic) continue;
+      // 网关 ACK 回执：白名单拒绝时回 {ok:false,code:E401,msg}，需弹通知；放行命令无 ack。
+      if (ev.topic == mqttAckTopic) {
+        _handleGwAck(payload);
+        continue;
+      }
       _parseAndEmit(payload);
+    }
+  }
+
+  /// 网关命令回执处理（R2）：仅当 ok=false 且 code=E401（白名单外命令被拒）时弹一次
+  /// 通知，提示用户当前网络模式不支持该操作；放行命令不回 ack，不弹通知。
+  void _handleGwAck(String payload) {
+    try {
+      final j = jsonDecode(payload) as Map<String, dynamic>;
+      if (j['ok'] == true) return; // 放行/无回执：不打扰
+      final code = j['code']?.toString() ?? '';
+      final msg = j['msg']?.toString() ?? '';
+      if (code == 'E401') {
+        if (!_notifyCtrl.isClosed) {
+          _notifyCtrl.add(NotifyEvent(
+            type: 'gw_rejected',
+            message: msg.isEmpty ? '远程操作被拒绝（需局域网直连）' : msg,
+            at: DateTime.now(),
+            isAlarm: true,
+          ));
+        }
+      }
+    } catch (_) {
+      // ACK 帧非预期格式时静默忽略
     }
   }
 
@@ -318,14 +345,25 @@ class RealHardwareService implements HardwareService {
   }
 
   void _publish(Map<String, dynamic> cmd) {
-    if (!cloudEnabled) return; // 第一步（LAN）不启用 MQTT
+    // R3：命令闸门——仅当「不处于局域网（无 TCP 直连）」时才经网关下发。
+    //   局域网内即使 cloudEnabled=true 也不走 gw，避免白名单内命令被双发导致二次执行。
+    if (!cloudEnabled || _tcpConnected) return;
     final json = jsonEncode(cmd);
-    // 第二步主链路：MQTT 命令
     if (_mqtt?.connectionStatus?.state == MqttConnectionState.connected) {
       final builder = MqttClientPayloadBuilder();
       builder.addString(json);
       _mqtt!.publishMessage(
           mqttCmdTopic, MqttQos.atLeastOnce, builder.payload!);
+    }
+  }
+
+  /// 命令分发：局域网 TCP 直连优先，未连 TCP 时才经云端网关（R2/R3）。
+  /// 取代原先 `_sendTcp + _publish` 双发，避免 LAN 内命令被重复下发。
+  void _dispatch(Map<String, dynamic> cmd) {
+    if (_tcpConnected) {
+      _sendTcp(cmd);
+    } else {
+      _publish(cmd);
     }
   }
 
@@ -336,10 +374,10 @@ class RealHardwareService implements HardwareService {
   }
 
   // ---- 心跳：固件 15s 内收不到任何命令即进入 Feed Hold，App 须周期发 hello ----
-  /// 任一条链路（LAN TCP / WAN MQTT）存活即保持心跳，全部断开则停。
+  /// R3：心跳仅由局域网 TCP 存活驱动。外网模式下 _tcpConnected 为 false，不跑 hello，
+  /// 固件存活由 MQTT keepAlive(30s) 维持，App 不额外发空帧污染网关。
   void _updateHeartbeat() {
-    final up = _tcpConnected || (_mqttConnected && cloudEnabled);
-    if (up) {
+    if (_tcpConnected) {
       _startHeartbeat();
     } else {
       _stopHeartbeat();
@@ -358,12 +396,11 @@ class RealHardwareService implements HardwareService {
     _heartbeatTimer = null;
   }
 
-  /// 心跳帧：同时覆盖 LAN（TCP）与外网（MQTT）两条链路。
-  /// cloudEnabled=false 时 _publish 内部直接返回，不会误发 WAN 帧。
+  /// 心跳帧：R3 改为**仅走局域网 TCP**。hello 不在网关白名单内，若经 gw 下发会被
+  /// 网关拒绝（E401）并刷错误日志；外网模式下固件存活靠 MQTT keepAlive(30s)，无需空心跳。
   void _sendHello() {
     final cmd = {'cmd': 'hello'};
-    _sendTcp(cmd); // 局域网低延迟通道
-    _publish(cmd); // 外网链路（仅 cloudEnabled 时 _publish 才会真正下发）
+    _sendTcp(cmd); // 局域网低延迟通道；未连 TCP 时静默不发（外网由 keepAlive 保活）
   }
 
   @override
@@ -394,72 +431,62 @@ class RealHardwareService implements HardwareService {
   @override
   Future<void> jog(String axis, double distanceMm) async {
     final cmd = {'cmd': 'jog', 'axis': axis, 'dist': distanceMm};
-    _sendTcp(cmd); // LAN 低延迟优先
-    _publish(cmd); // 同时经云端兜底
+    _dispatch(cmd);
   }
 
   @override
   Future<void> home() async {
     final cmd = {'cmd': 'home'};
-    _sendTcp(cmd);
-    _publish(cmd);
+    _dispatch(cmd);
   }
 
   @override
   Future<void> setWorkZero({double x = 0, double y = 0, double z = 0}) async {
     final cmd = {'cmd': 'setWorkZero', 'x': x, 'y': y, 'z': z};
-    _sendTcp(cmd);
-    _publish(cmd);
+    _dispatch(cmd);
   }
 
   @override
   Future<void> startSpindle(double rpm) async {
     final cmd = {'cmd': 'spindle', 'rpm': rpm};
-    _sendTcp(cmd);
-    _publish(cmd);
+    _dispatch(cmd);
   }
 
   @override
   Future<void> stopSpindle() async {
     final cmd = {'cmd': 'spindle', 'rpm': 0};
-    _sendTcp(cmd);
-    _publish(cmd);
+    _dispatch(cmd);
   }
 
   @override
   Future<void> setAux(String key, bool on) async {
     _aux[key] = on;
     final cmd = {'cmd': 'aux', 'key': key, 'on': on};
-    _sendTcp(cmd);
-    _publish(cmd);
+    _dispatch(cmd);
   }
 
   @override
   Future<void> startJob() async {
     final cmd = {'cmd': 'job', 'action': 'start'};
-    _sendTcp(cmd);
-    _publish(cmd);
+    _dispatch(cmd);
   }
 
   @override
   Future<void> pauseJob() async {
     final cmd = {'cmd': 'job', 'action': 'pause'};
-    _sendTcp(cmd);
-    _publish(cmd);
+    _dispatch(cmd);
   }
 
   @override
   Future<void> resumeJob() async {
     final cmd = {'cmd': 'job', 'action': 'resume'};
-    _sendTcp(cmd);
-    _publish(cmd);
+    _dispatch(cmd);
   }
 
   @override
   Future<void> stopJob() async {
     final cmd = {'cmd': 'job', 'action': 'stop'};
-    _sendTcp(cmd);
-    _publish(cmd);
+    _dispatch(cmd);
   }
 
   @override
@@ -473,8 +500,7 @@ class RealHardwareService implements HardwareService {
               })
           .toList(),
     };
-    _sendTcp(cmd);
-    _publish(cmd);
+    _dispatch(cmd);
   }
 
   @override
@@ -486,8 +512,7 @@ class RealHardwareService implements HardwareService {
       'cols': cols,
       'rows': rows,
     };
-    _sendTcp(cmd);
-    _publish(cmd);
+    _dispatch(cmd);
   }
 
   bool getAux(String key) => _aux[key] ?? false;
