@@ -33,6 +33,7 @@ final hardwareServiceProvider = Provider<HardwareService>((ref) {
           appUserId: cfg.resolvedAppUserId,
           cloudEnabled: true,   // 启用云端 MQTT（否则 App 不连 broker，只走局域网）
         )
+        ..connect()   // P0 根因：缺失 connect()，MQTT/TCP 从未建立，外网命令与状态订阅全部失效
       : MockHardwareService();
   ref.onDispose(svc.dispose);
   return svc;

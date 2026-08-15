@@ -10,6 +10,7 @@ import '../../app/theme.dart';
 import '../../data/tool_library.dart';
 import '../../widgets/tool_icon.dart';
 import '../../models/machine_status.dart';
+import '../../models/notify_event.dart';
 import '../../models/tool.dart';
 import '../../state/providers.dart';
 import '../preview/rtsp_preview_widget.dart';
@@ -42,8 +43,12 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
   bool _light = false;
   bool _laser = false;
+  bool _fan = false;
   bool _spindleOn = false;
   int _rpm = 12000;
+
+  /// notify 事件订阅（toast / 横幅），dispose 时取消。
+  StreamSubscription<NotifyEvent>? _notifySub;
 
   /// 延时摄影：当前 jobId（来自 timeLapseJobProvider，向导或本页开启都会写入）；
   /// 轮询到的服务器状态（count / status / video_ready）。
@@ -59,6 +64,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     // 每 2s 轮询一次服务器，刷新延时摄影进度（有 job 时才有意义）。
     _tlTimer = Timer.periodic(const Duration(seconds: 2), (_) => _pollTimeLapse());
 
+    // 订阅机器异步事件（job_done / alarm / confirm_required 等）→ toast 提示
+    _notifySub = ref.read(hardwareServiceProvider).notifyStream.listen(_onNotify);
+
     // 自动探测网络模式（LAN = 完整控制 / WAN = 远程监视）。
     WidgetsBinding.instance.addObserver(this);
     Future.delayed(const Duration(milliseconds: 300), _autoDetectNetwork);
@@ -71,8 +79,15 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     _rec.dispose();
     _tlTimer?.cancel();
     _netTimer?.cancel();
+    _notifySub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  /// notify 事件 → 一次性提示（报警用红色强调）。
+  void _onNotify(NotifyEvent e) {
+    if (!mounted) return;
+    _showHint(e.message, alarm: e.isAlarm);
   }
 
   @override
@@ -146,13 +161,13 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     _showHint(path != null ? '已保存到相册' : '保存失败，请重试');
   }
 
-  void _showHint(String msg) {
+  void _showHint(String msg, {bool alarm = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg, style: const TextStyle(fontSize: 13)),
         duration: const Duration(seconds: 3),
-        backgroundColor: const Color(0xFF1A1A1A),
+        backgroundColor: alarm ? CncColors.danger : const Color(0xFF1A1A1A),
       ),
     );
   }
@@ -168,6 +183,14 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     final idle = status.state == MachineState.idle;
     final busy = status.state == MachineState.busy;
     final canControl = isLocal && idle;
+
+    // 开关态：固件回显 aux 优先（status.aux 含该键时以机器真实态为准），
+    // 否则用本地乐观态（点按时立即反馈，等固件回显再校准）。
+    final lightOn =
+        status.aux.containsKey('light') ? status.aux['light']! : _light;
+    final laserOn =
+        status.aux.containsKey('laser') ? status.aux['laser']! : _laser;
+    final fanOn = status.aux.containsKey('fan') ? status.aux['fan']! : _fan;
 
     return Scaffold(
       backgroundColor: CncColors.bg,
@@ -294,7 +317,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
               _ToggleBtn(
                   icon: Symbols.lightbulb,
                   label: '机箱照明',
-                  active: _light,
+                  active: lightOn,
                   onTap: () {
                     setState(() => _light = !_light);
                     hw.setAux('light', _light);
@@ -302,10 +325,18 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
               _ToggleBtn(
                   icon: Symbols.gps_fixed,
                   label: '红点激光',
-                  active: _laser,
+                  active: laserOn,
                   onTap: () {
                     setState(() => _laser = !_laser);
                     hw.setAux('laser', _laser);
+                  }),
+              _ToggleBtn(
+                  icon: Symbols.air,
+                  label: '冷却风扇',
+                  active: fanOn,
+                  onTap: () {
+                    setState(() => _fan = !_fan);
+                    hw.setAux('fan', _fan);
                   }),
               _ToggleBtn(
                   icon: Symbols.schedule,
@@ -323,6 +354,50 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
             child: ListView(
               padding: const EdgeInsets.all(12),
               children: [
+                // 机旁确认横幅：固件广播 awaitingConfirm（notify 流 confirm_required 同步触发）
+                if (status.awaitingConfirm)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: CncColors.warning.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: CncColors.warning.withOpacity(0.5)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Symbols.priority_high, size: 16, color: CncColors.warning),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text('等待机旁确认：请在机器面板按下确认键后继续加工。',
+                              style: const TextStyle(fontSize: 11, color: CncColors.warning)),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                // 掉线横幅：纯外网模式下 MQTT 断开 / 局域网 TCP 断开时提示
+                if (status.state == MachineState.disconnected)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: CncColors.danger.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: CncColors.danger.withOpacity(0.5)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Symbols.wifi_off, size: 16, color: CncColors.danger),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text('与机器断开连接：命令与状态无法同步，请检查网络后重连。',
+                              style: const TextStyle(fontSize: 11, color: CncColors.danger)),
+                        ),
+                      ],
+                    ),
+                  ),
+
                 // 远程监视提示
                 if (!isLocal)
                   Container(

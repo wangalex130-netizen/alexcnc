@@ -76,8 +76,10 @@ class AppConfig {
       String.fromEnvironment('DEVICE_ID', defaultValue: 'cnc-demo-01');
 
   // ---- App 用户标识（MQTT clientId = app-<userId>，契约 auth.client_id_pattern）----
+  // 注意：这里存的是「裸 userId」（默认 demo），clientId 由 RealHardwareService 拼成
+  // app-<userId>。之前默认写 'app-demo' 会导致 clientId 变成 'app-app-demo'（双前缀，R12）。
   static const String appUserId =
-      String.fromEnvironment('APP_USER_ID', defaultValue: 'app-demo');
+      String.fromEnvironment('APP_USER_ID', defaultValue: 'demo');
 
   // ---- 2D 刀路预览（协议 §3.2 渲染矢量）----
   // 2026-08-07 决策链：驱动在电脑端生成 G-code，客户可选择上传至库（上传的是 G-code 本体）。
@@ -93,6 +95,6 @@ class AppConfig {
   /// MQTT 状态广播主题：cnc/<deviceId>/status
   static String get mqttStatusTopic => 'cnc/$deviceId/status';
 
-  /// MQTT 命令下发主题：cnc/<deviceId>/cmd
-  static String get mqttCmdTopic => 'cnc/$deviceId/cmd';
+  /// MQTT 命令下发主题：gw/<deviceId>/cmd（经网关白名单转发固件；与实例级一致）
+  static String get mqttCmdTopic => 'gw/$deviceId/cmd';
 }

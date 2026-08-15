@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../models/machine_status.dart';
+import '../models/notify_event.dart';
 import '../models/tool.dart';
 
 /// Hardware boundary for the ESP32 / modified-Grbl controller.
@@ -12,6 +13,10 @@ import '../models/tool.dart';
 abstract class HardwareService {
   /// Live machine status, broadcast by the MCU (SSOT).
   Stream<MachineStatus> get statusStream;
+
+  /// 机器异步事件（job_done / alarm / confirm_required 等）一次性提示流。
+  /// 与 [statusStream] 分离，避免状态帧反复冲刷 toast/横幅。
+  Stream<NotifyEvent> get notifyStream;
 
   Future<void> connect();
   Future<void> disconnect();
@@ -28,7 +33,7 @@ abstract class HardwareService {
   // --- Spindle / aux ---
   Future<void> startSpindle(double rpm);
   Future<void> stopSpindle();
-  Future<void> setAux(String key, bool on); // light | laser | timelapse
+  Future<void> setAux(String key, bool on); // light | laser | timelapse | fan
 
   // --- Job control ---
   Future<void> startJob();

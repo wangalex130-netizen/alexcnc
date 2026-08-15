@@ -72,8 +72,12 @@ class RuntimeConfig {
       ? cameraRelayDevice
       : AppConfig.cameraRelayDevice;
   // ---- App 用户标识 ----
-  String get resolvedAppUserId =>
-      appUserId.isNotEmpty ? appUserId : AppConfig.appUserId;
+  // 存的是裸 userId（如 demo）；若用户误填了带前导 'app-' 的值（形如 app-demo），
+  // 这里兜底去掉，避免 RealHardwareService 拼出 'app-app-demo' 双前缀（R12）。
+  String get resolvedAppUserId {
+    final raw = appUserId.isNotEmpty ? appUserId : AppConfig.appUserId;
+    return raw.startsWith('app-') ? raw.substring(4) : raw;
+  }
 
   Map<String, dynamic> toJson() => {
         'useRealBackend': useRealBackend,

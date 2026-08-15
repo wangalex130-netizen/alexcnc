@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../models/machine_status.dart';
+import '../models/notify_event.dart';
 import '../models/position.dart';
 import '../models/tool.dart';
 import 'hardware_service.dart';
@@ -9,11 +10,13 @@ import 'hardware_service.dart';
 /// UI is fully exercisable before firmware integration.
 class MockHardwareService implements HardwareService {
   final _ctrl = StreamController<MachineStatus>.broadcast();
+  final _notifyCtrl = StreamController<NotifyEvent>.broadcast();
   MachineStatus _current = const MachineStatus();
   final Map<String, bool> _aux = {
     'light': false,
     'laser': false,
     'timelapse': false,
+    'fan': false,
   };
   Timer? _timer;
 
@@ -53,6 +56,9 @@ class MockHardwareService implements HardwareService {
 
   @override
   Stream<MachineStatus> get statusStream => _ctrl.stream;
+
+  @override
+  Stream<NotifyEvent> get notifyStream => _notifyCtrl.stream;
 
   @override
   Future<void> connect() async => _emit();
@@ -178,5 +184,6 @@ class MockHardwareService implements HardwareService {
   void dispose() {
     _timer?.cancel();
     _ctrl.close();
+    _notifyCtrl.close();
   }
 }

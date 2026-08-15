@@ -30,6 +30,10 @@ class MachineStatus {
   // --- D9 机旁物理确认标志 ---
   final bool awaitingConfirm;
 
+  // --- 辅助输出真实状态（灯/激光/风扇/延时，固件回显，UI 据此同步开关态）---
+  // key ∈ {light, laser, fan, timelapse}；缺失时为空 Map（App 用本地乐观态兜底）。
+  final Map<String, bool> aux;
+
   const MachineStatus({
     this.state = MachineState.idle,
     this.position = const Position(),
@@ -42,6 +46,7 @@ class MachineStatus {
     this.selfCheckIndex = -1,
     this.selfCheckTotal = 0,
     this.awaitingConfirm = false,
+    this.aux = const {},
   });
 
   MachineStatus copyWith({
@@ -56,6 +61,7 @@ class MachineStatus {
     int? selfCheckIndex,
     int? selfCheckTotal,
     bool? awaitingConfirm,
+    Map<String, bool>? aux,
   }) =>
       MachineStatus(
         state: state ?? this.state,
@@ -69,6 +75,7 @@ class MachineStatus {
         selfCheckIndex: selfCheckIndex ?? this.selfCheckIndex,
         selfCheckTotal: selfCheckTotal ?? this.selfCheckTotal,
         awaitingConfirm: awaitingConfirm ?? this.awaitingConfirm,
+        aux: aux ?? this.aux,
       );
 
   /// Active movement is only allowed when idle and on LAN (enforced in UI).
@@ -127,6 +134,20 @@ class MachineStatus {
       selfCheckTotal:
           (j['scTotal'] is num) ? (j['scTotal'] as num).toInt() : 0,
       awaitingConfirm: j['awaitingConfirm'] == true,
+      aux: _parseAux(j['aux']),
     );
   }
+}
+
+/// 安全解析辅助输出回显：仅保留已知的 4 个键（light/laser/fan/timelapse），
+/// 非 Map 或缺失时返回空 Map；逐键校验类型，避免脏数据导致 UI 状态错乱。
+Map<String, bool> _parseAux(dynamic raw) {
+  const known = {'light', 'laser', 'fan', 'timelapse'};
+  if (raw is! Map) return const {};
+  final out = <String, bool>{};
+  raw.forEach((k, v) {
+    final key = k?.toString();
+    if (known.contains(key) && v is bool) out[key!] = v;
+  });
+  return out;
 }

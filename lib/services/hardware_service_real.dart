@@ -7,6 +7,7 @@ import 'package:mqtt_client/mqtt_server_client.dart';
 
 import '../app/config.dart';
 import '../models/machine_status.dart';
+import '../models/notify_event.dart';
 import '../models/position.dart';
 import '../models/tool.dart';
 import 'device_discovery.dart';
@@ -46,6 +47,8 @@ class RealHardwareService implements HardwareService {
   static const Duration _heartbeatInterval = Duration(seconds: 10);
 
   final _ctrl = StreamController<MachineStatus>.broadcast();
+  /// 机器异步事件流（job_done / alarm / confirm_required 等一次性提示）。
+  final _notifyCtrl = StreamController<NotifyEvent>.broadcast();
   MqttServerClient? _mqtt;
   Socket? _tcp;
   bool _tcpConnected = false;
@@ -77,17 +80,27 @@ class RealHardwareService implements HardwareService {
     this.appUserId = AppConfig.appUserId,
   }) : _tcpHost = tcpHost;
 
-  /// MQTT 状态广播主题：cnc/<deviceId>/status（按实例 deviceId 推导）
+  /// MQTT 状态广播主题：cnc/<deviceId>/status（按实例 deviceId 推导，App 订阅）
   String get mqttStatusTopic => 'cnc/$deviceId/status';
 
-  /// MQTT 命令下发主题：cnc/<deviceId>/cmd
-  String get mqttCmdTopic => 'cnc/$deviceId/cmd';
+  /// MQTT 命令下发主题：gw/<deviceId>/cmd（经网关白名单转发固件；ACL 已放行 app-demo 发布）
+  String get mqttCmdTopic => 'gw/$deviceId/cmd';
+
+  /// 网关 ACK 回执主题：gw/<deviceId>/ack（App 订阅，网关对命令的回执）
+  String get mqttAckTopic => 'gw/$deviceId/ack';
+
+  /// App 在线状态主题（LWT + 上线发布，retain）：cnc/<deviceId>/app
+  String get mqttAppTopic => 'cnc/$deviceId/app';
 
   /// MQTT 事件通知主题：cnc/<deviceId>/notify（job_done / alarm / confirm_required 等）
   String get mqttNotifyTopic => 'cnc/$deviceId/notify';
 
   @override
   Stream<MachineStatus> get statusStream => _ctrl.stream;
+
+  /// 异步事件流：UI 订阅以弹 toast / 横幅（与 statusStream 分离）。
+  @override
+  Stream<NotifyEvent> get notifyStream => _notifyCtrl.stream;
 
   /// 连接态流：connecting / connected / disconnected，UI 订阅以显示链路状态。
   Stream<ConnectionState> get connectionState => _connCtrl.stream;
@@ -124,6 +137,13 @@ class RealHardwareService implements HardwareService {
       client.keepAlivePeriod = 30;
       client.logging(on: false);
       client.onDisconnected = _onMqttDisconnected;
+      // App LWT：断线时 Broker 代发 offline（retain），使其他端能感知 App 掉线。
+      // 上线后下方主动发布 online（retain）覆盖，呈现"在线"最新态。
+      // 注意：acl.conf 需放行 app-demo 对 cnc/<deviceId>/app 的 PUBLISH，否则 will 被丢弃（连接仍成功）。
+      client.withWillTopic(mqttAppTopic);
+      client.withWillMessage(jsonEncode({'online': false}));
+      client.withWillQos(MqttQos.atLeastOnce);
+      client.withWillRetain(true);
       await client.connect(
         mqttUser.isEmpty ? null : mqttUser,
         mqttPass.isEmpty ? null : mqttPass,
@@ -133,6 +153,13 @@ class RealHardwareService implements HardwareService {
         _mqttConnected = true;
         client.subscribe(mqttStatusTopic, MqttQos.atLeastOnce);
         client.subscribe(mqttNotifyTopic, MqttQos.atLeastOnce);
+        client.subscribe(mqttAckTopic, MqttQos.atLeastOnce); // 网关命令回执
+        // 上线即发布 online（retain），覆盖 LWT 的离线态
+        final ob = MqttClientPayloadBuilder();
+        ob.addString(jsonEncode({'online': true}));
+        client.publishMessage(
+            mqttAppTopic, MqttQos.atLeastOnce, ob.payload!,
+            retain: true);
         client.updates!.listen(_onMqtt);
         _reconnectAttempts = 0;
         _setConn(ConnectionState.connected);
@@ -157,6 +184,11 @@ class RealHardwareService implements HardwareService {
     if (_closing) {
       _setConn(ConnectionState.disconnected);
       return;
+    }
+    // 纯外网模式下 TCP 永远不通：MQTT 掉线即代表全链路断，广播 disconnected 让
+    // UI 显示掉线横幅；局域网模式下 TCP 仍可能独立存活，不在这里覆盖 disconnected。
+    if (!_tcpConnected && !_ctrl.isClosed) {
+      _ctrl.add(const MachineStatus(state: MachineState.disconnected));
     }
     _setConn(ConnectionState.disconnected);
     _scheduleReconnect();
@@ -186,6 +218,8 @@ class RealHardwareService implements HardwareService {
       if (msg is! MqttPublishMessage) continue;
       final payload =
           MqttPublishPayload.bytesToStringAsString(msg.payload.message);
+      // 网关 ACK 回执：仅确认命令已送达，不作为状态帧/事件处理
+      if (ev.topic == mqttAckTopic) continue;
       _parseAndEmit(payload);
     }
   }
@@ -236,7 +270,9 @@ class RealHardwareService implements HardwareService {
 
       // notify 事件：固件通过 cnc/<deviceId>/notify 广播的异步事件
       // （job_done / alarm / error / tool_changed / confirm_required 等）。
-      // App 目前没有独立 notify 流，将其映射为 MachineStatus 以便 UI 统一消费。
+      // 同时驱动两条流：
+      //  - notifyStream → 一次性提示（toast + 横幅），不随状态帧反复冲刷；
+      //  - statusStream → 维持既有状态联动（awaitingConfirm / job_done / alarm）。
       if (j.containsKey('type')) {
         final type = j['type']?.toString() ?? '';
         final msg = j['msg']?.toString() ?? '';
@@ -262,6 +298,14 @@ class RealHardwareService implements HardwareService {
             );
           default:
             notifyStatus = MachineStatus(message: msg.isEmpty ? type : msg);
+        }
+        // 先发一次性事件（toast/横幅），再发状态联动（保留原行为）
+        if (!_notifyCtrl.isClosed) {
+          _notifyCtrl.add(NotifyEvent(
+            type: type,
+            message: msg.isEmpty ? type : msg,
+            at: DateTime.now(),
+          ));
         }
         _ctrl.add(notifyStatus);
         return;
@@ -455,6 +499,7 @@ class RealHardwareService implements HardwareService {
     _tcp?.destroy();
     _mqtt?.disconnect();
     _ctrl.close();
+    _notifyCtrl.close();
     _connCtrl.close();
   }
 }
