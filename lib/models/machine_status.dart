@@ -1,4 +1,5 @@
 import 'position.dart';
+import 'tool.dart';
 
 /// Machine lifecycle states broadcast by the MCU (SSOT).
 enum MachineState {
@@ -34,6 +35,9 @@ class MachineStatus {
   // key ∈ {light, laser, fan, timelapse}；缺失时为空 Map（App 用本地乐观态兜底）。
   final Map<String, bool> aux;
 
+  // --- 刀仓（ATC）：固件状态帧 tools 数组逐条回显，UI 展示物理在位刀位数 ---
+  final List<Tool> tools;
+
   const MachineStatus({
     this.state = MachineState.idle,
     this.position = const Position(),
@@ -47,6 +51,7 @@ class MachineStatus {
     this.selfCheckTotal = 0,
     this.awaitingConfirm = false,
     this.aux = const {},
+    this.tools = const [],
   });
 
   MachineStatus copyWith({
@@ -62,6 +67,7 @@ class MachineStatus {
     int? selfCheckTotal,
     bool? awaitingConfirm,
     Map<String, bool>? aux,
+    List<Tool>? tools,
   }) =>
       MachineStatus(
         state: state ?? this.state,
@@ -76,7 +82,11 @@ class MachineStatus {
         selfCheckTotal: selfCheckTotal ?? this.selfCheckTotal,
         awaitingConfirm: awaitingConfirm ?? this.awaitingConfirm,
         aux: aux ?? this.aux,
+        tools: tools ?? this.tools,
       );
+
+  /// 物理在位刀位数（installed==true 计入）。
+  int get installedToolCount => tools.where((t) => t.installed).length;
 
   /// Active movement is only allowed when idle and on LAN (enforced in UI).
   bool get canControl => state == MachineState.idle;
@@ -135,6 +145,7 @@ class MachineStatus {
           (j['scTotal'] is num) ? (j['scTotal'] as num).toInt() : 0,
       awaitingConfirm: j['awaitingConfirm'] == true,
       aux: _parseAux(j['aux']),
+      tools: _parseTools(j['tools']),
     );
   }
 }
@@ -149,5 +160,21 @@ Map<String, bool> _parseAux(dynamic raw) {
     final key = k?.toString();
     if (known.contains(key) && v is bool) out[key!] = v;
   });
+  return out;
+}
+
+/// 安全解析刀仓数组：逐条 try Tool.fromJson，损坏项跳过不抛，缺失返回空列表。
+List<Tool> _parseTools(dynamic raw) {
+  if (raw is! List) return const [];
+  final out = <Tool>[];
+  for (final e in raw) {
+    if (e is Map<String, dynamic>) {
+      try {
+        out.add(Tool.fromJson(e));
+      } catch (_) {
+        // 单条脏数据跳过，不阻断整体解析
+      }
+    }
+  }
   return out;
 }

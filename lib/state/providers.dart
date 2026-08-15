@@ -7,6 +7,8 @@ import '../app/config.dart';
 import '../app/runtime_config.dart';
 import '../models/library_item.dart';
 import '../models/machine_status.dart';
+import '../models/notify_event.dart';
+import '../models/telemetry.dart';
 import '../models/task_metadata.dart';
 import '../services/cloud_service.dart';
 import '../services/cloud_service_mock.dart';
@@ -46,6 +48,16 @@ final hardwareServiceProvider = Provider<HardwareService>((ref) {
 /// Real-time machine status stream (SSOT from MCU).
 final machineStatusProvider = StreamProvider<MachineStatus>((ref) {
   return ref.watch(hardwareServiceProvider).statusStream;
+});
+
+/// 机器异步事件流（job_done / alarm / confirm_required 等一次性提示）。
+final notifyStreamProvider = StreamProvider<NotifyEvent>((ref) {
+  return ref.watch(hardwareServiceProvider).notifyStream;
+});
+
+/// 机器遥测流（温度/转速/进给/坐标读数）。
+final telemetryStreamProvider = StreamProvider<Telemetry>((ref) {
+  return ref.watch(hardwareServiceProvider).telemetryStream;
 });
 
 /// Cloud binding. 默认用 Mock；构建时传 USE_REAL_BACKEND=true 接云端。

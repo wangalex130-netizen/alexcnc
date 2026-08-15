@@ -54,15 +54,17 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 - ESP32 侧用 **AsyncTCP Server**（非阻塞、单客户端串行帧即可），这是最低门槛、最易对齐的路径。
 - 参考实现：`server/fake_firmware.py --tcp`（可直接照抄的服务端骨架）。
 
-#### 🔵 第二步（外网，后续）：云端 MQTT Broker 中继
+#### 🔵 第二步（外网，已实现）：云端 MQTT Broker 中继
 
 - 主链路切换为**云端 MQTT Broker**（出厂即用、WAN 远程天然打通）：
   - 状态订阅：`cnc/<deviceId>/status`
-  - 命令下发：`cnc/<deviceId>/cmd`
+  - 命令下发：`gw/<deviceId>/cmd`（**经网关白名单转发固件**，R2；非直发 `cnc/<deviceId>/cmd`）
   - 事件通知：`cnc/<deviceId>/notify`（job_done / alarm / confirm_required 等）
+  - 遥测订阅：`cnc/<deviceId>/telemetry`（温度/转速/进给/坐标，QoS0 高频）
+  - 网关回执：`gw/<deviceId>/ack`（白名单外命令回 E401，App 弹红色通知）
   - 生产端口：**8883 TLS** + 关匿名 + 私有 Broker 域名；**1883 仅本地联调**。
 - ESP32 新增 **MQTT Client** 连同一 Broker；TCP:8899 局域网增强保留（同 Wi-Fi 时运动命令直发降抖动）。
-- App 侧把 `RealHardwareService(cloudEnabled: true)` 即可启用，**命令/状态帧无需改动**。
+- App 侧把 `RealHardwareService(cloudEnabled: true)` 即可启用，**命令/状态帧无需改动**；命令统一经 `_dispatch`：局域网 TCP 直连优先，未连 TCP 才走 `gw/` 网关。
 
 #### 公共要求（两步都适用）
 
@@ -143,14 +145,26 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 - 下载失败/校验失败：广播 `state=alarm` + `msg` 原因，可重发 `job prepare` 重试（建议支持断点续传，P2）。
 - 内置 `SAMPLE_GCODE` 可直接跑通演示；真机接入时由切片服务产出真实 G-code。
 
-### 2.5 MQTT 备选（第二步，当前不做）
+### 2.5 MQTT 外网通道（第二步，**已实现，主外网链路**）
 
-- 状态发布：`cnc/<deviceId>/status`
-- 命令订阅：`cnc/<deviceId>/cmd`
-- 事件通知：`cnc/<deviceId>/notify`
+> 2026-08-15 落地：外网命令经**网关白名单** `gw/<deviceId>/cmd` 转发固件（R2），
+> 状态/事件仍由固件直发 `cnc/<deviceId>/*`；App 在线态经 LWT 声明。第一步请用 §2.1「TCP:8899 直连」实现。
+
+**主题清单（App 视角，username = app-demo 经 ACL 授权）：**
+
+| 方向 | 主题 | 用途 |
+|---|---|---|
+| 订阅 | `cnc/<deviceId>/status` | 固件状态帧（SSOT） |
+| 订阅 | `cnc/<deviceId>/notify` | 事件（job_done / alarm / confirm_required 等） |
+| 订阅 | `cnc/<deviceId>/telemetry` | 遥测帧（温度/转速/进给/坐标，QoS0 高频，R13） |
+| 订阅 | `gw/<deviceId>/ack` | 网关命令回执；白名单外命令回 `{"ok":false,"code":"E401"}` |
+| 发布 | `gw/<deviceId>/cmd` | 命令经网关白名单转发固件（R2）；局域网内 TCP 直连优先、未连 TCP 才走此 |
+| 发布 | `cnc/<deviceId>/app` | App 在线态：连接时发 `{"online":true}` retain；异常断线 Broker 代发 LWT `{"online":false}` retain |
+
 - 生产端口：**8883 TLS**；本地联调可用 **1883**。
-
-payload 与上面 JSON 完全一致（含 `gcodeUrl` 下载链接，**MQTT 不传文件本体**）。第一步请用 §2.1「TCP:8899 直连」实现。
+- 命令帧 `gw/<deviceId>/cmd` 格式与 §2.2 完全一致（含 `gcodeUrl` 下载链接，**MQTT 不传文件本体**）。
+- 网关对 `gw/<deviceId>/cmd` 按设备白名单放行（aux/pause 等安全命令）或拒绝（jog/hello 等运动类回 E401），拒绝时 App 弹红色通知。
+- `hello` 心跳**仅走局域网 TCP**（不进 `gw/`，否则被 E401 拒绝并刷错误日志；外网靠 MQTT keepAlive 保活）。
 
 ### 2.6 设备唯一码与注册（D5/D7，机器始终在线模型）
 

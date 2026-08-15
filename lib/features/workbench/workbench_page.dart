@@ -6,6 +6,8 @@ import '../../app/theme.dart';
 import '../../app/runtime_config.dart';
 import '../../models/library_item.dart';
 import '../../models/machine_status.dart';
+import '../../models/notify_event.dart';
+import '../../models/telemetry.dart';
 import '../../services/cloud_service.dart';
 import '../../services/hardware_service.dart';
 import '../../state/providers.dart';
@@ -36,15 +38,46 @@ class _WorkbenchPageState extends ConsumerState<WorkbenchPage>
     duration: const Duration(seconds: 1),
   )..repeat(reverse: true);
 
+  /// 顶部瞬态事件横幅（toast 已由 ScaffoldMessenger 弹，这里再留 8s 横幅）。
+  NotifyEvent? _bannerEv;
+  Timer? _bannerTimer;
+  StreamSubscription<NotifyEvent>? _notifySub;
+
+  @override
+  void initState() {
+    super.initState();
+    // 订阅异步事件流：弹 toast + 顶部横幅（job_done / alarm / confirm_required 等）。
+    _notifySub = ref.read(notifyStreamProvider.stream).listen(_onNotify);
+  }
+
+  void _onNotify(NotifyEvent e) {
+    if (!mounted) return;
+    setState(() => _bannerEv = e);
+    _bannerTimer?.cancel();
+    _bannerTimer = Timer(const Duration(seconds: 8), () {
+      if (mounted) setState(() => _bannerEv = null);
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(e.message, style: const TextStyle(fontSize: 13)),
+        duration: const Duration(seconds: 3),
+        backgroundColor: e.isAlarm ? CncColors.danger : CncColors.card,
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _rec.dispose();
+    _bannerTimer?.cancel();
+    _notifySub?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final status = ref.watch(machineStatusProvider).value ?? const MachineStatus();
+    final telemetry = ref.watch(telemetryStreamProvider).value;
     final isLocal = ref.watch(isLocalLANProvider);
     final job = ref.watch(activeJobProvider);
     final step = ref.watch(wizardStepProvider);
@@ -54,9 +87,16 @@ class _WorkbenchPageState extends ConsumerState<WorkbenchPage>
       backgroundColor: CncColors.bg,
       body: CustomScrollView(
         slivers: [
+          // 瞬态事件横幅（toast 已由 ScaffoldMessenger 弹，这里再留 8s 横幅）
+          if (_bannerEv != null)
+            SliverToBoxAdapter(child: _NotifyBanner(ev: _bannerEv!)),
+          // 机旁确认：持续提示卡（区别于瞬态横幅）
+          if (status.awaitingConfirm)
+            const SliverToBoxAdapter(child: _AwaitConfirmBanner()),
           SliverToBoxAdapter(
             child: _MachineCard(
               status: status,
+              telemetry: telemetry,
               isLocal: isLocal,
               onToggleLan: () =>
                   ref.read(isLocalLANProvider.notifier).state = !isLocal,
@@ -121,6 +161,7 @@ class _WorkbenchPageState extends ConsumerState<WorkbenchPage>
 
 class _MachineCard extends ConsumerWidget {
   final MachineStatus status;
+  final Telemetry? telemetry;
   final bool isLocal;
   final VoidCallback onToggleLan;
   final VoidCallback onJog;
@@ -128,6 +169,7 @@ class _MachineCard extends ConsumerWidget {
   final AnimationController rec;
   const _MachineCard({
     required this.status,
+    this.telemetry,
     required this.isLocal,
     required this.onToggleLan,
     required this.onJog,
@@ -339,6 +381,155 @@ class _MachineCard extends ConsumerWidget {
                 ),
               ),
             ),
+          ),
+          // 读数 chips：刀仓 / 温度 / 转速 / 进给（遥测或刀仓为空时隐藏对应 chip）
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _Chip(
+                  icon: Symbols.build,
+                  label: '刀仓',
+                  value: status.tools.isEmpty
+                      ? null
+                      : '${status.installedToolCount}/${status.tools.length}',
+                ),
+                _Chip(
+                  icon: Symbols.thermostat,
+                  label: '温度',
+                  value: telemetry?.temp == null
+                      ? null
+                      : '${telemetry!.temp!.toStringAsFixed(1)}°C',
+                ),
+                _Chip(
+                  icon: Symbols.rotate_right,
+                  label: '转速',
+                  value: telemetry?.rpm == null
+                      ? null
+                      : '${telemetry!.rpm!.round()}',
+                ),
+                _Chip(
+                  icon: Symbols.speed,
+                  label: '进给',
+                  value: telemetry?.speed == null
+                      ? null
+                      : '${telemetry!.speed!.round()}',
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ===================== 读数 chip / 事件横幅 / 机旁确认 =====================
+
+/// 小读数 pill：label + value；value 为 null 时不渲染（固件未发该字段时隐藏）。
+class _Chip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String? value;
+  const _Chip({required this.icon, required this.label, this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    if (value == null) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: CncColors.bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: CncColors.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: CncColors.textSub),
+          const SizedBox(width: 5),
+          Text(label,
+              style: const TextStyle(fontSize: 11, color: CncColors.textSub)),
+          const SizedBox(width: 4),
+          Text(value!,
+              style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: CncColors.textMain)),
+        ],
+      ),
+    );
+  }
+}
+
+/// 瞬态事件横幅（job_done / alarm / error / confirm_required / gw_rejected）。
+/// 红底 = 报警类（isAlarm）。点击关闭。与 ScaffoldMessenger 的 toast 并存。
+class _NotifyBanner extends StatelessWidget {
+  final NotifyEvent ev;
+  const _NotifyBanner({required this.ev});
+
+  @override
+  Widget build(BuildContext context) {
+    final alarm = ev.isAlarm;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: alarm ? CncColors.danger.withOpacity(0.15) : CncColors.primary.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+            color: alarm ? CncColors.danger.withOpacity(0.5) : CncColors.primary.withOpacity(0.5)),
+      ),
+      child: GestureDetector(
+        onTap: () => ScaffoldMessenger.of(context).hideCurrentSnackBar(),
+        child: Row(
+          children: [
+            Icon(
+              alarm ? Symbols.warning : Symbols.notifications_active,
+              size: 16,
+              color: alarm ? CncColors.danger : CncColors.primaryInk,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(ev.message,
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: alarm ? CncColors.danger : CncColors.primaryInk)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 机旁物理确认：持续提示卡（区别于瞬态横幅），直到固件广播 awaitingConfirm=false。
+class _AwaitConfirmBanner extends StatelessWidget {
+  const _AwaitConfirmBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: CncColors.warning.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: CncColors.warning.withOpacity(0.5)),
+      ),
+      child: const Row(
+        children: [
+          Icon(Symbols.front_hand, size: 16, color: CncColors.warning),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text('请在机旁确认后再继续（等待机身物理按键确认）',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: CncColors.warning)),
           ),
         ],
       ),

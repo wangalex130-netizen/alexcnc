@@ -9,6 +9,7 @@ import '../app/config.dart';
 import '../models/machine_status.dart';
 import '../models/notify_event.dart';
 import '../models/position.dart';
+import '../models/telemetry.dart';
 import '../models/tool.dart';
 import 'device_discovery.dart';
 import 'hardware_service.dart';
@@ -50,6 +51,8 @@ class RealHardwareService implements HardwareService {
   final _ctrl = StreamController<MachineStatus>.broadcast();
   /// 机器异步事件流（job_done / alarm / confirm_required 等一次性提示）。
   final _notifyCtrl = StreamController<NotifyEvent>.broadcast();
+  /// 机器遥测流（cnc/<deviceId>/telemetry，高频 QoS0）。
+  final _telemetryCtrl = StreamController<Telemetry>.broadcast();
   MqttServerClient? _mqtt;
   Socket? _tcp;
   bool _tcpConnected = false;
@@ -96,12 +99,19 @@ class RealHardwareService implements HardwareService {
   /// MQTT 事件通知主题：cnc/<deviceId>/notify（job_done / alarm / confirm_required 等）
   String get mqttNotifyTopic => 'cnc/$deviceId/notify';
 
+  /// MQTT 遥测主题：cnc/<deviceId>/telemetry（温度/转速/进给/坐标，QoS0 高频）
+  String get mqttTelemetryTopic => 'cnc/$deviceId/telemetry';
+
   @override
   Stream<MachineStatus> get statusStream => _ctrl.stream;
 
   /// 异步事件流：UI 订阅以弹 toast / 横幅（与 statusStream 分离）。
   @override
   Stream<NotifyEvent> get notifyStream => _notifyCtrl.stream;
+
+  /// 遥测流：UI 订阅以展示温度/转速/进给/坐标读数（与 statusStream 分离）。
+  @override
+  Stream<Telemetry> get telemetryStream => _telemetryCtrl.stream;
 
   /// 连接态流：connecting / connected / disconnected，UI 订阅以显示链路状态。
   Stream<ConnectionState> get connectionState => _connCtrl.stream;
@@ -157,6 +167,7 @@ class RealHardwareService implements HardwareService {
         _mqttConnected = true;
         client.subscribe(mqttStatusTopic, MqttQos.atLeastOnce);
         client.subscribe(mqttNotifyTopic, MqttQos.atLeastOnce);
+        client.subscribe(mqttTelemetryTopic, MqttQos.atMostOnce); // 遥测高频，QoS0
         client.subscribe(mqttAckTopic, MqttQos.atLeastOnce); // 网关命令回执
         // 上线即发布 online（retain），覆盖 LWT 的离线态
         final ob = MqttClientPayloadBuilder();
@@ -227,6 +238,11 @@ class RealHardwareService implements HardwareService {
         _handleGwAck(payload);
         continue;
       }
+      // 遥测帧（QoS0 高频）：仅驱动 telemetryStream，不进 statusStream。
+      if (ev.topic == mqttTelemetryTopic) {
+        _handleTelemetry(payload);
+        continue;
+      }
       _parseAndEmit(payload);
     }
   }
@@ -251,6 +267,18 @@ class RealHardwareService implements HardwareService {
       }
     } catch (_) {
       // ACK 帧非预期格式时静默忽略
+    }
+  }
+
+  /// 遥测帧解析（R13）：高频 QoS0，仅 emit 到 telemetryStream；字段缺失安全回退 null。
+  void _handleTelemetry(String payload) {
+    try {
+      final j = jsonDecode(payload) as Map<String, dynamic>;
+      if (!_telemetryCtrl.isClosed) {
+        _telemetryCtrl.add(Telemetry.fromJson(j));
+      }
+    } catch (_) {
+      // 非预期遥测帧静默忽略
     }
   }
 
@@ -528,6 +556,7 @@ class RealHardwareService implements HardwareService {
     _mqtt?.disconnect();
     _ctrl.close();
     _notifyCtrl.close();
+    _telemetryCtrl.close();
     _connCtrl.close();
   }
 }

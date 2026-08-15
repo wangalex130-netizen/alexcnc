@@ -3,6 +3,7 @@ import 'dart:async';
 import '../models/machine_status.dart';
 import '../models/notify_event.dart';
 import '../models/position.dart';
+import '../models/telemetry.dart';
 import '../models/tool.dart';
 import 'hardware_service.dart';
 
@@ -11,6 +12,7 @@ import 'hardware_service.dart';
 class MockHardwareService implements HardwareService {
   final _ctrl = StreamController<MachineStatus>.broadcast();
   final _notifyCtrl = StreamController<NotifyEvent>.broadcast();
+  final _telemetryCtrl = StreamController<Telemetry>.broadcast();
   MachineStatus _current = const MachineStatus();
   final Map<String, bool> _aux = {
     'light': false,
@@ -50,15 +52,32 @@ class MockHardwareService implements HardwareService {
       }
     }
     _emit();
+    _emitTelemetry();
   }
 
   void _emit() => _ctrl.add(_current);
+
+  /// 模拟遥测帧（温度/转速/进给/坐标），供 workbench 读数展示。
+  void _emitTelemetry() {
+    if (_telemetryCtrl.isClosed) return;
+    _telemetryCtrl.add(Telemetry(
+      pos: _current.position,
+      mpos: _current.machinePosition,
+      rpm: _current.spindleRpm,
+      speed: _current.feedRate,
+      temp: 28.0 + (_current.state == MachineState.busy ? 6.0 : 0.0),
+      at: DateTime.now(),
+    ));
+  }
 
   @override
   Stream<MachineStatus> get statusStream => _ctrl.stream;
 
   @override
   Stream<NotifyEvent> get notifyStream => _notifyCtrl.stream;
+
+  @override
+  Stream<Telemetry> get telemetryStream => _telemetryCtrl.stream;
 
   @override
   Future<void> connect() async => _emit();
@@ -185,5 +204,6 @@ class MockHardwareService implements HardwareService {
     _timer?.cancel();
     _ctrl.close();
     _notifyCtrl.close();
+    _telemetryCtrl.close();
   }
 }

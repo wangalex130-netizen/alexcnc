@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../models/machine_status.dart';
 import '../models/notify_event.dart';
+import '../models/telemetry.dart';
 import '../models/tool.dart';
 
 /// Hardware boundary for the ESP32 / modified-Grbl controller.
@@ -17,6 +18,10 @@ abstract class HardwareService {
   /// 机器异步事件（job_done / alarm / confirm_required 等）一次性提示流。
   /// 与 [statusStream] 分离，避免状态帧反复冲刷 toast/横幅。
   Stream<NotifyEvent> get notifyStream;
+
+  /// 机器遥测帧流（cnc/<deviceId>/telemetry，高频 QoS0），与 [statusStream] 分离，
+  /// 避免高频刷新冲刷状态/事件流。
+  Stream<Telemetry> get telemetryStream;
 
   Future<void> connect();
   Future<void> disconnect();
