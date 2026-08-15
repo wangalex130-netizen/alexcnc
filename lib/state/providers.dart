@@ -21,20 +21,24 @@ import '../services/network_auth.dart';
 /// 重建服务并触发重连，无需重新出包。
 final hardwareServiceProvider = Provider<HardwareService>((ref) {
   final cfg = ref.watch(runtimeConfigProvider);
-  final svc = cfg.resolvedUseRealBackend
-      ? RealHardwareService(
-          broker: cfg.resolvedMqttBroker,
-          mqttPort: cfg.resolvedMqttPort,
-          mqttUser: cfg.resolvedMqttUser,
-          mqttPass: cfg.resolvedMqttPass,
-          deviceId: cfg.resolvedDeviceId,
-          tcpHost: cfg.resolvedDeviceTcpHost,
-          tcpPort: cfg.resolvedDeviceTcpPort,
-          appUserId: cfg.resolvedAppUserId,
-          cloudEnabled: true,   // 启用云端 MQTT（否则 App 不连 broker，只走局域网）
-        )
-        ..connect()   // P0 根因：缺失 connect()，MQTT/TCP 从未建立，外网命令与状态订阅全部失效
-      : MockHardwareService();
+  final HardwareService svc;
+  if (cfg.resolvedUseRealBackend) {
+    final r = RealHardwareService(
+      broker: cfg.resolvedMqttBroker,
+      mqttPort: cfg.resolvedMqttPort,
+      mqttUser: cfg.resolvedMqttUser,
+      mqttPass: cfg.resolvedMqttPass,
+      deviceId: cfg.resolvedDeviceId,
+      tcpHost: cfg.resolvedDeviceTcpHost,
+      tcpPort: cfg.resolvedDeviceTcpPort,
+      appUserId: cfg.resolvedAppUserId,
+      cloudEnabled: true, // 启用云端 MQTT（否则 App 不连 broker，只走局域网）
+    );
+    r.connect(); // P0 根因：缺失 connect()，MQTT/TCP 从未建立，外网命令与状态订阅全部失效
+    svc = r;
+  } else {
+    svc = MockHardwareService();
+  }
   ref.onDispose(svc.dispose);
   return svc;
 });

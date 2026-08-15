@@ -141,10 +141,13 @@ class RealHardwareService implements HardwareService {
       // App LWT：断线时 Broker 代发 offline（retain），使其他端能感知 App 掉线。
       // 上线后下方主动发布 online（retain）覆盖，呈现"在线"最新态。
       // 注意：acl.conf 需放行 app-demo 对 cnc/<deviceId>/app 的 PUBLISH，否则 will 被丢弃（连接仍成功）。
-      client.withWillTopic(mqttAppTopic);
-      client.withWillMessage(jsonEncode({'online': false}));
-      client.withWillQos(MqttQos.atLeastOnce);
-      client.withWillRetain(true);
+      // mqtt_client 的 LWT 通过 MqttConnectMessage 链式配置，再赋值给 connectionMessage。
+      client.connectionMessage = MqttConnectMessage()
+          .withWillTopic(mqttAppTopic)
+          .withWillMessage(jsonEncode({'online': false}))
+          .withWillQos(MqttQos.atLeastOnce)
+          .withWillRetain()
+          .startClean();
       await client.connect(
         mqttUser.isEmpty ? null : mqttUser,
         mqttPass.isEmpty ? null : mqttPass,
