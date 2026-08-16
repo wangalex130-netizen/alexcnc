@@ -187,7 +187,11 @@ class RealHardwareService implements HardwareService {
       final client = MqttServerClient(broker, 'app-$appUserId');
       client.port = mqttPort;
       client.secure = true;                          // 启用 TLS（8883）
-      client.onBadCertificate = (cert) => true;      // 信任自签证书，仅联调期；上线换正式 CA 后删除此行
+      // 注意：必须显式用 Object 收参。mqtt_client 10.5.0 的 MqttServerClient.onBadCertificate
+      // 字段声明为 bool Function(X509Certificate)?，但库内部会 as bool Function(Object)?，
+      // 若写成 (cert) => true 被推断成 X509Certificate 参数就会在运行时 cast 失败
+      //（报错：type '(X509Certificate)=>bool' is not a subtype of '((Object)=>bool)?'）。
+      client.onBadCertificate = (Object cert) => true; // 信任自签证书，仅联调期；上线换正式 CA 后删除此行
       client.keepAlivePeriod = 30;
       client.logging(on: false);
       client.onDisconnected = _onMqttDisconnected;
