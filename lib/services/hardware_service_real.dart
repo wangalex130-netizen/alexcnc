@@ -6,6 +6,7 @@ import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
 
 import '../app/config.dart';
+import '../models/broadcast_message.dart';
 import '../models/machine_status.dart';
 import '../models/notify_event.dart';
 import '../models/position.dart';
@@ -53,6 +54,8 @@ class RealHardwareService implements HardwareService {
   final _notifyCtrl = StreamController<NotifyEvent>.broadcast();
   /// 机器遥测流（cnc/<deviceId>/telemetry，高频 QoS0）。
   final _telemetryCtrl = StreamController<Telemetry>.broadcast();
+  /// 系统级广播流（docs/03 §6 cnc/broadcast/msg + §7 cnc/broadcast/system）。
+  final _broadcastCtrl = StreamController<BroadcastMessage>.broadcast();
   MqttServerClient? _mqtt;
   Socket? _tcp;
   bool _tcpConnected = false;
@@ -102,6 +105,14 @@ class RealHardwareService implements HardwareService {
   /// MQTT 遥测主题：cnc/<deviceId>/telemetry（温度/转速/进给/坐标，QoS0 高频）
   String get mqttTelemetryTopic => 'cnc/$deviceId/telemetry';
 
+  /// 系统级消息广播主题（docs/03 §6）：cnc/broadcast/msg
+  ///  {level:info|warn|error, title, body, target}
+  String get mqttBroadcastTopic => 'cnc/broadcast/msg';
+
+  /// 系统级事件广播主题（docs/03 §7）：cnc/broadcast/system
+  ///  {event:device_offline|..., deviceId, ts}
+  String get mqttSystemTopic => 'cnc/broadcast/system';
+
   @override
   Stream<MachineStatus> get statusStream => _ctrl.stream;
 
@@ -112,6 +123,10 @@ class RealHardwareService implements HardwareService {
   /// 遥测流：UI 订阅以展示温度/转速/进给/坐标读数（与 statusStream 分离）。
   @override
   Stream<Telemetry> get telemetryStream => _telemetryCtrl.stream;
+
+  /// 系统级广播流：UI 订阅以弹横幅/通知（与 notifyStream 分离，源自 docs/03 广播主题）。
+  @override
+  Stream<BroadcastMessage> get broadcastStream => _broadcastCtrl.stream;
 
   /// 连接态流：connecting / connected / disconnected，UI 订阅以显示链路状态。
   Stream<ConnectionState> get connectionState => _connCtrl.stream;
@@ -169,6 +184,9 @@ class RealHardwareService implements HardwareService {
         client.subscribe(mqttNotifyTopic, MqttQos.atLeastOnce);
         client.subscribe(mqttTelemetryTopic, MqttQos.atMostOnce); // 遥测高频，QoS0
         client.subscribe(mqttAckTopic, MqttQos.atLeastOnce); // 网关命令回执
+        // docs/03 §6/§7 系统级广播（全局主题，任意设备发起的事件/消息）
+        client.subscribe(mqttBroadcastTopic, MqttQos.atLeastOnce);
+        client.subscribe(mqttSystemTopic, MqttQos.atLeastOnce);
         // 上线即发布 online（retain），覆盖 LWT 的离线态
         final ob = MqttClientPayloadBuilder();
         ob.addString(jsonEncode({'online': true}));
@@ -243,6 +261,16 @@ class RealHardwareService implements HardwareService {
         _handleTelemetry(payload);
         continue;
       }
+      // docs/03 §6 系统级消息广播：弹横幅/通知，不进 statusStream。
+      if (ev.topic == mqttBroadcastTopic) {
+        _handleBroadcast(payload);
+        continue;
+      }
+      // docs/03 §7 系统级事件广播（如 device_offline）：弹事件提示，不进 statusStream。
+      if (ev.topic == mqttSystemTopic) {
+        _handleSystem(payload);
+        continue;
+      }
       _parseAndEmit(payload);
     }
   }
@@ -279,6 +307,30 @@ class RealHardwareService implements HardwareService {
       }
     } catch (_) {
       // 非预期遥测帧静默忽略
+    }
+  }
+
+  /// docs/03 §6 系统级消息广播解析：emit 到 broadcastStream（UI 弹横幅/通知）。
+  void _handleBroadcast(String payload) {
+    try {
+      final j = jsonDecode(payload) as Map<String, dynamic>;
+      if (!_broadcastCtrl.isClosed) {
+        _broadcastCtrl.add(BroadcastMessage.fromMsg(j));
+      }
+    } catch (_) {
+      // 非预期广播帧静默忽略
+    }
+  }
+
+  /// docs/03 §7 系统级事件广播解析：emit 到 broadcastStream（UI 弹事件提示）。
+  void _handleSystem(String payload) {
+    try {
+      final j = jsonDecode(payload) as Map<String, dynamic>;
+      if (!_broadcastCtrl.isClosed) {
+        _broadcastCtrl.add(BroadcastMessage.fromSystem(j));
+      }
+    } catch (_) {
+      // 非预期事件帧静默忽略
     }
   }
 
@@ -557,6 +609,7 @@ class RealHardwareService implements HardwareService {
     _ctrl.close();
     _notifyCtrl.close();
     _telemetryCtrl.close();
+    _broadcastCtrl.close();
     _connCtrl.close();
   }
 }

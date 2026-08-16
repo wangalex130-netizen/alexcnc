@@ -10,6 +10,7 @@ import '../../app/theme.dart';
 import '../../data/tool_library.dart';
 import '../../widgets/tool_icon.dart';
 import '../../models/machine_status.dart';
+import '../../models/broadcast_message.dart';
 import '../../models/notify_event.dart';
 import '../../models/tool.dart';
 import '../../state/providers.dart';
@@ -50,6 +51,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   /// notify 事件订阅（toast / 横幅），dispose 时取消。
   StreamSubscription<NotifyEvent>? _notifySub;
 
+  /// 系统级广播订阅（docs/03 §6/§7 cnc/broadcast/msg|system），dispose 时取消。
+  StreamSubscription<BroadcastMessage>? _broadcastSub;
+
   /// 延时摄影：当前 jobId（来自 timeLapseJobProvider，向导或本页开启都会写入）；
   /// 轮询到的服务器状态（count / status / video_ready）。
   Timer? _tlTimer;
@@ -67,6 +71,10 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     // 订阅机器异步事件（job_done / alarm / confirm_required 等）→ toast 提示
     _notifySub = ref.read(hardwareServiceProvider).notifyStream.listen(_onNotify);
 
+    // 订阅系统级广播（docs/03 §6 全局消息 / §7 设备上下线等系统事件）→ toast 提示
+    _broadcastSub =
+        ref.read(hardwareServiceProvider).broadcastStream.listen(_onBroadcast);
+
     // 自动探测网络模式（LAN = 完整控制 / WAN = 远程监视）。
     WidgetsBinding.instance.addObserver(this);
     Future.delayed(const Duration(milliseconds: 300), _autoDetectNetwork);
@@ -80,6 +88,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     _tlTimer?.cancel();
     _netTimer?.cancel();
     _notifySub?.cancel();
+    _broadcastSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -88,6 +97,16 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   void _onNotify(NotifyEvent e) {
     if (!mounted) return;
     _showHint(e.message, alarm: e.isAlarm);
+  }
+
+  /// 系统级广播 → 一次性提示（error 用红色强调，warn 用警示色）。
+  void _onBroadcast(BroadcastMessage m) {
+    if (!mounted) return;
+    _showHint(
+      m.body.isNotEmpty ? '${m.title}：${m.body}' : m.title,
+      alarm: m.isAlarm,
+      warn: m.isWarn,
+    );
   }
 
   @override
@@ -161,13 +180,17 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     _showHint(path != null ? '已保存到相册' : '保存失败，请重试');
   }
 
-  void _showHint(String msg, {bool alarm = false}) {
+  void _showHint(String msg, {bool alarm = false, bool warn = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg, style: const TextStyle(fontSize: 13)),
         duration: const Duration(seconds: 3),
-        backgroundColor: alarm ? CncColors.danger : const Color(0xFF1A1A1A),
+        backgroundColor: alarm
+            ? CncColors.danger
+            : warn
+                ? CncColors.warning
+                : const Color(0xFF1A1A1A),
       ),
     );
   }

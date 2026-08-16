@@ -38,6 +38,12 @@ class MachineStatus {
   // --- 刀仓（ATC）：固件状态帧 tools 数组逐条回显，UI 展示物理在位刀位数 ---
   final List<Tool> tools;
 
+  // --- §3.1 状态帧扩展字段 ---
+  /// 当前加工任务文件名（如 logo.nc）；空闲/未知为 null。
+  final String? job;
+  /// 报警/错误原因（state=alarm 时有效）；正常为 null。
+  final String? error;
+
   const MachineStatus({
     this.state = MachineState.idle,
     this.position = const Position(),
@@ -52,6 +58,8 @@ class MachineStatus {
     this.awaitingConfirm = false,
     this.aux = const {},
     this.tools = const [],
+    this.job,
+    this.error,
   });
 
   MachineStatus copyWith({
@@ -68,6 +76,8 @@ class MachineStatus {
     bool? awaitingConfirm,
     Map<String, bool>? aux,
     List<Tool>? tools,
+    String? job,
+    String? error,
   }) =>
       MachineStatus(
         state: state ?? this.state,
@@ -83,6 +93,8 @@ class MachineStatus {
         awaitingConfirm: awaitingConfirm ?? this.awaitingConfirm,
         aux: aux ?? this.aux,
         tools: tools ?? this.tools,
+        job: job ?? this.job,
+        error: error ?? this.error,
       );
 
   /// 物理在位刀位数（installed==true 计入）。
@@ -146,6 +158,8 @@ class MachineStatus {
       awaitingConfirm: j['awaitingConfirm'] == true,
       aux: _parseAux(j['aux']),
       tools: _parseTools(j['tools']),
+      job: j['job']?.toString(),
+      error: _parseErrorStr(j['error']),
     );
   }
 }
@@ -161,6 +175,21 @@ Map<String, bool> _parseAux(dynamic raw) {
     if (known.contains(key) && v is bool) out[key!] = v;
   });
   return out;
+}
+
+/// 安全解析错误原因：字符串直接采用；Map 取其 msg/code；非预期类型回退 null。
+String? _parseErrorStr(dynamic raw) {
+  if (raw == null) return null;
+  if (raw is String) return raw;
+  if (raw is Map) {
+    final msg = raw['msg']?.toString();
+    final code = raw['code']?.toString();
+    if (msg != null && msg.isNotEmpty) {
+      return code != null ? '$msg ($code)' : msg;
+    }
+    if (code != null) return code;
+  }
+  return null;
 }
 
 /// 安全解析刀仓数组：逐条 try Tool.fromJson，损坏项跳过不抛，缺失返回空列表。

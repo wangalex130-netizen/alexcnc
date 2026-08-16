@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../models/broadcast_message.dart';
 import '../models/machine_status.dart';
 import '../models/notify_event.dart';
 import '../models/position.dart';
@@ -13,6 +14,7 @@ class MockHardwareService implements HardwareService {
   final _ctrl = StreamController<MachineStatus>.broadcast();
   final _notifyCtrl = StreamController<NotifyEvent>.broadcast();
   final _telemetryCtrl = StreamController<Telemetry>.broadcast();
+  final _broadcastCtrl = StreamController<BroadcastMessage>.broadcast();
   MachineStatus _current = const MachineStatus();
   final Map<String, bool> _aux = {
     'light': false,
@@ -78,6 +80,9 @@ class MockHardwareService implements HardwareService {
 
   @override
   Stream<Telemetry> get telemetryStream => _telemetryCtrl.stream;
+
+  @override
+  Stream<BroadcastMessage> get broadcastStream => _broadcastCtrl.stream;
 
   @override
   Future<void> connect() async => _emit();
@@ -205,5 +210,6 @@ class MockHardwareService implements HardwareService {
     _ctrl.close();
     _notifyCtrl.close();
     _telemetryCtrl.close();
+    _broadcastCtrl.close();
   }
 }

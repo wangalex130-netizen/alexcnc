@@ -157,6 +157,8 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 | 订阅 | `cnc/<deviceId>/status` | 固件状态帧（SSOT） |
 | 订阅 | `cnc/<deviceId>/notify` | 事件（job_done / alarm / confirm_required 等） |
 | 订阅 | `cnc/<deviceId>/telemetry` | 遥测帧（温度/转速/进给/坐标，QoS0 高频，R13） |
+| 订阅 | `cnc/broadcast/msg` | 系统级业务广播（docs/03 §6：`{level,title,body,target}`，维护通知/警告/紧急） |
+| 订阅 | `cnc/broadcast/system` | 系统级事件广播（docs/03 §7：`{event,deviceId,ts}`，如 `device_offline`） |
 | 订阅 | `gw/<deviceId>/ack` | 网关命令回执；白名单外命令回 `{"ok":false,"code":"E401"}` |
 | 发布 | `gw/<deviceId>/cmd` | 命令经网关白名单转发固件（R2）；局域网内 TCP 直连优先、未连 TCP 才走此 |
 | 发布 | `cnc/<deviceId>/app` | App 在线态：连接时发 `{"online":true}` retain；异常断线 Broker 代发 LWT `{"online":false}` retain |

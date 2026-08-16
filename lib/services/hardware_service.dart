@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../models/broadcast_message.dart';
 import '../models/machine_status.dart';
 import '../models/notify_event.dart';
 import '../models/telemetry.dart';
@@ -22,6 +23,11 @@ abstract class HardwareService {
   /// 机器遥测帧流（cnc/<deviceId>/telemetry，高频 QoS0），与 [statusStream] 分离，
   /// 避免高频刷新冲刷状态/事件流。
   Stream<Telemetry> get telemetryStream;
+
+  /// 系统级广播流（docs/03 §6 `cnc/broadcast/msg` + §7 `cnc/broadcast/system`）。
+  /// 平台/运维下发的全局公告（维护通知 / 设备离线等），与机器 [notifyStream] 分离，
+  /// App 仅作顶部横幅 / toast 提示，不污染机器 SSOT 状态。
+  Stream<BroadcastMessage> get broadcastStream;
 
   Future<void> connect();
   Future<void> disconnect();

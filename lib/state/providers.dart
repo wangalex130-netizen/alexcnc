@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../app/config.dart';
 import '../app/runtime_config.dart';
 import '../models/library_item.dart';
+import '../models/broadcast_message.dart';
 import '../models/machine_status.dart';
 import '../models/notify_event.dart';
 import '../models/telemetry.dart';
@@ -58,6 +59,11 @@ final notifyStreamProvider = StreamProvider<NotifyEvent>((ref) {
 /// 机器遥测流（温度/转速/进给/坐标读数）。
 final telemetryStreamProvider = StreamProvider<Telemetry>((ref) {
   return ref.watch(hardwareServiceProvider).telemetryStream;
+});
+
+/// 系统级广播流（docs/03 §6 cnc/broadcast/msg + §7 cnc/broadcast/system）。
+final broadcastStreamProvider = StreamProvider<BroadcastMessage>((ref) {
+  return ref.watch(hardwareServiceProvider).broadcastStream;
 });
 
 /// Cloud binding. 默认用 Mock；构建时传 USE_REAL_BACKEND=true 接云端。

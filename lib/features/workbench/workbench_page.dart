@@ -5,6 +5,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../app/theme.dart';
 import '../../app/runtime_config.dart';
 import '../../models/library_item.dart';
+import '../../models/broadcast_message.dart';
 import '../../models/machine_status.dart';
 import '../../models/notify_event.dart';
 import '../../models/telemetry.dart';
@@ -43,11 +44,19 @@ class _WorkbenchPageState extends ConsumerState<WorkbenchPage>
   Timer? _bannerTimer;
   StreamSubscription<NotifyEvent>? _notifySub;
 
+  /// 系统级广播横幅（docs/03 §6/§7 cnc/broadcast/msg|system）。
+  BroadcastMessage? _bannerBm;
+  Timer? _bannerBmTimer;
+  StreamSubscription<BroadcastMessage>? _broadcastSub;
+
   @override
   void initState() {
     super.initState();
     // 订阅异步事件流：弹 toast + 顶部横幅（job_done / alarm / confirm_required 等）。
     _notifySub = ref.read(notifyStreamProvider.stream).listen(_onNotify);
+    // 订阅系统级广播流：弹 toast + 顶部横幅（全局消息 / 设备上下线等系统事件）。
+    _broadcastSub =
+        ref.read(broadcastStreamProvider.stream).listen(_onBroadcast);
   }
 
   void _onNotify(NotifyEvent e) {
@@ -66,11 +75,35 @@ class _WorkbenchPageState extends ConsumerState<WorkbenchPage>
     );
   }
 
+  /// 系统级广播 → 一次性提示（error 用红色强调，warn 用警示色，info 用主题色）。
+  void _onBroadcast(BroadcastMessage m) {
+    if (!mounted) return;
+    setState(() => _bannerBm = m);
+    _bannerBmTimer?.cancel();
+    _bannerBmTimer = Timer(const Duration(seconds: 8), () {
+      if (mounted) setState(() => _bannerBm = null);
+    });
+    final text = m.body.isNotEmpty ? '${m.title}：${m.body}' : m.title;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(text, style: const TextStyle(fontSize: 13)),
+        duration: const Duration(seconds: 3),
+        backgroundColor: m.isAlarm
+            ? CncColors.danger
+            : m.isWarn
+                ? CncColors.warning
+                : CncColors.card,
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _rec.dispose();
     _bannerTimer?.cancel();
+    _bannerBmTimer?.cancel();
     _notifySub?.cancel();
+    _broadcastSub?.cancel();
     super.dispose();
   }
 
@@ -90,6 +123,9 @@ class _WorkbenchPageState extends ConsumerState<WorkbenchPage>
           // 瞬态事件横幅（toast 已由 ScaffoldMessenger 弹，这里再留 8s 横幅）
           if (_bannerEv != null)
             SliverToBoxAdapter(child: _NotifyBanner(ev: _bannerEv!)),
+          // 系统级广播横幅（docs/03 §6/§7：全局消息 / 设备上下线）
+          if (_bannerBm != null)
+            SliverToBoxAdapter(child: _BroadcastBanner(bm: _bannerBm!)),
           // 机旁确认：持续提示卡（区别于瞬态横幅）
           if (status.awaitingConfirm)
             const SliverToBoxAdapter(child: _AwaitConfirmBanner()),
@@ -498,6 +534,63 @@ class _NotifyBanner extends StatelessWidget {
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
                       color: alarm ? CncColors.danger : CncColors.primaryInk)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 系统级广播横幅（docs/03 §6 cnc/broadcast/msg + §7 cnc/broadcast/system）。
+/// error=红底报警，warn=警示黄，info=主题绿。点击关闭 toast。
+class _BroadcastBanner extends StatelessWidget {
+  final BroadcastMessage bm;
+  const _BroadcastBanner({required this.bm});
+
+  @override
+  Widget build(BuildContext context) {
+    final alarm = bm.isAlarm;
+    final warn = bm.isWarn;
+    final Color tint = alarm
+        ? CncColors.danger
+        : warn
+            ? CncColors.warning
+            : CncColors.primary;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: tint.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: tint.withOpacity(0.5)),
+      ),
+      child: GestureDetector(
+        onTap: () => ScaffoldMessenger.of(context).hideCurrentSnackBar(),
+        child: Row(
+          children: [
+            Icon(
+              alarm
+                  ? Symbols.error
+                  : warn
+                      ? Symbols.warning
+                      : Symbols.campaign,
+              size: 16,
+              color: tint,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                bm.body.isNotEmpty ? '${bm.title}：${bm.body}' : bm.title,
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: alarm
+                        ? CncColors.danger
+                        : warn
+                            ? CncColors.warning
+                            : CncColors.primaryInk),
+              ),
             ),
           ],
         ),
