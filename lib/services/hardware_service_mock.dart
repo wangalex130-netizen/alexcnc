@@ -94,11 +94,11 @@ class MockHardwareService implements HardwareService {
   bool get isTcpConnected => false;
 
   @override
-  Stream<ConnectionState> get connectionState =>
-      Stream.value(ConnectionState.disconnected);
+  Stream<LinkState> get connectionState =>
+      Stream.value(LinkState.disconnected);
 
   @override
-  ConnectionState get currentConnectionState => ConnectionState.disconnected;
+  LinkState get currentLinkState => LinkState.disconnected;
 
   @override
   String? get lastConnectionError => null;

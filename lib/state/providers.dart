@@ -68,7 +68,7 @@ final broadcastStreamProvider = StreamProvider<BroadcastMessage>((ref) {
 
 /// 链路连接态流（connecting / connected / disconnected）。UI 据此显示当前走的是
 /// 云端 MQTT 还是局域网 TCP，以及连通状态（doc 25 需求：让用户直观看到命令会走哪条通道）。
-final connectionStateProvider = StreamProvider<ConnectionState>((ref) {
+final connectionStateProvider = StreamProvider<LinkState>((ref) {
   return ref.watch(hardwareServiceProvider).connectionState;
 });
 

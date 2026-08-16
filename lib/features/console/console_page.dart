@@ -1,8 +1,6 @@
 import 'dart:async';
 
-// 显式 hide Flutter 自带的 ConnectionState（widgets/async.dart），
-// 本文件用的是 services/hardware_service.dart 里的链路连接态枚举。
-import 'package:flutter/material.dart' hide ConnectionState;
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
@@ -760,7 +758,7 @@ class _ConnStatusChip extends ConsumerWidget {
   final bool isCloud;
   final bool mqttConnected;
   final bool tcpConnected;
-  final ConnectionState? connState;
+  final LinkState? connState;
   const _ConnStatusChip({
     required this.isCloud,
     required this.mqttConnected,
@@ -770,7 +768,7 @@ class _ConnStatusChip extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final connecting = connState == ConnectionState.connecting;
+    final connecting = connState == LinkState.connecting;
     final lastError = ref.watch(lastConnErrorProvider);
     final Color color;
     final String label;

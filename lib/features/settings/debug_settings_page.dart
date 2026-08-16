@@ -251,16 +251,16 @@ class _DiagnosticCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hw = ref.watch(hardwareServiceProvider);
-    final conn = hw.currentConnectionState;
+    final conn = hw.currentLinkState;
     final error = hw.lastConnectionError;
     final stateText = switch (conn) {
-      ConnectionState.connecting => '连接中',
-      ConnectionState.connected => '已连接',
-      ConnectionState.disconnected => '未连接',
+      LinkState.connecting => '连接中',
+      LinkState.connected => '已连接',
+      LinkState.disconnected => '未连接',
     };
-    final color = conn == ConnectionState.connected
+    final color = conn == LinkState.connected
         ? CncColors.primary
-        : conn == ConnectionState.connecting
+        : conn == LinkState.connecting
             ? CncColors.warning
             : CncColors.danger;
     return Container(

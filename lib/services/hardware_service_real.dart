@@ -58,8 +58,8 @@ class RealHardwareService implements HardwareService {
   bool _tcpConnected = false;
 
   // ---- 连接态（重连 + UI 展示，不改变功能逻辑）----
-  ConnectionState _conn = ConnectionState.disconnected;
-  final _connCtrl = StreamController<ConnectionState>.broadcast();
+  LinkState _conn = LinkState.disconnected;
+  final _connCtrl = StreamController<LinkState>.broadcast();
   String? _lastConnError;
   Timer? _reconnectTimer;
   Timer? _tcpReconnectTimer;
@@ -127,8 +127,8 @@ class RealHardwareService implements HardwareService {
   Stream<BroadcastMessage> get broadcastStream => _broadcastCtrl.stream;
 
   /// 连接态流：connecting / connected / disconnected，UI 订阅以显示链路状态。
-  Stream<ConnectionState> get connectionState => _connCtrl.stream;
-  ConnectionState get currentConnectionState => _conn;
+  Stream<LinkState> get connectionState => _connCtrl.stream;
+  LinkState get currentLinkState => _conn;
 
   /// 最近一次连接失败的错误信息，供 UI 诊断用。
   @override
@@ -178,8 +178,8 @@ class RealHardwareService implements HardwareService {
   }
 
   Future<void> _connectMqtt() async {
-    if (_conn == ConnectionState.connected) return;
-    _setConn(ConnectionState.connecting);
+    if (_conn == LinkState.connected) return;
+    _setConn(LinkState.connecting);
     try {
       // 每次重连都新建 client，避免复用已断开实例的脏状态。
       // clientId 固定为 app-<userId>（契约 auth.client_id_pattern），便于 Broker 侧
@@ -224,13 +224,13 @@ class RealHardwareService implements HardwareService {
             retain: true);
         client.updates!.listen(_onMqtt);
         _reconnectAttempts = 0;
-        _setConn(ConnectionState.connected);
+        _setConn(LinkState.connected);
         _updateHeartbeat();
       } else {
         _mqttConnected = false;
         final reason = client.connectionStatus?.returnCode?.toString() ?? 'broker returned non-zero CONNACK';
         _lastConnError = 'MQTT 握手失败：$reason';
-        _setConn(ConnectionState.disconnected);
+        _setConn(LinkState.disconnected);
         _scheduleReconnect();
       }
     } catch (e, st) {
@@ -241,7 +241,7 @@ class RealHardwareService implements HardwareService {
       // ignore: avoid_print
       print('[MQTT] connect error: $msg\n$st');
       _updateHeartbeat();
-      _setConn(ConnectionState.disconnected);
+      _setConn(LinkState.disconnected);
       _scheduleReconnect();
     }
   }
@@ -250,7 +250,7 @@ class RealHardwareService implements HardwareService {
     _mqttConnected = false;
     _updateHeartbeat();
     if (_closing) {
-      _setConn(ConnectionState.disconnected);
+      _setConn(LinkState.disconnected);
       return;
     }
     // 纯外网模式下 TCP 永远不通：MQTT 掉线即代表全链路断，广播 disconnected 让
@@ -259,7 +259,7 @@ class RealHardwareService implements HardwareService {
       _ctrl.add(const MachineStatus(state: MachineState.disconnected));
     }
     _lastConnError ??= 'MQTT 连接被断开';
-    _setConn(ConnectionState.disconnected);
+    _setConn(LinkState.disconnected);
     _scheduleReconnect();
   }
 
@@ -271,11 +271,11 @@ class RealHardwareService implements HardwareService {
     final secs = backoff[_reconnectAttempts.clamp(0, backoff.length - 1)];
     _reconnectAttempts++;
     _reconnectTimer = Timer(Duration(seconds: secs), () {
-      if (_conn != ConnectionState.connected && !_closing) _connectMqtt();
+      if (_conn != LinkState.connected && !_closing) _connectMqtt();
     });
   }
 
-  void _setConn(ConnectionState s) {
+  void _setConn(LinkState s) {
     if (_conn == s) return;
     _conn = s;
     if (!_connCtrl.isClosed) _connCtrl.add(s);
@@ -375,7 +375,7 @@ class RealHardwareService implements HardwareService {
       _tcp = await Socket.connect(_tcpHost, tcpPort,
           timeout: const Duration(seconds: 3));
       _tcpConnected = true;
-      _setConn(ConnectionState.connected); // 第一步唯一通道，TCP 通即"已连"
+      _setConn(LinkState.connected); // 第一步唯一通道，TCP 通即"已连"
       _updateHeartbeat();
       _tcp!.listen((data) {
         final text = utf8.decode(data);
@@ -385,12 +385,12 @@ class RealHardwareService implements HardwareService {
         }
       }, onDone: () {
         _tcpConnected = false;
-        if (!cloudEnabled) _setConn(ConnectionState.disconnected);
+        if (!cloudEnabled) _setConn(LinkState.disconnected);
         _updateHeartbeat();
         _scheduleTcpReconnect();
       }, onError: (_) {
         _tcpConnected = false;
-        if (!cloudEnabled) _setConn(ConnectionState.disconnected);
+        if (!cloudEnabled) _setConn(LinkState.disconnected);
         _updateHeartbeat();
         _scheduleTcpReconnect();
       });
@@ -535,7 +535,7 @@ class RealHardwareService implements HardwareService {
     _mqttConnected = false;
     _mqtt?.disconnect();
     _mqtt = null;
-    _setConn(ConnectionState.disconnected);
+    _setConn(LinkState.disconnected);
   }
 
   @override

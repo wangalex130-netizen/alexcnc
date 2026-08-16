@@ -7,7 +7,7 @@ import '../models/telemetry.dart';
 import '../models/tool.dart';
 
 /// 链路连接态：UI 据此显示「连接中 / 已连 / 掉线」，不影响功能逻辑。
-enum ConnectionState { disconnected, connecting, connected }
+enum LinkState { disconnected, connecting, connected }
 
 /// Hardware boundary for the ESP32 / modified-Grbl controller.
 ///
@@ -75,10 +75,10 @@ abstract class HardwareService {
   bool get isTcpConnected;
 
   /// 链路连接态流：connecting / connected / disconnected，UI 订阅以显示链路状态。
-  Stream<ConnectionState> get connectionState;
+  Stream<LinkState> get connectionState;
 
   /// 当前链路连接态快照。
-  ConnectionState get currentConnectionState;
+  LinkState get currentLinkState;
 
   /// 最近一次连接/掉线的错误信息（仅用于 UI 诊断）。
   /// null 表示尚未失败或错误已被清除。
