@@ -755,7 +755,8 @@ Widget _statusDot(Color color) => Container(
 /// 链路连接状态条（doc 25 需求）：直观显示命令当前会走哪条通道、是否连通。
 /// - 云端模式：显示「云端 MQTT · 已连接/连接中/未连接」
 /// - 局域网模式：显示「局域网 TCP · 已连接/未连接」
-class _ConnStatusChip extends StatelessWidget {
+/// 点击可触发一次手动重连；未连接时显示最近一次错误文本，便于诊断。
+class _ConnStatusChip extends ConsumerWidget {
   final bool isCloud;
   final bool mqttConnected;
   final bool tcpConnected;
@@ -768,8 +769,9 @@ class _ConnStatusChip extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final connecting = connState == ConnectionState.connecting;
+    final lastError = ref.watch(lastConnErrorProvider);
     final Color color;
     final String label;
     if (isCloud) {
@@ -792,34 +794,66 @@ class _ConnStatusChip extends StatelessWidget {
         label = '局域网 TCP · 未连接';
       }
     }
-    return Container(
-      margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.4)),
-      ),
-      child: Row(
-        children: [
-          _statusDot(color),
-          const SizedBox(width: 8),
-          Icon(
-            isCloud ? Symbols.cloud : Symbols.wifi,
-            size: 14,
-            color: color,
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(label,
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: color == CncColors.danger
-                        ? CncColors.danger
-                        : CncColors.primaryInk)),
-          ),
-        ],
+    final showError = !mqttConnected && lastError != null && lastError.isNotEmpty;
+    return GestureDetector(
+      onTap: () async {
+        final hw = ref.read(hardwareServiceProvider);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('正在重连…'), duration: Duration(seconds: 1)),
+        );
+        await hw.reconnect();
+      },
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withOpacity(0.4)),
+        ),
+        child: Row(
+          children: [
+            _statusDot(color),
+            const SizedBox(width: 8),
+            Icon(
+              isCloud ? Symbols.cloud : Symbols.wifi,
+              size: 14,
+              color: color,
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(label,
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: color == CncColors.danger
+                              ? CncColors.danger
+                              : CncColors.primaryInk)),
+                  if (showError)
+                    Text(
+                      lastError,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: CncColors.danger.withOpacity(0.85),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (!mqttConnected)
+              Icon(
+                Symbols.refresh,
+                size: 16,
+                color: color,
+              ),
+          ],
+        ),
       ),
     );
   }

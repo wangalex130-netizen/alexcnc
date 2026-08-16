@@ -101,6 +101,12 @@ class MockHardwareService implements HardwareService {
   ConnectionState get currentConnectionState => ConnectionState.disconnected;
 
   @override
+  String? get lastConnectionError => null;
+
+  @override
+  Future<void> reconnect() async => _emit();
+
+  @override
   Future<void> connect() async => _emit();
 
   @override

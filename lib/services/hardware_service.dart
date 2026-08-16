@@ -80,6 +80,13 @@ abstract class HardwareService {
   /// 当前链路连接态快照。
   ConnectionState get currentConnectionState;
 
+  /// 最近一次连接/掉线的错误信息（仅用于 UI 诊断）。
+  /// null 表示尚未失败或错误已被清除。
+  String? get lastConnectionError;
+
+  /// 手动触发一次重连（取消等待中的退避计时，立即重试）。
+  Future<void> reconnect();
+
   /// 释放底层连接（MQTT / TCP socket）。由 Provider 在 dispose 时调用。
   void dispose();
 }

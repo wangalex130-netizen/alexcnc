@@ -4,6 +4,8 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/runtime_config.dart';
 import '../../app/theme.dart';
+import '../../services/hardware_service.dart';
+import '../../state/providers.dart';
 
 /// 联调设置：运行时覆盖云端 / MQTT Broker / 局域网 TCP / 设备 ID / 摄像头地址，
 /// 免每次 --dart-define 重新出包。保存后 providers 自动重建服务并触发重连。
@@ -203,6 +205,8 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
               ),
             ],
           ),
+          const SizedBox(height: 18),
+          _DiagnosticCard(),
           const SizedBox(height: 22),
           SizedBox(
             width: double.infinity,
@@ -232,6 +236,106 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
                     borderRadius: BorderRadius.circular(12)),
               ),
               child: const Text('重置为默认', style: TextStyle(fontSize: 13)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// MQTT/TCP 连接诊断卡片：实时显示当前链路状态、最近一次错误，并支持一键重连。
+class _DiagnosticCard extends ConsumerWidget {
+  const _DiagnosticCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final hw = ref.watch(hardwareServiceProvider);
+    final conn = hw.currentConnectionState;
+    final error = hw.lastConnectionError;
+    final stateText = switch (conn) {
+      ConnectionState.connecting => '连接中',
+      ConnectionState.connected => '已连接',
+      ConnectionState.disconnected => '未连接',
+    };
+    final color = conn == ConnectionState.connected
+        ? CncColors.primary
+        : conn == ConnectionState.connecting
+            ? CncColors.warning
+            : CncColors.danger;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: CncColors.card,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: CncColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Symbols.troubleshoot, size: 18, color: CncColors.textMain),
+              const SizedBox(width: 8),
+              Text('连接诊断',
+                  style: const TextStyle(
+                      color: CncColors.textMain,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600)),
+              const Spacer(),
+              Container(
+                width: 8,
+                height: 8,
+                decoration:
+                    BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 6),
+              Text(stateText,
+                  style: TextStyle(
+                      color: color,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text('模式：${hw.isCloudMode ? '云端 MQTT' : '局域网 TCP'}',
+              style: const TextStyle(color: CncColors.textSub, fontSize: 12)),
+          Text('MQTT：${hw.isMqttConnected ? '已连' : '未连'} ｜ TCP：${hw.isTcpConnected ? '已连' : '未连'}',
+              style: const TextStyle(color: CncColors.textSub, fontSize: 12)),
+          if (error != null && error.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: CncColors.danger.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: CncColors.danger.withOpacity(0.4)),
+              ),
+              child: Text(error,
+                  style: TextStyle(
+                      color: CncColors.danger.withOpacity(0.9),
+                      fontSize: 11)),
+            ),
+          ],
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: () async {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('正在重连…'), duration: Duration(seconds: 1)),
+                );
+                await hw.reconnect();
+              },
+              style: OutlinedButton.styleFrom(
+                foregroundColor: CncColors.primary,
+                side: BorderSide(color: CncColors.primary),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+              ),
+              child: const Text('立即重连', style: TextStyle(fontSize: 13)),
             ),
           ),
         ],

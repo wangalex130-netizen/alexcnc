@@ -72,6 +72,13 @@ final connectionStateProvider = StreamProvider<ConnectionState>((ref) {
   return ref.watch(hardwareServiceProvider).connectionState;
 });
 
+/// 最近一次连接错误文本。依赖 [connectionStateProvider] 使其在每次状态变更时重建，
+/// 从而同步刷新服务内部的 [lastConnectionError]。
+final lastConnErrorProvider = Provider<String?>((ref) {
+  ref.watch(connectionStateProvider);
+  return ref.read(hardwareServiceProvider).lastConnectionError;
+});
+
 /// Cloud binding. 默认用 Mock；构建时传 USE_REAL_BACKEND=true 接云端。
 /// baseUrl / deviceId 同样受 RuntimeConfig 覆盖。
 final cloudServiceProvider = Provider<CloudService>((ref) {

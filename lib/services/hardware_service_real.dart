@@ -60,6 +60,7 @@ class RealHardwareService implements HardwareService {
   // ---- 连接态（重连 + UI 展示，不改变功能逻辑）----
   ConnectionState _conn = ConnectionState.disconnected;
   final _connCtrl = StreamController<ConnectionState>.broadcast();
+  String? _lastConnError;
   Timer? _reconnectTimer;
   Timer? _tcpReconnectTimer;
   int _reconnectAttempts = 0;
@@ -129,6 +130,22 @@ class RealHardwareService implements HardwareService {
   Stream<ConnectionState> get connectionState => _connCtrl.stream;
   ConnectionState get currentConnectionState => _conn;
 
+  /// 最近一次连接失败的错误信息，供 UI 诊断用。
+  @override
+  String? get lastConnectionError => _lastConnError;
+
+  /// 取消退避计时并立即重试一次（用于 UI 手动重连 / 设置页诊断）。
+  @override
+  Future<void> reconnect() async {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    if (cloudEnabled) {
+      await _connectMqtt();
+    } else {
+      await connect();
+    }
+  }
+
   /// 当前是否为云端模式（命令走 MQTT 网关，不自动连局域网 TCP）。
   bool get isCloudMode => cloudEnabled;
 
@@ -191,6 +208,7 @@ class RealHardwareService implements HardwareService {
       if (client.connectionStatus?.state == MqttConnectionState.connected) {
         _mqtt = client;
         _mqttConnected = true;
+        _lastConnError = null; // 成功后清除历史错误
         client.subscribe(mqttStatusTopic, MqttQos.atLeastOnce);
         client.subscribe(mqttNotifyTopic, MqttQos.atLeastOnce);
         client.subscribe(mqttTelemetryTopic, MqttQos.atMostOnce); // 遥测高频，QoS0
@@ -210,12 +228,18 @@ class RealHardwareService implements HardwareService {
         _updateHeartbeat();
       } else {
         _mqttConnected = false;
+        final reason = client.connectionStatus?.returnCode?.toString() ?? 'broker returned non-zero CONNACK';
+        _lastConnError = 'MQTT 握手失败：$reason';
         _setConn(ConnectionState.disconnected);
         _scheduleReconnect();
       }
-    } catch (_) {
-      // 云端不可达：保持离线并尝试重连，不阻断 App
+    } catch (e, st) {
+      // 云端不可达：保持离线并尝试重连，不阻断 App；把异常记入 UI 诊断。
       _mqttConnected = false;
+      final msg = e.toString();
+      _lastConnError = '连接异常：$msg';
+      // ignore: avoid_print
+      print('[MQTT] connect error: $msg\n$st');
       _updateHeartbeat();
       _setConn(ConnectionState.disconnected);
       _scheduleReconnect();
@@ -234,6 +258,7 @@ class RealHardwareService implements HardwareService {
     if (!_tcpConnected && !_ctrl.isClosed) {
       _ctrl.add(const MachineStatus(state: MachineState.disconnected));
     }
+    _lastConnError ??= 'MQTT 连接被断开';
     _setConn(ConnectionState.disconnected);
     _scheduleReconnect();
   }
