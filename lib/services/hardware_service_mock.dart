@@ -94,6 +94,13 @@ class MockHardwareService implements HardwareService {
   bool get isTcpConnected => false;
 
   @override
+  Stream<ConnectionState> get connectionState =>
+      Stream.value(ConnectionState.disconnected);
+
+  @override
+  ConnectionState get currentConnectionState => ConnectionState.disconnected;
+
+  @override
   Future<void> connect() async => _emit();
 
   @override

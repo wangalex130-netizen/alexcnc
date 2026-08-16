@@ -74,6 +74,12 @@ abstract class HardwareService {
   /// 局域网 TCP 是否已连接（仅局域网模式有意义）。
   bool get isTcpConnected;
 
+  /// 链路连接态流：connecting / connected / disconnected，UI 订阅以显示链路状态。
+  Stream<ConnectionState> get connectionState;
+
+  /// 当前链路连接态快照。
+  ConnectionState get currentConnectionState;
+
   /// 释放底层连接（MQTT / TCP socket）。由 Provider 在 dispose 时调用。
   void dispose();
 }

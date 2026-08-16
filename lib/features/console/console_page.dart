@@ -1,6 +1,8 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+// 显式 hide Flutter 自带的 ConnectionState（widgets/async.dart），
+// 本文件用的是 services/hardware_service.dart 里的链路连接态枚举。
+import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
