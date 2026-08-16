@@ -14,6 +14,7 @@ import '../../models/broadcast_message.dart';
 import '../../models/notify_event.dart';
 import '../../models/tool.dart';
 import '../../state/providers.dart';
+import '../../services/hardware_service.dart';
 import '../preview/rtsp_preview_widget.dart';
 import '../preview/timelapse_client.dart';
 import '../preview/mjpeg_stream_player.dart';
@@ -202,6 +203,8 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     final cfg = ref.watch(runtimeConfigProvider);
     final hw = ref.read(hardwareServiceProvider);
     final tlJobId = ref.watch(timeLapseJobProvider);
+    // 链路连接态（云端 MQTT / 局域网 TCP 的连通状态），用于顶部连接指示。
+    final conn = ref.watch(connectionStateProvider).value;
 
     final idle = status.state == MachineState.idle;
     final busy = status.state == MachineState.busy;
@@ -332,6 +335,14 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   ),
                 ),
             ],
+          ),
+
+          // ---- 链路连接状态（doc 25 需求：区分云端 MQTT / 局域网 TCP）----
+          _ConnStatusChip(
+            isCloud: hw.isCloudMode,
+            mqttConnected: hw.isMqttConnected,
+            tcpConnected: hw.isTcpConnected,
+            connState: conn,
           ),
 
           // ---- 快捷开关 ----
@@ -738,6 +749,79 @@ Widget _statusDot(Color color) => Container(
       height: 8,
       decoration: BoxDecoration(color: color, shape: BoxShape.circle),
     );
+
+/// 链路连接状态条（doc 25 需求）：直观显示命令当前会走哪条通道、是否连通。
+/// - 云端模式：显示「云端 MQTT · 已连接/连接中/未连接」
+/// - 局域网模式：显示「局域网 TCP · 已连接/未连接」
+class _ConnStatusChip extends StatelessWidget {
+  final bool isCloud;
+  final bool mqttConnected;
+  final bool tcpConnected;
+  final ConnectionState? connState;
+  const _ConnStatusChip({
+    required this.isCloud,
+    required this.mqttConnected,
+    required this.tcpConnected,
+    required this.connState,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final connecting = connState == ConnectionState.connecting;
+    final Color color;
+    final String label;
+    if (isCloud) {
+      if (mqttConnected) {
+        color = CncColors.primary;
+        label = '云端 MQTT · 已连接';
+      } else if (connecting) {
+        color = CncColors.warning;
+        label = '云端 MQTT · 连接中…';
+      } else {
+        color = CncColors.danger;
+        label = '云端 MQTT · 未连接';
+      }
+    } else {
+      if (tcpConnected) {
+        color = CncColors.primary;
+        label = '局域网 TCP · 已连接';
+      } else {
+        color = CncColors.danger;
+        label = '局域网 TCP · 未连接';
+      }
+    }
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.4)),
+      ),
+      child: Row(
+        children: [
+          _statusDot(color),
+          const SizedBox(width: 8),
+          Icon(
+            isCloud ? Symbols.cloud : Symbols.wifi,
+            size: 14,
+            color: color,
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(label,
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: color == CncColors.danger
+                        ? CncColors.danger
+                        : CncColors.primaryInk)),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 // ===================== 快捷开关 =====================
 

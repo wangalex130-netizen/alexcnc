@@ -6,6 +6,9 @@ import '../models/notify_event.dart';
 import '../models/telemetry.dart';
 import '../models/tool.dart';
 
+/// 链路连接态：UI 据此显示「连接中 / 已连 / 掉线」，不影响功能逻辑。
+enum ConnectionState { disconnected, connecting, connected }
+
 /// Hardware boundary for the ESP32 / modified-Grbl controller.
 ///
 /// All wire-protocol JSON (Grbl `$`-commands, status reports, MQTT payloads)
@@ -61,6 +64,15 @@ abstract class HardwareService {
   /// [mode] 0=不调平 / 1=标准 / 2=精细；[cols]/[rows] 为探测点数阵。
   Future<void> setLevelingPlan(
       {required int mode, required int cols, required int rows});
+
+  /// 当前是否为云端模式（命令走 MQTT 网关，不自动连局域网 TCP）。
+  bool get isCloudMode;
+
+  /// 云端 MQTT 是否已连接（仅云端模式有意义）。
+  bool get isMqttConnected;
+
+  /// 局域网 TCP 是否已连接（仅局域网模式有意义）。
+  bool get isTcpConnected;
 
   /// 释放底层连接（MQTT / TCP socket）。由 Provider 在 dispose 时调用。
   void dispose();

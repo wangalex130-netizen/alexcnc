@@ -85,6 +85,15 @@ class MockHardwareService implements HardwareService {
   Stream<BroadcastMessage> get broadcastStream => _broadcastCtrl.stream;
 
   @override
+  bool get isCloudMode => false;
+
+  @override
+  bool get isMqttConnected => false;
+
+  @override
+  bool get isTcpConnected => false;
+
+  @override
   Future<void> connect() async => _emit();
 
   @override

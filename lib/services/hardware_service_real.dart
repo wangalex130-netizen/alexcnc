@@ -15,9 +15,6 @@ import '../models/tool.dart';
 import 'device_discovery.dart';
 import 'hardware_service.dart';
 
-/// 链路连接态：UI 据此显示「连接中 / 已连 / 掉线」，不影响功能逻辑。
-enum ConnectionState { disconnected, connecting, connected }
-
 /// 真实硬件实现。
 ///
 /// **第一步（局域网，默认）**：以 [tcpHost]:[tcpPort]（默认 8899）为**唯一控制 +
@@ -132,11 +129,25 @@ class RealHardwareService implements HardwareService {
   Stream<ConnectionState> get connectionState => _connCtrl.stream;
   ConnectionState get currentConnectionState => _conn;
 
+  /// 当前是否为云端模式（命令走 MQTT 网关，不自动连局域网 TCP）。
+  bool get isCloudMode => cloudEnabled;
+
+  /// 云端 MQTT 是否已连接（仅云端模式有意义）。
+  bool get isMqttConnected => _mqttConnected;
+
+  /// 局域网 TCP 是否已连接（仅局域网模式有意义）。
+  bool get isTcpConnected => _tcpConnected;
+
   @override
   Future<void> connect() async {
-    if (cloudEnabled) await _connectMqtt();
-    // 与机器同 Wi-Fi 且用户未手动指定 TCP 主机时，先用 UDP beacon 自动发现真机 IP，
-    // 否则走已配置/兜底地址。WAN 模式（cloudEnabled）下 MQTT 已先行连接。
+    if (cloudEnabled) {
+      // 第二步外网：仅连云端 MQTT 主链路，不再自动连局域网 TCP。
+      // 避免命令被 TCP 通道"吃掉"而云端网关收不到（doc 25 诊断结论）。
+      // 命令一律经网关 gw/<deviceId>/cmd 下发。
+      await _connectMqtt();
+      return;
+    }
+    // 第一步局域网：UDP beacon 自动发现真机 IP，再直连 TCP。
     if (_tcpHost == AppConfig.deviceTcpHost) {
       try {
         final b = await DeviceDiscovery.discoverViaBeacon(
@@ -428,9 +439,9 @@ class RealHardwareService implements HardwareService {
   }
 
   void _publish(Map<String, dynamic> cmd) {
-    // R3：命令闸门——仅当「不处于局域网（无 TCP 直连）」时才经网关下发。
-    //   局域网内即使 cloudEnabled=true 也不走 gw，避免白名单内命令被双发导致二次执行。
-    if (!cloudEnabled || _tcpConnected) return;
+    // R3：云端模式下命令一律经网关下发（cloudEnabled 已隐含非局域网、无 TCP 直连）。
+    //   不再以 _tcpConnected 为闸门，避免命令被局域网 TCP 吃掉而云端收不到（doc 25）。
+    if (!cloudEnabled) return;
     final json = jsonEncode(cmd);
     if (_mqtt?.connectionStatus?.state == MqttConnectionState.connected) {
       final builder = MqttClientPayloadBuilder();
@@ -440,13 +451,14 @@ class RealHardwareService implements HardwareService {
     }
   }
 
-  /// 命令分发：局域网 TCP 直连优先，未连 TCP 时才经云端网关（R2/R3）。
-  /// 取代原先 `_sendTcp + _publish` 双发，避免 LAN 内命令被重复下发。
+  /// 命令分发：
+  ///  - 云端模式（cloudEnabled）：一律经云端 MQTT 网关下发（R2/R3），不依赖局域网 TCP。
+  ///  - 局域网模式：经 TCP 直连下发（低延迟，hello 心跳也走 TCP）。
   void _dispatch(Map<String, dynamic> cmd) {
-    if (_tcpConnected) {
-      _sendTcp(cmd);
-    } else {
+    if (cloudEnabled) {
       _publish(cmd);
+    } else if (_tcpConnected) {
+      _sendTcp(cmd);
     }
   }
 

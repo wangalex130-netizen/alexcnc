@@ -64,7 +64,7 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
   - 网关回执：`gw/<deviceId>/ack`（白名单外命令回 E401，App 弹红色通知）
   - 生产端口：**8883 TLS** + 关匿名 + 私有 Broker 域名；**1883 仅本地联调**。
 - ESP32 新增 **MQTT Client** 连同一 Broker；TCP:8899 局域网增强保留（同 Wi-Fi 时运动命令直发降抖动）。
-- App 侧把 `RealHardwareService(cloudEnabled: true)` 即可启用，**命令/状态帧无需改动**；命令统一经 `_dispatch`：局域网 TCP 直连优先，未连 TCP 才走 `gw/` 网关。
+- App 侧把 `RealHardwareService(cloudEnabled: true)` 即可启用，**命令/状态帧无需改动**；命令统一经 `_dispatch` 路由：**云端模式（cloudEnabled）一律走 `gw/` MQTT 网关，不再自动连局域网 TCP**（避免命令被 TCP 吃掉、云端收不到，见 doc 25 诊断）；局域网模式（cloudEnabled=false）经 TCP:8899 直连。两种模式下 UI 顶部均有「链路连接状态」指示当前走哪条通道。
 
 #### 公共要求（两步都适用）
 
@@ -160,7 +160,7 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 | 订阅 | `cnc/broadcast/msg` | 系统级业务广播（docs/03 §6：`{level,title,body,target}`，维护通知/警告/紧急） |
 | 订阅 | `cnc/broadcast/system` | 系统级事件广播（docs/03 §7：`{event,deviceId,ts}`，如 `device_offline`） |
 | 订阅 | `gw/<deviceId>/ack` | 网关命令回执；白名单外命令回 `{"ok":false,"code":"E401"}` |
-| 发布 | `gw/<deviceId>/cmd` | 命令经网关白名单转发固件（R2）；局域网内 TCP 直连优先、未连 TCP 才走此 |
+| 发布 | `gw/<deviceId>/cmd` | 命令经网关白名单转发固件（R2）；**仅云端模式（cloudEnabled）使用**，局域网模式走 TCP:8899 直连、不发布此主题 |
 | 发布 | `cnc/<deviceId>/app` | App 在线态：连接时发 `{"online":true}` retain；异常断线 Broker 代发 LWT `{"online":false}` retain |
 
 - 生产端口：**8883 TLS**；本地联调可用 **1883**。
