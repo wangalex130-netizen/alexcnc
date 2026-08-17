@@ -93,11 +93,12 @@ class AppConfig {
   );
 
   // ---- V1.1 MQTT 主题开关（docs/03 §10.5/§10.6）----
-  // 生产 broker ACL 若未同步开放 cnc/<id>/job + cnc/<id>/sys 订阅权限，App 订阅会被 broker
-  // 断开。先默认关闭，等服务器 ACL 更新后再通过 --dart-define=V11_MQTT_TOPICS_ENABLED=true 打开。
+  // 线上 broker ACL 已于 2026-08-17 从主机内侧重载放行 cnc/<id>/job + cnc/<id>/sys 订阅
+  // （单一事实源 deploy/acl.conf，由运维/隔壁 AI 完成）。故默认开启；如需紧急回退可
+  // 用 --dart-define=V11_MQTT_TOPICS_ENABLED=false 关闭。
   static const bool v11MqttTopicsEnabled = bool.fromEnvironment(
     'V11_MQTT_TOPICS_ENABLED',
-    defaultValue: false,
+    defaultValue: true,
   );
 
   /// MQTT 状态广播主题：cnc/<deviceId>/status
