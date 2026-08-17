@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
@@ -14,6 +15,15 @@ import '../models/telemetry.dart';
 import '../models/tool.dart';
 import 'device_discovery.dart';
 import 'hardware_service.dart';
+
+/// 生成短随机后缀，使每个 App 实例的 MQTT clientId 唯一，避免多端共用账号时撞车。
+String _genClientSuffix() {
+  final r = Random();
+  final t = DateTime.now().microsecondsSinceEpoch;
+  final a = (t & 0xFFFFFF).toRadixString(16).padLeft(6, '0');
+  final b = r.nextInt(0xFFFF).toRadixString(16).padLeft(4, '0');
+  return '$a$b';
+}
 
 /// 真实硬件实现。
 ///
@@ -36,7 +46,11 @@ class RealHardwareService implements HardwareService {
   final int tcpPort;
   /// 第二步外网开关；第一步（LAN）保持 false，MQTT 链路不启用。
   final bool cloudEnabled;
-  /// App 登录身份（契约 auth.client_id_pattern = app-<userId>），用作 MQTT clientId。
+  /// App 登录身份（契约 auth.client_id_pattern = app-<userId>），用于派生 MQTT clientId。
+  /// 注意：最终 clientId 为 app-<userId>-<唯一后缀>（见 _mqttClientId），避免多端共用
+  /// 同一账号（如隔壁车道的监视器/网关也用 app-demo）时 clientId 撞车 → broker 互相踢
+  /// 下线、出现 online/offline 每 2~3 秒反复跳的抖动（doc 25 问题 B）。ACL 按用户名
+  /// app-demo 鉴权，clientId 加后缀不影响权限。
   final String appUserId;
 
   /// 局域网 TCP 主机（可变：未手动配置时由 UDP beacon 自动发现覆盖）。
@@ -66,6 +80,10 @@ class RealHardwareService implements HardwareService {
   int _reconnectAttempts = 0;
   bool _closing = false;
 
+  /// 本实例专属的 MQTT clientId（app-<userId>-<唯一后缀>）。每次 App 启动生成一个，
+  /// 同一运行期内所有重连复用，跨启动/跨设备不同 → 不再与共享账号的其他客户端撞车。
+  final String _mqttClientId;
+
   final Map<String, bool> _aux = {
     'light': false,
     'laser': false,
@@ -83,7 +101,8 @@ class RealHardwareService implements HardwareService {
     this.tcpPort = AppConfig.deviceTcpPort,
     this.cloudEnabled = false,
     this.appUserId = AppConfig.appUserId,
-  }) : _tcpHost = tcpHost;
+  })  : _tcpHost = tcpHost,
+        _mqttClientId = 'app-$appUserId-${_genClientSuffix()}';
 
   /// MQTT 状态广播主题：cnc/<deviceId>/status（按实例 deviceId 推导，App 订阅）
   String get mqttStatusTopic => 'cnc/$deviceId/status';
@@ -182,9 +201,10 @@ class RealHardwareService implements HardwareService {
     _setConn(LinkState.connecting);
     try {
       // 每次重连都新建 client，避免复用已断开实例的脏状态。
-      // clientId 固定为 app-<userId>（契约 auth.client_id_pattern），便于 Broker 侧
-      // ACL 按账号维度鉴权与上下线追踪；同一账号重连保持同一身份。
-      final client = MqttServerClient(broker, 'app-$appUserId');
+      // clientId 用本实例专属的 _mqttClientId（app-<userId>-<唯一后缀>），既保留账号维度
+      // 便于 Broker ACL 鉴权，又避免多端共用 app-demo 账号时 clientId 撞车被 broker 互相踢
+      // （doc 25 问题 B：online/offline 每 2~3 秒反复跳的抖动根因）。
+      final client = MqttServerClient(broker, _mqttClientId);
       client.port = mqttPort;
       client.secure = true;                          // 启用 TLS（8883）
       // 注意：必须显式用 Object 收参。mqtt_client 10.5.0 的 MqttServerClient.onBadCertificate
