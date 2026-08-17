@@ -262,9 +262,12 @@ class RealHardwareService implements HardwareService {
         // docs/03 §6/§7 系统级广播（全局主题，任意设备发起的事件/消息）
         client.subscribe(mqttBroadcastTopic, MqttQos.atLeastOnce);
         client.subscribe(mqttSystemTopic, MqttQos.atLeastOnce);
-        // V1.1（docs/03 §10.5/§10.6）设备→服务器上行主题（QoS1 + retain）
-        client.subscribe(mqttJobProgressTopic, MqttQos.atLeastOnce);
-        client.subscribe(mqttSysInfoTopic, MqttQos.atLeastOnce);
+        // V1.1（docs/03 §10.5/§10.6）设备→服务器上行主题（QoS1 + retain）。
+        // 受 broker ACL 限制，默认不订阅；等服务器 ACL 开放后再启用。
+        if (AppConfig.v11MqttTopicsEnabled) {
+          client.subscribe(mqttJobProgressTopic, MqttQos.atLeastOnce);
+          client.subscribe(mqttSysInfoTopic, MqttQos.atLeastOnce);
+        }
         // 上线即发布 online（retain），覆盖 LWT 的离线态
         final ob = MqttClientPayloadBuilder();
         ob.addString(jsonEncode({'online': true}));
@@ -298,6 +301,10 @@ class RealHardwareService implements HardwareService {
   void _onMqttDisconnected() {
     _mqttConnected = false;
     _updateHeartbeat();
+    final rc = _mqtt?.connectionStatus?.returnCode;
+    final reason = rc != null ? ' (returnCode=$rc)' : '';
+    // ignore: avoid_print
+    print('[MQTT] disconnected$reason');
     if (_closing) {
       _setConn(LinkState.disconnected);
       return;
@@ -307,7 +314,7 @@ class RealHardwareService implements HardwareService {
     if (!_tcpConnected && !_ctrl.isClosed) {
       _ctrl.add(const MachineStatus(state: MachineState.disconnected));
     }
-    _lastConnError ??= 'MQTT 连接被断开';
+    _lastConnError = 'MQTT 连接被断开$reason';
     _setConn(LinkState.disconnected);
     _scheduleReconnect();
   }
