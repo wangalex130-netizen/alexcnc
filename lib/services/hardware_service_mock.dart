@@ -6,6 +6,8 @@ import '../models/notify_event.dart';
 import '../models/position.dart';
 import '../models/telemetry.dart';
 import '../models/tool.dart';
+import '../models/job_progress.dart';
+import '../models/sys_info.dart';
 import 'hardware_service.dart';
 
 /// In-memory stand-in for the controller. Simulates a live status feed so the
@@ -15,6 +17,8 @@ class MockHardwareService implements HardwareService {
   final _notifyCtrl = StreamController<NotifyEvent>.broadcast();
   final _telemetryCtrl = StreamController<Telemetry>.broadcast();
   final _broadcastCtrl = StreamController<BroadcastMessage>.broadcast();
+  final _jobCtrl = StreamController<JobProgress>.broadcast();
+  final _sysCtrl = StreamController<SysInfo>.broadcast();
   MachineStatus _current = const MachineStatus();
   final Map<String, bool> _aux = {
     'light': false,
@@ -26,6 +30,8 @@ class MockHardwareService implements HardwareService {
 
   MockHardwareService() {
     _emit();
+    _emitSys();
+    _emitJob();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
   }
 
@@ -55,6 +61,7 @@ class MockHardwareService implements HardwareService {
     }
     _emit();
     _emitTelemetry();
+    _emitJob();
   }
 
   void _emit() => _ctrl.add(_current);
@@ -72,6 +79,40 @@ class MockHardwareService implements HardwareService {
     ));
   }
 
+  /// V1.1 §10.6：模拟系统帧（上电一次，固定 5 字段）。
+  void _emitSys() {
+    if (_sysCtrl.isClosed) return;
+    _sysCtrl.add(const SysInfo(
+      id: 'MOCK-DEMO-001',
+      model: 'SmartCNC 3020',
+      fw: 'v1.1.0-mock',
+      ip: '192.168.1.99',
+      bootAt: 0,
+    ));
+  }
+
+  /// V1.1 §10.5：模拟作业帧（随加工进度变化，便于 UI 展示 job 流）。
+  void _emitJob() {
+    if (_jobCtrl.isClosed) return;
+    final carving = _current.state == MachineState.busy;
+    final pausing = _current.state == MachineState.paused;
+    final done = _current.state == MachineState.idle && _current.progress >= 1.0;
+    final phase = carving
+        ? 'carving'
+        : pausing
+            ? 'pausing'
+            : done
+                ? 'done'
+                : 'idle';
+    _jobCtrl.add(JobProgress(
+      file: 'demo.nc',
+      line: (_current.progress * 1000).round(),
+      total: 1000,
+      percent: _current.progress,
+      phase: phase,
+    ));
+  }
+
   @override
   Stream<MachineStatus> get statusStream => _ctrl.stream;
 
@@ -83,6 +124,12 @@ class MockHardwareService implements HardwareService {
 
   @override
   Stream<BroadcastMessage> get broadcastStream => _broadcastCtrl.stream;
+
+  @override
+  Stream<JobProgress> get jobStream => _jobCtrl.stream;
+
+  @override
+  Stream<SysInfo> get sysStream => _sysCtrl.stream;
 
   @override
   bool get isCloudMode => false;
@@ -233,5 +280,7 @@ class MockHardwareService implements HardwareService {
     _notifyCtrl.close();
     _telemetryCtrl.close();
     _broadcastCtrl.close();
+    _jobCtrl.close();
+    _sysCtrl.close();
   }
 }

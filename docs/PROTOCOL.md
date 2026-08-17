@@ -8,6 +8,8 @@
 
 ---
 
+> **✅ V1.1 已落地（2026-08-17）**：App 侧已完成 docs/03 §10 增补接入——`MachineStatus` 增 `alarmCode`/`door`/`spindleOn`/`grblOnline`；`Tool` 富最小集 `color`/`isCurrent`；新增 `cnc/<id>/job` + `cnc/<id>/sys` 两主题订阅（`JobProgress`/`SysInfo` 模型）；`NotifyEvent` 增 `code`/`data`/`ts`。详见 §2.3（status 扩展字段）、§2.5（job/sys 主题）。
+
 ## 0. 一句话流程
 
 ```
@@ -111,12 +113,17 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
   "download": 0.6,            // D10 G-code 文件下载进度 0..1；无下载任务为 null
   "awaitingConfirm": true,    // D9 是否正等待机旁物理确认；false/null = 不等待
   "aux": { "light": true, "laser": false, "timelapse": false, "fan": false },
-  "tools": [                  // ATC 刀仓（4 槽）
-    { "index": 1, "name": "3.175平底刀", "material": "钨钢", "length": 30.0, "installed": true },
-    { "index": 2, "name": "1.5球刀",    "material": "钨钢", "length": 22.0, "installed": true },
-    { "index": 3, "name": "0.8尖刀",    "material": "硬质合金", "length": 25.0, "installed": true },
-    { "index": 4, "name": "—", "installed": false }
-  ]
+  "tools": [                  // ATC 刀仓（4 槽）；V1.1 富最小集含 color/isCurrent
+    { "index": 1, "name": "3.175平底刀", "material": "钨钢", "length": 30.0, "installed": true, "color": "#FFD700", "isCurrent": true },
+    { "index": 2, "name": "1.5球刀",    "material": "钨钢", "length": 22.0, "installed": true, "color": "#C0C0C0", "isCurrent": false },
+    { "index": 3, "name": "0.8尖刀",    "material": "硬质合金", "length": 25.0, "installed": true, "color": "#B0C4DE", "isCurrent": false },
+    { "index": 4, "name": "—", "installed": false, "isCurrent": false }
+  ],
+  // —— V1.1 §10.2 status 扩展字段（先行落地）——
+  "alarm_code": 0,            // 报警码；0 = 无报警（非 0 时 App 横幅显示 A<code>）
+  "door": false,              // 防护门状态：true=开 / false=关
+  "spindle": false,           // ⚠️ V1.1 起语义变更：原为"转速数值别名"，现改为"主轴是否运转"(bool)；转速继续用 rpm
+  "grbl_online": true         // Grbl 控制器在线：true=在线 / false=离线
 }
 ```
 
@@ -162,7 +169,10 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 | 订阅 | `gw/<deviceId>/ack` | 网关命令回执；白名单外命令回 `{"ok":false,"code":"E401"}` |
 | 发布 | `gw/<deviceId>/cmd` | 命令经网关白名单转发固件（R2）；**仅云端模式（cloudEnabled）使用**，局域网模式走 TCP:8899 直连、不发布此主题 |
 | 发布 | `cnc/<deviceId>/app` | App 在线态：连接时发 `{"online":true}` retain；异常断线 Broker 代发 LWT `{"online":false}` retain |
+| 订阅 | `cnc/<deviceId>/job` | 作业明细帧（V1.1 §10.5：file/line/total/percent/phase，QoS1+retain，App 仅订阅） |
+| 订阅 | `cnc/<deviceId>/sys` | 系统帧（V1.1 §10.6：id/model/fw/ip/bootAt，上电一次，QoS1+retain，App 仅订阅） |
 
+- **V1.1 §10.7 notify 扩展**：`notify` 帧新增可选字段 `code`(String 业务码) / `data`(Map 附加数据) / `ts`(int 事件时间戳)；`type` 扩展 `knife`/`inspect`/`sound`/`led`/`cmd_ack`/`unknown`。App 先行解析 `alarm`/`door` 类，其余类型预留后续阶段。
 - 生产端口：**8883 TLS**；本地联调可用 **1883**。
 - 命令帧 `gw/<deviceId>/cmd` 格式与 §2.2 完全一致（含 `gcodeUrl` 下载链接，**MQTT 不传文件本体**）。
 - 网关对 `gw/<deviceId>/cmd` 按设备白名单放行（aux/pause 等安全命令）或拒绝（jog/hello 等运动类回 E401），拒绝时 App 弹红色通知。

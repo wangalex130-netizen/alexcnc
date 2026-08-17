@@ -7,8 +7,10 @@ import '../app/config.dart';
 import '../app/runtime_config.dart';
 import '../models/library_item.dart';
 import '../models/broadcast_message.dart';
+import '../models/job_progress.dart';
 import '../models/machine_status.dart';
 import '../models/notify_event.dart';
+import '../models/sys_info.dart';
 import '../models/telemetry.dart';
 import '../models/task_metadata.dart';
 import '../services/cloud_service.dart';
@@ -64,6 +66,16 @@ final telemetryStreamProvider = StreamProvider<Telemetry>((ref) {
 /// 系统级广播流（docs/03 §6 cnc/broadcast/msg + §7 cnc/broadcast/system）。
 final broadcastStreamProvider = StreamProvider<BroadcastMessage>((ref) {
   return ref.watch(hardwareServiceProvider).broadcastStream;
+});
+
+/// 雕刻作业明细流（docs/03 §10.5 cnc/<deviceId>/job）。
+final jobProgressProvider = StreamProvider<JobProgress>((ref) {
+  return ref.watch(hardwareServiceProvider).jobStream;
+});
+
+/// 机器系统帧流（docs/03 §10.6 cnc/<deviceId>/sys）。
+final sysInfoProvider = StreamProvider<SysInfo>((ref) {
+  return ref.watch(hardwareServiceProvider).sysStream;
 });
 
 /// 链路连接态流（connecting / connected / disconnected）。UI 据此显示当前走的是

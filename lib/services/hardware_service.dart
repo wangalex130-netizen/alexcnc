@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import '../models/broadcast_message.dart';
+import '../models/job_progress.dart';
 import '../models/machine_status.dart';
 import '../models/notify_event.dart';
+import '../models/sys_info.dart';
 import '../models/telemetry.dart';
 import '../models/tool.dart';
 
@@ -31,6 +33,14 @@ abstract class HardwareService {
   /// 平台/运维下发的全局公告（维护通知 / 设备离线等），与机器 [notifyStream] 分离，
   /// App 仅作顶部横幅 / toast 提示，不污染机器 SSOT 状态。
   Stream<BroadcastMessage> get broadcastStream;
+
+  /// 雕刻作业明细流（docs/03 §10.5 `cnc/<deviceId>/job`，QoS1 + retain）。
+  /// 与 [statusStream] 分离：作业行号/总行数/百分比高频变化，避免膨胀状态帧。
+  Stream<JobProgress> get jobStream;
+
+  /// 机器系统帧流（docs/03 §10.6 `cnc/<deviceId>/sys`，QoS1 + retain，上电一次）。
+  /// 设备身份 / 机型 / 固件版本 / 局域网 IP / 启动时间戳，用于设备信息展示与诊断。
+  Stream<SysInfo> get sysStream;
 
   Future<void> connect();
   Future<void> disconnect();

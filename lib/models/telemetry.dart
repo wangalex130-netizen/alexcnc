@@ -38,7 +38,9 @@ class Telemetry {
       return null;
     }
     final rpmRaw = j['rpm'] ?? j['spindle'];
-    final speedRaw = j['speed'] ?? j['feed'];
+    // V1.1（docs/03 §10.3）：canonical 键 = `feed`，`speed` 仅作兼容别名。
+    // 新固件只发 `feed`；旧固件可能发 `speed`，二者择一。
+    final speedRaw = j['feed'] ?? j['speed'];
     return Telemetry(
       pos: _pos(['pos']),
       mpos: _pos(['mpos', 'mp']),

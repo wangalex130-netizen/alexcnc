@@ -44,6 +44,17 @@ class MachineStatus {
   /// 报警/错误原因（state=alarm 时有效）；正常为 null。
   final String? error;
 
+  // --- V1.1 状态帧扩展字段（docs/03 §10.2）---
+  /// GRBL 报警码（alarm_code）：0=无；>0 对应 GRBL alarm 码。
+  final int alarmCode;
+  /// 安全门状态（door）：true=门已开（继续加工会触发安全停机）。
+  final bool door;
+  /// 主轴是否旋转中（spindle，V1.1 起的 bool 语义）：true=旋转中。
+  /// 注意：与 [spindleRpm]（rpm 数值，源字段 `rpm`）不同，此处为布尔运行态。
+  final bool spindleOn;
+  /// GRBL 主控 UART 在线（grbl_online）：true=在线；false=掉线/无响应。
+  final bool grblOnline;
+
   const MachineStatus({
     this.state = MachineState.idle,
     this.position = const Position(),
@@ -60,6 +71,10 @@ class MachineStatus {
     this.tools = const [],
     this.job,
     this.error,
+    this.alarmCode = 0,
+    this.door = false,
+    this.spindleOn = false,
+    this.grblOnline = false,
   });
 
   MachineStatus copyWith({
@@ -78,6 +93,10 @@ class MachineStatus {
     List<Tool>? tools,
     String? job,
     String? error,
+    int? alarmCode,
+    bool? door,
+    bool? spindleOn,
+    bool? grblOnline,
   }) =>
       MachineStatus(
         state: state ?? this.state,
@@ -95,6 +114,10 @@ class MachineStatus {
         tools: tools ?? this.tools,
         job: job ?? this.job,
         error: error ?? this.error,
+        alarmCode: alarmCode ?? this.alarmCode,
+        door: door ?? this.door,
+        spindleOn: spindleOn ?? this.spindleOn,
+        grblOnline: grblOnline ?? this.grblOnline,
       );
 
   /// 物理在位刀位数（installed==true 计入）。
@@ -160,8 +183,15 @@ class MachineStatus {
       tools: _parseTools(j['tools']),
       job: j['job']?.toString(),
       error: _parseErrorStr(j['error']),
+      alarmCode: (j['alarm_code'] is num) ? (j['alarm_code'] as num).toInt() : 0,
+      door: j['door'] == true,
+      spindleOn: j['spindle'] == true,
+      grblOnline: j['grbl_online'] == true,
     );
   }
+
+  /// 是否有激活的 GRBL 报警（alarm_code>0 或 state==alarm）。
+  bool get hasAlarm => alarmCode > 0 || state == MachineState.alarm;
 }
 
 /// 安全解析辅助输出回显：仅保留已知的 4 个键（light/laser/fan/timelapse），

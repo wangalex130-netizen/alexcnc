@@ -453,6 +453,36 @@ class _MachineCard extends ConsumerWidget {
                       ? null
                       : '${telemetry!.speed!.round()}',
                 ),
+                // —— V1.1 §10.2 status 扩展字段展示（门 / GRBL 在线 / 报警码）——
+                _Chip(
+                  icon: Symbols.door_front,
+                  label: '门',
+                  value: status.door == null
+                      ? null
+                      : (status.door! ? '开' : '关'),
+                ),
+                _Chip(
+                  icon: Symbols.memory,
+                  label: 'GRBL',
+                  value: status.grblOnline == null
+                      ? null
+                      : (status.grblOnline! ? '在线' : '离线'),
+                ),
+                _Chip(
+                  icon: Symbols.warning,
+                  label: '报警',
+                  value: (status.alarmCode == null || status.alarmCode == 0)
+                      ? null
+                      : 'A${status.alarmCode}',
+                ),
+                // V1.1 §10.4 Tool 富最小集：高亮当前装夹刀（isCurrent）
+                _Chip(
+                  icon: Symbols.build_circle,
+                  label: '当前刀',
+                  value: status.tools.where((t) => t.isCurrent).isEmpty
+                      ? null
+                      : 'T${status.tools.firstWhere((t) => t.isCurrent).index}',
+                ),
               ],
             ),
           ),

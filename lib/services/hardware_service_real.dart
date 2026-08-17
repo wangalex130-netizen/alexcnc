@@ -8,9 +8,11 @@ import 'package:mqtt_client/mqtt_server_client.dart';
 
 import '../app/config.dart';
 import '../models/broadcast_message.dart';
+import '../models/job_progress.dart';
 import '../models/machine_status.dart';
 import '../models/notify_event.dart';
 import '../models/position.dart';
+import '../models/sys_info.dart';
 import '../models/telemetry.dart';
 import '../models/tool.dart';
 import 'device_discovery.dart';
@@ -67,6 +69,10 @@ class RealHardwareService implements HardwareService {
   final _telemetryCtrl = StreamController<Telemetry>.broadcast();
   /// 系统级广播流（docs/03 §6 cnc/broadcast/msg + §7 cnc/broadcast/system）。
   final _broadcastCtrl = StreamController<BroadcastMessage>.broadcast();
+  /// 雕刻作业明细流（docs/03 §10.5 cnc/<deviceId>/job，QoS1 + retain）。
+  final _jobCtrl = StreamController<JobProgress>.broadcast();
+  /// 机器系统帧流（docs/03 §10.6 cnc/<deviceId>/sys，QoS1 + retain，上电一次）。
+  final _sysCtrl = StreamController<SysInfo>.broadcast();
   MqttServerClient? _mqtt;
   Socket? _tcp;
   bool _tcpConnected = false;
@@ -130,6 +136,14 @@ class RealHardwareService implements HardwareService {
   ///  {event:device_offline|..., deviceId, ts}
   String get mqttSystemTopic => 'cnc/broadcast/system';
 
+  /// 雕刻作业明细主题（docs/03 §10.5）：cnc/<deviceId>/job（QoS1 + retain）
+  ///  {file, line, total, percent, phase}
+  String get mqttJobProgressTopic => 'cnc/$deviceId/job';
+
+  /// 机器系统帧主题（docs/03 §10.6）：cnc/<deviceId>/sys（QoS1 + retain，上电一次）
+  ///  {id, model, fw, ip, bootAt}
+  String get mqttSysInfoTopic => 'cnc/$deviceId/sys';
+
   @override
   Stream<MachineStatus> get statusStream => _ctrl.stream;
 
@@ -144,6 +158,14 @@ class RealHardwareService implements HardwareService {
   /// 系统级广播流：UI 订阅以弹横幅/通知（与 notifyStream 分离，源自 docs/03 广播主题）。
   @override
   Stream<BroadcastMessage> get broadcastStream => _broadcastCtrl.stream;
+
+  /// 雕刻作业明细流：UI 订阅以展示行号/总行数/百分比/阶段（与 statusStream 分离）。
+  @override
+  Stream<JobProgress> get jobStream => _jobCtrl.stream;
+
+  /// 机器系统帧流：UI 订阅以展示设备信息（机型/固件/IP/在线时长）。
+  @override
+  Stream<SysInfo> get sysStream => _sysCtrl.stream;
 
   /// 连接态流：connecting / connected / disconnected，UI 订阅以显示链路状态。
   Stream<LinkState> get connectionState => _connCtrl.stream;
@@ -240,6 +262,9 @@ class RealHardwareService implements HardwareService {
         // docs/03 §6/§7 系统级广播（全局主题，任意设备发起的事件/消息）
         client.subscribe(mqttBroadcastTopic, MqttQos.atLeastOnce);
         client.subscribe(mqttSystemTopic, MqttQos.atLeastOnce);
+        // V1.1（docs/03 §10.5/§10.6）设备→服务器上行主题（QoS1 + retain）
+        client.subscribe(mqttJobProgressTopic, MqttQos.atLeastOnce);
+        client.subscribe(mqttSysInfoTopic, MqttQos.atLeastOnce);
         // 上线即发布 online（retain），覆盖 LWT 的离线态
         final ob = MqttClientPayloadBuilder();
         ob.addString(jsonEncode({'online': true}));
@@ -331,6 +356,16 @@ class RealHardwareService implements HardwareService {
         _handleSystem(payload);
         continue;
       }
+      // V1.1（docs/03 §10.5）雕刻作业明细帧：emit 到 jobStream，不进 statusStream。
+      if (ev.topic == mqttJobProgressTopic) {
+        _handleJob(payload);
+        continue;
+      }
+      // V1.1（docs/03 §10.6）机器系统帧：emit 到 sysStream，不进 statusStream。
+      if (ev.topic == mqttSysInfoTopic) {
+        _handleSys(payload);
+        continue;
+      }
       _parseAndEmit(payload);
     }
   }
@@ -391,6 +426,32 @@ class RealHardwareService implements HardwareService {
       }
     } catch (_) {
       // 非预期事件帧静默忽略
+    }
+  }
+
+  /// V1.1（docs/03 §10.5）雕刻作业明细帧解析：emit 到 jobStream。
+  /// 字段缺失安全回退 null；脏数据静默忽略。
+  void _handleJob(String payload) {
+    try {
+      final j = jsonDecode(payload) as Map<String, dynamic>;
+      if (!_jobCtrl.isClosed) {
+        _jobCtrl.add(JobProgress.fromJson(j));
+      }
+    } catch (_) {
+      // 非预期作业帧静默忽略
+    }
+  }
+
+  /// V1.1（docs/03 §10.6）机器系统帧解析：emit 到 sysStream（上电一次，retain）。
+  /// 脏数据静默忽略。
+  void _handleSys(String payload) {
+    try {
+      final j = jsonDecode(payload) as Map<String, dynamic>;
+      if (!_sysCtrl.isClosed) {
+        _sysCtrl.add(SysInfo.fromJson(j));
+      }
+    } catch (_) {
+      // 非预期系统帧静默忽略
     }
   }
 
@@ -471,10 +532,14 @@ class RealHardwareService implements HardwareService {
         }
         // 先发一次性事件（toast/横幅），再发状态联动（保留原行为）
         if (!_notifyCtrl.isClosed) {
+          final data = j['data'];
           _notifyCtrl.add(NotifyEvent(
             type: type,
             message: msg.isEmpty ? type : msg,
             at: DateTime.now(),
+            code: j['code']?.toString(),
+            data: data is Map<String, dynamic> ? data : null,
+            ts: (j['ts'] is num) ? (j['ts'] as num).toInt() : null,
           ));
         }
         _ctrl.add(notifyStatus);
@@ -671,6 +736,8 @@ class RealHardwareService implements HardwareService {
     _notifyCtrl.close();
     _telemetryCtrl.close();
     _broadcastCtrl.close();
+    _jobCtrl.close();
+    _sysCtrl.close();
     _connCtrl.close();
   }
 }
