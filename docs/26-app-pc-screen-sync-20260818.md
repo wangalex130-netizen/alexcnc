@@ -109,7 +109,8 @@
 
 | 角色 | 下一步 |
 |---|---|
-| **App（本车道 / 秦工）** | ① 改 `BroadcastMessage` + `_handleBroadcast` 支持 `gcode_url`；② 在 `CloudService` 接设备绑定/刀仓配置接口；③ 向导 Step3 接入云端 bit-config；④ 处理登录态 token。 |
+| **App（本车道 / 我，即 App 任务的 AI 助理）** | ① 改 `BroadcastMessage` + `_handleBroadcast` 支持 `gcode_url`（已推 main）；② 在 `CloudService` **调用**设备绑定/刀仓配置接口（消费秦工已部署的阿里云 API）；③ 向导 Step3 接入云端 bit-config；④ 对接登录态 token（token 由秦工后台签发，App 负责取/存/带 `Bearer`）。 |
+| **秦工（阿里云后台 / 软件）** | ① 明确并下发 `Bearer token` 的登录/获取方式，确认是否与 MQTT `app-demo` 同体系；② 提供「刀头列表接口」给 App（与闫工给屏幕的同一套）；③ 维护设备绑定/刀仓配置 REST 接口。 |
 | **MQTT 控制面（隔壁）** | 已闭环契约/ACL；待 App 端确认 §6.2 `gcode_url` 字段示例、§11 `inspect` notify 示例；后续若加 `wizard/selfcheck/interact/push` 生命周期主题需 ACL 再同步。 |
 | **PC 端（闫工）** | 给出 `cnc/broadcast/msg` 实际 payload 示例；确认 `jobId` 生成方；提供刀头列表接口给 App。 |
 | **屏幕/固件（崔工/耿工）** | 按 `docs/03 §6.2` 实现 URL 下载落 SD；按 §11 上报 `inspect` 阶段；刀仓/仓门/语音状态按 `docs/03` 进 `status`/`sys`。 |
