@@ -413,11 +413,32 @@ class RealHardwareService implements HardwareService {
   }
 
   /// docs/03 §6 系统级消息广播解析：emit 到 broadcastStream（UI 弹横幅/通知）。
+  /// 2026-08-18：区分 `gcode_url` 型广播——不弹横幅，改走 notifyStream 做中性 toast。
   void _handleBroadcast(String payload) {
     try {
       final j = jsonDecode(payload) as Map<String, dynamic>;
+      final msg = BroadcastMessage.fromMsg(j);
+      if (msg.isGcodeUrl) {
+        // PC 端下发刀路 URL：屏幕会 HTTP 下载；App 仅提示用户，不弹横幅/不污染状态。
+        if (!_notifyCtrl.isClosed) {
+          _notifyCtrl.add(NotifyEvent(
+            type: 'gcode_url',
+            message: msg.body,
+            at: DateTime.now(),
+            isAlarm: false,
+            data: {
+              if (msg.url != null) 'url': msg.url,
+              if (msg.fileName != null) 'file': msg.fileName,
+              if (msg.size != null) 'size': msg.size,
+              if (msg.checksum != null) 'checksum': msg.checksum,
+              if (msg.jobId != null) 'jobId': msg.jobId,
+            },
+          ));
+        }
+        return;
+      }
       if (!_broadcastCtrl.isClosed) {
-        _broadcastCtrl.add(BroadcastMessage.fromMsg(j));
+        _broadcastCtrl.add(msg);
       }
     } catch (_) {
       // 非预期广播帧静默忽略
