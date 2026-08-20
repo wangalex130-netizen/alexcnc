@@ -1,0 +1,98 @@
+# 30 · 配网模式变更与 App A1-A4 改造 · 四端同步通知（2026-08-20）
+
+> 发出方：App 任务（王总已确认） ｜ 接收方：屏幕端 / 摄像头端 / MQTT 端 / 阿里云端
+> 状态：App 侧已推 main 并出包（commit `799ef84`，APK `app-release-a1a4.apk`）
+> 关联：docs/29（MQTT 配合清单）、APP 端改造任务单_A1-A4.md
+
+---
+
+## 一、一句话总结
+
+**配网改为在屏幕端完成（ESP32 搜 WiFi 入网），App 不再做配网、不加蓝牙。** App 已按 A1-A4 落地「注册账号 → 扫码绑定机器码 → 我的机器列表 → 远程拉流」，拉流地址由后端绑定接口返回、不再写死。各端按本单核对各自待办即可。
+
+## 二、新配网模式（全端共识基线）
+
+```
+机器开机
+  └─ 屏幕(ESP32)搜索 WiFi → 客户输入家庭 WiFi 密码 → 屏幕入网
+        └─ 双 WiFi：屏幕连家庭网；控制板经屏幕联入同一网络（一次连接，两端上网）
+  └─ MQTT 收到「机器注册进网」信息（机器唯一码已在线）
+客户在电脑端 / App 端注册用户账号
+  └─ 扫机器唯一码（机身二维码 / 铭牌 CNC-XXXX...）→ 客户号 ↔ 机器唯一码绑定
+        └─ 形成固定「机器 ID 账户」（一客户可绑多机）
+MQTT 转发视频流服务器连上这台机器的摄像头 → 客户远程看
+```
+
+## 三、App 侧已完成（A1-A4，已推 main）
+
+| 编号 | 内容 |
+|---|---|
+| A1 | 账号：注册/登录页 + auth_service + 登录态；后端地址 `backendBaseUrl` 默认 `http://43.154.192.242:8081`；登录后 MQTT clientId 用真实 `userId` |
+| A2 | 扫码绑定：识别 `CNC-` 二维码 → `POST /api/bind`；手动输入兜底；409/404 中文提示 |
+| A3 | 我的机器列表 + 拉流解耦：`relay_url/cam_device` 由绑定接口返回，控制台/全屏/延时摄影三处统一改用，未绑定时回退原固定地址 |
+| A4 | 我的页：删除「网络配对与连接」蓝牙配网抽屉，改为「我的机器 / 注册账号 / 退出登录」，顶部显示真实账号 |
+
+## 四、各端待办
+
+### 4.1 屏幕端（嵌入式：崔工 / 耿工）
+
+1. **机器唯一码与 MQTT deviceId 的关系**：确认机身二维码/铭牌的 `CNC-XXX` 与 MQTT topic 的 `deviceId`（如 `cnc-demo-01`）**是否同一串**。若不同，需给出映射规则（`CNC-XXX ↔ cnc-xxx ↔ 摄像头 cam_device`），云端按此映射。
+2. **机器入网注册**：屏幕连上 WiFi 后，通过 MQTT 上报一次 `cnc/<deviceId>/sys`（复用 V1.1 sys 帧），确保包含 `id / model / fw / ip`，让云端知道「这台机器在线」。
+3. **机身二维码**：确保机器上有可被 App 扫描的 `CNC-` 码（屏幕显示二维码或机身铭牌），与绑定接口 `machineSn` 一致。
+4. **刀仓/设备配置接口**：保持既有 `037123.xyz` 内容面接口（设备绑定/四刀仓配置）不变，与 App「我的设备/刀具库」共用同一 `deviceCode`/`slot` 语义（见此前同步）。
+
+### 4.2 摄像头端
+
+1. **relay 推流保持**：摄像头（机器侧面固定头）继续按 `RELAY:<baseUrl>|<token>|<device>|<fps>` 向中继推 MJPEG/RTSP；App 远程拉流地址改为 `{relay_url}/stream/{cam_device}?token=...`。
+2. **cam_device 命名对齐**：确认摄像头 `cam_device`（如 `cnc-cam-01`）与绑定接口返回一致，联调占位码 `CNC-CAM01 → cnc-cam-01`。
+3. **无新增工作**：本模式不要求摄像头参与配网/绑定，保持现状即可。
+
+### 4.3 MQTT 端（隔壁）
+
+1. **机器注册进网**：确认 `cnc/<deviceId>/sys` 已承载「机器入网注册」语义（含 id/model/fw/ip）；必要时在 `docs/03` 补一段「机器入网注册」说明。
+2. **CNC 码 ↔ deviceId 映射**：与屏幕端确认后，把映射关系写入契约文档（云端按此实现 bind 查询）。
+3. **ACL 无需改动**：App 登录后 clientId 变 `app-<userId>-<唯一后缀>`，broker 按用户名（app-demo / app-<userId>）鉴权，不受影响。
+4. **系统 Push（Phase 2）**：按 docs/28 v2 推进（REST 上报 token、notify 可选 accountId、Android FCM 一期），与本单不冲突。
+
+### 4.4 阿里云端（秦工）
+
+1. **账号/绑定后端上线（8081）**：实现 5 个接口——`POST /api/register`、`POST /api/login`、`POST /api/bind`、`GET /api/my/machines`、`GET /api/auth/stream`（契约见 §五）。
+2. **账号服务维护绑定关系**：`accountId ↔ machineSn`（一客户多机）；提供 `CNC-XXX` 机器码 → `cam_device`/`relay_url` 的查询能力。
+3. **relay 鉴权**：`GET /api/auth/stream?device=&token=&user=` 供 relay 拉流前校验（未绑定返回 403，App 显示「无权限」）。
+4. **内容面保持**：设备绑定/刀仓配置（`037123.xyz/api/user/device/*`、`/api/device/bit-config/*`）继续维护，与 App/屏幕共用。
+
+## 五、App 调用的后端 API 契约（供云端实现）
+
+| 接口 | 请求 | 成功 | 失败 |
+|---|---|---|---|
+| `POST /api/register` | `{"username","password"}` | `{userId, token}` | 409 已存在 / 400 |
+| `POST /api/login` | `{"username","password"}` | `{userId, token}` | 401 |
+| `POST /api/bind` | Bearer；`{"machineSn":"CNC-..."}` | `{machine:{sn,cam_device,relay_url,online}}` | 401 / 404 / 409 已绑定 |
+| `GET /api/my/machines` | Bearer | `{machines:[...]}`（可空） | 401 |
+| `GET /api/auth/stream` | relay 调 | `{allow:true}` | 403 |
+
+> 基址默认 `http://43.154.192.242:8081`（`--dart-define=BACKEND_BASE_URL` 可覆盖）。
+
+## 六、端口与服务清单（确认项）
+
+| 项 | 地址 | 状态 |
+|---|---|---|
+| 账号/绑定后端 | `http://43.154.192.242:8081` | 待云端上线 |
+| 视频 relay | `http://43.154.192.242:8080` | 已有 |
+| MQTT broker | `43.154.192.242:8883`（TLS） | 已有 |
+| 内容面 API | `https://037123.xyz` | 已有 |
+| 机器码映射 | `CNC-XXX ↔ cnc-xxx ↔ cam_device` | 待屏幕端确认 |
+
+## 七、待确认事项（请各端回复）
+
+1. **屏幕端**：`CNC-XXX` 机器码与 MQTT `deviceId` 是否同串？映射规则是什么？
+2. **阿里云端**：8081 后端预计何时上线？`/api/auth/stream` 是否已接入 relay 校验？
+3. **摄像头端**：当前 `cam_device` 命名是否为 `cnc-cam-01`？relay 是否持续出帧？
+4. **MQTT 端**：`cnc/<deviceId>/sys` 是否可承载「入网注册」？是否需要新增主题？
+
+## 八、验收标准（对齐后全端一致）
+
+1. App 注册 → 登录 → 扫码绑定 `CNC-` 码 → 我的机器出现该机 → 远程看到画面。
+2. 未绑定该机的其他账号看不到流（403，App 显示「无权限」）。
+3. 屏幕端配网后机器自动入网注册，App 端无需任何配网操作。
+4. 延时摄影、雕刻流程、局域网直连控制不受影响。
