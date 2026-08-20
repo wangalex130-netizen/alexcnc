@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'auth_service.dart';
+import '../services/auth_service.dart';
 
 /// 登录态。
 class AuthState {
