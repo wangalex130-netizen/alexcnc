@@ -6,6 +6,7 @@ import 'package:image_gallery_saver_plus/image_gallery_saver_plus.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/config.dart';
+import '../../services/machines_service.dart';
 import 'mjpeg_stream_player.dart';
 
 /// 外网（中继 MJPEG）全屏横屏实时监控预览。
@@ -14,10 +15,13 @@ import 'mjpeg_stream_player.dart';
 /// [MjpegStreamPlayer.onFrame] 缓存最新一帧，提供「截图」按钮把当前帧
 /// 经 [ImageGallerySaverPlus] 直接写入系统相册（根治「保存后找不到文件」痛点）。
 class FullscreenPreviewPage extends StatefulWidget {
-  /// 流地址；缺省时回退到配置的香港中继地址。
+  /// 流地址；缺省时回退到绑定机器的 relay/cam，再回退配置的香港中继地址。
   final String? url;
 
-  const FullscreenPreviewPage({super.key, this.url});
+  /// 当前绑定机器（A3 拉流解耦：relay_url/cam_device 由后端返回）。
+  final Machine? machine;
+
+  const FullscreenPreviewPage({super.key, this.url, this.machine});
 
   @override
   State<FullscreenPreviewPage> createState() => _FullscreenPreviewPageState();
@@ -28,10 +32,15 @@ class _FullscreenPreviewPageState extends State<FullscreenPreviewPage> {
   bool _saving = false;
   String? _toast;
 
-  String get _streamUrl =>
-      widget.url ??
-      '${AppConfig.cameraRelayBaseUrl}/stream/${AppConfig.cameraRelayDevice}'
-          '?token=${AppConfig.cameraRelayToken}';
+  String get _streamUrl {
+    if (widget.url != null && widget.url!.isNotEmpty) return widget.url!;
+    final m = widget.machine;
+    if (m != null && m.camDevice.isNotEmpty && m.relayUrl.isNotEmpty) {
+      return m.streamUrl(AppConfig.cameraRelayToken);
+    }
+    return '${AppConfig.cameraRelayBaseUrl}/stream/${AppConfig.cameraRelayDevice}'
+        '?token=${AppConfig.cameraRelayToken}';
+  }
 
   @override
   void initState() {

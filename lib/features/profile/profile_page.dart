@@ -1,21 +1,26 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
+import '../../state/auth_provider.dart';
+import '../auth/login_page.dart';
+import '../auth/register_page.dart';
+import '../machines/machines_page.dart';
 import '../preview/timelapse_gallery_page.dart';
 import '../settings/debug_settings_page.dart';
 
 /// Core 5: personal hub & device manager.
 /// Strictly aligned to 我的页面.html —— 荧光绿 #00ff7f / 纯黑底 / 线性图标 / 原名。
-class ProfilePage extends StatefulWidget {
+class ProfilePage extends ConsumerStatefulWidget {
   const ProfilePage({super.key});
 
   @override
-  State<ProfilePage> createState() => _ProfilePageState();
+  ConsumerState<ProfilePage> createState() => _ProfilePageState();
 }
 
-class _ProfilePageState extends State<ProfilePage> {
+class _ProfilePageState extends ConsumerState<ProfilePage> {
   bool _pushComplete = true; // 允许推送设备完成状态
   bool _pushAlert = true; // 允许推送硬件异常告警
 
@@ -28,13 +33,40 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  /// 进入登录/注册页；成功后刷新（顶部显示真实账号）。
+  Future<void> _goLogin() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const LoginPage()),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _goRegister() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const RegisterPage()),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _goMachines() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const MachinesPage()),
+    );
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
+    final auth = ref.watch(authProvider);
+    final loggedIn = auth.isLoggedIn;
+    final username = auth.username?.isNotEmpty == true
+        ? auth.username!
+        : (auth.userId ?? '未登录');
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
       children: [
-        // 用户信息头（蓝 U 头像）
+        // 用户信息头（登录态真实账号；未登录显示登录/注册入口）
         Container(
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
@@ -46,44 +78,69 @@ class _ProfilePageState extends State<ProfilePage> {
             children: [
               CircleAvatar(
                 radius: 30,
-                backgroundColor: CncColors.blue,
-                child: const Text('U',
-                    style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white)),
+                backgroundColor:
+                    loggedIn ? CncColors.blue : CncColors.textSub,
+                child: Text(
+                  loggedIn
+                      ? (username.isEmpty
+                          ? 'U'
+                          : username[0].toUpperCase())
+                      : '?',
+                  style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white),
+                ),
               ),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('User_9527',
+                    Text(loggedIn ? username : '未登录',
                         style: t.titleLarge
                             ?.copyWith(color: CncColors.textMain)),
                     const SizedBox(height: 4),
-                    const Text('Cloud ID: CNC-A8F9-2026',
-                        style: TextStyle(
-                            fontSize: 11, color: CncColors.textSub)),
+                    Text(
+                      loggedIn
+                          ? 'Cloud ID: ${auth.userId}'
+                          : '登录后可扫码绑定你的雕刻机',
+                      style: const TextStyle(
+                          fontSize: 11, color: CncColors.textSub),
+                    ),
                   ],
                 ),
               ),
-              const Icon(Symbols.settings, size: 22, color: CncColors.textMain),
+              if (!loggedIn)
+                TextButton(
+                  onPressed: _goLogin,
+                  child: const Text('登录',
+                      style: TextStyle(
+                          color: CncColors.primaryInk,
+                          fontWeight: FontWeight.bold)),
+                ),
             ],
           ),
         ),
         const SizedBox(height: 18),
 
-        // 模块 1：设备与网络
+        // 模块 1：设备与网络（配网在屏幕端完成，App 只做绑定/查看，无蓝牙配网）
         _SectionTitle('设备与网络'),
         _MenuGroup(
           children: [
+            if (!loggedIn) ...[
+              _MenuItem(
+                icon: Symbols.person_add,
+                title: '注册账号',
+                onTap: _goRegister,
+              ),
+            ],
             _MenuItem(
-              icon: Symbols.wifi,
-              title: '网络配对与连接',
-              trailing: const Text('已连 Wi-Fi',
+              icon: Symbols.sensors,
+              title: '我的机器',
+              trailing: const Text('扫码绑定 · 远程看',
                   style: TextStyle(fontSize: 12, color: CncColors.primaryInk)),
-              onTap: () => _openSheet(const _PairingSheet()),
+              onTap: _goMachines,
             ),
             _MenuItem(
               icon: Symbols.system_update,
@@ -178,6 +235,47 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           ],
         ),
+        // 模块 4：账号（仅登录后显示退出登录）
+        if (loggedIn) ...[
+          const SizedBox(height: 18),
+          _MenuGroup(
+            children: [
+              _MenuItem(
+                icon: Symbols.logout,
+                title: '退出登录',
+                trailing: const Icon(Symbols.chevron_right,
+                    color: CncColors.textSub),
+                onTap: () async {
+                  final ok = await showDialog<bool>(
+                    context: context,
+                    builder: (_) => AlertDialog(
+                      backgroundColor: CncColors.card,
+                      title: const Text('退出登录',
+                          style: TextStyle(color: CncColors.textMain)),
+                      content: const Text('确定要退出当前账号吗？',
+                          style: TextStyle(color: CncColors.textSub)),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: const Text('取消'),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          child: const Text('退出',
+                              style: TextStyle(color: CncColors.danger)),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (ok == true && mounted) {
+                    await ref.read(authProvider.notifier).logout();
+                    if (mounted) setState(() {});
+                  }
+                },
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }
@@ -341,132 +439,7 @@ class _SheetFrame extends StatelessWidget {
       );
 }
 
-// ===================== 抽屉 1：网络配对 =====================
-
-class _PairingSheet extends StatelessWidget {
-  const _PairingSheet();
-  @override
-  Widget build(BuildContext context) => _SheetFrame(
-        title: '配置机器网络',
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Center(
-              child: Column(
-                children: [
-                  Icon(Symbols.wifi, size: 48, color: CncColors.primary),
-                  SizedBox(height: 10),
-                  Text('当前连接：Smart_Studio_5G',
-                      style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: CncColors.textMain)),
-                  SizedBox(height: 4),
-                  Text('IP: 192.168.1.105',
-                      style: TextStyle(
-                          fontSize: 11, color: CncColors.textSub)),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(15),
-              decoration: BoxDecoration(
-                color: CncColors.bg,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: CncColors.border),
-              ),
-              child: const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('重新配置网络 (蓝牙模式)',
-                      style: TextStyle(
-                          fontSize: 12, color: CncColors.textSub)),
-                  SizedBox(height: 8),
-                  _PasswordField(),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            const _SendConfigButton(),
-          ],
-        ),
-      );
-}
-
-class _PasswordField extends StatelessWidget {
-  const _PasswordField();
-  @override
-  Widget build(BuildContext context) => TextField(
-        obscureText: true,
-        style: const TextStyle(color: CncColors.textMain),
-        decoration: InputDecoration(
-          hintText: '输入新 Wi-Fi 密码...',
-          hintStyle: const TextStyle(color: CncColors.textSub),
-          filled: true,
-          fillColor: CncColors.bg,
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(color: CncColors.border),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(color: CncColors.border),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(color: CncColors.primary),
-          ),
-        ),
-      );
-}
-
-class _SendConfigButton extends StatefulWidget {
-  const _SendConfigButton();
-  @override
-  State<_SendConfigButton> createState() => _SendConfigButtonState();
-}
-
-class _SendConfigButtonState extends State<_SendConfigButton> {
-  String _label = '下发配置至机器';
-  bool _busy = false;
-  void _onTap() {
-    if (_busy) return;
-    setState(() {
-      _busy = true;
-      _label = '正在通过蓝牙下发...';
-    });
-    Future.delayed(const Duration(milliseconds: 1500), () {
-      if (!mounted) return;
-      setState(() => _label = '网络已重新连接');
-      Future.delayed(const Duration(milliseconds: 1000), () {
-        if (mounted) Navigator.pop(context);
-      });
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-        width: double.infinity,
-        child: FilledButton(
-          onPressed: _onTap,
-          style: FilledButton.styleFrom(
-            backgroundColor: CncColors.primary,
-            foregroundColor: Colors.black,
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12)),
-          ),
-          child: Text(_label,
-              style: const TextStyle(
-                  fontSize: 14, fontWeight: FontWeight.bold)),
-        ),
-      );
-}
-
-// ===================== 抽屉 2：OTA 升级 =====================
+// ===================== 抽屉 1：OTA 升级 =====================
 
 class _OtaSheet extends StatelessWidget {
   const _OtaSheet();

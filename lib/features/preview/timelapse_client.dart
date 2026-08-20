@@ -14,13 +14,25 @@ import '../../app/config.dart';
 /// 抽样存到服务器、雕刻结束（或时长到点）后用 ffmpeg 拼接成 15s 视频。
 /// 手机/电脑/机器本身都不存照片，全部在服务器完成。
 ///
-/// 与 AppConfig 中继配置共用同一套 baseUrl/token/device。
+/// 与 AppConfig 中继配置共用同一套 baseUrl/token/device；绑定机器后
+/// 可经 [configure] 覆盖为中继地址/摄像头设备（A3 拉流解耦）。
 class TimeLapseClient {
   TimeLapseClient._();
 
-  static String get _base => AppConfig.cameraRelayBaseUrl;
-  static String get _token => AppConfig.cameraRelayToken;
-  static String get _device => AppConfig.cameraRelayDevice;
+  static String? _overrideBase;
+  static String? _overrideToken;
+  static String? _overrideDevice;
+
+  /// 绑定机器后调用，覆盖中继 base/token/device（传 null 恢复 AppConfig 默认）。
+  static void configure({String? base, String? token, String? device}) {
+    _overrideBase = base;
+    _overrideToken = token;
+    _overrideDevice = device;
+  }
+
+  static String get _base => _overrideBase ?? AppConfig.cameraRelayBaseUrl;
+  static String get _token => _overrideToken ?? AppConfig.cameraRelayToken;
+  static String get _device => _overrideDevice ?? AppConfig.cameraRelayDevice;
 
   /// 开始一次延时摄影。返回 jobId；失败返回 null。
   static Future<String?> start({

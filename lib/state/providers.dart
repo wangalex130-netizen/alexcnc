@@ -19,13 +19,24 @@ import '../services/cloud_service_real.dart';
 import '../services/hardware_service.dart';
 import '../services/hardware_service_mock.dart';
 import '../services/hardware_service_real.dart';
+import '../services/machines_service.dart';
 import '../services/network_auth.dart';
+import 'auth_provider.dart';
+
+/// 当前选中的绑定机器（A3 拉流解耦：relay/cam 由后端返回，不写死）。
+/// 登录/绑定/我的机器页选择后写入；null = 未选（回退 runtime_config 调试地址）。
+final currentMachineProvider =
+    StateProvider<Machine?>((ref) => null);
 
 /// Live controller binding. 默认用 Mock；构建时传 USE_REAL_BACKEND=true 接真机。
 /// 运行时联调设置（RuntimeConfig）可覆盖地址、设备 ID，保存后本 provider 自动
 /// 重建服务并触发重连，无需重新出包。
 final hardwareServiceProvider = Provider<HardwareService>((ref) {
   final cfg = ref.watch(runtimeConfigProvider);
+  // A1：登录后 MQTT clientId 用真实 userId（app-<userId>-<唯一后缀>）；
+  // 未登录用运行时配置/默认 'demo' 兜底，保证未登录也能跑本地调试。
+  final auth = ref.watch(authProvider);
+  final appUserId = auth.isLoggedIn ? auth.userId! : cfg.resolvedAppUserId;
   final HardwareService svc;
   if (cfg.resolvedUseRealBackend) {
     final r = RealHardwareService(
@@ -36,7 +47,7 @@ final hardwareServiceProvider = Provider<HardwareService>((ref) {
       deviceId: cfg.resolvedDeviceId,
       tcpHost: cfg.resolvedDeviceTcpHost,
       tcpPort: cfg.resolvedDeviceTcpPort,
-      appUserId: cfg.resolvedAppUserId,
+      appUserId: appUserId,
       cloudEnabled: true, // 启用云端 MQTT（否则 App 不连 broker，只走局域网）
     );
     r.connect(); // P0 根因：缺失 connect()，MQTT/TCP 从未建立，外网命令与状态订阅全部失效

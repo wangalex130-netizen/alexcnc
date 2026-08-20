@@ -134,6 +134,17 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     }
   }
 
+  /// 远程监视拉流地址（A3 解耦）：
+  /// 优先当前绑定机器的 relay_url + cam_device；未绑定回退 runtime_config 固定地址。
+  String _resolvedRelayUrl(RuntimeConfig cfg) {
+    final m = ref.read(currentMachineProvider);
+    if (m != null && m.relayUrl.isNotEmpty && m.camDevice.isNotEmpty) {
+      return m.streamUrl(cfg.resolvedCameraRelayToken);
+    }
+    return '${cfg.resolvedCameraRelayBaseUrl}/stream/${cfg.resolvedCameraRelayDevice}'
+        '?token=${cfg.resolvedCameraRelayToken}';
+  }
+
   /// 轮询服务器，更新当前延时摄影 job 的状态（采集中 / 视频已生成 / 失败）。
   Future<void> _pollTimeLapse() async {
     final jobId = ref.read(timeLapseJobProvider);
@@ -227,13 +238,15 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
             children: [
               // 机器侧面固定头：纯裸画面（无叠加层），默认用配置里的固定地址，
               // 自动发现作为兜底（见 lib/features/preview/ ）。
+              // A3 拉流解耦：优先用「当前绑定机器」后端返回的 relay_url/cam_device；
+              // 未绑定/调试期回退 runtime_config 固定地址。
               SizedBox(
                 height: 220,
                 child: RtspPreviewWidget(
                   rtspUrl: isLocal ? cfg.resolvedCameraRtsp : null,
                   relayUrl: isLocal
                       ? null
-                      : '${cfg.resolvedCameraRelayBaseUrl}/stream/${cfg.resolvedCameraRelayDevice}?token=${cfg.resolvedCameraRelayToken}',
+                      : _resolvedRelayUrl(cfg),
                 ),
               ),
               Positioned(
@@ -318,7 +331,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     onTap: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(
-                          builder: (_) => const FullscreenPreviewPage(),
+                          builder: (_) => FullscreenPreviewPage(
+                            machine: ref.read(currentMachineProvider),
+                          ),
                         ),
                       );
                     },

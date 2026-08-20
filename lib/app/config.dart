@@ -45,6 +45,14 @@ class AppConfig {
   static const bool useRealBackend =
       bool.fromEnvironment('USE_REAL_BACKEND', defaultValue: false);
 
+  // ---- 账号/绑定后端（A1-A4：注册登录 / 扫码绑定 / 我的机器）----
+  // 与 cameraRelayBaseUrl 同机不同端口。配网在屏幕端完成，App 不配网、不加蓝牙。
+  // --dart-define=BACKEND_BASE_URL=... 可覆盖。
+  static const String backendBaseUrl = String.fromEnvironment(
+    'BACKEND_BASE_URL',
+    defaultValue: 'http://43.154.192.242:8081',
+  );
+
   // ---- 云端（材质主表 / 任务元数据 / G-code 推送）----
   static const String cloudBaseUrl = String.fromEnvironment(
     'CLOUD_BASE_URL',
