@@ -1,24 +1,45 @@
 # 31 · 固件升级页面落地说明（App OTA）
 
 > 日期：2026-08-20 ｜ 作者：App 任务 ｜ 对应任务单：APP端任务单_OTA升级页面.md
-> 状态：已推 main ｜ 本轮只接 camera（服务已就绪）；screen/board 页面预留
+> 状态：已推 main ｜ 本轮只接 camera（服务已就绪）；screen/board 服务未上线
+> 更新（19:34）：按王总产品意见改为**单入口**——客户不感知设备分类，整机一个升级口
 
 ## 一、做了什么
 
 | 文件 | 动作 | 内容 |
 |---|---|---|
-| `lib/features/firmware/firmware_models.dart` | 新增 | `FwDeviceType`（camera/screen/board，含通俗名与升级顺序）、`FwDeviceStatus`（cur/latest/available/changelog + 本地状态机 phase）、`FwPhase` |
+| `lib/features/firmware/firmware_models.dart` | 新增 | `FwDeviceType`（camera/screen/board，内部用）、`FwDeviceStatus`（cur/latest/available/changelog + 本地状态机 phase）、`FwPhase` |
 | `lib/features/firmware/firmware_service.dart` | 新增 | 查版本 `GET /fw/<type>/latest?cur=`；同网摄像头 `discoverCameraIp()`（复用 RTSP 发现解析 IP）、`triggerCameraUpgrade`（/ota/check + /ota/do）、`pollCameraStatus`（/ota/status，state: 0空闲 1检查 2下载中 3完成 -1失败） |
-| `lib/features/firmware/firmware_page.dart` | 新增 | 固件升级聚合页：机器信息条 + 设备卡片（摄像头/控制屏幕/主板）+ 提醒条 + 一键升级；状态机检查中→可升级/已最新→升级中→已最新/失败重试；确认弹窗固定文案；外网提示「请连接与设备相同的 WiFi 后升级」 |
+| `lib/features/firmware/firmware_page.dart` | 新增 | **单入口固件升级页**：整机状态主卡（发现新版本 vX / 固件已是最新）+ 更新内容弹层（版本号+更新日志）+ 一键升级；状态机检查中→可升级/已最新→升级中→已最新/失败重试；确认弹窗固定文案；外网提示「请连接与设备相同的 WiFi 后升级」 |
 | `lib/app/config.dart` | 修改 | 新增 `fwBaseUrl`（默认 `http://43.154.192.242:8090`，`--dart-define=FW_BASE_URL=` 可覆盖） |
 | `lib/features/profile/profile_page.dart` | 修改 | 「固件 OTA 升级」假抽屉（模拟进度）→ 删除，改为真实跳转「固件升级」页 |
 
-## 二、本轮边界（按任务单）
+## 一·五、产品形态（单入口，客户无设备概念）
+
+```
+固件升级                        [检查更新]
+我的机器 CNC-14C19F2D661C · 在线
+┌─────────────────────────────────┐
+│      ◉                            │
+│   发现新版本 v1.10.0              │
+│   当前版本 v1.9.0                │
+│   查看更新内容                    │
+└─────────────────────────────────┘
+⚠ 升级期间设备会短暂离线（约 1-2 分钟），请勿断电
+[ 一键升级 ]
+```
+
+- 客户只看到「新版本号 + 更新内容 + 一键升级」，**不出现摄像头/控制屏幕/主板任何分类**。
+- 点「查看更新内容」→ 弹层：新版本号 + 聚合更新日志 + 「立即升级」。
+- 内部仍按设备逐个查询/升级（控制屏幕→主板→摄像头），UI 只显示整体进度「正在升级 1/2」。
+- 无更新 → 「固件已是最新版本」+ 按钮置灰；失败 → 「升级未完成，点击重试」。
+
+## 二、本轮边界（按任务单 + 单入口改造）
 
 - ✅ 摄像头链路已接：查版本走 fw_server:8090，触发升级走同网 `/ota/do`，状态轮询 `/ota/status`。
-- ⏸ screen/board：服务未上线，卡片按结构预留（显示「已是最新」占位），服务上线后填地址即可。
+- ⏸ screen/board：服务未上线，内部占位无更新；服务上线后填地址即可自动并入「一键升级」，App 代码不用大改。
 - ❌ 不做外网远程升级（摄像头无 MQTT 通道）；不做自动升级。
-- ❌ UI 无 camera/screen/board 英文词，只用通俗名「摄像头 / 控制屏幕 / 主板」。
+- ❌ UI 全程无 camera/screen/board 英文词，也无设备分类。
 
 ## 三、需要摄像头端确认/注意
 
