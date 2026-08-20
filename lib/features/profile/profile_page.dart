@@ -7,6 +7,7 @@ import '../../app/theme.dart';
 import '../../state/auth_provider.dart';
 import '../auth/login_page.dart';
 import '../auth/register_page.dart';
+import '../firmware/firmware_page.dart';
 import '../machines/machines_page.dart';
 import '../preview/timelapse_gallery_page.dart';
 import '../settings/debug_settings_page.dart';
@@ -144,20 +145,14 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
             ),
             _MenuItem(
               icon: Symbols.system_update,
-              title: '固件 OTA 升级',
-              trailing: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                decoration: BoxDecoration(
-                    color: CncColors.danger,
-                    borderRadius: BorderRadius.circular(10)),
-                child: const Text('有新版本',
-                    style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white)),
+              title: '固件升级',
+              trailing: const Text('摄像头/控制屏幕/主板',
+                  style: TextStyle(fontSize: 12, color: CncColors.textSub)),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const FirmwarePage()),
               ),
-              onTap: () => _openSheet(const _OtaSheet()),
             ),
           ],
         ),
@@ -439,143 +434,6 @@ class _SheetFrame extends StatelessWidget {
       );
 }
 
-// ===================== 抽屉 1：OTA 升级 =====================
-
-class _OtaSheet extends StatelessWidget {
-  const _OtaSheet();
-  @override
-  Widget build(BuildContext context) => _SheetFrame(
-        title: '主板固件升级 (OTA)',
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(15),
-              decoration: BoxDecoration(
-                color: CncColors.primary.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                    color: CncColors.primary.withOpacity(0.3)),
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: const [
-                      Text('当前版本: v1.2.0',
-                          style: TextStyle(
-                              fontSize: 12, color: CncColors.textSub)),
-                      Text('新版本: v1.3.5',
-                          style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: CncColors.primaryInk)),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  const Text('更新日志：',
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: CncColors.textMain)),
-                  const SizedBox(height: 4),
-                  const Text('• 优化了 ATC 抓刀算法，换刀速度提升 15%\n'
-                      '• 修复了长时间雕刻时偶发的 Z 轴丢步报错\n'
-                      '• 新增支持 14 种新耗材预设参数',
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: CncColors.textSub,
-                          height: 1.6)),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            const _OtaProgressButton(),
-            const SizedBox(height: 6),
-            const Text('升级期间机器将重启，请勿断开主电源',
-                style: TextStyle(fontSize: 10, color: CncColors.textSub),
-                textAlign: TextAlign.center),
-          ],
-        ),
-      );
-}
-
-class _OtaProgressButton extends StatefulWidget {
-  const _OtaProgressButton();
-  @override
-  State<_OtaProgressButton> createState() => _OtaProgressButtonState();
-}
-
-class _OtaProgressButtonState extends State<_OtaProgressButton> {
-  bool _running = false;
-  double _progress = 0;
-  void _start() {
-    if (_running) return;
-    setState(() => _running = true);
-    Timer.periodic(const Duration(milliseconds: 300), (timer) {
-      _progress += 10;
-      if (mounted) setState(() {});
-      if (_progress >= 100) {
-        timer.cancel();
-        if (mounted) {
-          showDialog(
-            context: context,
-            builder: (_) => AlertDialog(
-              backgroundColor: CncColors.card,
-              title: const Text('固件已刷入',
-                  style: TextStyle(color: CncColors.textMain)),
-              content: const Text('机器正在重启，请稍候...',
-                  style: TextStyle(color: CncColors.textSub)),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('好的'))
-              ],
-            ),
-          );
-          Future.delayed(const Duration(milliseconds: 600), () {
-            if (mounted) Navigator.pop(context);
-          });
-        }
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) => Column(
-        children: [
-          if (_running)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: LinearProgressIndicator(
-                value: _progress / 100,
-                backgroundColor: CncColors.bg,
-                color: CncColors.primary,
-                minHeight: 8,
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: _running ? null : _start,
-              style: FilledButton.styleFrom(
-                backgroundColor: CncColors.primary,
-                foregroundColor: Colors.black,
-                disabledBackgroundColor: CncColors.border,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-              ),
-              child: Text(
-                  _running ? '刷入中 ${_progress.toInt()}%' : '一键下载并刷入机器',
-                  style: const TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.bold)),
-            ),
-          ),
-        ],
-      );
-}
 
 // ===================== 抽屉 3：消息与告警 =====================
 

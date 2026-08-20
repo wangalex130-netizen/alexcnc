@@ -53,6 +53,14 @@ class AppConfig {
     defaultValue: 'http://43.154.192.242:8081',
   );
 
+  // ---- 固件升级（OTA，docs/31）----
+  // 固件托管服务：与 cameraRelayBaseUrl 同机不同端口（8090）。
+  // 本轮只接 camera（服务已就绪）；screen/board 上线后填地址即可，App 代码不用大改。
+  static const String fwBaseUrl = String.fromEnvironment(
+    'FW_BASE_URL',
+    defaultValue: 'http://43.154.192.242:8090',
+  );
+
   // ---- 云端（材质主表 / 任务元数据 / G-code 推送）----
   static const String cloudBaseUrl = String.fromEnvironment(
     'CLOUD_BASE_URL',
