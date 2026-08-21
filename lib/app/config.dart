@@ -46,11 +46,13 @@ class AppConfig {
       bool.fromEnvironment('USE_REAL_BACKEND', defaultValue: false);
 
   // ---- 账号/绑定后端（A1-A4：注册登录 / 扫码绑定 / 我的机器）----
-  // 与 cameraRelayBaseUrl 同机不同端口。配网在屏幕端完成，App 不配网、不加蓝牙。
+  // 2026-08-21 对齐 PC 工程师《安卓用户登陆接口》：账号服务挂在内容面同域名
+  // https://037123.xyz（/api/auth/* 命名空间），不再走独立 8081 端口。
+  // 配网在屏幕端完成，App 不配网、不加蓝牙。
   // --dart-define=BACKEND_BASE_URL=... 可覆盖。
   static const String backendBaseUrl = String.fromEnvironment(
     'BACKEND_BASE_URL',
-    defaultValue: 'http://43.154.192.242:8081',
+    defaultValue: 'https://037123.xyz',
   );
 
   // ---- 固件升级（OTA，docs/31）----

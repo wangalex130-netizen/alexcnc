@@ -5,7 +5,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../app/theme.dart';
 import '../../state/auth_provider.dart';
 
-/// 注册页：用户名 + 密码 + 确认密码 → 注册 → 成功后直接进入已登录态。
+/// 注册页：邮箱 + 密码 + 确认密码 → 注册 → 成功后直接进入已登录态。
 class RegisterPage extends ConsumerStatefulWidget {
   const RegisterPage({super.key});
 
@@ -32,8 +32,8 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
     final u = _username.text.trim();
     final p = _password.text;
     final c = _confirm.text;
-    if (u.length < 4 || u.length > 32) {
-      setState(() => _error = '用户名需 4-32 位');
+    if (u.isEmpty || !u.contains('@')) {
+      setState(() => _error = '请输入正确的邮箱地址');
       return;
     }
     if (p.length < 6 || p.length > 64) {
@@ -88,7 +88,9 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
               ),
               const SizedBox(height: 28),
               _Field(controller: _username,
-                  icon: Symbols.person, hint: '用户名（4-32 位）'),
+                  icon: Symbols.person,
+                  hint: '邮箱（name@example.com）',
+                  keyboardType: TextInputType.emailAddress),
               const SizedBox(height: 14),
               _Field(
                 controller: _password,
@@ -127,11 +129,13 @@ class _Field extends StatelessWidget {
   final IconData icon;
   final String hint;
   final bool obscure;
+  final TextInputType? keyboardType;
   const _Field(
       {required this.controller,
       required this.icon,
       required this.hint,
-      this.obscure = false});
+      this.obscure = false,
+      this.keyboardType});
 
   @override
   Widget build(BuildContext context) => Container(
@@ -149,6 +153,7 @@ class _Field extends StatelessWidget {
               child: TextField(
                 controller: controller,
                 obscureText: obscure,
+                keyboardType: keyboardType,
                 style: const TextStyle(
                     color: CncColors.textMain, fontSize: 14),
                 decoration: InputDecoration(

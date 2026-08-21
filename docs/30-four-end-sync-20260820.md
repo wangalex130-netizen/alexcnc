@@ -27,8 +27,8 @@ MQTT 转发视频流服务器连上这台机器的摄像头 → 客户远程看
 
 | 编号 | 内容 |
 |---|---|
-| A1 | 账号：注册/登录页 + auth_service + 登录态；后端地址 `backendBaseUrl` 默认 `http://43.154.192.242:8081`；登录后 MQTT clientId 用真实 `userId` |
-| A2 | 扫码绑定：识别 `CNC-` 二维码 → `POST /api/bind`；手动输入兜底；409/404 中文提示 |
+| A1 | 账号：注册/登录页 + auth_service + 登录态；后端地址 `backendBaseUrl` 默认 `https://037123.xyz`（2026-08-21 对齐 PC 工程师接口，账号服务挂内容面域名）；登录后 MQTT clientId 用真实 `userId` |
+| A2 | 扫码绑定：识别 `CNC-` 二维码 → `POST /api/auth/bind`；手动输入兜底；409/404 中文提示 |
 | A3 | 我的机器列表 + 拉流解耦：`relay_url/cam_device` 由绑定接口返回，控制台/全屏/延时摄影三处统一改用，未绑定时回退原固定地址 |
 | A4 | 我的页：删除「网络配对与连接」蓝牙配网抽屉，改为「我的机器 / 注册账号 / 退出登录」，顶部显示真实账号 |
 
@@ -56,7 +56,7 @@ MQTT 转发视频流服务器连上这台机器的摄像头 → 客户远程看
 
 ### 4.4 阿里云端（秦工）
 
-1. **账号/绑定后端上线（8081）**：实现 5 个接口——`POST /api/register`、`POST /api/login`、`POST /api/bind`、`GET /api/my/machines`、`GET /api/auth/stream`（契约见 §五）。
+1. **账号/绑定后端上线（挂 037123.xyz /api/auth/*）**：实现 5 个接口——`POST /api/auth/register`、`POST /api/auth/android/login`、`POST /api/auth/bind`、`GET /api/auth/my/machines`、`GET /api/auth/stream`（契约见 §五；登录接口已由 PC 工程师文档确认，其余为方案 A 假设待确认）。
 2. **账号服务维护绑定关系**：`accountId ↔ machineSn`（一客户多机）；提供 `CNC-XXX` 机器码 → `cam_device`/`relay_url` 的查询能力。
 3. **relay 鉴权**：`GET /api/auth/stream?device=&token=&user=` 供 relay 拉流前校验（未绑定返回 403，App 显示「无权限」）。
 4. **内容面保持**：设备绑定/刀仓配置（`037123.xyz/api/user/device/*`、`/api/device/bit-config/*`）继续维护，与 App/屏幕共用。
@@ -103,30 +103,33 @@ App ──3.请求拉流(带token)──► 中继服务器
 
 ## 五、App 调用的后端 API 契约（供云端实现）
 
+> 2026-08-21 更新：账号接口统一挂 `/api/auth/*` 前缀、基址 `https://037123.xyz`（PC 工程师《安卓用户登陆接口.docx》确认登录接口，其余路径为方案 A 假设，待 PC 工程师确认后微调）。
+
 | 接口 | 请求 | 成功 | 失败 |
 |---|---|---|---|
-| `POST /api/register` | `{"username","password"}` | `{userId, token}` | 409 已存在 / 400 |
-| `POST /api/login` | `{"username","password"}` | `{userId, token}` | 401 |
-| `POST /api/bind` | Bearer；`{"machineSn":"CNC-..."}` | `{machine:{sn,cam_device,relay_url,online}}` | 401 / 404 / 409 已绑定 |
-| `GET /api/my/machines` | Bearer | `{machines:[...]}`（可空） | 401 |
+| `POST /api/auth/register` | `{"email","password"}`（密码加密） | `{userId, token}` | 409 已存在 / 400 |
+| `POST /api/auth/android/login` | `{"email","password"}`（密码加密） | `{userId, token}` | 401 |
+| `POST /api/auth/bind` | Bearer；`{"machineSn":"CNC-..."}` | `{machine:{sn,cam_device,relay_url,online}}` | 401 / 404 / 409 已绑定 |
+| `GET /api/auth/my/machines` | Bearer | `{machines:[...]}`（可空） | 401 |
 | `GET /api/auth/stream` | relay 调 | `{allow:true}` | 403 |
 
-> 基址默认 `http://43.154.192.242:8081`（`--dart-define=BACKEND_BASE_URL` 可覆盖）。
+> 基址默认 `https://037123.xyz`（`--dart-define=BACKEND_BASE_URL` 可覆盖）。
+> 密码加密：密钥由刘昊霖（Myers）提供，App 端 `AuthService.encryptPassword` 已留接口，密钥到位前明文联调。
 
 ## 六、端口与服务清单（确认项）
 
 | 项 | 地址 | 状态 |
 |---|---|---|
-| 账号/绑定后端 | `http://43.154.192.242:8081` | 待云端上线 |
+| 账号/绑定后端 | `https://037123.xyz`（/api/auth/*） | 登录接口 PC 已确认；其余待确认 |
 | 视频 relay | `http://43.154.192.242:8080` | 已有 |
 | MQTT broker | `43.154.192.242:8883`（TLS） | 已有 |
-| 内容面 API | `https://037123.xyz` | 已有 |
+| 内容面 API | `https://037123.xyz` | 已有（与账号服务同域） |
 | 机器码映射 | `CNC-XXX ↔ cnc-xxx ↔ cam_device` | 待屏幕端确认 |
 
 ## 七、待确认事项（请各端回复）
 
 1. **屏幕端**：`CNC-XXX` 机器码与 MQTT `deviceId` 是否同串？映射规则是什么？
-2. **阿里云端**：8081 后端预计何时上线？`/api/auth/stream` 是否已接入 relay 校验？
+2. **阿里云端（PC 工程师）**：`/api/auth/*` 其余 4 个接口路径是否如方案 A 假设（register/bind/my-machines/stream）？登录返回字段（userId/token）？密码加密密钥（Myers）何时下发？`/api/auth/stream` 是否已接入 relay 校验？
 3. **摄像头端**：当前 `cam_device` 命名是否为 `cnc-cam-01`？relay 是否持续出帧？
 4. **MQTT 端**：`cnc/<deviceId>/sys` 是否可承载「入网注册」？是否需要新增主题？
 

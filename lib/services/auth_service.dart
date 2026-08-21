@@ -7,12 +7,14 @@ import '../app/config.dart';
 
 /// 账号服务：注册 / 登录 / 登出 / 会话恢复。
 ///
-/// 契约见 docs/26 §3（后端 API 契约）：
-/// - `POST /api/register`  `{"username","password"}` → `{userId, token}`
-/// - `POST /api/login`     `{"username","password"}` → `{userId, token}`
+/// 契约 2026-08-21 对齐 PC 工程师《安卓用户登陆接口.docx》：
+/// - `POST {base}/api/auth/android/login`  `{"email","password"}` → code=200 + 用户信息
+/// - `POST {base}/api/auth/register`        `{"email","password"}` → code=200 + 用户信息
+///   （register 路径为方案 A 假设，PC 工程师后续确认后微调）
+/// - 密码需加密后传参，加密密钥由刘昊霖（Myers）提供；密钥到位前先用明文联调。
+/// - 登录成功后 token 存本地，后续所有接口 `Authorization: Bearer <token>`（Bearer 后带空格）。
 ///
-/// token/userId 持久化到 SharedPreferences；注册成功即自动登录（返回同 login）。
-/// 错误按失败响应解析并抛出带中文信息的异常（如「用户名已存在」）。
+/// token/userId 持久化到 SharedPreferences（后续升级 flutter_secure_storage）。
 class AuthService {
   AuthService({http.Client? client, String? baseUrl})
       : _client = client ?? http.Client(),
@@ -25,54 +27,80 @@ class AuthService {
   static const _kToken = 'auth.token';
   static const _kUsername = 'auth.username';
 
+  /// 密码加密（PC 工程师要求）。
+  /// ⚠️ TODO(Myers)：密钥与算法到位后在此实现（如 SHA256+盐 / bcrypt / AES）。
+  /// 密钥到位前返回明文，仅用于联调；上线前必须接入。
+  static String encryptPassword(String password) => password;
+
   /// 注册（成功即自动登录），返回 (userId, token)。
-  Future<(String, String)> register(String username, String password) async {
+  Future<(String, String)> register(String email, String password) async {
     final res = await _client
         .post(
-          Uri.parse('$baseUrl/api/register'),
+          Uri.parse('$baseUrl/api/auth/register'),
           headers: {'content-type': 'application/json'},
-          body: jsonEncode({'username': username, 'password': password}),
+          body: jsonEncode({
+            'email': email.trim(),
+            'password': encryptPassword(password),
+          }),
         )
         .timeout(const Duration(seconds: 10));
-    return _handleAuthResponse(res, username);
+    return _handleAuthResponse(res, email);
   }
 
   /// 登录，返回 (userId, token)。
-  Future<(String, String)> login(String username, String password) async {
+  Future<(String, String)> login(String email, String password) async {
     final res = await _client
         .post(
-          Uri.parse('$baseUrl/api/login'),
+          Uri.parse('$baseUrl/api/auth/android/login'),
           headers: {'content-type': 'application/json'},
-          body: jsonEncode({'username': username, 'password': password}),
+          body: jsonEncode({
+            'email': email.trim(),
+            'password': encryptPassword(password),
+          }),
         )
         .timeout(const Duration(seconds: 10));
-    return _handleAuthResponse(res, username);
+    return _handleAuthResponse(res, email);
   }
 
   Future<(String, String)> _handleAuthResponse(
-      http.Response res, String username) async {
+      http.Response res, String email) async {
     Map<String, dynamic> body;
     try {
       body = jsonDecode(res.body) as Map<String, dynamic>;
     } catch (_) {
       throw Exception('服务器响应异常（${res.statusCode}）');
     }
-    if (res.statusCode == 200) {
-      final userId = body['userId']?.toString() ?? '';
-      final token = body['token']?.toString() ?? '';
+    // PC 工程师契约：code=200 成功；兼容直接返回 {userId, token} 与
+    // 包裹式 {code:200, data:{...}} 两种结构。
+    final code = body['code'];
+    final ok = res.statusCode == 200 ||
+        (code is num && code == 200) ||
+        (code is String && code == '200');
+    if (ok) {
+      final data = (body['data'] is Map<String, dynamic>)
+          ? body['data'] as Map<String, dynamic>
+          : body;
+      final userId = data['userId']?.toString() ?? data['user_id']?.toString() ?? '';
+      final token = data['token']?.toString() ?? '';
       if (userId.isEmpty || token.isEmpty) {
         throw Exception('登录响应缺少 userId/token');
       }
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_kUserId, userId);
       await prefs.setString(_kToken, token);
-      await prefs.setString(_kUsername, username);
+      await prefs.setString(_kUsername, email);
       return (userId, token);
     }
-    if (res.statusCode == 409) throw Exception('用户名已存在');
-    if (res.statusCode == 401) throw Exception('用户名或密码错误');
-    if (res.statusCode == 400) {
-      throw Exception(body['error']?.toString() ?? '请求参数有误');
+    if (res.statusCode == 409 || code == 409) throw Exception('该邮箱已注册');
+    if (res.statusCode == 401 || code == 401) throw Exception('邮箱或密码错误');
+    if (res.statusCode == 400 || code == 400) {
+      throw Exception(body['error']?.toString() ?? body['message']?.toString() ?? '请求参数有误');
+    }
+    if (res.statusCode == 403 || code == 403) {
+      throw Exception('登录被拒绝，请稍后重试');
+    }
+    if (res.statusCode == 429 || code == 429) {
+      throw Exception('尝试次数过多，请稍后再试');
     }
     throw Exception('服务不可用（${res.statusCode}）');
   }
@@ -101,7 +129,7 @@ class AuthService {
   Future<bool> validateToken(String token) async {
     try {
       final res = await _client.get(
-        Uri.parse('$baseUrl/api/me'),
+        Uri.parse('$baseUrl/api/auth/me'),
         headers: {'Authorization': 'Bearer $token'},
       ).timeout(const Duration(seconds: 8));
       return res.statusCode == 200;

@@ -6,7 +6,7 @@ import '../../app/theme.dart';
 import '../../state/auth_provider.dart';
 import 'register_page.dart';
 
-/// 登录页：用户名 + 密码 → 调 login → 成功后返回上一页。
+/// 登录页：邮箱 + 密码 → 调 login → 成功后返回上一页。
 class LoginPage extends ConsumerStatefulWidget {
   const LoginPage({super.key});
 
@@ -31,7 +31,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     final u = _username.text.trim();
     final p = _password.text;
     if (u.isEmpty || p.isEmpty) {
-      setState(() => _error = '请输入用户名和密码');
+      setState(() => _error = '请输入邮箱和密码');
       return;
     }
     setState(() => _error = null);
@@ -72,8 +72,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
               _Field(
                 controller: _username,
                 icon: Symbols.person,
-                hint: '用户名',
-                keyboardType: TextInputType.text,
+                hint: '邮箱（name@example.com）',
+                keyboardType: TextInputType.emailAddress,
               ),
               const SizedBox(height: 14),
               _Field(

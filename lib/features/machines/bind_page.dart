@@ -12,7 +12,7 @@ import 'machines_page.dart';
 /// 扫码绑定机器（A2）。
 ///
 /// 流程：未登录 → 提示先登录；已登录 → 相机扫码解析 `CNC-` 开头机器码 →
-/// `POST /api/bind` → 成功提示并刷新我的机器。
+/// `POST /api/auth/bind` → 成功提示并刷新我的机器。
 /// 兜底：扫码失败/识别不清晰时手动输入机器码。
 class BindPage extends ConsumerStatefulWidget {
   const BindPage({super.key});

@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import '../app/config.dart';
 import 'auth_service.dart';
 
-/// 一台绑定机器（后端 `/api/my/machines` 返回项）。
+/// 一台绑定机器（后端 `/api/auth/my/machines` 返回项）。
 class Machine {
   final String sn;
   final String camDevice;
@@ -37,8 +37,9 @@ class Machine {
 /// 机器服务：扫码绑定 / 我的机器列表。
 ///
 /// 契约见 docs/26 §3（后端 API 契约）：
-/// - `POST /api/bind`        Bearer token；Body `{"machineSn":"CNC-..."}`
-/// - `GET /api/my/machines`  Bearer token → `{machines:[...]}`
+/// - `POST /api/auth/bind`        Bearer token；Body `{"machineSn":"CNC-..."}`
+/// - `GET /api/auth/my/machines`  Bearer token → `{machines:[...]}`
+///   （2026-08-21 对齐 PC 工程师：账号相关接口统一 /api/auth/* 前缀）
 class MachinesService {
   MachinesService({http.Client? client, String? baseUrl, AuthService? auth})
       : _client = client ?? http.Client(),
@@ -60,7 +61,7 @@ class MachinesService {
     if (token == null) throw Exception('请先登录');
     final res = await _client
         .post(
-          Uri.parse('$baseUrl/api/bind'),
+          Uri.parse('$baseUrl/api/auth/bind'),
           headers: {
             'content-type': 'application/json',
             'Authorization': 'Bearer $token',
@@ -91,7 +92,7 @@ class MachinesService {
     if (token == null) return const [];
     final res = await _client
         .get(
-          Uri.parse('$baseUrl/api/my/machines'),
+          Uri.parse('$baseUrl/api/auth/my/machines'),
           headers: {'Authorization': 'Bearer $token'},
         )
         .timeout(const Duration(seconds: 10));
