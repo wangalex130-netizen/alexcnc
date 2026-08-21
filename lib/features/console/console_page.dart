@@ -38,12 +38,7 @@ class ConsolePage extends ConsumerStatefulWidget {
 }
 
 class _ConsolePageState extends ConsumerState<ConsolePage>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
-  late final AnimationController _rec = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 1),
-  )..repeat(reverse: true);
-
+    with WidgetsBindingObserver {
   bool _light = false;
   bool _laser = false;
   bool _fan = false;
@@ -60,6 +55,11 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   /// 轮询到的服务器状态（count / status / video_ready）。
   Timer? _tlTimer;
   Map<String, dynamic>? _tlStatus;
+
+  /// 延时摄影「功能已打开」标记（App 本地态，尚未真正开始采样）。
+  /// 两级交互：点右上角图标 = 打开功能（arm）；画面出现「开始录制」，
+  /// 再点才真正调用 start()。服务端只有 start/stop，故 arm 状态存本地。
+  bool _tlArmed = false;
 
   /// 网络自动探测周期器：每 10s 探测一次控制器 TCP 8899，写回 isLocalLANProvider。
   Timer? _netTimer;
@@ -86,7 +86,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
   @override
   void dispose() {
-    _rec.dispose();
     _tlTimer?.cancel();
     _netTimer?.cancel();
     _notifySub?.cancel();
@@ -186,19 +185,102 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     if (mounted) setState(() => _tlStatus = st);
   }
 
-  /// 快捷开关「延时摄影」：开 → 让服务器开始抽样；关 → 让服务器停止并拼接。
+  /// 右上角「延时摄影」图标（两级交互）：
+  /// - 第 1 级：未打开 → 点击图标 = 打开延时功能（arm），画面出现「开始录制」。
+  /// - 第 2 级：已打开且无任务 → 点画面「开始录制」= 真正开始采样。
+  /// - 采集中 → 图标变红「延时采集中」，点画面「停止」= 停止并自动拼接生成。
+  /// - 已生成 → 图标变绿「已生成」，点击直接打开视频观看（不销毁成果）。
+  /// - 已打开但想取消 → 再点一次图标 = 关闭延时功能（arm 复位）。
   /// 与向导 Step6 共用同一 timeLapseJobProvider，故两端状态一致、可互看视频。
   Future<void> _toggleTimeLapse() async {
-    final jobId = ref.read(timeLapseJobProvider);
+    final jobId = _tlJobId;
     if (jobId == null) {
-      // 控制台手动开启：默认 120s（服务器按 15s×fps 自动算采样间隔）。
-      final id = await TimeLapseClient.start(durationSec: 120);
-      if (id != null) ref.read(timeLapseJobProvider.notifier).setJob(id);
+      // 无任务：切换「功能已打开」标记。开 → 出现「开始录制」；关 → 复位。
+      setState(() => _tlArmed = !_tlArmed);
+    } else if (_isTlReady()) {
+      // 已生成：点击打开视频观看，不销毁成果（下载走状态卡入口）。
+      _openTimeLapseVideo(jobId);
     } else {
+      // 采集中 / 处理中 / 失败：点击停止并拼接，或清除失败任务。
       await TimeLapseClient.stop(jobId);
       ref.read(timeLapseJobProvider.notifier).clear();
-      if (mounted) setState(() => _tlStatus = null);
+      if (mounted) setState(() {
+        _tlStatus = null;
+        _tlArmed = false;
+      });
     }
+  }
+
+  /// 画面内「开始录制」按钮：非雕刻态真正开始采样。
+  Future<void> _tlStartRecording() async {
+    final id = await TimeLapseClient.start(durationSec: 120);
+    if (id != null) {
+      ref.read(timeLapseJobProvider.notifier).setJob(id);
+      if (mounted) setState(() => _tlArmed = true);
+    }
+  }
+
+  /// 画面内「停止录制」按钮：停止并自动拼接生成。
+  Future<void> _tlStopRecording() async {
+    final jobId = _tlJobId;
+    if (jobId == null) return;
+    await TimeLapseClient.stop(jobId);
+    ref.read(timeLapseJobProvider.notifier).clear();
+    if (mounted) setState(() {
+      _tlStatus = null;
+      _tlArmed = false;
+    });
+  }
+
+  // ---------- 延时摄影图标状态（右上角） ----------
+
+  bool _isTlRunning() {
+    final st = _tlStatus?['status'];
+    return _tlJobId != null && st == 'running';
+  }
+
+  bool _isTlReady() => _tlJobId != null && _tlStatus?['video_ready'] == true;
+
+  bool _isTlFailed() => _tlJobId != null && _tlStatus?['status'] == 'failed';
+
+  /// 画面内是否显示「开始录制/停止」浮动按钮：
+  /// - 已打开延时功能且无任务 → 显示「开始录制」
+  /// - 采集中 / 雕刻态自动开启中 → 显示「停止」
+  bool _tlShowRecordBtn() => _tlArmed || _isTlRunning() || _isTlReady() || _isTlFailed();
+
+  /// 画面浮动按钮文案。
+  String _tlRecordLabel() {
+    if (_isTlRunning()) return '停止录制';
+    return '开始录制';
+  }
+
+  String? get _tlJobId => ref.read(timeLapseJobProvider);
+
+  /// 延时状态卡仅生成完成/失败后显示（采集中/处理中由右上角图标 + 画面按钮表达）。
+  bool _tlShowCard() => _isTlReady() || _isTlFailed();
+
+  Color _tlColor() {
+    if (_isTlRunning() || _isTlFailed()) return CncColors.danger;
+    if (_isTlReady()) return CncColors.primary;
+    if (_tlArmed) return CncColors.primary;
+    return CncColors.textSub;
+  }
+
+  Color _tlBorderColor() {
+    if (_isTlRunning() || _isTlFailed()) {
+      return CncColors.danger.withOpacity(0.5);
+    }
+    if (_isTlReady() || _tlArmed) return CncColors.primary.withOpacity(0.5);
+    return CncColors.border;
+  }
+
+  String _tlLabel() {
+    if (_isTlRunning()) return '延时采集中';
+    if (_isTlReady()) return '已生成';
+    if (_isTlFailed()) return '生成失败';
+    if (_tlArmed) return '已开启';
+    if (_tlJobId != null) return '处理中';
+    return '延时摄影';
   }
 
   /// 在 App 内用竖屏原比例播放页看服务器生成的 15s 回顾视频。
@@ -243,7 +325,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     final isLocal = ref.watch(isLocalLANProvider);
     final cfg = ref.watch(runtimeConfigProvider);
     final hw = ref.read(hardwareServiceProvider);
-    final tlJobId = ref.watch(timeLapseJobProvider);
     // 链路连接态（云端 MQTT / 局域网 TCP 的连通状态），用于顶部连接指示。
     final conn = ref.watch(connectionStateProvider).value;
 
@@ -279,76 +360,121 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                       : _resolvedRelayUrl(cfg),
                 ),
               ),
-              Positioned(
-                top: 40,
-                left: 15,
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.6),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: CncColors.border),
-                      ),
-                      child: Row(
-                        children: [
-                          FadeTransition(
-                            opacity: _rec,
-                            child: Container(
-                              width: 6,
-                              height: 6,
-                              decoration: const BoxDecoration(
-                                color: CncColors.danger,
-                                shape: BoxShape.circle,
+              // 延时摄影「开始录制/停止」浮动按钮：仅已打开延时功能或采集中时显示，
+              // 居中悬浮在视频区底部（不与 RtspPreviewWidget 左下角暂停/停止冲突）。
+              if (_tlShowRecordBtn())
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 10,
+                  child: Center(
+                    child: GestureDetector(
+                      onTap: _isTlRunning()
+                          ? _tlStopRecording
+                          : _tlStartRecording,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: _isTlRunning()
+                              ? CncColors.danger
+                              : CncColors.primary,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _isTlRunning() ? Icons.stop_rounded : Icons.fiber_manual_record,
+                              size: 16,
+                              color: Colors.white,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              _tlRecordLabel(),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 6),
-                          const Text('实时监控', style: TextStyle(fontSize: 11, color: Colors.white)),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
               // LAN / WAN 状态：点击触发「重新探测」，避免后台/网络切换后状态过期。
               // 自动探测也会在启动 300ms / 每 10s / 切回前台时跑，无需手动切。
               Positioned(
                 top: 40,
                 right: 15,
-                child: GestureDetector(
-                  onTap: () {
-                    _showHint('重新检测网络模式…');
-                    _autoDetectNetwork();
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.6),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: CncColors.border),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(isLocal ? Symbols.wifi : Symbols.cloud,
-                            size: 12, color: isLocal ? CncColors.primary : CncColors.warning),
-                        const SizedBox(width: 4),
-                        Row(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // 延时摄影图标（右上角）：两级交互，见 _toggleTimeLapse。
+                    GestureDetector(
+                      onTap: _toggleTimeLapse,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.6),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: _tlBorderColor()),
+                        ),
+                        child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            _statusDot(isLocal ? CncColors.primary : CncColors.warning),
-                            const SizedBox(width: 5),
-                            Text(isLocal ? '局域网直连' : '远程监视',
-                                style: TextStyle(
-                                    fontSize: 10,
-                                    color: isLocal ? CncColors.primary : CncColors.warning,
-                                    fontWeight: FontWeight.bold)),
+                            if (_isTlRunning()) ...[
+                              Container(
+                                width: 6,
+                                height: 6,
+                                decoration: const BoxDecoration(color: CncColors.danger, shape: BoxShape.circle),
+                              ),
+                              const SizedBox(width: 5),
+                            ],
+                            Icon(Symbols.schedule, size: 13, color: _tlColor()),
+                            const SizedBox(width: 4),
+                            Text(_tlLabel(),
+                                style: TextStyle(fontSize: 10, color: _tlColor(), fontWeight: FontWeight.bold)),
                           ],
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: () {
+                        _showHint('重新检测网络模式…');
+                        _autoDetectNetwork();
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.6),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: CncColors.border),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(isLocal ? Symbols.wifi : Symbols.cloud,
+                                size: 12, color: isLocal ? CncColors.primary : CncColors.warning),
+                            const SizedBox(width: 4),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _statusDot(isLocal ? CncColors.primary : CncColors.warning),
+                                const SizedBox(width: 5),
+                                Text(isLocal ? '局域网直连' : '远程监视',
+                                    style: TextStyle(
+                                        fontSize: 10,
+                                        color: isLocal ? CncColors.primary : CncColors.warning,
+                                        fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               // 外网 MJPEG 模式下，右下角放一个「进入全屏 + 截图存相册」入口。
@@ -416,14 +542,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   onTap: () {
                     setState(() => _fan = !_fan);
                     hw.setAux('fan', _fan);
-                  }),
-              _ToggleBtn(
-                  icon: Symbols.schedule,
-                  label: '延时摄影',
-                  active: tlJobId != null,
-                  onTap: () {
-                    // 服务器驱动：开 → 服务器开始抽样，关 → 服务器停止并拼接。
-                    _toggleTimeLapse();
                   }),
             ],
           ),
@@ -592,14 +710,15 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   },
                 ),
 
-                // 延时摄影状态卡：采集中显示进度；结束后提供「查看 / 下载」入口。
+                // 延时摄影状态卡：仅生成完成/失败后显示（查看/下载入口）。
+                // 采集中/处理中由右上角图标 + 画面「停止录制」按钮表达，不打扰客户。
                 // 与向导 Step6 共用 timeLapseJobProvider，故 carve 联动或本页手动开启都在此呈现。
-                if (tlJobId != null)
+                if (_tlShowCard())
                   _TimeLapseStatusCard(
-                    jobId: tlJobId,
+                    jobId: _tlJobId!,
                     status: _tlStatus,
-                    onView: () => _openTimeLapseVideo(tlJobId),
-                    onDownload: () => _downloadTimeLapse(tlJobId),
+                    onView: () => _openTimeLapseVideo(_tlJobId!),
+                    onDownload: () => _downloadTimeLapse(_tlJobId!),
                   ),
 
                 // 全局 DRO

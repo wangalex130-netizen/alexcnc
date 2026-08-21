@@ -1,9 +1,7 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:native_vlc_player/native_vlc_player.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 
@@ -21,10 +19,11 @@ import 'mjpeg_stream_player.dart';
 ///   VLCVideoLayout，与已经跑通的 camera-test-app 完全一致。
 /// - 地址优先用固定/缓存地址，失败后自动切换：主码流 /11 → 子码流 /12 →
 ///   局域网扫描。即使摄像头上电换 IP 也能自动兜底。
-/// - 新增生命周期管理：页面切走（或用户收起）时自动停止解码并清掉画面，
-///   切回/展开时自动恢复；根治切换 tab 后的画面滞留与后台卡顿。
-/// - 新增仿拓竹播放控制：点击画面显示/隐藏控制层，提供暂停/播放、截图、
-///   全屏/退出全屏入口；全屏后横屏沉浸显示，仍可点击返回缩小。
+/// - 新增生命周期管理：页面切走时自动停止解码并清掉画面，切回时自动恢复；
+///   根治切换 tab 后的画面滞留与后台卡顿。
+/// - 交互精简（对齐体验优化）：标题栏只保留状态点 + 「实时监控」，不承载任何按钮；
+///   左下角常驻「暂停/停止」、右下角常驻「截图」，不随点击隐藏、无内层全屏
+///   （全屏由外层页面接管，避免与外框全屏冲突）。
 class RtspPreviewWidget extends StatefulWidget {
   /// 直接指定 RTSP 地址（例如设置页填的固定 IP）。为 null 时走自动发现。
   final String? rtspUrl;
@@ -62,9 +61,6 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
   String _lastAttemptLabel = '';
   String _lastError = '';
 
-  /// 用户是否已把预览收起来。
-  bool _collapsed = false;
-
   /// 当前控件在屏幕上的可见比例（切到其他 tab 会变为 0）。
   /// null = 尚未收到 visibility 回调（首帧前），不参与判断。
   /// 初始不能直接写 true：VisibilityDetector 首帧可能先报 0（布局/动画中），
@@ -80,12 +76,6 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
   /// 播放是否被用户手动暂停。
   bool _isPaused = false;
 
-  /// 控制层是否显示。
-  bool _controlsVisible = false;
-
-  /// 自动隐藏控制层的计时器。
-  Timer? _controlsHideTimer;
-
   /// 原生播放器实例的 key，用于调用 pause/resume/snapshot。
   final GlobalKey<NativeVlcPlayerState> _playerKey = GlobalKey();
 
@@ -98,7 +88,6 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
   @override
   void dispose() {
     _connectTimeoutTimer?.cancel();
-    _controlsHideTimer?.cancel();
     super.dispose();
   }
 
@@ -149,11 +138,9 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
   /// 完全停止实时预览并清空画面。
   void _stopPreview() {
     _connectTimeoutTimer?.cancel();
-    _controlsHideTimer?.cancel();
     _refreshToken++;
     _resetAttempts();
     _isPaused = false;
-    _controlsVisible = false;
     setState(() {});
   }
 
@@ -380,33 +367,14 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     } else {
       setState(() => _pageVisible = true);
       // 页面切回：之前在连接/播放中，自动恢复。
-      if (!_collapsed &&
-          (_preHideState == _CamState.ready ||
-              _preHideState == _CamState.connecting)) {
+      if (_preHideState == _CamState.ready ||
+          _preHideState == _CamState.connecting) {
         _preHideState = null;
         _restartPreview();
       } else {
         _preHideState = null;
       }
     }
-  }
-
-  /// 收起/展开切换。
-  void _toggleCollapse() {
-    setState(() {
-      _collapsed = !_collapsed;
-      if (!_collapsed) {
-        // 展开是用户主动操作，必定在看画面：恢复预览（强制可见）。
-        _pageVisible = true;
-        _preHideState = null;
-        _restartPreview();
-      } else {
-        // 收起时停止解码并隐藏控制层。
-        _connectTimeoutTimer?.cancel();
-        _controlsHideTimer?.cancel();
-        _controlsVisible = false;
-      }
-    });
   }
 
   /// 暂停/恢复播放。
@@ -416,7 +384,6 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
         _isPaused = !_isPaused;
         _mjpegPlaying = !_isPaused;
       });
-      _resetControlsHideTimer();
       return;
     }
 
@@ -428,14 +395,12 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
       await player.pause();
     }
     setState(() => _isPaused = !_isPaused);
-    _resetControlsHideTimer();
   }
 
   /// 截图并保存到相册。
   Future<void> _takeSnapshot() async {
     if (_isRelayUrl) {
       _showHint('远程模式截图暂不支持保存到相册');
-      _resetControlsHideTimer();
       return;
     }
 
@@ -447,7 +412,6 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
       return;
     }
     _showHint('截图已保存到相册');
-    _resetControlsHideTimer();
   }
 
   void _showHint(String msg) {
@@ -461,100 +425,12 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     );
   }
 
-  /// 显示/隐藏控制层。
-  void _toggleControls() {
-    setState(() => _controlsVisible = !_controlsVisible);
-    if (_controlsVisible) _resetControlsHideTimer();
-  }
-
-  void _resetControlsHideTimer() {
-    _controlsHideTimer?.cancel();
-    _controlsHideTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted && _controlsVisible) {
-        setState(() => _controlsVisible = false);
-      }
-    });
-  }
-
-  /// 进入全屏。
-  void _enterFullscreen() {
-    if (_currentUrl.isEmpty) return;
-    _controlsHideTimer?.cancel();
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    showDialog(
-      context: context,
-      useSafeArea: false,
-      builder: (_) => _FullscreenPlayer(
-        url: _currentUrl,
-        isRelay: _isRelayUrl,
-        onClose: _exitFullscreen,
-      ),
-    );
-  }
-
-  /// 退出全屏。
-  void _exitFullscreen() {
-    Navigator.of(context).pop();
-    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-  }
-
   @override
   Widget build(BuildContext context) {
     return VisibilityDetector(
       key: const Key('rtsp_preview_lifecycle'),
       onVisibilityChanged: _onVisibilityChanged,
-      child: _collapsed ? _buildCollapsed() : _buildExpanded(),
-    );
-  }
-
-  /// 收起态：只占一条细栏，完全不跑解码。
-  Widget _buildCollapsed() {
-    return GestureDetector(
-      onTap: _toggleCollapse,
-      child: Container(
-        height: 44,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        decoration: BoxDecoration(
-          color: const Color(0xFF1A1A1A),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: _state == _CamState.ready
-                    ? const Color(0xFF22C55E)
-                    : const Color(0xFF9AA0A6),
-              ),
-            ),
-            const SizedBox(width: 10),
-            const Text(
-              '实时监控',
-              style: TextStyle(
-                fontSize: 13,
-                color: Color(0xFFF5F5F7),
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const Spacer(),
-            Icon(
-              Icons.keyboard_arrow_down,
-              size: 22,
-              color: _state == _CamState.ready
-                  ? const Color(0xFF22C55E)
-                  : const Color(0xFF9AA0A6),
-            ),
-          ],
-        ),
-      ),
+      child: _buildExpanded(),
     );
   }
 
@@ -575,7 +451,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     );
   }
 
-  /// 标题栏：状态点 + 名称 + 播放/停止 + 收起。
+  /// 标题栏：状态点 + 「实时监控」，不承载任何按钮。
   Widget _buildHeader() {
     return Container(
       height: 38,
@@ -608,30 +484,6 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
               color: Color(0xFFF5F5F7),
               fontWeight: FontWeight.w500,
             ),
-          ),
-          const Spacer(),
-          // 播放/停止切换：明确停止实时画面，或重新播放。
-          _HeaderIcon(
-            icon: _state == _CamState.ready || _state == _CamState.connecting
-                ? Icons.stop_rounded
-                : Icons.play_arrow_rounded,
-            onTap: () {
-              if (_state == _CamState.ready || _state == _CamState.connecting) {
-                _stopPreview();
-              } else {
-                _restartPreview();
-              }
-            },
-            tooltip: _state == _CamState.ready || _state == _CamState.connecting
-                ? '停止预览'
-                : '开始预览',
-          ),
-          const SizedBox(width: 4),
-          // 收起：隐藏视频区，停止解码。
-          _HeaderIcon(
-            icon: Icons.keyboard_arrow_up,
-            onTap: _toggleCollapse,
-            tooltip: '收起',
           ),
         ],
       ),
@@ -720,112 +572,62 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
         break;
     }
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: _state == _CamState.ready ? _toggleControls : null,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          // 纯黑底：防止连接/切页时透出底层页面残影。
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // 纯黑底：防止连接/切页时透出底层页面残影。
+        const Positioned.fill(
+          child: ColoredBox(color: Color(0xFF0A0A0A)),
+        ),
+        content,
+        if (_state == _CamState.connecting)
           const Positioned.fill(
-            child: ColoredBox(color: Color(0xFF0A0A0A)),
-          ),
-          content,
-          if (_state == _CamState.connecting)
-            const Positioned.fill(
-              child: ColoredBox(
-                color: Color(0xFF0A0A0A),
-                child: Center(
-                  child: CircularProgressIndicator(color: CncColors.primary),
-                ),
+            child: ColoredBox(
+              color: Color(0xFF0A0A0A),
+              child: Center(
+                child: CircularProgressIndicator(color: CncColors.primary),
               ),
             ),
-          if (_state == _CamState.ready && _controlsVisible)
-            _buildControlsOverlay(),
-        ],
-      ),
+          ),
+        if (_state == _CamState.ready) _buildPersistentControls(),
+      ],
     );
   }
 
-  /// 仿拓竹控制层：暂停/播放、截图、全屏。
-  Widget _buildControlsOverlay() {
+  /// 常驻控制层：左下角暂停/停止 + 右下角截图，不随点击隐藏。
+  Widget _buildPersistentControls() {
     return Positioned.fill(
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: _toggleControls,
-        child: Container(
-          color: Colors.black.withOpacity(0.35),
-          child: Stack(
-            children: [
-              // 左下角：暂停/播放
-              Positioned(
-                left: 12,
-                bottom: 12,
-                child: _ControlButton(
+      child: Stack(
+        children: [
+          Positioned(
+            left: 10,
+            bottom: 10,
+            child: Row(
+              children: [
+                _ControlButton(
                   icon: _isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
                   onTap: _togglePause,
                   tooltip: _isPaused ? '播放' : '暂停',
                 ),
-              ),
-              // 右下角：截图 + 全屏
-              Positioned(
-                right: 12,
-                bottom: 12,
-                child: Row(
-                  children: [
-                    _ControlButton(
-                      icon: Icons.camera_alt_outlined,
-                      onTap: _takeSnapshot,
-                      tooltip: '截图',
-                    ),
-                    const SizedBox(width: 12),
-                    _ControlButton(
-                      icon: Icons.fullscreen_rounded,
-                      onTap: _enterFullscreen,
-                      tooltip: '全屏',
-                    ),
-                  ],
+                const SizedBox(width: 10),
+                _ControlButton(
+                  icon: Icons.stop_rounded,
+                  onTap: _stopPreview,
+                  tooltip: '停止',
                 ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 标题栏小图标按钮。
-class _HeaderIcon extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-  final String tooltip;
-
-  const _HeaderIcon({
-    required this.icon,
-    required this.onTap,
-    required this.tooltip,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(6),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Tooltip(
-          message: tooltip,
-          child: Padding(
-            padding: const EdgeInsets.all(6),
-            child: Icon(
-              icon,
-              size: 20,
-              color: const Color(0xFF9AA0A6),
+              ],
             ),
           ),
-        ),
+          Positioned(
+            right: 10,
+            bottom: 10,
+            child: _ControlButton(
+              icon: Icons.camera_alt_outlined,
+              onTap: _takeSnapshot,
+              tooltip: '截图',
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -893,193 +695,6 @@ class _Placeholder extends StatelessWidget {
             ),
           ],
         ],
-      ),
-    );
-  }
-}
-
-/// 全屏播放页：横屏沉浸，带返回、暂停、截图、退出全屏。
-class _FullscreenPlayer extends StatefulWidget {
-  final String url;
-  final bool isRelay;
-  final VoidCallback onClose;
-
-  const _FullscreenPlayer({
-    required this.url,
-    required this.isRelay,
-    required this.onClose,
-  });
-
-  @override
-  State<_FullscreenPlayer> createState() => _FullscreenPlayerState();
-}
-
-class _FullscreenPlayerState extends State<_FullscreenPlayer> {
-  final GlobalKey<NativeVlcPlayerState> _playerKey = GlobalKey();
-  bool _isPaused = false;
-  bool _controlsVisible = true;
-  bool _mjpegPlaying = true;
-  Timer? _controlsHideTimer;
-
-  @override
-  void dispose() {
-    _controlsHideTimer?.cancel();
-    super.dispose();
-  }
-
-  void _onEvent(NativeVlcEvent event) {
-    if (event.event == 'playing') {
-      setState(() => _isPaused = false);
-    } else if (event.event == 'error') {
-      debugPrint('[Fullscreen] error: ${event.message}');
-    }
-  }
-
-  void _onMjpegPlaying() {
-    if (!mounted) return;
-    setState(() => _isPaused = false);
-  }
-
-  Future<void> _togglePause() async {
-    if (widget.isRelay) {
-      setState(() {
-        _isPaused = !_isPaused;
-        _mjpegPlaying = !_isPaused;
-      });
-      _resetControlsHideTimer();
-      return;
-    }
-
-    final player = _playerKey.currentState;
-    if (player == null) return;
-    if (_isPaused) {
-      await player.resume();
-    } else {
-      await player.pause();
-    }
-    setState(() => _isPaused = !_isPaused);
-    _resetControlsHideTimer();
-  }
-
-  Future<void> _takeSnapshot() async {
-    if (widget.isRelay) {
-      _showHint('远程模式截图暂不支持保存到相册');
-      _resetControlsHideTimer();
-      return;
-    }
-
-    final player = _playerKey.currentState;
-    if (player == null) return;
-    final path = await player.snapshot();
-    if (path == null || path.isEmpty) {
-      _showHint('截图失败');
-      return;
-    }
-    _showHint('截图已保存到相册');
-    _resetControlsHideTimer();
-  }
-
-  void _showHint(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg, style: const TextStyle(fontSize: 13)),
-        duration: const Duration(seconds: 2),
-        backgroundColor: const Color(0xFF1A1A1A),
-      ),
-    );
-  }
-
-  void _toggleControls() {
-    setState(() => _controlsVisible = !_controlsVisible);
-    if (_controlsVisible) _resetControlsHideTimer();
-  }
-
-  void _resetControlsHideTimer() {
-    _controlsHideTimer?.cancel();
-    _controlsHideTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted && _controlsVisible) {
-        setState(() => _controlsVisible = false);
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: _toggleControls,
-      child: Scaffold(
-        backgroundColor: Colors.black,
-        body: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (widget.isRelay)
-              MjpegStreamPlayer(
-                url: widget.url,
-                playing: _mjpegPlaying,
-                fit: BoxFit.contain,
-                onPlaying: _onMjpegPlaying,
-                onError: (msg) => debugPrint('[Fullscreen MJPEG] $msg'),
-              )
-            else
-              NativeVlcPlayer(
-                key: _playerKey,
-                url: widget.url,
-                onEvent: _onEvent,
-              ),
-            if (_controlsVisible)
-              Container(
-                color: Colors.black.withOpacity(0.35),
-                child: Stack(
-                  children: [
-                    // 左上角：返回
-                    Positioned(
-                      left: 16,
-                      top: 16,
-                      child: _ControlButton(
-                        icon: Icons.arrow_back_ios_rounded,
-                        onTap: widget.onClose,
-                        tooltip: '退出全屏',
-                      ),
-                    ),
-                    // 左下角：暂停/播放
-                    Positioned(
-                      left: 16,
-                      bottom: 16,
-                      child: _ControlButton(
-                        icon: _isPaused
-                            ? Icons.play_arrow_rounded
-                            : Icons.pause_rounded,
-                        onTap: _togglePause,
-                        tooltip: _isPaused ? '播放' : '暂停',
-                      ),
-                    ),
-                    // 右下角：截图 + 退出全屏
-                    Positioned(
-                      right: 16,
-                      bottom: 16,
-                      child: Row(
-                        children: [
-                          _ControlButton(
-                            icon: Icons.camera_alt_outlined,
-                            onTap: _takeSnapshot,
-                            tooltip: '截图',
-                          ),
-                          const SizedBox(width: 16),
-                          _ControlButton(
-                            icon: Icons.fullscreen_exit_rounded,
-                            onTap: widget.onClose,
-                            tooltip: '退出全屏',
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
       ),
     );
   }
