@@ -5,6 +5,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
 import '../../state/auth_provider.dart';
+import '../../services/message_store.dart';
 import '../auth/login_page.dart';
 import '../auth/register_page.dart';
 import '../firmware/firmware_page.dart';
@@ -437,95 +438,128 @@ class _SheetFrame extends StatelessWidget {
 
 // ===================== 抽屉 3：消息与告警 =====================
 
-class _MessagesSheet extends StatelessWidget {
+class _MessagesSheet extends ConsumerStatefulWidget {
   const _MessagesSheet();
-  static const _msgs = [
-    _Msg(
-        icon: Symbols.error,
-        iconColor: CncColors.danger,
-        title: '加工异常中断',
-        time: '今天 15:30',
-        desc: '检测到加工过程中机箱防护门被物理打开。为保障安全，主轴已急停。请检查并复位机器。',
-        error: true),
-    _Msg(
-        icon: Symbols.check_circle,
-        iconColor: CncColors.primary,
-        title: '雕刻任务已完成',
-        time: '今天 11:20',
-        desc: '工程包“定制化_父亲节底座_V2”已成功完成加工。延时摄影视频已保存至云端相册。'),
-    _Msg(
-        icon: Symbols.build,
-        iconColor: CncColors.textSub,
-        title: '刀具保养提醒',
-        time: '昨天 09:10',
-        desc: 'T1 槽位 3.175 平底刀累计切削时长已达 50 小时，建议检查刃口磨损情况。'),
-  ];
   @override
-  Widget build(BuildContext context) => _SheetFrame(
-        title: '系统消息与历史告警',
-        child: Column(
-          children: _msgs
-              .map((m) => Container(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: CncColors.bg,
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border(
-                          left: BorderSide(
-                              color: m.error
-                                  ? CncColors.danger
-                                  : CncColors.primary,
-                              width: 3)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(m.icon, size: 16, color: m.iconColor),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(m.title,
-                                  style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.bold,
-                                      color: CncColors.textMain)),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Text(m.time,
-                            style: const TextStyle(
-                                fontSize: 10, color: CncColors.textSub)),
-                        const SizedBox(height: 6),
-                        Text(m.desc,
-                            style: const TextStyle(
-                                fontSize: 11,
-                                color: CncColors.textSub,
-                                height: 1.4)),
-                      ],
-                    ),
-                  ))
-              .toList(),
-        ),
-      );
+  ConsumerState<_MessagesSheet> createState() => _MessagesSheetState();
 }
 
-class _Msg {
-  final IconData icon;
-  final Color iconColor;
-  final String title;
-  final String time;
-  final String desc;
-  final bool error;
-  const _Msg(
-      {required this.icon,
-      required this.iconColor,
-      required this.title,
-      required this.time,
-      required this.desc,
-      this.error = false});
+class _MessagesSheetState extends ConsumerState<_MessagesSheet> {
+  List<StoredMessage> _msgs = const [];
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // 触发 messageStoreProvider，确保本地消息持久化订阅已挂载
+    ref.read(messageStoreProvider);
+    _load();
+  }
+
+  Future<void> _load() async {
+    final list = await MessageStore.instance.load();
+    if (!mounted) return;
+    setState(() {
+      _msgs = list;
+      _loaded = true;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _SheetFrame(
+      title: '系统消息与历史告警',
+      child: !_loaded
+          ? const Padding(
+              padding: EdgeInsets.all(20),
+              child: Center(
+                child: SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            )
+          : _msgs.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Center(
+                    child: Text('暂无系统消息',
+                        style: TextStyle(
+                            fontSize: 12, color: CncColors.textSub)),
+                  ),
+                )
+              : Column(
+                  children: _msgs.map((m) => _buildMsg(m)).toList(),
+                ),
+    );
+  }
+
+  Widget _buildMsg(StoredMessage m) {
+    final icon = m.isAlarm
+        ? Symbols.error
+        : m.isWarn
+            ? Symbols.warning
+            : Symbols.check_circle;
+    final iconColor = m.isAlarm
+        ? CncColors.danger
+        : m.isWarn
+            ? CncColors.warning
+            : CncColors.primary;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: CncColors.bg,
+        borderRadius: BorderRadius.circular(6),
+        border: Border(
+            left: BorderSide(
+                color: m.isAlarm
+                    ? CncColors.danger
+                    : m.isWarn
+                        ? CncColors.warning
+                        : CncColors.primary,
+                width: 3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: iconColor),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(m.title.isEmpty ? m.type : m.title,
+                    style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: CncColors.textMain)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(_formatTime(m.at),
+              style:
+                  const TextStyle(fontSize: 10, color: CncColors.textSub)),
+          const SizedBox(height: 6),
+          Text(m.body,
+              style: const TextStyle(
+                  fontSize: 11, color: CncColors.textSub, height: 1.4)),
+        ],
+      ),
+    );
+  }
+
+  String _formatTime(DateTime t) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final d = DateTime(t.year, t.month, t.day);
+    final hh = t.hour.toString().padLeft(2, '0');
+    final mm = t.minute.toString().padLeft(2, '0');
+    if (d == today) return '今天 $hh:$mm';
+    if (d == today.subtract(const Duration(days: 1))) return '昨天 $hh:$mm';
+    return '${t.month}月${t.day}日 $hh:$mm';
+  }
 }
 
 // ===================== 抽屉 4：诊断日志 =====================

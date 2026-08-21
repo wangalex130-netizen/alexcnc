@@ -15,6 +15,7 @@ import '../../models/notify_event.dart';
 import '../../models/tool.dart';
 import '../../state/providers.dart';
 import '../../services/hardware_service.dart';
+import '../../services/device_discovery.dart';
 import '../preview/rtsp_preview_widget.dart';
 import '../preview/timelapse_client.dart';
 import '../preview/mjpeg_stream_player.dart';
@@ -118,15 +119,44 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
   /// TCP 探测控制器局域网可达性，结果写入 [isLocalLANProvider]。
   /// 可达 → 直连（解锁控制）；不可达 → 远程监视（锁控制、走香港中继）。
+  ///
+  /// 局域网可达性判定（需求：Jog 页在真实测试模式下局域网内可见）：
+  /// 1) 先跑 [DeviceDiscovery.discover()] 自动发现真机 IP
+  ///    （缓存 → UDP 信标 → mDNS → 兜底固定地址），拿到真机地址再探测，
+  ///    避免配置的固定 IP（默认 192.168.1.50）写错导致误判不可达；
+  /// 2) 再用 resolved 配置地址做兜底探测，兼容「配置固定 IP + DHCP 绑定」场景；
+  /// 3) 任一可达 → isLocal=true（解锁 Jog/主轴 等主动控制）。
   Future<void> _autoDetectNetwork() async {
     if (!mounted) return;
     final cfg = ref.read(runtimeConfigProvider);
     try {
-      final reachable = await NetworkProbe.probe(
-        cfg.resolvedDeviceTcpHost,
+      // ① 自动发现真机 IP（UDP 信标/mDNS 秒级返回），命中则直连该地址
+      String? host;
+      final discovered = await DeviceDiscovery.discover(
+        timeout: const Duration(seconds: 3),
+      );
+      host = (discovered != null && discovered.isNotEmpty)
+          ? discovered
+          : cfg.resolvedDeviceTcpHost;
+
+      var reachable = await NetworkProbe.probe(
+        host,
         cfg.resolvedDeviceTcpPort,
         timeout: const Duration(seconds: 2),
       );
+
+      // ② 若自动发现地址不可达，再兜底探测配置固定地址
+      //    （覆盖「自动发现失败但配置了真机固定 IP」的场景）。
+      if (!reachable &&
+          host != cfg.resolvedDeviceTcpHost &&
+          cfg.resolvedDeviceTcpHost.isNotEmpty) {
+        reachable = await NetworkProbe.probe(
+          cfg.resolvedDeviceTcpHost,
+          cfg.resolvedDeviceTcpPort,
+          timeout: const Duration(seconds: 2),
+        );
+      }
+
       if (!mounted) return;
       ref.read(isLocalLANProvider.notifier).setLocal(reachable);
     } catch (_) {

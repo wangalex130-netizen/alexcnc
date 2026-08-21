@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
+import '../../app/runtime_config.dart';
 import '../../models/library_item.dart';
 import '../../models/model_library.dart';
 import '../../state/providers.dart';
@@ -38,10 +39,31 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   String? _error; // 首屏加载错误提示（null = 无错误）
   Future<List<LibraryItem>>? _myFuture; // tab1 我的空间
 
+  bool _cfgListenerReady = false;
+
   @override
   void initState() {
     super.initState();
     _refreshHome();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 冷启动时 runtimeConfigProvider 尚在异步 hydrate（SharedPreferences 读取），
+    // 首次 _refreshHome 会拿到默认配置 → MockCloudService → demo 数据。
+    // 这里在 dependencies 就绪后监听 runtimeConfig：配置从默认值 hydrate 完成后
+    // 自动重刷，保证打开 APP 即用真实云端模型库（需求：进入页面自动刷新，之后才手动）。
+    if (!_cfgListenerReady) {
+      _cfgListenerReady = true;
+      ref.listen<RuntimeConfig>(runtimeConfigProvider, (prev, next) {
+        final changed = prev?.useRealBackend != next.useRealBackend ||
+            prev?.cloudBaseUrl != next.cloudBaseUrl ||
+            prev?.deviceId != next.deviceId ||
+            prev?.appUserId != next.appUserId;
+        if (changed) _refreshHome();
+      });
+    }
   }
 
   /// 首屏：拉 home（hero + 分类 + 首屏列表）

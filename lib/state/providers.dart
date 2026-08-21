@@ -20,6 +20,7 @@ import '../services/hardware_service.dart';
 import '../services/hardware_service_mock.dart';
 import '../services/hardware_service_real.dart';
 import '../services/machines_service.dart';
+import '../services/message_store.dart';
 import '../services/network_auth.dart';
 import 'auth_provider.dart';
 
@@ -77,6 +78,17 @@ final telemetryStreamProvider = StreamProvider<Telemetry>((ref) {
 /// 系统级广播流（docs/03 §6 cnc/broadcast/msg + §7 cnc/broadcast/system）。
 final broadcastStreamProvider = StreamProvider<BroadcastMessage>((ref) {
   return ref.watch(hardwareServiceProvider).broadcastStream;
+});
+
+/// 系统消息/告警本地持久化（需求：后端暂无历史查询接口，本地持久化实时 MQTT 事件）。
+/// 订阅 hardwareService 的 notify/broadcast 流并落盘到 SharedPreferences，
+/// 「我的」页消息抽屉从本地读取。该 provider 被应用根监听，保证全局只挂一次。
+final messageStoreProvider = Provider<MessageStore>((ref) {
+  final store = MessageStore.instance;
+  final svc = ref.watch(hardwareServiceProvider);
+  store.attach(svc.notifyStream, svc.broadcastStream);
+  ref.onDispose(store.detach);
+  return store;
 });
 
 /// 雕刻作业明细流（docs/03 §10.5 cnc/<deviceId>/job）。

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'theme.dart';
 import 'theme_mode_controller.dart';
 import '../features/shell/app_shell.dart';
+import '../state/providers.dart';
 
 /// Root application widget.
 class AlexCncApp extends ConsumerWidget {
@@ -12,6 +13,9 @@ class AlexCncApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final mode = ref.watch(themeModeProvider);
+    // 全局挂载消息持久化：订阅 notify/broadcast 流并落盘，App 生命周期内持续记录，
+    // 「我的」页消息抽屉从本地读取真实设备事件（后端暂无历史查询接口）。
+    ref.watch(messageStoreProvider);
     return MaterialApp(
       title: 'Smart CNC Pro',
       debugShowCheckedModeBanner: false,
