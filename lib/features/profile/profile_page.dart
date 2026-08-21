@@ -4,8 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
-import '../../state/auth_provider.dart';
 import '../../services/message_store.dart';
+import '../../state/auth_provider.dart';
+import '../../state/providers.dart';
 import '../auth/login_page.dart';
 import '../auth/register_page.dart';
 import '../firmware/firmware_page.dart';
