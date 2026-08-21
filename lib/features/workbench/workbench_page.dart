@@ -32,13 +32,7 @@ class WorkbenchPage extends ConsumerStatefulWidget {
   ConsumerState<WorkbenchPage> createState() => _WorkbenchPageState();
 }
 
-class _WorkbenchPageState extends ConsumerState<WorkbenchPage>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _rec = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 1),
-  )..repeat(reverse: true);
-
+class _WorkbenchPageState extends ConsumerState<WorkbenchPage> {
   /// 顶部瞬态事件横幅（toast 已由 ScaffoldMessenger 弹，这里再留 8s 横幅）。
   NotifyEvent? _bannerEv;
   Timer? _bannerTimer;
@@ -99,7 +93,6 @@ class _WorkbenchPageState extends ConsumerState<WorkbenchPage>
 
   @override
   void dispose() {
-    _rec.dispose();
     _bannerTimer?.cancel();
     _bannerBmTimer?.cancel();
     _notifySub?.cancel();
@@ -140,7 +133,6 @@ class _WorkbenchPageState extends ConsumerState<WorkbenchPage>
               onExpand: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const ConsolePage()),
               ),
-              rec: _rec,
             ),
           ),
           SliverToBoxAdapter(
@@ -202,7 +194,6 @@ class _MachineCard extends ConsumerWidget {
   final VoidCallback onToggleLan;
   final VoidCallback onJog;
   final VoidCallback onExpand;
-  final AnimationController rec;
   const _MachineCard({
     required this.status,
     this.telemetry,
@@ -210,7 +201,6 @@ class _MachineCard extends ConsumerWidget {
     required this.onToggleLan,
     required this.onJog,
     required this.onExpand,
-    required this.rec,
   });
 
   @override
@@ -245,38 +235,6 @@ class _MachineCard extends ConsumerWidget {
                   height: 200,
                   child: RtspPreviewWidget(
                     rtspUrl: ref.watch(runtimeConfigProvider).resolvedCameraRtsp,
-                  ),
-                ),
-                // 实时监控闪烁
-                Positioned(
-                  top: 12,
-                  left: 12,
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.6),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Row(
-                      children: [
-                        FadeTransition(
-                          opacity: rec,
-                          child: Container(
-                            width: 6,
-                            height: 6,
-                            decoration: const BoxDecoration(
-                              color: CncColors.danger,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        const Text('实时监控',
-                            style:
-                                TextStyle(fontSize: 11, color: Colors.white)),
-                      ],
-                    ),
                   ),
                 ),
                 // LAN / WAN 切换
