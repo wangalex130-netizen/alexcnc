@@ -34,6 +34,9 @@ dependencies:
   # 扫码绑定机器（A2）：扫描机器唯一码 CNC-XXXX... → POST /api/bind。
   # 锁 ^5.1.1（CI Flutter 3.29.0 / Dart 3.7 兼容；若编译不过降 4.x 系）。
   mobile_scanner: ^5.1.1
+  # 密码加密：登录密码 sha256 后传参（PC 工程师接口文档示例 64hex）。
+  # Dart 标准 crypto 库，无平台依赖，CI 直接可用。
+  crypto: ^3.0.3
 
 dev_dependencies:
   flutter_test:

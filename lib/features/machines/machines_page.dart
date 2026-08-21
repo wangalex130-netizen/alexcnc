@@ -11,6 +11,7 @@ import '../auth/login_page.dart';
 import '../preview/fullscreen_preview_page.dart';
 import '../preview/timelapse_client.dart';
 import 'bind_page.dart';
+import 'bit_config_dialog.dart';
 
 /// 我的机器列表（A3）。
 ///
@@ -173,6 +174,8 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
                       return _MachineCard(
                         machine: m,
                         onTap: () => _openPreview(m),
+                        onBitConfig: () => showBitConfigDialog(
+                            context, m.sn),
                       );
                     },
                   ),
@@ -184,7 +187,12 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 class _MachineCard extends StatelessWidget {
   final Machine machine;
   final VoidCallback onTap;
-  const _MachineCard({required this.machine, required this.onTap});
+  final VoidCallback onBitConfig;
+  const _MachineCard({
+    required this.machine,
+    required this.onTap,
+    required this.onBitConfig,
+  });
 
   @override
   Widget build(BuildContext context) => InkWell(
@@ -240,6 +248,12 @@ class _MachineCard extends StatelessWidget {
                       ),
                   ],
                 ),
+              ),
+              IconButton(
+                icon: const Icon(Symbols.shelves,
+                    color: CncColors.primaryInk, size: 20),
+                tooltip: '刀仓配置',
+                onPressed: onBitConfig,
               ),
               const Icon(Symbols.chevron_right,
                   color: CncColors.textSub, size: 20),

@@ -4,7 +4,9 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
 import '../../state/auth_provider.dart';
-import 'register_page.dart';
+// 2026-08-21 工程师确认：App 不开放注册功能，登录页隐藏注册入口。
+// register_page.dart 与 auth_service.register 代码保留，待后端开放后再恢复入口。
+// import 'register_page.dart';
 
 /// 登录页：邮箱 + 密码 → 调 login → 成功后返回上一页。
 class LoginPage extends ConsumerStatefulWidget {
@@ -98,19 +100,21 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 child: Text(busy ? '登录中…' : '登录'),
               ),
               const SizedBox(height: 12),
-              TextButton(
-                onPressed: busy
-                    ? null
-                    : () async {
-                        final ok = await Navigator.of(context).push<bool>(
-                          MaterialPageRoute(
-                              builder: (_) => const RegisterPage()),
-                        );
-                        if (ok == true && mounted) Navigator.of(context).pop(true);
-                      },
-                child: const Text('没有账号？去注册',
-                    style: TextStyle(color: CncColors.primaryInk)),
-              ),
+              // 2026-08-21 工程师确认 App 不开放注册，隐藏「去注册」入口。
+              // 代码保留：恢复时取消注释 + 恢复上方 import 即可。
+              // TextButton(
+              //   onPressed: busy
+              //       ? null
+              //       : () async {
+              //           final ok = await Navigator.of(context).push<bool>(
+              //             MaterialPageRoute(
+              //                 builder: (_) => const RegisterPage()),
+              //           );
+              //           if (ok == true && mounted) Navigator.of(context).pop(true);
+              //         },
+              //   child: const Text('没有账号？去注册',
+              //       style: TextStyle(color: CncColors.primaryInk)),
+              // ),
             ],
           ),
         ),

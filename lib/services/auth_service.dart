@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -10,8 +11,8 @@ import '../app/config.dart';
 /// 契约 2026-08-21 对齐 PC 工程师《安卓用户登陆接口.docx》：
 /// - `POST {base}/api/auth/android/login`  `{"email","password"}` → code=200 + 用户信息
 /// - `POST {base}/api/auth/register`        `{"email","password"}` → code=200 + 用户信息
-///   （register 路径为方案 A 假设，PC 工程师后续确认后微调）
-/// - 密码需加密后传参，加密密钥由刘昊霖（Myers）提供；密钥到位前先用明文联调。
+///   （register 路径为方案 A 假设，后端当前未开放注册，App 已隐藏注册入口）
+/// - 密码需加密后传参：`sha256(password)`（文档示例 64hex 确认，见 encryptPassword）。
 /// - 登录成功后 token 存本地，后续所有接口 `Authorization: Bearer <token>`（Bearer 后带空格）。
 ///
 /// token/userId 持久化到 SharedPreferences（后续升级 flutter_secure_storage）。
@@ -28,9 +29,11 @@ class AuthService {
   static const _kUsername = 'auth.username';
 
   /// 密码加密（PC 工程师要求）。
-  /// ⚠️ TODO(Myers)：密钥与算法到位后在此实现（如 SHA256+盐 / bcrypt / AES）。
-  /// 密钥到位前返回明文，仅用于联调；上线前必须接入。
-  static String encryptPassword(String password) => password;
+  /// 精读《安卓用户登陆接口.docx》：示例加密密码为 64 位 hex（32 字节 =
+  /// SHA-256 标准输出），判定算法 = `sha256(password)`（无盐纯哈希，小写 hex）。
+  /// 2026-08-21 落地；若刘昊霖（Myers）后续给出加盐/AES 等确切算法，在此微调。
+  static String encryptPassword(String password) =>
+      sha256.convert(utf8.encode(password)).toString();
 
   /// 注册（成功即自动登录），返回 (userId, token)。
   Future<(String, String)> register(String email, String password) async {
