@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:image_gallery_saver_plus/image_gallery_saver_plus.dart';
 import 'package:native_vlc_player/native_vlc_player.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 
@@ -35,11 +36,16 @@ class RtspPreviewWidget extends StatefulWidget {
   /// 是否在未指定地址时自动发现局域网摄像头。
   final bool autoDiscover;
 
+  /// 全屏入口回调。非空时，外网(MJPEG)模式右下角会多一个「全屏」按钮，
+  /// 点击后由外层页面接管全屏（避免内层全屏与外框冲突）。
+  final VoidCallback? onFullscreen;
+
   const RtspPreviewWidget({
     super.key,
     this.rtspUrl,
     this.relayUrl,
     this.autoDiscover = true,
+    this.onFullscreen,
   });
 
   @override
@@ -84,6 +90,9 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
   /// MJPEG 播放/暂停状态。
   bool _mjpegPlaying = true;
+
+  /// MJPEG 截图保存中（防重复点击）。
+  bool _savingSnapshot = false;
 
   @override
   void dispose() {
@@ -398,9 +407,12 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
   }
 
   /// 截图并保存到相册。
+  /// - 外网(MJPEG)模式：用缓存的最新帧，经 ImageGallerySaverPlus 直接写系统相册
+  ///   （与全屏页一致，根治「远程模式截图不支持保存」）。
+  /// - 局域网(RTSP)模式：走原生播放器的 snapshot()。
   Future<void> _takeSnapshot() async {
     if (_isRelayUrl) {
-      _showHint('远程模式截图暂不支持保存到相册');
+      await _saveMjpegFrame();
       return;
     }
 
@@ -412,6 +424,31 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
       return;
     }
     _showHint('截图已保存到相册');
+  }
+
+  /// 外网 MJPEG 模式截图：把最新一帧写入系统相册。
+  Future<void> _saveMjpegFrame() async {
+    final frame = _mjpegFrame;
+    if (frame == null) {
+      _showHint('还没有可截取的画面');
+      return;
+    }
+    if (_savingSnapshot) return;
+    setState(() => _savingSnapshot = true);
+    try {
+      final result = await ImageGallerySaverPlus.saveImage(
+        frame,
+        quality: 100,
+        name: 'cnc_${DateTime.now().millisecondsSinceEpoch}',
+      );
+      final ok = result is Map &&
+          (result['isSuccess'] == true || result['success'] == true);
+      _showHint(ok ? '截图已保存到相册' : '截图保存失败，请重试');
+    } catch (e) {
+      _showHint('截图保存出错');
+    } finally {
+      if (mounted) setState(() => _savingSnapshot = false);
+    }
   }
 
   void _showHint(String msg) {
@@ -594,8 +631,9 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
     );
   }
 
-  /// 常驻控制层：左下角暂停/停止 + 右下角截图，不随点击隐藏。
+  /// 常驻控制层：左下角暂停/停止 + 右下角截图/全屏，不随点击隐藏。
   Widget _buildPersistentControls() {
+    final showFullscreen = _isRelayUrl && widget.onFullscreen != null;
     return Positioned.fill(
       child: Stack(
         children: [
@@ -621,10 +659,22 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
           Positioned(
             right: 10,
             bottom: 10,
-            child: _ControlButton(
-              icon: Icons.camera_alt_outlined,
-              onTap: _takeSnapshot,
-              tooltip: '截图',
+            child: Row(
+              children: [
+                if (showFullscreen)
+                  _ControlButton(
+                    icon: Icons.fullscreen_rounded,
+                    onTap: widget.onFullscreen,
+                    tooltip: '全屏',
+                  ),
+                if (showFullscreen) const SizedBox(width: 10),
+                _ControlButton(
+                  icon: Icons.camera_alt_outlined,
+                  onTap: _takeSnapshot,
+                  tooltip: '截图',
+                  loading: _savingSnapshot,
+                ),
+              ],
             ),
           ),
         ],
@@ -636,13 +686,17 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 /// 控制层大图标按钮。
 class _ControlButton extends StatelessWidget {
   final IconData icon;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final String tooltip;
+
+  /// 为 true 时显示加载圈并禁用点击（截图保存中）。
+  final bool loading;
 
   const _ControlButton({
     required this.icon,
     required this.onTap,
     required this.tooltip,
+    this.loading = false,
   });
 
   @override
@@ -652,16 +706,25 @@ class _ControlButton extends StatelessWidget {
       borderRadius: BorderRadius.circular(8),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: onTap,
+        onTap: loading ? null : onTap,
         child: Tooltip(
           message: tooltip,
           child: Padding(
             padding: const EdgeInsets.all(10),
-            child: Icon(
-              icon,
-              size: 26,
-              color: const Color(0xFFF5F5F7),
-            ),
+            child: loading
+                ? const SizedBox(
+                    width: 26,
+                    height: 26,
+                    child: CircularProgressIndicator(
+                      color: Color(0xFFF5F5F7),
+                      strokeWidth: 2.5,
+                    ),
+                  )
+                : Icon(
+                    icon,
+                    size: 26,
+                    color: const Color(0xFFF5F5F7),
+                  ),
           ),
         ),
       ),

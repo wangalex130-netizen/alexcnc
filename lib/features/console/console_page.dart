@@ -358,6 +358,15 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   relayUrl: isLocal
                       ? null
                       : _resolvedRelayUrl(cfg),
+                  onFullscreen: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => FullscreenPreviewPage(
+                          machine: ref.read(currentMachineProvider),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
               // 延时摄影「开始录制/停止」浮动按钮：仅已打开延时功能或采集中时显示，
@@ -477,34 +486,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   ],
                 ),
               ),
-              // 外网 MJPEG 模式下，右下角放一个「进入全屏 + 截图存相册」入口。
-              // LAN (RTSP) 模式不显示——RtspPreviewWidget 内部已有自己的全屏控制。
-              if (!isLocal)
-                Positioned(
-                  right: 10,
-                  bottom: 8,
-                  child: GestureDetector(
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => FullscreenPreviewPage(
-                            machine: ref.read(currentMachineProvider),
-                          ),
-                        ),
-                      );
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.6),
-                        shape: BoxShape.circle,
-                        border: Border.all(color: CncColors.border),
-                      ),
-                      child: const Icon(Icons.fullscreen_rounded,
-                          size: 16, color: Colors.white),
-                    ),
-                  ),
-                ),
+              // 外网 MJPEG 模式下，右下角「全屏」入口改由 RtspPreviewWidget 内部
+              // 常驻控制层统一承载（与「截图」并排，经 onFullscreen 回调），
+              // 此处不再单独叠加，避免与 widget 内右下角按钮重叠。
             ],
           ),
 
