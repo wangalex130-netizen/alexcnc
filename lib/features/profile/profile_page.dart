@@ -167,7 +167,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
               icon: Symbols.notifications,
               title: '系统消息与历史告警',
               trailing: const Text('2 条未读',
-                  style: TextStyle(fontSize: 12, color: CncColors.danger)),
+                  style: TextStyle(fontSize: 12, color: CncColors.textSub)),
               onTap: () => _openSheet(const _MessagesSheet()),
             ),
             _MenuItem(

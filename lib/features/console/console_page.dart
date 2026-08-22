@@ -64,6 +64,11 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   /// 网络自动探测周期器：每 10s 探测一次控制器 TCP 8899，写回 isLocalLANProvider。
   Timer? _netTimer;
 
+  /// 乐观 UI：暂停/继续按钮立即切换，等机器状态回传后校准。
+  /// null = 跟随机器状态，true = 用户刚刚点了暂停，false = 用户刚刚点了继续。
+  bool? _pausedLocal;
+  MachineState? _lastMachineState;
+
   @override
   void initState() {
     super.initState();
@@ -331,6 +336,17 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     final idle = status.state == MachineState.idle;
     final busy = status.state == MachineState.busy;
     final canControl = isLocal && idle;
+
+    // 乐观 UI：机器状态一旦发生任何变化，立即让本地覆盖让位给机器回传。
+    if (_pausedLocal != null && _lastMachineState != null &&
+        _lastMachineState != status.state) {
+      _pausedLocal = null;
+    }
+    _lastMachineState = status.state;
+
+    // 有效暂停态：本地点了暂停 → 显示「继续」；本地点了继续 → 显示「暂停」；
+    // 无本地覆盖时跟随机器状态。
+    final bool isPaused = _pausedLocal ?? (status.state == MachineState.paused);
 
     // 开关态：固件回显 aux 优先（status.aux 含该键时以机器真实态为准），
     // 否则用本地乐观态（点按时立即反馈，等固件回显再校准）。
@@ -830,16 +846,18 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 const SizedBox(width: 10),
                 Expanded(
                   child: _ActionBtn(
-                    icon: status.state == MachineState.paused ? Symbols.play_arrow : Symbols.pause,
-                    label: status.state == MachineState.paused ? '继续' : '暂停',
+                    icon: isPaused ? Symbols.play_arrow : Symbols.pause,
+                    label: isPaused ? '继续' : '暂停',
                     fg: CncColors.textMain,
                     bg: const Color(0xFFEDEFF2),
                     border: CncColors.border,
                     onTap: () {
-                      // 暂停/继续状态来自机器（与监控页共享同一状态源，自动同步）
-                      if (status.state == MachineState.paused) {
+                      // 乐观 UI：立即切换按钮状态，同时发送 MQTT 指令
+                      if (isPaused) {
+                        setState(() => _pausedLocal = false);
                         hw.resumeJob();
                       } else {
+                        setState(() => _pausedLocal = true);
                         hw.pauseJob();
                       }
                     },

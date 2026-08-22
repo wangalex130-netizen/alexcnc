@@ -18,9 +18,9 @@ class AppShell extends ConsumerWidget {
   const AppShell({super.key});
 
   static const _pages = <Widget>[
-    LibraryPage(),
-    ConsolePage(),
-    ProfilePage(),
+    RepaintBoundary(child: LibraryPage()),
+    RepaintBoundary(child: ConsolePage()),
+    RepaintBoundary(child: ProfilePage()),
   ];
 
   static const _labels = ['图库', '控制台', '我的'];

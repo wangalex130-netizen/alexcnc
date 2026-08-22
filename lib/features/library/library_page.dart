@@ -7,6 +7,7 @@ import '../../app/runtime_config.dart';
 import '../../models/library_item.dart';
 import '../../models/model_library.dart';
 import '../../state/providers.dart';
+import '../shell/app_shell.dart';
 import 'model_detail_page.dart';
 
 /// Core 4：云端双轨模型库（灵感共享库 / 我的云端空间）—— 对齐 模型库页面.html。
@@ -40,6 +41,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   Future<List<LibraryItem>>? _myFuture; // tab1 我的空间
 
   bool _cfgListenerReady = false;
+  bool _navListenerReady = false;
 
   @override
   void initState() {
@@ -62,6 +64,24 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
             prev?.deviceId != next.deviceId ||
             prev?.appUserId != next.appUserId;
         if (changed) _refreshHome();
+      });
+    }
+    // 监听底部导航切换：当用户从其他 Tab 切回图库时自动刷新
+    if (!_navListenerReady) {
+      _navListenerReady = true;
+      ref.listen<int>(navIndexProvider, (prev, next) {
+        if (prev == next) return;
+        if (next == 0) {
+          // 切回图库 Tab：如果当前是「我的云端空间」则刷新我的空间，
+          // 否则刷新灵感共享库（含实时数据拉取）。
+          if (_tab == 1) {
+            setState(() {
+              _myFuture = ref.read(cloudServiceProvider).getMySpace();
+            });
+          } else {
+            _refreshHome();
+          }
+        }
       });
     }
   }
