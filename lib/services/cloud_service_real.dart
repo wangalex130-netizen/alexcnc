@@ -167,6 +167,35 @@ class RealCloudService implements CloudService {
 
   // ===================== 模型库 5 接口 =====================
 
+  @override
+  Future<bool> reportPushToken(
+    String token, {
+    String deviceId = '',
+    String platform = 'android',
+    bool notifyComplete = true,
+    bool notifyAlert = true,
+  }) async {
+    try {
+      final res = await http
+          .post(
+            Uri.parse('$baseUrl/api/v1/push/token'),
+            headers: await _headers,
+            body: jsonEncode({
+              'token': token,
+              'deviceId': deviceId.isEmpty ? this.deviceId : deviceId,
+              'platform': platform,
+              'notifyComplete': notifyComplete,
+              'notifyAlert': notifyAlert,
+            }),
+          )
+          .timeout(const Duration(seconds: 5));
+      return res.statusCode == 200;
+    } catch (_) {
+      // token 上报失败不阻塞主流程；下次启动 / 开关变化时重试
+      return false;
+    }
+  }
+
   String _buildQuery({
     int pageNo = 1,
     int pageSize = 12,

@@ -24,9 +24,6 @@ class ProfilePage extends ConsumerStatefulWidget {
 }
 
 class _ProfilePageState extends ConsumerState<ProfilePage> {
-  bool _pushComplete = true; // 允许推送设备完成状态
-  bool _pushAlert = true; // 允许推送硬件异常告警
-
   void _openSheet(Widget content) {
     showModalBottomSheet(
       context: context,
@@ -66,6 +63,8 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     final username = auth.username?.isNotEmpty == true
         ? auth.username!
         : (auth.userId ?? '未登录');
+    // 推送偏好（持久化，响应式）——替代原先的内存假开关
+    final pushPrefs = ref.watch(pushPrefsProvider);
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
       children: [
@@ -174,15 +173,17 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
               icon: Symbols.notifications_active,
               title: '允许推送设备完成状态',
               trailing: _Switch(
-                  value: _pushComplete,
-                  onChanged: (v) => setState(() => _pushComplete = v)),
+                  value: pushPrefs.notifyComplete,
+                  onChanged: (v) =>
+                      ref.read(pushPrefsProvider.notifier).toggleComplete(v)),
             ),
             _MenuItem(
               icon: Symbols.warning,
               title: '允许推送硬件异常告警',
               trailing: _Switch(
-                  value: _pushAlert,
-                  onChanged: (v) => setState(() => _pushAlert = v)),
+                  value: pushPrefs.notifyAlert,
+                  onChanged: (v) =>
+                      ref.read(pushPrefsProvider.notifier).toggleAlert(v)),
             ),
           ],
         ),

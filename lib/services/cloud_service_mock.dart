@@ -202,6 +202,19 @@ class MockCloudService implements CloudService {
     await Future.delayed(const Duration(milliseconds: 200));
   }
 
+  @override
+  Future<bool> reportPushToken(
+    String token, {
+    String deviceId = '',
+    String platform = 'android',
+    bool notifyComplete = true,
+    bool notifyAlert = true,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 100));
+    // Mock 下视为上报成功（无真实云端，仅演练 App 侧流程）
+    return true;
+  }
+
   // ===================== 模型库 5 接口（Mock 兜底） =====================
 
   @override

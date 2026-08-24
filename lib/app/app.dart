@@ -16,6 +16,8 @@ class AlexCncApp extends ConsumerWidget {
     // 全局挂载消息持久化：订阅 notify/broadcast 流并落盘，App 生命周期内持续记录，
     // 「我的」页消息抽屉从本地读取真实设备事件（后端暂无历史查询接口）。
     ref.watch(messageStoreProvider);
+    // 推送引导（P8 App 侧）：生成/复用本地 token 并按偏好上报云端（幂等）。
+    ref.watch(pushBootstrapProvider);
     return MaterialApp(
       title: 'Smart CNC Pro',
       debugShowCheckedModeBanner: false,

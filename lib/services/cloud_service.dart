@@ -42,4 +42,22 @@ abstract class CloudService {
   Future<LibraryItem?> getModelLibraryDetail(String id);
   Future<List<String>> getModelLibraryCategories();
   Future<List<String>> getModelLibraryTags();
+
+  /// 上报推送 token 与推送偏好（App 侧推送占位实现，P8）。
+  ///
+  /// - [token]：本机推送通道标识。当前为 App 生成的占位 token；
+  ///   后端接入正式推送通道（FCM / 极光 / 友盟等）后替换 SDK 返回的
+  ///   registrationId，本接口签名不变。
+  /// - [deviceId]：绑定的机器唯一码（云端按机器路由推送目标）。
+  /// - [platform]：'android' | 'ios'。
+  /// - [notifyComplete]/[notifyAlert]：用户在「我的」页的推送偏好。
+  ///
+  /// 返回 true = 云端已接受；false / 异常 = 未注册成功（调用方静默）。
+  Future<bool> reportPushToken(
+    String token, {
+    String deviceId,
+    String platform,
+    bool notifyComplete,
+    bool notifyAlert,
+  });
 }

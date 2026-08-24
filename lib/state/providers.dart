@@ -22,6 +22,7 @@ import '../services/hardware_service_real.dart';
 import '../services/machines_service.dart';
 import '../services/message_store.dart';
 import '../services/network_auth.dart';
+import '../services/push_service.dart';
 import 'auth_provider.dart';
 
 /// 当前选中的绑定机器（A3 拉流解耦：relay/cam 由后端返回，不写死）。
@@ -124,6 +125,67 @@ final cloudServiceProvider = Provider<CloudService>((ref) {
 });
 
 final networkProbeProvider = Provider<NetworkProbe>((ref) => NetworkProbe());
+
+/// 推送偏好（响应式状态），初始默认开启；持久化读写由 [PushService] 承担。
+/// UI（我的页）toggle 后调用 [PushNotifier.toggleComplete]/[toggleAlert]。
+class PushNotifier extends Notifier<PushPrefs> {
+  static const _defaults = PushPrefs();
+
+  @override
+  PushPrefs build() {
+    _hydrate();
+    return _defaults;
+  }
+
+  Future<void> _hydrate() async {
+    try {
+      final prefs = await PushService.instance.loadPrefs();
+      if (prefs.notifyComplete != state.notifyComplete ||
+          prefs.notifyAlert != state.notifyAlert ||
+          prefs.enabled != state.enabled) {
+        state = prefs;
+      }
+    } catch (_) {
+      // 保持默认
+    }
+  }
+
+  Future<void> toggleComplete(bool v) async {
+    state = state.copyWith(notifyComplete: v);
+    await PushService.instance.setNotifyComplete(v);
+    _report();
+  }
+
+  Future<void> toggleAlert(bool v) async {
+    state = state.copyWith(notifyAlert: v);
+    await PushService.instance.setNotifyAlert(v);
+    _report();
+  }
+
+  void _report() {
+    try {
+      final ref = this.ref;
+      PushService.instance.reportNow(
+        ref.read(cloudServiceProvider),
+        deviceId: ref.read(runtimeConfigProvider).resolvedDeviceId,
+      );
+    } catch (_) {
+      // 上报失败静默
+    }
+  }
+}
+
+final pushPrefsProvider = NotifierProvider<PushNotifier, PushPrefs>(
+  PushNotifier.new,
+);
+
+/// 推送引导（App 根监听）：确保 token 存在并按偏好上报云端（幂等）。
+final pushBootstrapProvider = Provider<void>((ref) {
+  PushService.instance.bootstrap(
+    ref.read(cloudServiceProvider),
+    deviceId: ref.read(runtimeConfigProvider).resolvedDeviceId,
+  );
+});
 
 /// true = 与控制器同 Wi-Fi（可完整控制）；false = 远程监视（仅看画面）。
 ///
