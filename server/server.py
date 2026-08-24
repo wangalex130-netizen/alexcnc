@@ -10,6 +10,7 @@
   GET  /api/v1/gcode/<id>           D10 G-code 文件下载端点（机器 HTTP 拉取落 SD，预签名 URL 同构）
   POST /api/v1/devices/<id>/jobs    云端下发任务：返回 gcodeUrl 下载链接（正式路径）+ 保留 TCP 直推（兼容）
   POST /api/v1/diagnostics          诊断日志上报
+  POST /api/v1/push/token           推送注册：App 上报 token + 通知偏好（按 deviceId upsert）
 
 运行：
   python3 server.py            # 默认 0.0.0.0:8787
@@ -125,6 +126,10 @@ DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data.json"
 MY_SPACE = []          # [LibraryItem dict]（isPublic=false）
 UPLOADED_TASKS = {}    # taskId -> task dict（含可选 gcode）
 UPLOADED_MODELS = {}   # modelId -> model dict（电脑端上传的模型条目）
+# 推送注册表：deviceId -> push 绑定（App 上报 token + 通知偏好）。
+# 手机每次启动/开关变化都会 POST，按 deviceId upsert（防止重复堆积）。
+# 未来接 FCM/厂商聚合通道时：用 token 换 SDK registrationId，发送时按偏好转发。
+PUSH_TOKENS = {}       # deviceId -> {token, deviceId, platform, notifyComplete, notifyAlert, updatedAt}
 INSPIRATION = [
     {"id": "insp-hero", "title": "复古木雕花纹板", "author": "ArtiMaker",
      "coverUrl": None, "imageUrls": [], "isPublic": True, "materialPreset": "松木",
@@ -149,7 +154,7 @@ INSPIRATION = [
 
 
 def _load_data():
-    global MY_SPACE, UPLOADED_TASKS, UPLOADED_MODELS
+    global MY_SPACE, UPLOADED_TASKS, UPLOADED_MODELS, PUSH_TOKENS
     try:
         if os.path.exists(DATA_FILE):
             with open(DATA_FILE, encoding="utf-8") as f:
@@ -157,6 +162,7 @@ def _load_data():
             MY_SPACE = d.get("mySpace", []) or []
             UPLOADED_TASKS = d.get("tasks", {}) or {}
             UPLOADED_MODELS = d.get("models", {}) or {}
+            PUSH_TOKENS = d.get("pushTokens", {}) or {}
     except Exception as e:
         print(f"[server] 读取 data.json 失败（忽略）: {e}")
 
@@ -165,7 +171,7 @@ def _save_data():
     try:
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump({"mySpace": MY_SPACE, "tasks": UPLOADED_TASKS,
-                       "models": UPLOADED_MODELS},
+                       "models": UPLOADED_MODELS, "pushTokens": PUSH_TOKENS},
                       f, ensure_ascii=False, indent=1)
     except Exception as e:
         print(f"[server] 保存 data.json 失败: {e}")
@@ -328,6 +334,35 @@ class Handler(BaseHTTPRequestHandler):
                                      "gcodePushed": pushed,
                                      "gcodeUrl": f"{base}/api/v1/gcode/{tid or 'active'}"})
 
+        # 推送通知：App 上报设备 token + 通知偏好（每次启动/开关变化都来）。
+        # 按 deviceId upsert —— 同机重复上报只更新，不重复堆积。
+        if p.path == "/api/v1/push/token":
+            if not isinstance(payload, dict):
+                return self._send(400, {"error": "invalid JSON body",
+                                        "hint": "POST /api/v1/push/token 需 UTF-8 JSON"})
+            token = (payload.get("token") or "").strip()
+            device_id = (payload.get("deviceId") or "").strip()
+            if not token or not device_id:
+                return self._send(400, {"error": "missing field",
+                                        "hint": "必填: token, deviceId",
+                                        "received": {k: v for k, v in payload.items()
+                                                     if k in ("token", "deviceId")}})
+            platform = (payload.get("platform") or "android").strip() or "android"
+            PUSH_TOKENS[device_id] = {
+                "token": token,
+                "deviceId": device_id,
+                "platform": platform,
+                "notifyComplete": bool(payload.get("notifyComplete", True)),
+                "notifyAlert": bool(payload.get("notifyAlert", True)),
+                "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            }
+            _save_data()
+            print(f"[PUSH REG] device={device_id} platform={platform} "
+                  f"notifyComplete={PUSH_TOKENS[device_id]['notifyComplete']} "
+                  f"notifyAlert={PUSH_TOKENS[device_id]['notifyAlert']} "
+                  f"total={len(PUSH_TOKENS)}", flush=True)
+            return self._send(200, {"ok": True, "deviceId": device_id})
+
         if p.path == "/api/v1/diagnostics":
             print(f"[DIAG] device={payload.get('device')} "
                   f"log={str(payload.get('log'))[:80]}", flush=True)
@@ -431,5 +466,6 @@ if __name__ == "__main__":
     print(f"Mock Cloud listening on http://{HOST}:{PORT}")
     print("Endpoints: GET /api/v1/materials | GET /api/v1/tasks/<id> | "
           "GET /api/v1/library/mine | GET /api/v1/library/inspiration | "
-          "POST /api/v1/tasks | POST /api/v1/devices/<id>/jobs")
+          "POST /api/v1/tasks | POST /api/v1/devices/<id>/jobs | "
+          "POST /api/v1/push/token")
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
