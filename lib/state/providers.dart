@@ -213,6 +213,7 @@ final pushBootstrapProvider = Provider<void>((ref) async {
 class PushPoller {
   Timer? _timer;
   bool _started = false;
+  bool _permissionRequested = false;
 
   /// 启动轮询。config 加载完成前先不构造 cloud，加载后立刻首次轮询，
   /// 再挂 15s 周期任务（复用同一 cloud 实例）。
@@ -221,9 +222,14 @@ class PushPoller {
     _started = true;
 
     Future<void> tick(CloudService cloud, String deviceId) async {
-      await LocalNotifyService.instance.ensureInitialized();
-      await LocalNotifyService.instance.ensurePermission();
+      // 网络轮询优先：通知初始化/权限申请在部分国产 ROM 兼容层可能长时间
+      // 不返回，若放在前面会卡死整个轮询。先拉事件，弹窗失败不阻塞水位推进。
       await PushService.instance.pollEvents(cloud, deviceId: deviceId);
+      if (!_permissionRequested) {
+        _permissionRequested = true;
+        // 异步发起一次即可，拒绝/异常不阻塞后续轮询。
+        LocalNotifyService.instance.ensurePermission();
+      }
     }
 
     ref.read(runtimeConfigProvider.notifier).hydrated.then((cfg) {
@@ -244,6 +250,8 @@ class PushPoller {
   void dispose() {
     _timer?.cancel();
     _timer = null;
+    _started = false;
+    _permissionRequested = false;
   }
 }
 
