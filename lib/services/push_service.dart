@@ -36,6 +36,9 @@ class PushService {
 
   String? _cachedToken;
 
+  /// 最近一次轮询的诊断摘要（联调上报用）。
+  String lastPollDiagnostic = 'idle';
+
   /// 全局推送总开关（预留；当前 UI 未暴露，恒为 true）。
   bool get _enabledDefault => true;
 
@@ -122,18 +125,29 @@ class PushService {
     required String deviceId,
   }) async {
     try {
+      lastPollDiagnostic = 'polling';
       final prefs = await loadPrefs();
-      if (!prefs.enabled) return 0; // 全局总开关关闭 → 不弹
+      if (!prefs.enabled) {
+        lastPollDiagnostic = 'polling disabled';
+        return 0; // 全局总开关关闭 → 不弹
+      }
 
       final entries = await cloud.fetchPushLog();
-      if (entries.isEmpty) return 0;
+      if (entries.isEmpty) {
+        lastPollDiagnostic = 'fetch-ok entries=0';
+        return 0;
+      }
 
       final lastSeen = await _loadLastSeen();
       final fresh = entries
           .where((e) => e.deliveredAt.isAfter(lastSeen))
           .where((e) => e.isForDevice(deviceId))
           .toList();
-      if (fresh.isEmpty) return 0;
+      if (fresh.isEmpty) {
+        lastPollDiagnostic =
+            'fetch-ok fresh=0 lastSeen=${lastSeen.toIso8601String()}';
+        return 0;
+      }
 
       // 尊重细分开关：complete→notifyComplete，alert→notifyAlert
       var shown = 0;
@@ -155,9 +169,13 @@ class PushService {
           .reduce((a, b) => a.isAfter(b) ? a : b);
       await _saveLastSeen(maxDelivered);
 
+      lastPollDiagnostic =
+          'fetch-ok fresh=${fresh.length} shown=$shown '
+          'lastSeen=${maxDelivered.toIso8601String()}';
       return shown;
-    } catch (_) {
+    } catch (e) {
       // 轮询失败（网络/解析）静默，下一轮再试
+      lastPollDiagnostic = 'poll-error $e';
       return 0;
     }
   }

@@ -19,18 +19,31 @@ class LocalNotifyService {
       FlutterLocalNotificationsPlugin();
 
   bool _initialized = false;
+  bool _permissionGranted = false;
+  String _lastAction = 'idle';
+  String _lastError = '';
+  int _showOkCount = 0;
+  int _showFailCount = 0;
 
   /// 幂等初始化：设置 Android 通知通道 + 启动图标。
   /// 需在 App 启动早期调用一次（Android 13+/API 33+ 通知通道建好后，
   /// 还要单独申请 POST_NOTIFICATIONS 运行时权限，见 [ensurePermission]）。
+  /// 加 5s 超时：部分国产 ROM 兼容层可能长时间不返回，不能让初始化卡死轮询。
   Future<void> ensureInitialized() async {
     if (_initialized) return;
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
     const settings = InitializationSettings(android: android);
     try {
-      await _plugin.initialize(settings);
+      await _plugin
+          .initialize(settings)
+          .timeout(const Duration(seconds: 5));
       _initialized = true;
+      _lastAction = 'init-ok';
+      _lastError = '';
     } catch (e) {
+      _initialized = false;
+      _lastAction = 'init-fail';
+      _lastError = e.toString();
       debugPrint('[notify] 初始化失败: $e');
     }
   }
@@ -42,12 +55,27 @@ class LocalNotifyService {
       final android = _plugin
           .resolvePlatformSpecificImplementation<
               AndroidFlutterLocalNotificationsPlugin>();
-      final granted = await android?.requestNotificationsPermission() ?? true;
+      final granted = await (android?.requestNotificationsPermission() ??
+              Future<bool>.value(true))
+          .timeout(const Duration(seconds: 5));
+      _permissionGranted = granted;
+      _lastAction = granted ? 'perm-ok' : 'perm-denied';
+      _lastError = granted ? '' : 'permission not granted';
       return granted;
     } catch (e) {
+      _permissionGranted = false;
+      _lastAction = 'perm-fail';
+      _lastError = e.toString();
       debugPrint('[notify] 权限申请异常: $e');
       return false;
     }
+  }
+
+  /// 联调诊断：把通知链路最近状态汇总成一行，随现有诊断通道上报 server。
+  String debugSummary() {
+    final err = _lastError.isEmpty ? '' : ' err=$_lastError';
+    return 'init=$_initialized perm=$_permissionGranted '
+        'last=$_lastAction showOk=$_showOkCount showFail=$_showFailCount$err';
   }
 
   /// 弹一条本地通知。
@@ -61,6 +89,7 @@ class LocalNotifyService {
   }) async {
     if (!_initialized) {
       await ensureInitialized();
+      if (!_initialized) return; // 初始化超时/失败：本轮跳过，避免卡死轮询
     }
     const android = AndroidNotificationDetails(
       _channelId,
@@ -71,8 +100,17 @@ class LocalNotifyService {
     );
     const details = NotificationDetails(android: android);
     try {
-      await _plugin.show(id, title, body, details);
+      _lastAction = 'show-start';
+      await _plugin
+          .show(id, title, body, details)
+          .timeout(const Duration(seconds: 5));
+      _showOkCount++;
+      _lastAction = 'show-ok';
+      _lastError = '';
     } catch (e) {
+      _showFailCount++;
+      _lastAction = 'show-fail';
+      _lastError = e.toString();
       debugPrint('[notify] 弹窗失败: $e');
     }
   }

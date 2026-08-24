@@ -224,12 +224,19 @@ class PushPoller {
     Future<void> tick(CloudService cloud, String deviceId) async {
       // 网络轮询优先：通知初始化/权限申请在部分国产 ROM 兼容层可能长时间
       // 不返回，若放在前面会卡死整个轮询。先拉事件，弹窗失败不阻塞水位推进。
-      await PushService.instance.pollEvents(cloud, deviceId: deviceId);
+      final shown =
+          await PushService.instance.pollEvents(cloud, deviceId: deviceId);
       if (!_permissionRequested) {
         _permissionRequested = true;
         // 异步发起一次即可，拒绝/异常不阻塞后续轮询。
         LocalNotifyService.instance.ensurePermission();
       }
+      // 联调诊断：把“是否拉到事件 / 通知初始化 / 权限 / 弹窗结果”上报 server，
+      // 便于定位“轮询到了却没弹”的问题（走既有 /api/v1/diagnostics 通道）。
+      cloud.pushDiagnostics(
+        'push shown=$shown; ${PushService.instance.lastPollDiagnostic}; '
+        '${LocalNotifyService.instance.debugSummary()}',
+      );
     }
 
     ref.read(runtimeConfigProvider.notifier).hydrated.then((cfg) {
