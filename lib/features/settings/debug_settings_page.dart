@@ -98,11 +98,10 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
     ref.read(runtimeConfigProvider.notifier).save(cfg);
     // 保存即生效：立即按新配置上报一次推送 token/偏好（此前需重启 App 才会注册，
     // 且重启瞬间可能因配置异步加载未完成而走 Mock 假上报。现在保存就触发，见 providers.dart）。
+    // 复用 cloudServiceProvider（配置更新后会重建出 RealCloudService），避免在设置页
+    // 直接 new RealCloudService 造成编译依赖错乱。
     if (cfg.resolvedUseRealBackend) {
-      final cloud = RealCloudService(
-        cfg.resolvedCloudBaseUrl,
-        cfg.resolvedDeviceId,
-      );
+      final cloud = ref.read(cloudServiceProvider);
       PushService.instance.reportNow(
         cloud,
         deviceId: cfg.resolvedDeviceId,
