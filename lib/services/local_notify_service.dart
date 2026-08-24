@@ -55,13 +55,16 @@ class LocalNotifyService {
       final android = _plugin
           .resolvePlatformSpecificImplementation<
               AndroidFlutterLocalNotificationsPlugin>();
+      // 当前插件版本返回 bool?：null 表示低于 API 33、无需运行时权限，
+      // 按“已允许”处理；Android 13+ 会返回真实授权结果。
       final granted = await (android?.requestNotificationsPermission() ??
-              Future<bool>.value(true))
+              Future<bool?>.value(true))
           .timeout(const Duration(seconds: 5));
-      _permissionGranted = granted;
-      _lastAction = granted ? 'perm-ok' : 'perm-denied';
-      _lastError = granted ? '' : 'permission not granted';
-      return granted;
+      final ok = granted ?? true;
+      _permissionGranted = ok;
+      _lastAction = ok ? 'perm-ok' : 'perm-denied';
+      _lastError = ok ? '' : 'permission not granted';
+      return ok;
     } catch (e) {
       _permissionGranted = false;
       _lastAction = 'perm-fail';
