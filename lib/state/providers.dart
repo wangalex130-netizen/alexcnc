@@ -180,10 +180,23 @@ final pushPrefsProvider = NotifierProvider<PushNotifier, PushPrefs>(
 );
 
 /// 推送引导（App 根监听）：确保 token 存在并按偏好上报云端（幂等）。
-final pushBootstrapProvider = Provider<void>((ref) {
-  PushService.instance.bootstrap(
-    ref.read(cloudServiceProvider),
-    deviceId: ref.read(runtimeConfigProvider).resolvedDeviceId,
+///
+/// 时序修复（2026-08-24）：启动瞬间 runtimeConfigProvider 的异步加载（_hydrate）
+/// 尚未完成，直接 ref.read(cloudServiceProvider) 会捕获「默认全空配置」→ MockCloudService，
+/// 注册请求永远发不出去。改为先等待已保存配置加载完成（runtimeConfigProvider.hydrated），
+/// 再构建云端服务，确保走 RealCloudService 且地址/设备号是用户保存的值。
+final pushBootstrapProvider = Provider<void>((ref) async {
+  // 1) 先确保本地 token 存在（不依赖云端，先行断言）
+  await PushService.instance.ensureToken();
+  // 2) 等待联调设置（已保存的云端地址 / 真实后端开关）加载完成
+  final cfg = await ref.read(runtimeConfigProvider.notifier).hydrated;
+  // 3) 按最终生效的配置构建云端服务并上报（幂等，可重复调用）
+  final cloud = cfg.resolvedUseRealBackend
+      ? RealCloudService(cfg.resolvedCloudBaseUrl, cfg.resolvedDeviceId)
+      : MockCloudService();
+  await PushService.instance.bootstrap(
+    cloud,
+    deviceId: cfg.resolvedDeviceId,
   );
 });
 

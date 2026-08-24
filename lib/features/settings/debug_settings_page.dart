@@ -5,6 +5,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../app/runtime_config.dart';
 import '../../app/theme.dart';
 import '../../services/hardware_service.dart';
+import '../../services/push_service.dart';
 import '../../state/providers.dart';
 
 /// 联调设置：运行时覆盖云端 / MQTT Broker / 局域网 TCP / 设备 ID / 摄像头地址，
@@ -95,6 +96,18 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
       cameraRtspUrl: _rtsp.text.trim(),
     );
     ref.read(runtimeConfigProvider.notifier).save(cfg);
+    // 保存即生效：立即按新配置上报一次推送 token/偏好（此前需重启 App 才会注册，
+    // 且重启瞬间可能因配置异步加载未完成而走 Mock 假上报。现在保存就触发，见 providers.dart）。
+    if (cfg.resolvedUseRealBackend) {
+      final cloud = RealCloudService(
+        cfg.resolvedCloudBaseUrl,
+        cfg.resolvedDeviceId,
+      );
+      PushService.instance.reportNow(
+        cloud,
+        deviceId: cfg.resolvedDeviceId,
+      );
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('已保存，正在按新配置重连…')),
     );
