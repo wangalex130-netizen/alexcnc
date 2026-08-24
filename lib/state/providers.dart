@@ -23,6 +23,7 @@ import '../services/machines_service.dart';
 import '../services/message_store.dart';
 import '../services/network_auth.dart';
 import '../services/push_service.dart';
+import '../services/local_notify_service.dart';
 import 'auth_provider.dart';
 
 /// 当前选中的绑定机器（A3 拉流解耦：relay/cam 由后端返回，不写死）。
@@ -198,6 +199,59 @@ final pushBootstrapProvider = Provider<void>((ref) async {
     cloud,
     deviceId: cfg.resolvedDeviceId,
   );
+});
+
+/// 本地通知消费端轮询（App 根监听，全局只跑一份）。
+///
+/// 启动后：
+///  1) 初始化本地通知通道 + 申请 Android 13+ 通知权限（幂等，拒绝不阻塞）；
+///  2) 立即轮询一次 `push/log`，随后每 15s 轮询，把「本机新事件」弹成
+///     本地通知（去重/开关过滤逻辑在 [PushService.pollEvents] 内）。
+///
+/// 联调阶段不依赖厂商通道，先让用户在通知栏看到云端事件；接 FCM/厂商
+/// 聚合后，本 provider 的轮询可切为 SDK 透传回调，弹窗逻辑原样复用。
+class PushPoller {
+  Timer? _timer;
+  bool _started = false;
+
+  /// 启动轮询。config 加载完成前先不构造 cloud，加载后立刻首次轮询，
+  /// 再挂 15s 周期任务（复用同一 cloud 实例）。
+  void start(Ref ref) {
+    if (_started) return;
+    _started = true;
+
+    Future<void> tick(CloudService cloud, String deviceId) async {
+      await LocalNotifyService.instance.ensureInitialized();
+      await LocalNotifyService.instance.ensurePermission();
+      await PushService.instance.pollEvents(cloud, deviceId: deviceId);
+    }
+
+    ref.read(runtimeConfigProvider.notifier).hydrated.then((cfg) {
+      final cloud = cfg.resolvedUseRealBackend
+          ? RealCloudService(cfg.resolvedCloudBaseUrl, cfg.resolvedDeviceId)
+          : MockCloudService();
+      final deviceId = cfg.resolvedDeviceId;
+      tick(cloud, deviceId);
+      _timer = Timer.periodic(
+        const Duration(seconds: 15),
+        (_) => tick(cloud, deviceId),
+      );
+    }).catchError((_) {
+      // 配置加载异常：不阻塞启动
+    });
+  }
+
+  void dispose() {
+    _timer?.cancel();
+    _timer = null;
+  }
+}
+
+final _pushPoller = PushPoller();
+
+final pushPollProvider = Provider<void>((ref) {
+  ref.onDispose(_pushPoller.dispose);
+  _pushPoller.start(ref);
 });
 
 /// true = 与控制器同 Wi-Fi（可完整控制）；false = 远程监视（仅看画面）。

@@ -37,6 +37,10 @@ dependencies:
   # 密码加密：登录密码 sha256 后传参（PC 工程师接口文档示例 64hex）。
   # Dart 标准 crypto 库，无平台依赖，CI 直接可用。
   crypto: ^3.0.3
+  # 本地通知：App 轮询云端 push/log 后弹本地通知（联调阶段不依赖厂商通道，
+  # 先让用户在通知栏看到事件）。锁 ^17.2.4（CI Flutter 3.29.0 / Dart 3.7 兼容；
+  # 18/19.x 要求更高 Dart 版本装不上）。
+  flutter_local_notifications: ^17.2.4
 
 dev_dependencies:
   flutter_test:

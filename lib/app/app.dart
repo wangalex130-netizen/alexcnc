@@ -18,6 +18,8 @@ class AlexCncApp extends ConsumerWidget {
     ref.watch(messageStoreProvider);
     // 推送引导（P8 App 侧）：生成/复用本地 token 并按偏好上报云端（幂等）。
     ref.watch(pushBootstrapProvider);
+    // 本地通知消费端：轮询云端 push/log，把本机新事件弹成系统通知（15s 周期）。
+    ref.watch(pushPollProvider);
     return MaterialApp(
       title: 'Smart CNC Pro',
       debugShowCheckedModeBanner: false,

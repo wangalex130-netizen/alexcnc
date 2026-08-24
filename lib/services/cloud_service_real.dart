@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../data/material_db.dart';
 import '../models/library_item.dart';
 import '../models/model_library.dart';
+import '../models/push_log_entry.dart';
 import '../models/task_metadata.dart';
 import '../app/config.dart';
 import 'cloud_service.dart';
@@ -194,6 +195,29 @@ class RealCloudService implements CloudService {
       // token 上报失败不阻塞主流程；下次启动 / 开关变化时重试
       return false;
     }
+  }
+
+  @override
+  Future<List<PushLogEntry>> fetchPushLog() async {
+    try {
+      final res = await http
+          .get(Uri.parse('$baseUrl/api/v1/push/log'))
+          .timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        final body = jsonDecode(utf8.decode(res.bodyBytes));
+        if (body is List) {
+          return body
+              .whereType<Map>()
+              .map((e) => PushLogEntry.fromJson({
+                    ...e.map((k, v) => MapEntry(k.toString(), v)),
+                  }))
+              .toList();
+        }
+      }
+    } catch (_) {
+      // 云端不可达：返回空（轮询下一轮再试，不弹通知）
+    }
+    return const [];
   }
 
   String _buildQuery({

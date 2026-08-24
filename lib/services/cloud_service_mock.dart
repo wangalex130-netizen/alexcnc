@@ -1,6 +1,7 @@
 import '../data/material_db.dart';
 import '../models/library_item.dart';
 import '../models/model_library.dart';
+import '../models/push_log_entry.dart';
 import '../models/task_metadata.dart';
 import 'cloud_service.dart';
 
@@ -213,6 +214,13 @@ class MockCloudService implements CloudService {
     await Future.delayed(const Duration(milliseconds: 100));
     // Mock 下视为上报成功（无真实云端，仅演练 App 侧流程）
     return true;
+  }
+
+  @override
+  Future<List<PushLogEntry>> fetchPushLog() async {
+    await Future.delayed(const Duration(milliseconds: 100));
+    // Mock 下无事件源，返回空（本地通知消费端在 Mock 模式下不弹）
+    return const [];
   }
 
   // ===================== 模型库 5 接口（Mock 兜底） =====================

@@ -1,6 +1,7 @@
 import '../data/material_db.dart';
 import '../models/library_item.dart';
 import '../models/model_library.dart';
+import '../models/push_log_entry.dart';
 import '../models/task_metadata.dart';
 
 /// Cloud boundary (Smart CNC Studio / 阿里云|AWS MQTT).
@@ -60,4 +61,11 @@ abstract class CloudService {
     bool notifyComplete,
     bool notifyAlert,
   });
+
+  /// 拉取云端推送发送记录（GET /api/v1/push/log，最新在前，最多 50 条）。
+  ///
+  /// App 本地通知消费端用它做增量水位轮询：找到比「上次已读水位」更新的
+  /// 本机事件→弹本地通知。真实厂商聚合通道接入后，本接口契约不变（通道
+  /// 换成 FCM/厂商，但发送记录仍落 push/log），可无缝复用。
+  Future<List<PushLogEntry>> fetchPushLog();
 }
