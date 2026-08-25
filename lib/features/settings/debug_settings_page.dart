@@ -21,6 +21,7 @@ class DebugSettingsPage extends ConsumerStatefulWidget {
 
 class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
   final _cloud = TextEditingController();
+  final _backend = TextEditingController();
   final _broker = TextEditingController();
   final _mqttPort = TextEditingController();
   final _mqttUser = TextEditingController();
@@ -45,6 +46,7 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
     setState(() {
       _useReal = c.resolvedUseRealBackend;
       _cloud.text = c.resolvedCloudBaseUrl;
+      _backend.text = c.resolvedBackendBaseUrl;
       _broker.text = c.resolvedMqttBroker;
       _mqttPort.text = '${c.resolvedMqttPort}';
       _mqttUser.text = c.resolvedMqttUser;
@@ -61,6 +63,7 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
   void dispose() {
     for (final c in [
       _cloud,
+      _backend,
       _broker,
       _mqttPort,
       _mqttUser,
@@ -94,6 +97,7 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
       deviceId: _deviceId.text.trim(),
       appUserId: _appUserId.text.trim(),
       cameraRtspUrl: _rtsp.text.trim(),
+      backendBaseUrl: _backend.text.trim(),
     );
     ref.read(runtimeConfigProvider.notifier).save(cfg);
     // 保存即生效：立即按新配置上报一次推送 token/偏好（此前需重启 App 才会注册，
@@ -175,6 +179,7 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
           ),
           const SizedBox(height: 18),
           _Field(label: '云端地址 (Cloud Base URL)', hint: 'http://192.168.1.22:8787', c: _cloud),
+          _Field(label: '账号/登录后端地址 (留空=默认 037123.xyz)', hint: 'https://037123.xyz', c: _backend),
           _Field(label: 'MQTT Broker', hint: '192.168.1.22 / broker.emqx.io', c: _broker),
           Row(children: [
             Expanded(child: _Field(label: 'MQTT 端口', hint: '1883', c: _mqttPort, num: true)),

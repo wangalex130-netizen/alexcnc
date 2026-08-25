@@ -13,6 +13,10 @@ import 'config.dart';
 class RuntimeConfig {
   final bool useRealBackend;
   final String cloudBaseUrl;
+  // ---- 账号/绑定后端地址（登录、我的机器等 /api/auth/*、/api/machine/*）----
+  // 与 cloudBaseUrl 默认同域（https://037123.xyz），但独立成字段以便联调时
+  // 把登录地址切到工程师给的可达地址，无需重新出包。
+  final String backendBaseUrl;
   final String mqttBroker;
   final int mqttPort;
   final String mqttUser;
@@ -30,6 +34,7 @@ class RuntimeConfig {
   const RuntimeConfig({
     this.useRealBackend = false,
     this.cloudBaseUrl = '',
+    this.backendBaseUrl = '',
     this.mqttBroker = '',
     this.mqttPort = 0,
     this.mqttUser = '',
@@ -48,6 +53,9 @@ class RuntimeConfig {
   bool get resolvedUseRealBackend => useRealBackend || AppConfig.useRealBackend;
   String get resolvedCloudBaseUrl =>
       cloudBaseUrl.isNotEmpty ? cloudBaseUrl : AppConfig.cloudBaseUrl;
+  // ---- 账号后端地址（登录/绑定/我的机器），独立可配，默认回落 AppConfig.backendBaseUrl ----
+  String get resolvedBackendBaseUrl =>
+      backendBaseUrl.isNotEmpty ? backendBaseUrl : AppConfig.backendBaseUrl;
   String get resolvedMqttBroker =>
       mqttBroker.isNotEmpty ? mqttBroker : AppConfig.mqttBroker;
   int get resolvedMqttPort => mqttPort > 0 ? mqttPort : AppConfig.mqttPort;
@@ -82,6 +90,7 @@ class RuntimeConfig {
   Map<String, dynamic> toJson() => {
         'useRealBackend': useRealBackend,
         'cloudBaseUrl': cloudBaseUrl,
+        'backendBaseUrl': backendBaseUrl,
         'mqttBroker': mqttBroker,
         'mqttPort': mqttPort,
         'mqttUser': mqttUser,
@@ -99,6 +108,7 @@ class RuntimeConfig {
   factory RuntimeConfig.fromJson(Map<String, dynamic> j) => RuntimeConfig(
         useRealBackend: j['useRealBackend'] == true,
         cloudBaseUrl: (j['cloudBaseUrl'] as String?) ?? '',
+        backendBaseUrl: (j['backendBaseUrl'] as String?) ?? '',
         mqttBroker: (j['mqttBroker'] as String?) ?? '',
         mqttPort: (j['mqttPort'] as num?)?.toInt() ?? 0,
         mqttUser: (j['mqttUser'] as String?) ?? '',

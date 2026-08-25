@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../../app/runtime_config.dart';
 import '../../app/theme.dart';
 import '../../services/machines_service.dart';
 import '../../state/auth_provider.dart';
@@ -51,7 +52,9 @@ class _BindPageState extends ConsumerState<BindPage> {
       _error = null;
     });
     try {
-      final m = await MachinesService().bind(sn);
+      final m = await MachinesService(
+        baseUrl: ref.read(runtimeConfigProvider).resolvedBackendBaseUrl,
+      ).bind(sn);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/config.dart';
+import '../../app/runtime_config.dart';
 import '../../app/theme.dart';
 import '../../services/machines_service.dart';
 import '../../state/auth_provider.dart';
@@ -37,7 +38,9 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
   Future<void> _load() async {
     setState(() => _error = null);
     try {
-      final list = await MachinesService().fetchMyMachines();
+      final list = await MachinesService(
+        baseUrl: ref.read(runtimeConfigProvider).resolvedBackendBaseUrl,
+      ).fetchMyMachines();
       if (mounted) setState(() => _machines = list);
     } catch (e) {
       if (mounted) {

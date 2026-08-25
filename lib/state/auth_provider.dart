@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../app/runtime_config.dart';
 import '../services/auth_service.dart';
 
 /// 登录态。
@@ -81,7 +82,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
 }
 
 /// 全局账号状态。
+///
+/// 构造 AuthService 时传入联调设置里的「账号后端地址」（resolvedBackendBaseUrl），
+/// 使其能被「联调设置」覆盖，无需重新出包即可把登录/绑定打到工程师给的可达地址。
+/// 依赖 runtimeConfigProvider：联调设置保存后会重建并生效。
 final authProvider =
     StateNotifierProvider<AuthNotifier, AuthState>((ref) {
-  return AuthNotifier(AuthService());
+  final cfg = ref.watch(runtimeConfigProvider);
+  return AuthNotifier(AuthService(baseUrl: cfg.resolvedBackendBaseUrl));
 });
