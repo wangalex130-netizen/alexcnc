@@ -35,9 +35,11 @@ class AppConfig {
     'CAMERA_RELAY_TOKEN',
     defaultValue: 'lunyee-cnc-relay-7k2p',
   );
+  // 2026-08-25 对齐「量产统一机器码」决策：摄像头 device_id = 机器码（同一字符串）。
+  // 测试机机器码为 cnc-demo-01，故兜底默认值同步改为 cnc-demo-01。
   static const String cameraRelayDevice = String.fromEnvironment(
     'CAMERA_RELAY_DEVICE',
-    defaultValue: 'cnc-cam-01',
+    defaultValue: 'cnc-demo-01',
   );
 
   // ---- 后端选择 ----
