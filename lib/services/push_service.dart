@@ -187,9 +187,10 @@ class PushService {
       final dt = DateTime.tryParse(raw);
       if (dt != null) return dt;
     }
-    // 无水位：退化为“历史全部不弹”，仅消费此刻之后的新事件。
-    // 用“稍早一点”的当前时刻，避免极端情况漏掉刚产生的事件。
-    return DateTime.now().toUtc().subtract(const Duration(seconds: 5));
+    // 无水位（首次连接）：展示云端当前所有待发事件，再把水位推进到最新一条，
+    // 避免“now-5s”滑动水位把已存在但稍早产生的事件永远当旧消息过滤掉。
+    // 用远过去时间作为首轮水位，确保首连即可收到 pending 通知。
+    return DateTime.utc(2000);
   }
 
   Future<void> _saveLastSeen(DateTime dt) async {
