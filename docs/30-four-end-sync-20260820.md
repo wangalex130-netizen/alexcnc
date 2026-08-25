@@ -103,18 +103,20 @@ App ──3.请求拉流(带token)──► 中继服务器
 
 ## 五、App 调用的后端 API 契约（供云端实现）
 
-> 2026-08-21 更新：账号接口统一挂 `/api/auth/*` 前缀、基址 `https://037123.xyz`（PC 工程师《安卓用户登陆接口.docx》确认登录接口，其余路径为方案 A 假设，待 PC 工程师确认后微调）。
+> 2026-08-24 实测更新：登录接口确认可用；密码盐从生产前端 `FRONTEND_SALT` 提取并验证；机器接口以网页端实际路径 `/api/machine/*` 为准（旧的 `/api/auth/my/machines`、`/api/auth/bind` 线上返回 404）。
 
 | 接口 | 请求 | 成功 | 失败 |
 |---|---|---|---|
-| `POST /api/auth/register` | `{"email","password"}`（密码加密） | `{userId, token}` | 409 已存在 / 400 |
-| `POST /api/auth/android/login` | `{"email","password"}`（密码加密） | `{userId, token}` | 401 |
-| `POST /api/auth/bind` | Bearer；`{"machineSn":"CNC-..."}` | `{machine:{sn,cam_device,relay_url,online}}` | 401 / 404 / 409 已绑定 |
-| `GET /api/auth/my/machines` | Bearer | `{machines:[...]}`（可空） | 401 |
-| `GET /api/auth/stream` | relay 调 | `{allow:true}` | 403 |
+| `POST /api/auth/android/login` | `{"email","password"}`；password=`sha256(明文+盐)` 小写 hex | data：`{id,userName,email,token,avatar,firstLogin}` | HTTP 200 + code=500 + message `10020201`/`10020601`（账号或密码错误） |
+| `GET /api/machine/list` | Bearer | data：`[{id,machineName,machineType,code,extInfo,isDefault}]` | HTTP 200 + code!=200 |
+| `POST /api/machine/bind` | Bearer；query `code` + `machineId` | 绑定结果 | 未找到/重复绑定 |
+| `POST /api/machine/updateOrInsert` | Bearer；机器档案数据 | 机器档案 | - |
+| `POST /api/machine/unbind` | Bearer；query `machineId` | 解绑结果 | - |
+| `GET /api/machine/brands` / `models` | Bearer | 品牌/型号列表 | - |
 
 > 基址默认 `https://037123.xyz`（`--dart-define=BACKEND_BASE_URL` 可覆盖）。
-> 密码加密：密钥由刘昊霖（Myers）提供，App 端 `AuthService.encryptPassword` 已留接口，密钥到位前明文联调。
+> 密码盐：`your-unique-salt-key-for-development`（生产前端 `FRONTEND_SALT`；已用 `Lunyee@517788.xyz` 实测登录成功）。
+> 机器码 `code` 与账号绑定关系已由工程师预置：`3020 Nova ↔ cnc-demo-01 ↔ 用户 id=119`。
 
 ## 六、端口与服务清单（确认项）
 

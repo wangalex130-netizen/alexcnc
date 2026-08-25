@@ -47,6 +47,15 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
   }
 
   void _openPreview(Machine m) {
+    if (m.relayUrl.isEmpty || m.camDevice.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('该机器尚未配置摄像头，暂不能远程预览'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
     // A3：选中机器写入全局，控制台拉流 / 延时摄影 / 全屏预览统一用它的 relay/cam。
     ref.read(currentMachineProvider.notifier).state = m;
     TimeLapseClient.configure(
@@ -222,19 +231,18 @@ class _MachineCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(machine.sn,
-                        style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: CncColors.textMain)),
+                    Text(
+                      machine.name.isEmpty ? machine.sn : machine.name,
+                      style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: CncColors.textMain)),
                     const SizedBox(height: 4),
                     Text(
-                      machine.online ? '在线' : '离线',
-                      style: TextStyle(
+                      machine.sn.isEmpty ? '未配置机器码' : machine.sn,
+                      style: const TextStyle(
                         fontSize: 12,
-                        color: machine.online
-                            ? CncColors.primaryInk
-                            : CncColors.textSub,
+                        color: CncColors.textSub,
                       ),
                     ),
                     if (machine.boundAt != null &&

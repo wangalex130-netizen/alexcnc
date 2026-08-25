@@ -11,8 +11,8 @@ import 'machines_page.dart';
 
 /// 扫码绑定机器（A2）。
 ///
-/// 流程：未登录 → 提示先登录；已登录 → 相机扫码解析 `CNC-` 开头机器码 →
-/// `POST /api/auth/bind` → 成功提示并刷新我的机器。
+/// 流程：未登录 → 提示先登录；已登录 → 扫码/输入 `cnc-` 机器码 →
+/// 匹配账号已创建的机器档案 → 成功提示并刷新我的机器。
 /// 兜底：扫码失败/识别不清晰时手动输入机器码。
 class BindPage extends ConsumerStatefulWidget {
   const BindPage({super.key});
@@ -77,11 +77,11 @@ class _BindPageState extends ConsumerState<BindPage> {
   void _onDetect(BarcodeCapture capture) {
     final raw = capture.barcodes
         .map((b) => b.rawValue ?? '')
-        .where((s) => s.startsWith('CNC-'))
+        .where((s) => s.trim().toLowerCase().startsWith('cnc-'))
         .firstOrNull;
     if (raw != null) {
       _scanner?.stop();
-      _bind(raw);
+      _bind(raw.trim());
     }
   }
 
@@ -173,7 +173,7 @@ class _BindPageState extends ConsumerState<BindPage> {
                   controller: _manual,
                   style: const TextStyle(color: CncColors.textMain),
                   decoration: InputDecoration(
-                    hintText: 'CNC-XXXXXXXXXXXX',
+                    hintText: 'cnc-XXXXXXXXXXXX',
                     hintStyle:
                         const TextStyle(color: CncColors.textSub),
                     filled: true,

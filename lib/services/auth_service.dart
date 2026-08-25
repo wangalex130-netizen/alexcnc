@@ -8,11 +8,12 @@ import '../app/config.dart';
 
 /// 账号服务：注册 / 登录 / 登出 / 会话恢复。
 ///
-/// 契约 2026-08-21 对齐 PC 工程师《安卓用户登陆接口.docx》：
-/// - `POST {base}/api/auth/android/login`  `{"email","password"}` → code=200 + 用户信息
-/// - `POST {base}/api/auth/register`        `{"email","password"}` → code=200 + 用户信息
-///   （register 路径为方案 A 假设，后端当前未开放注册，App 已隐藏注册入口）
-/// - 密码需加密后传参：`sha256(password)`（文档示例 64hex 确认，见 encryptPassword）。
+/// 契约 2026-08-24 按 037123.xyz 生产接口实测修正：
+/// - `POST {base}/api/auth/android/login`  `{"email","password"}` → code=200 + data
+///   data 字段：`id`（用户ID）、`userName`、`email`、`token`、`avatar`、`firstLogin`
+/// - 密码 = `sha256(password + salt)` 小写 hex；salt 从生产前端包提取并实测通过。
+/// - 失败统一 HTTP 200：`{"code":500,"message":"10020201"|"10020601"}` → 账号或密码错误。
+/// - `POST {base}/api/auth/register` 为方案 A 假设，后端当前未开放注册，App 已隐藏注册入口。
 /// - 登录成功后 token 存本地，后续所有接口 `Authorization: Bearer <token>`（Bearer 后带空格）。
 ///
 /// token/userId 持久化到 SharedPreferences（后续升级 flutter_secure_storage）。
@@ -28,12 +29,12 @@ class AuthService {
   static const _kToken = 'auth.token';
   static const _kUsername = 'auth.username';
 
-  /// 密码加密（PC 工程师要求）。
-  /// 精读《安卓用户登陆接口.docx》：示例加密密码为 64 位 hex（32 字节 =
-  /// SHA-256 标准输出），判定算法 = `sha256(password)`（无盐纯哈希，小写 hex）。
-  /// 2026-08-21 落地；若刘昊霖（Myers）后续给出加盐/AES 等确切算法，在此微调。
+  /// 登录盐（生产前端 `FRONTEND_SALT`，2026-08-24 实测后端按此校验）。
+  static const _passwordSalt = 'your-unique-salt-key-for-development';
+
+  /// 密码加密：`sha256(password + _passwordSalt)`，小写 64 位 hex。
   static String encryptPassword(String password) =>
-      sha256.convert(utf8.encode(password)).toString();
+      sha256.convert(utf8.encode('$password$_passwordSalt')).toString();
 
   /// 注册（成功即自动登录），返回 (userId, token)。
   Future<(String, String)> register(String email, String password) async {
@@ -83,7 +84,10 @@ class AuthService {
       final data = (body['data'] is Map<String, dynamic>)
           ? body['data'] as Map<String, dynamic>
           : body;
-      final userId = data['userId']?.toString() ?? data['user_id']?.toString() ?? '';
+      final userId = data['id']?.toString() ??
+          data['userId']?.toString() ??
+          data['user_id']?.toString() ??
+          '';
       final token = data['token']?.toString() ?? '';
       if (userId.isEmpty || token.isEmpty) {
         throw Exception('登录响应缺少 userId/token');
@@ -95,7 +99,7 @@ class AuthService {
       return (userId, token);
     }
     if (res.statusCode == 409 || code == 409) throw Exception('该邮箱已注册');
-    if (res.statusCode == 401 || code == 401) throw Exception('邮箱或密码错误');
+    if (res.statusCode == 401 || code == 401) throw Exception('账号或密码错误');
     if (res.statusCode == 400 || code == 400) {
       throw Exception(body['error']?.toString() ?? body['message']?.toString() ?? '请求参数有误');
     }
@@ -104,6 +108,14 @@ class AuthService {
     }
     if (res.statusCode == 429 || code == 429) {
       throw Exception('尝试次数过多，请稍后再试');
+    }
+    // 后端失败常为 HTTP 200 + code=500 + 错误码，需转成用户可读提示。
+    if (code != null && code != 200 && code != '200') {
+      final message = body['message']?.toString() ?? '';
+      if (message == '10020201' || message == '10020601') {
+        throw Exception('账号或密码错误');
+      }
+      throw Exception(message.isEmpty ? '登录失败，请稍后重试' : message);
     }
     throw Exception('服务不可用（${res.statusCode}）');
   }

@@ -5,28 +5,41 @@ import 'package:http/http.dart' as http;
 import '../app/config.dart';
 import 'auth_service.dart';
 
-/// 一台绑定机器（后端 `/api/auth/my/machines` 返回项）。
+/// 一台绑定机器（后端 `/api/machine/list` 返回项）。
 class Machine {
+  final String id;
   final String sn;
+  final String name;
+  final String machineType;
   final String camDevice;
   final String relayUrl;
   final bool online;
+  final bool isDefault;
   final String? boundAt;
 
   const Machine({
+    this.id = '',
     required this.sn,
-    required this.camDevice,
-    required this.relayUrl,
-    required this.online,
+    this.name = '',
+    this.machineType = '',
+    this.camDevice = '',
+    this.relayUrl = '',
+    this.online = false,
+    this.isDefault = false,
     this.boundAt,
   });
 
   factory Machine.fromJson(Map<String, dynamic> j) => Machine(
-        sn: j['sn']?.toString() ?? '',
-        camDevice: j['cam_device']?.toString() ?? '',
+        id: j['id']?.toString() ?? '',
+        sn: j['code']?.toString() ?? j['sn']?.toString() ?? '',
+        name: j['machineName']?.toString() ?? '',
+        machineType: j['machineType']?.toString() ?? '',
+        camDevice:
+            j['cam_device']?.toString() ?? j['cameraId']?.toString() ?? '',
         relayUrl: j['relay_url']?.toString() ?? '',
         online: j['online'] == true,
-        boundAt: j['bound_at']?.toString(),
+        isDefault: j['isDefault'] == 1 || j['isDefault'] == true,
+        boundAt: j['bound_at']?.toString() ?? j['createTime']?.toString(),
       );
 
   /// 中继拉流地址（`{relay_url}/stream/{cam_device}?token=...`）。
@@ -36,10 +49,9 @@ class Machine {
 
 /// 机器服务：扫码绑定 / 我的机器列表。
 ///
-/// 契约见 docs/26 §3（后端 API 契约）：
-/// - `POST /api/auth/bind`        Bearer token；Body `{"machineSn":"CNC-..."}`
-/// - `GET /api/auth/my/machines`  Bearer token → `{machines:[...]}`
-///   （2026-08-21 对齐 PC 工程师：账号相关接口统一 /api/auth/* 前缀）
+/// 契约 2026-08-24 按 037123.xyz 生产接口实测修正：
+/// - `GET /api/machine/list`  Bearer token → code=200 + `data:[...]`
+/// - `POST /api/machine/bind` Bearer token；query `code` + `machineId`
 class MachinesService {
   MachinesService({http.Client? client, String? baseUrl, AuthService? auth})
       : _client = client ?? http.Client(),
@@ -55,56 +67,41 @@ class MachinesService {
     return s?.$2;
   }
 
-  /// 绑定机器。返回后端 machine 对象；抛异常携带中文提示。
-  Future<Machine> bind(String machineSn) async {
-    final token = await _token();
-    if (token == null) throw Exception('请先登录');
-    final res = await _client
-        .post(
-          Uri.parse('$baseUrl/api/auth/bind'),
-          headers: {
-            'content-type': 'application/json',
-            'Authorization': 'Bearer $token',
-          },
-          body: jsonEncode({'machineSn': machineSn.trim()}),
-        )
-        .timeout(const Duration(seconds: 10));
-    Map<String, dynamic> body;
-    try {
-      body = jsonDecode(res.body) as Map<String, dynamic>;
-    } catch (_) {
-      throw Exception('服务器响应异常（${res.statusCode}）');
-    }
-    if (res.statusCode == 200) {
-      final m = body['machine'];
-      if (m is Map<String, dynamic>) return Machine.fromJson(m);
-      throw Exception('绑定响应缺少 machine 数据');
-    }
-    if (res.statusCode == 401) throw Exception('登录已失效，请重新登录');
-    if (res.statusCode == 404) throw Exception('机器码不存在，请核对后重试');
-    if (res.statusCode == 409) throw Exception('该机器已被绑定');
-    throw Exception('绑定失败（${res.statusCode}）');
-  }
-
   /// 我的机器列表（可为空）。
   Future<List<Machine>> fetchMyMachines() async {
     final token = await _token();
     if (token == null) return const [];
     final res = await _client
         .get(
-          Uri.parse('$baseUrl/api/auth/my/machines'),
+          Uri.parse('$baseUrl/api/machine/list'),
           headers: {'Authorization': 'Bearer $token'},
         )
         .timeout(const Duration(seconds: 10));
     if (res.statusCode != 200) return const [];
     try {
       final body = jsonDecode(res.body) as Map<String, dynamic>;
-      final list = body['machines'] as List? ?? [];
+      final code = body['code'];
+      if (code is num && code != 200) throw Exception('机器列表获取失败');
+      final list = body['data'] as List? ?? [];
       return list
           .map((e) => Machine.fromJson(e as Map<String, dynamic>))
           .toList();
     } catch (_) {
       return const [];
     }
+  }
+
+  /// 绑定/匹配机器。
+  ///
+  /// 线上后端要求先有机器档案（machineId），扫码只能匹配账号中已创建的机器。
+  /// 测试账号的 `3020 Nova` 已由工程师预绑定 `cnc-demo-01`，扫码/输入即可命中。
+  Future<Machine> bind(String machineCode) async {
+    final code = machineCode.trim();
+    if (code.isEmpty) throw Exception('请输入机器码');
+    final list = await fetchMyMachines();
+    for (final m in list) {
+      if (m.sn == code || m.id == code || m.name == code) return m;
+    }
+    throw Exception('未找到机器码 $code，请先在电脑端创建并绑定该机器');
   }
 }
