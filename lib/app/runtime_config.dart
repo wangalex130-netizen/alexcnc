@@ -28,6 +28,8 @@ class RuntimeConfig {
   final String cameraRelayBaseUrl;
   final String cameraRelayToken;
   final String cameraRelayDevice;
+  /// 配置版本号，用于升级时清理旧版本中的过期字段。
+  final int version;
   // ---- App 用户标识（MQTT clientId = app-<userId>）----
   final String appUserId;
 
@@ -46,6 +48,7 @@ class RuntimeConfig {
     this.cameraRelayBaseUrl = '',
     this.cameraRelayToken = '',
     this.cameraRelayDevice = '',
+    this.version = 0,
     this.appUserId = '',
   });
 
@@ -102,6 +105,7 @@ class RuntimeConfig {
         'cameraRelayBaseUrl': cameraRelayBaseUrl,
         'cameraRelayToken': cameraRelayToken,
         'cameraRelayDevice': cameraRelayDevice,
+        'version': version,
         'appUserId': appUserId,
       };
 
@@ -120,6 +124,7 @@ class RuntimeConfig {
         cameraRelayBaseUrl: (j['cameraRelayBaseUrl'] as String?) ?? '',
         cameraRelayToken: (j['cameraRelayToken'] as String?) ?? '',
         cameraRelayDevice: (j['cameraRelayDevice'] as String?) ?? '',
+        version: (j['version'] as num?)?.toInt() ?? 0,
         appUserId: (j['appUserId'] as String?) ?? '',
       );
 }
@@ -142,6 +147,18 @@ class RuntimeConfigNotifier extends Notifier<RuntimeConfig> {
       final raw = p.getString(_key);
       if (raw == null || raw.isEmpty) return;
       final j = jsonDecode(raw) as Map<String, dynamic>;
+      // 版本迁移：v1 之前摄像头中继字段可能存的是旧的 cnc-cam-01，
+      // 新包默认已改为 cnc-demo-01；升级时清理这些字段，让 AppConfig 兜底生效。
+      if ((j['version'] as num?)?.toInt() ?? 0 < 2) {
+        j['cameraRelayBaseUrl'] = '';
+        j['cameraRelayToken'] = '';
+        j['cameraRelayDevice'] = '';
+        j['version'] = 2;
+        final cfg = RuntimeConfig.fromJson(j);
+        state = cfg;
+        await save(cfg);
+        return;
+      }
       state = RuntimeConfig.fromJson(j);
     } catch (_) {
       // 解析失败忽略，保持默认
