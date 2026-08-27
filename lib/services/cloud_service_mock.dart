@@ -207,6 +207,7 @@ class MockCloudService implements CloudService {
   Future<bool> reportPushToken(
     String token, {
     String deviceId = '',
+    String userId = '',
     String platform = 'android',
     bool notifyComplete = true,
     bool notifyAlert = true,

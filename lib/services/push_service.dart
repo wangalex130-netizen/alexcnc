@@ -77,9 +77,25 @@ class PushService {
           await _persistCid(cid);
           onCidReady?.call(cid);
         },
+        onNotificationMessageArrived: (_) async {},
+        onNotificationMessageClicked: (_) async {},
+        onTransmitUserMessageReceive: (_) async {},
+        onReceiveOnlineState: (_) async {},
+        onRegisterDeviceToken: (_) async {},
+        onReceivePayload: (_) async {},
+        onReceiveNotificationResponse: (_) async {},
+        onAppLinkPayload: (_) async {},
+        onPushModeResult: (_) async {},
+        onSetTagResult: (_) async {},
         onAliasResult: (Map<String, dynamic> msg) async {
           // alias 绑定/解绑结果，联调用，忽略
         },
+        onQueryTagResult: (_) async {},
+        onWillPresentNotification: (_) async {},
+        onOpenSettingsForNotification: (_) async {},
+        onGrantAuthorization: (_) async {},
+        onLiveActivityResult: (_) async {},
+        onRegisterPushToStartTokenResult: (_) async {},
       );
       // 个推 Flutter 插件约定用 getter 触发初始化（无参）。
       // 若真机 CID 始终不来，可尝试改为 Getuiflut().initGetuiSdk();
@@ -146,7 +162,7 @@ class PushService {
     if (!_getuiReady) return;
     try {
       final sn = '${DateTime.now().millisecondsSinceEpoch}';
-      Getuiflut().unbindAlias(userId, sn);
+      Getuiflut().unbindAlias(userId, sn, true);
       lastPollDiagnostic = 'alias-unbind $userId';
     } catch (e) {
       lastPollDiagnostic = 'alias-unbind-fail $e';
