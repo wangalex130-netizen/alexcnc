@@ -86,6 +86,5 @@
         <intent>
             <action android:name="com.getui.sdk.action" />
         </intent>
-        </intent>
     </queries>
 </manifest>
