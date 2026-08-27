@@ -169,7 +169,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
               onTap: () => _openSheet(const _MessagesSheet()),
             ),
             _MenuItem(
-              icon: Icons.notifications_outlined_active,
+              icon: Icons.notifications_active_outlined,
               title: '允许推送设备完成状态',
               trailing: _Switch(
                   value: pushPrefs.notifyComplete,

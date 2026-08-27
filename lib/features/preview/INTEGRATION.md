@@ -49,7 +49,7 @@ import '../preview/rtsp_preview_widget.dart';
                 width: double.infinity,
                 color: const Color(0xFFECEFF3),
                 child: const Center(
-                  child: Icon(Symbols.videocam, size: 48, color: Color(0xFF9AA0A6)),
+                  child: Icon(Icons.videocam, size: 48, color: Color(0xFF9AA0A6)),
                 ),
               ),
 ```
