@@ -149,7 +149,7 @@ class RuntimeConfigNotifier extends Notifier<RuntimeConfig> {
       final j = jsonDecode(raw) as Map<String, dynamic>;
       // 版本迁移：v1 之前摄像头中继字段可能存的是旧的 cnc-cam-01，
       // 新包默认已改为 cnc-demo-01；升级时清理这些字段，让 AppConfig 兜底生效。
-      if ((j['version'] as num?)?.toInt() ?? 0 < 2) {
+      if (((j['version'] as num?)?.toInt() ?? 0) < 2) {
         j['cameraRelayBaseUrl'] = '';
         j['cameraRelayToken'] = '';
         j['cameraRelayDevice'] = '';
