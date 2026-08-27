@@ -50,7 +50,8 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
   }
 
   void _openPreview(Machine m) {
-    if (m.relayUrl.isEmpty || m.camDevice.isEmpty) {
+    final device = m.sn.isNotEmpty ? m.sn : m.camDevice;
+    if (device.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('该机器尚未配置摄像头，暂不能远程预览'),
@@ -59,11 +60,12 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
       );
       return;
     }
-    // A3：选中机器写入全局，控制台拉流 / 延时摄影 / 全屏预览统一用它的 relay/cam。
+    // A3：选中机器写入全局，控制台拉流 / 延时摄影 / 全屏预览统一用它的中继。
+    // 架构：中继固定（AppConfig 北京），设备 ID = 机器码（sn 即摄像头 ID）。
     ref.read(currentMachineProvider.notifier).state = m;
     TimeLapseClient.configure(
-      base: m.relayUrl,
-      device: m.camDevice,
+      base: AppConfig.cameraRelayBaseUrl,
+      device: device,
     );
     Navigator.of(context).push(
       MaterialPageRoute(

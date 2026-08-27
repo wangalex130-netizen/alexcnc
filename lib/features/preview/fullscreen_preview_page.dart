@@ -35,7 +35,7 @@ class _FullscreenPreviewPageState extends State<FullscreenPreviewPage> {
   String get _streamUrl {
     if (widget.url != null && widget.url!.isNotEmpty) return widget.url!;
     final m = widget.machine;
-    if (m != null && m.camDevice.isNotEmpty && m.relayUrl.isNotEmpty) {
+    if (m != null && (m.sn.isNotEmpty || m.camDevice.isNotEmpty)) {
       return m.streamUrl(AppConfig.cameraRelayToken);
     }
     return '${AppConfig.cameraRelayBaseUrl}/stream/${AppConfig.cameraRelayDevice}'

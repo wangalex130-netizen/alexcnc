@@ -29,7 +29,7 @@ class AppConfig {
   // 示例：--dart-define=CAMERA_RELAY_BASE_URL=http://43.154.192.242:8080
   static const String cameraRelayBaseUrl = String.fromEnvironment(
     'CAMERA_RELAY_BASE_URL',
-    defaultValue: 'http://43.154.192.242:8080',
+    defaultValue: 'http://39.106.144.53:8080',
   );
   static const String cameraRelayToken = String.fromEnvironment(
     'CAMERA_RELAY_TOKEN',

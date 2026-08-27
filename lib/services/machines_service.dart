@@ -35,16 +35,21 @@ class Machine {
         name: j['machineName']?.toString() ?? '',
         machineType: j['machineType']?.toString() ?? '',
         camDevice:
-            j['cam_device']?.toString() ?? j['cameraId']?.toString() ?? '',
+            j['cam_device']?.toString() ??
+            j['cameraId']?.toString() ??
+            j['code']?.toString() ??
+            j['sn']?.toString() ??
+            '',
         relayUrl: j['relay_url']?.toString() ?? '',
         online: j['online'] == true,
         isDefault: j['isDefault'] == 1 || j['isDefault'] == true,
         boundAt: j['bound_at']?.toString() ?? j['createTime']?.toString(),
       );
 
-  /// 中继拉流地址（`{relay_url}/stream/{cam_device}?token=...`）。
+  /// 远程监视拉流地址：固定中继（AppConfig.cameraRelayBaseUrl）+ 机器码（sn 即摄像头 ID）。
+  /// 不再依赖后端逐机器存储的 relay_url/cam_device，避免后端填错导致硬转圈。
   String streamUrl(String relayToken) =>
-      '$relayUrl/stream/$camDevice?token=$relayToken';
+      '${AppConfig.cameraRelayBaseUrl}/stream/${sn.isNotEmpty ? sn : camDevice}?token=$relayToken';
 }
 
 /// 机器服务：扫码绑定 / 我的机器列表。

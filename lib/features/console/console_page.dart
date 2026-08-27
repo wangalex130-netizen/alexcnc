@@ -169,12 +169,11 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   }
 
   /// 远程监视拉流地址（A3 解耦）：
-  /// 优先当前绑定机器的 relay_url + cam_device；未绑定回退 runtime_config 固定地址。
+  /// 架构对齐——中继地址固定（AppConfig 北京），摄像头设备 ID = 机器码（sn）。
+  /// 后端即使填错 relay_url/cam_device 也不会再导致硬转圈。
   String _resolvedRelayUrl(RuntimeConfig cfg) {
     final m = ref.read(currentMachineProvider);
-    if (m != null && m.relayUrl.isNotEmpty && m.camDevice.isNotEmpty) {
-      return m.streamUrl(cfg.resolvedCameraRelayToken);
-    }
+    if (m != null) return m.streamUrl(cfg.resolvedCameraRelayToken);
     return '${cfg.resolvedCameraRelayBaseUrl}/stream/${cfg.resolvedCameraRelayDevice}'
         '?token=${cfg.resolvedCameraRelayToken}';
   }
