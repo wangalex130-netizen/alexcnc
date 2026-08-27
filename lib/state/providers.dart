@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -28,14 +29,55 @@ import 'auth_provider.dart';
 
 /// 当前选中的绑定机器（A3 拉流解耦：relay/cam 由后端返回，不写死）。
 /// 登录/绑定/我的机器页选择后写入；null = 未选（回退 runtime_config 调试地址）。
+/// 持久化到 SharedPreferences，App 重启后自动恢复上次选择。
+class CurrentMachineNotifier extends Notifier<Machine?> {
+  static const _key = 'current_machine_v1';
+
+  @override
+  Machine? build() {
+    _hydrate();
+    return null;
+  }
+
+  Future<void> _hydrate() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      final raw = p.getString(_key);
+      if (raw == null || raw.isEmpty) return;
+      final j = jsonDecode(raw) as Map<String, dynamic>;
+      state = Machine.fromJson(j);
+    } catch (_) {
+      // 保持未选
+    }
+  }
+
+  Future<void> select(Machine? m) async {
+    state = m;
+    final p = await SharedPreferences.getInstance();
+    if (m == null) {
+      await p.remove(_key);
+    } else {
+      await p.setString(_key, jsonEncode(m.toJson()));
+    }
+  }
+}
+
 final currentMachineProvider =
-    StateProvider<Machine?>((ref) => null);
+    NotifierProvider<CurrentMachineNotifier, Machine?>(
+  CurrentMachineNotifier.new,
+);
 
 /// Live controller binding. 默认用 Mock；构建时传 USE_REAL_BACKEND=true 接真机。
 /// 运行时联调设置（RuntimeConfig）可覆盖地址、设备 ID，保存后本 provider 自动
 /// 重建服务并触发重连，无需重新出包。
 final hardwareServiceProvider = Provider<HardwareService>((ref) {
   final cfg = ref.watch(runtimeConfigProvider);
+  final currentMachine = ref.watch(currentMachineProvider);
+  // A3：用户在我的机器列表点选一台后，全局 MQTT/云端命令目标切到该机器 sn；
+  // 未选时回退 runtimeConfig 调试地址，保证未登录/未绑定时仍能本地调试。
+  final deviceId = currentMachine?.sn.isNotEmpty == true
+      ? currentMachine!.sn
+      : cfg.resolvedDeviceId;
   // A1：登录后 MQTT clientId 用真实 userId（app-<userId>-<唯一后缀>）；
   // 未登录用运行时配置/默认 'demo' 兜底，保证未登录也能跑本地调试。
   final auth = ref.watch(authProvider);
@@ -47,7 +89,7 @@ final hardwareServiceProvider = Provider<HardwareService>((ref) {
       mqttPort: cfg.resolvedMqttPort,
       mqttUser: cfg.resolvedMqttUser,
       mqttPass: cfg.resolvedMqttPass,
-      deviceId: cfg.resolvedDeviceId,
+      deviceId: deviceId,
       tcpHost: cfg.resolvedDeviceTcpHost,
       tcpPort: cfg.resolvedDeviceTcpPort,
       appUserId: appUserId,
@@ -117,11 +159,15 @@ final lastConnErrorProvider = Provider<String?>((ref) {
 });
 
 /// Cloud binding. 默认用 Mock；构建时传 USE_REAL_BACKEND=true 接云端。
-/// baseUrl / deviceId 同样受 RuntimeConfig 覆盖。
+/// baseUrl / deviceId 同样受 RuntimeConfig 覆盖；若用户已选当前机器，优先用机器 sn。
 final cloudServiceProvider = Provider<CloudService>((ref) {
   final cfg = ref.watch(runtimeConfigProvider);
+  final currentMachine = ref.watch(currentMachineProvider);
+  final deviceId = currentMachine?.sn.isNotEmpty == true
+      ? currentMachine!.sn
+      : cfg.resolvedDeviceId;
   return cfg.resolvedUseRealBackend
-      ? RealCloudService(cfg.resolvedCloudBaseUrl, cfg.resolvedDeviceId)
+      ? RealCloudService(cfg.resolvedCloudBaseUrl, deviceId)
       : MockCloudService();
 });
 
@@ -187,24 +233,14 @@ final pushPrefsProvider = NotifierProvider<PushNotifier, PushPrefs>(
 /// 注册请求永远发不出去。改为先等待已保存配置加载完成（runtimeConfigProvider.hydrated），
 /// 再构建云端服务，确保走 RealCloudService 且地址/设备号是用户保存的值。
 final pushBootstrapProvider = Provider<void>((ref) async {
-  // 1) 等待联调设置（已保存的云端地址 / 真实后端开关）加载完成
+  // 1) 先确保本地 token 存在（不依赖云端，先行断言）
+  await PushService.instance.ensureToken();
+  // 2) 等待联调设置（已保存的云端地址 / 真实后端开关）加载完成
   final cfg = await ref.read(runtimeConfigProvider.notifier).hydrated;
+  // 3) 按最终生效的配置构建云端服务并上报（幂等，可重复调用）
   final cloud = cfg.resolvedUseRealBackend
       ? RealCloudService(cfg.resolvedCloudBaseUrl, cfg.resolvedDeviceId)
       : MockCloudService();
-  // 2) 初始化个推（合规：仅在用户同意隐私政策后才会真正注册 CID；
-  //    CID 就绪后回调里重新上报云端 + 绑定当前账号 alias）
-  final auth = ref.read(authProvider);
-  final userId = auth.isLoggedIn ? (auth.userId ?? '') : '';
-  await PushService.instance.initGetui(
-    onCidReady: (cid) {
-      PushService.instance.reportNow(cloud, deviceId: cfg.resolvedDeviceId);
-    },
-  );
-  // 3) 已登录则立即设账号（绑 alias，防串号）并上报（幂等，可重复调用）
-  if (userId.isNotEmpty) {
-    await PushService.instance.setUser(userId);
-  }
   await PushService.instance.bootstrap(
     cloud,
     deviceId: cfg.resolvedDeviceId,

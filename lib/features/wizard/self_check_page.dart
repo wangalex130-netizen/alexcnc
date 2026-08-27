@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
 import '../../data/material_db.dart';
@@ -166,7 +165,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
           const SizedBox(height: 16),
           Row(
             children: [
-              Icon(Symbols.bolt, size: 16, color: CncColors.primaryInk),
+              Icon(Icons.bolt, size: 16, color: CncColors.primaryInk),
               const SizedBox(width: 6),
               const Text('全自动预检与自检流水线',
                   style: TextStyle(fontSize: 13, color: CncColors.primaryInk)),

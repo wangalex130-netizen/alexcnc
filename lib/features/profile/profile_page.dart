@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
 import '../../services/message_store.dart';
@@ -132,20 +131,20 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
           children: [
             if (!loggedIn) ...[
               _MenuItem(
-                icon: Symbols.person_add,
+                icon: Icons.person_add_outlined,
                 title: '注册账号',
                 onTap: _goRegister,
               ),
             ],
             _MenuItem(
-              icon: Symbols.sensors,
+              icon: Icons.sensors_outlined,
               title: '我的机器',
               trailing: const Text('扫码绑定 · 远程看',
                   style: TextStyle(fontSize: 12, color: CncColors.primaryInk)),
               onTap: _goMachines,
             ),
             _MenuItem(
-              icon: Symbols.system_update,
+              icon: Icons.system_update_outlined,
               title: '固件升级',
               trailing: const Text('摄像头/控制屏幕/主板',
                   style: TextStyle(fontSize: 12, color: CncColors.textSub)),
@@ -163,14 +162,14 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
         _MenuGroup(
           children: [
             _MenuItem(
-              icon: Symbols.notifications,
+              icon: Icons.notifications_outlined,
               title: '系统消息与历史告警',
               trailing: const Text('2 条未读',
                   style: TextStyle(fontSize: 12, color: CncColors.textSub)),
               onTap: () => _openSheet(const _MessagesSheet()),
             ),
             _MenuItem(
-              icon: Symbols.notifications_active,
+              icon: Icons.notifications_outlined_active,
               title: '允许推送设备完成状态',
               trailing: _Switch(
                   value: pushPrefs.notifyComplete,
@@ -178,7 +177,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                       ref.read(pushPrefsProvider.notifier).toggleComplete(v)),
             ),
             _MenuItem(
-              icon: Symbols.warning,
+              icon: Icons.warning_amber_outlined,
               title: '允许推送硬件异常告警',
               trailing: _Switch(
                   value: pushPrefs.notifyAlert,
@@ -193,7 +192,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
         _MenuGroup(
           children: [
             _MenuItem(
-              icon: Symbols.movie,
+              icon: Icons.movie_outlined,
               title: '延时摄影回顾',
               onTap: () => Navigator.push(
                 context,
@@ -209,12 +208,12 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
         _MenuGroup(
           children: [
             _MenuItem(
-              icon: Symbols.build,
+              icon: Icons.build_outlined,
               title: '智能诊断与日志提取',
               onTap: () => _openSheet(const _DiagSheet()),
             ),
             _MenuItem(
-              icon: Symbols.tune,
+              icon: Icons.tune,
               title: '联调设置（云端 / MQTT / 设备）',
               onTap: () => Navigator.push(
                 context,
@@ -223,7 +222,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
               ),
             ),
             _MenuItem(
-              icon: Symbols.headset,
+              icon: Icons.headset_mic_outlined,
               title: '在线售后客服',
               onTap: () {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -239,9 +238,9 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
           _MenuGroup(
             children: [
               _MenuItem(
-                icon: Symbols.logout,
+                icon: Icons.logout,
                 title: '退出登录',
-                trailing: const Icon(Symbols.chevron_right,
+                trailing: const Icon(Icons.chevron_right,
                     color: CncColors.textSub),
                 onTap: () async {
                   final ok = await showDialog<bool>(
@@ -345,7 +344,7 @@ class _MenuItem extends StatelessWidget {
                   trailing!,
                   const SizedBox(width: 6),
                   if (onTap != null)
-                    const Icon(Symbols.chevron_right,
+                    const Icon(Icons.chevron_right,
                         color: CncColors.textSub),
                 ],
             ],
@@ -418,7 +417,7 @@ class _SheetFrame extends StatelessWidget {
                           fontWeight: FontWeight.bold,
                           color: CncColors.textMain)),
                   IconButton(
-                    icon: const Icon(Symbols.close,
+                    icon: const Icon(Icons.close,
                         color: CncColors.textSub, size: 22),
                     onPressed: () => Navigator.pop(context),
                   ),
@@ -499,10 +498,10 @@ class _MessagesSheetState extends ConsumerState<_MessagesSheet> {
 
   Widget _buildMsg(StoredMessage m) {
     final icon = m.isAlarm
-        ? Symbols.error
+        ? Icons.error_outline
         : m.isWarn
-            ? Symbols.warning
-            : Symbols.check_circle;
+            ? Icons.warning_amber_outlined
+            : Icons.check_circle_outline;
     final iconColor = m.isAlarm
         ? CncColors.danger
         : m.isWarn
@@ -649,7 +648,7 @@ class _DiagProgressButtonState extends State<_DiagProgressButton> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     if (!_running)
-                      const Icon(Symbols.archive, size: 18, color: CncColors.primary),
+                      const Icon(Icons.archive_outlined, size: 18, color: CncColors.primary),
                     if (!_running) const SizedBox(width: 8),
                     Text(
                         _running ? '打包中 ${_progress.toInt()}%' : '一键打包提取机器日志',

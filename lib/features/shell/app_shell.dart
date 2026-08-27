@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
 import '../console/console_page.dart';
@@ -25,7 +24,7 @@ class AppShell extends ConsumerWidget {
 
   static const _labels = ['图库', '控制台', '我的'];
   // 统一线性图标（Material Symbols Outlined）
-  static const _icons = [Symbols.apps, Symbols.tune, Symbols.person];
+  static const _icons = [Icons.apps, Icons.tune, Icons.person];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
 import '../../state/auth_provider.dart';
@@ -68,7 +67,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Icon(Symbols.qr_code_scanner,
+              const Icon(Icons.qr_code_scanner,
                   size: 56, color: CncColors.primaryInk),
               const SizedBox(height: 8),
               const Text(
@@ -88,20 +87,20 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
               ),
               const SizedBox(height: 28),
               _Field(controller: _username,
-                  icon: Symbols.person,
+                  icon: Icons.person,
                   hint: '邮箱（name@example.com）',
                   keyboardType: TextInputType.emailAddress),
               const SizedBox(height: 14),
               _Field(
                 controller: _password,
-                icon: Symbols.lock,
+                icon: Icons.lock,
                 hint: '密码（6-64 位）',
                 obscure: true,
               ),
               const SizedBox(height: 14),
               _Field(
                 controller: _confirm,
-                icon: Symbols.lock,
+                icon: Icons.lock,
                 hint: '确认密码',
                 obscure: true,
               ),

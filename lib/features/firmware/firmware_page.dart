@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
 import '../../services/machines_service.dart';
@@ -264,7 +263,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
           children: [
             Row(
               children: [
-                const Icon(Symbols.system_update,
+                const Icon(Icons.system_update,
                     size: 22, color: CncColors.primaryInk),
                 const SizedBox(width: 8),
                 Text(
@@ -339,7 +338,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
               ),
               child: Row(
                 children: [
-                  const Icon(Symbols.manufacturing,
+                  const Icon(Icons.precision_manufacturing,
                       size: 20, color: CncColors.primaryInk),
                   const SizedBox(width: 10),
                   Expanded(
@@ -372,7 +371,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
               ),
               child: const Row(
                 children: [
-                  Icon(Symbols.info, size: 16, color: CncColors.warning),
+                  Icon(Icons.info, size: 16, color: CncColors.warning),
                   SizedBox(width: 8),
                   Expanded(
                     child: Text('升级期间设备会短暂离线（约 1-2 分钟），请勿断电',
@@ -406,7 +405,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
     if (_upgrading) {
       return _StatusCard(
-        icon: Symbols.sync,
+        icon: Icons.sync,
         color: CncColors.blue,
         title: '正在升级 $_upgradeIndex/$_upgradeTotal',
         subtitle: _devices.values
@@ -420,7 +419,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
     }
     if (_failed) {
       return _StatusCard(
-        icon: Symbols.error,
+        icon: Icons.error,
         color: CncColors.danger,
         title: '升级未完成',
         subtitle: '请检查设备连接后重试',
@@ -429,7 +428,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
     }
     if (_checking) {
       return const _StatusCard(
-        icon: Symbols.sync,
+        icon: Icons.sync,
         color: CncColors.textSub,
         title: '正在检查更新…',
         subtitle: '请稍候',
@@ -438,7 +437,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
     }
     if (_hasUpdate && ver != null) {
       return _StatusCard(
-        icon: Symbols.system_update,
+        icon: Icons.system_update,
         color: CncColors.blue,
         title: '发现新版本 v$ver',
         subtitle: cur != null ? '当前版本 v$cur' : '有新版本可用',
@@ -447,7 +446,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
       );
     }
     return _StatusCard(
-      icon: Symbols.check_circle,
+      icon: Icons.check_circle,
       color: CncColors.primaryInk,
       title: '固件已是最新版本',
       subtitle: cur != null ? '当前版本 v$cur' : '暂无可用更新',

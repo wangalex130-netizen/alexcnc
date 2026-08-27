@@ -272,6 +272,11 @@ class MockHardwareService implements HardwareService {
     _emit();
   }
 
+  @override
+  void sendCameraStream(String action, {String? deviceId}) {
+    // mock: 无真实摄像头，空实现
+  }
+
   bool getAux(String key) => _aux[key] ?? false;
 
   void dispose() {

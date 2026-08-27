@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:image_gallery_saver_plus/image_gallery_saver_plus.dart';
-import 'package:material_symbols_icons/symbols.dart';
+
 import 'package:native_vlc_player/native_vlc_player.dart';
 
 import '../../app/theme.dart';
@@ -70,7 +70,7 @@ class _TimeLapseVideoPageState extends State<TimeLapseVideoPage> {
         foregroundColor: CncColors.textMain,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Symbols.arrow_back_ios_new, size: 20),
+          icon: const Icon(Icons.arrow_back_ios_new, size: 20),
           onPressed: widget.onClose,
         ),
         title: const Text('延时摄影回顾',
@@ -107,7 +107,7 @@ class _TimeLapseVideoPageState extends State<TimeLapseVideoPage> {
                           child: CircularProgressIndicator(
                               strokeWidth: 2, color: Colors.white),
                         )
-                      : const Icon(Symbols.download, size: 18),
+                      : const Icon(Icons.download, size: 18),
                   label: Text(_saving ? '保存中…' : '保存到相册',
                       style: const TextStyle(
                           fontSize: 14, fontWeight: FontWeight.bold)),

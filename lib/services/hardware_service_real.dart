@@ -116,6 +116,10 @@ class RealHardwareService implements HardwareService {
   /// MQTT 命令下发主题：gw/<deviceId>/cmd（经网关白名单转发固件；ACL 已放行 app-demo 发布）
   String get mqttCmdTopic => 'gw/$deviceId/cmd';
 
+  /// 摄像头命令主题：cnc/<deviceId>/cmd（摄像头固件订阅，见 cam_mqtt.c；
+  /// 与机器控制 gw/<id>/cmd 分流）。按需推流经此下发 stream_start/stream_stop。
+  String mqttCamCmdTopic(String id) => 'cnc/$id/cmd';
+
   /// 网关 ACK 回执主题：gw/<deviceId>/ack（App 订阅，网关对命令的回执）
   String get mqttAckTopic => 'gw/$deviceId/ack';
 
@@ -608,6 +612,20 @@ class RealHardwareService implements HardwareService {
     if (_tcpConnected && _tcp != null) {
       _tcp!.write('${jsonEncode(cmd)}\n');
     }
+  }
+
+  /// 摄像头按需推流控制（docs/03 §camera-on-demand）：
+  /// 点播放发 `stream_start`、退出预览发 `stream_stop`。
+  /// 摄像头为纯外网设备，命令只走 MQTT（cnc/<deviceId>/cmd），
+  /// 不依赖 cloudEnabled 局域网闸门；MQTT 未连时静默跳过（由调用方在连接态补发）。
+  @override
+  void sendCameraStream(String action, {String? deviceId}) {
+    final id = deviceId ?? this.deviceId;
+    if (_mqtt?.connectionStatus?.state != MqttConnectionState.connected) return;
+    final builder = MqttClientPayloadBuilder();
+    builder.addString(jsonEncode({'action': action}));
+    _mqtt!.publishMessage(
+        mqttCamCmdTopic(id), MqttQos.atLeastOnce, builder.payload!);
   }
 
   // ---- 心跳：固件 15s 内收不到任何命令即进入 Feed Hold，App 须周期发 hello ----

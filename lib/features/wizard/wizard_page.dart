@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
 import '../../data/material_db.dart';
@@ -1085,7 +1084,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Symbols.warning, size: 14, color: CncColors.danger),
+                      Icon(Icons.warning, size: 14, color: CncColors.danger),
                       const SizedBox(width: 4),
                       Expanded(
                         child: Text(
@@ -2219,7 +2218,7 @@ class _ReadyPhase extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Symbols.lock, size: 14, color: CncColors.blue),
+              Icon(Icons.lock, size: 14, color: CncColors.blue),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(

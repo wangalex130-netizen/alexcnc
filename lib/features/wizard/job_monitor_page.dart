@@ -5,7 +5,6 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
-import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/config.dart';
 import '../../app/runtime_config.dart';
@@ -347,7 +346,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(paused ? Symbols.play_arrow : Symbols.pause,
+                            Icon(paused ? Icons.play_arrow : Icons.pause,
                                 size: 18, color: CncColors.warning),
                             const SizedBox(width: 6),
                             Text(paused ? '继续' : '暂停',
@@ -377,7 +376,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Symbols.stop, size: 18, color: CncColors.danger),
+                            Icon(Icons.stop, size: 18, color: CncColors.danger),
                             const SizedBox(width: 6),
                             const Text('停止',
                                 style: TextStyle(
@@ -483,7 +482,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
         title:
             Row(
               children: [
-                Icon(Symbols.check_circle, color: CncColors.primaryInk),
+                Icon(Icons.check_circle, color: CncColors.primaryInk),
                 const SizedBox(width: 8),
                 const Text('加工完成', style: TextStyle(color: CncColors.primaryInk)),
               ],

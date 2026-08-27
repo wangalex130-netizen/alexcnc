@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
 import '../../app/runtime_config.dart';
@@ -253,7 +252,7 @@ class _MachineCard extends ConsumerWidget {
                       child: Row(
                         children: [
                           Icon(
-                            isLocal ? Symbols.wifi : Symbols.cloud,
+                            isLocal ? Icons.wifi : Icons.cloud,
                             size: 12,
                             color: isLocal ? CncColors.primary : CncColors.warning,
                           ),
@@ -283,7 +282,7 @@ class _MachineCard extends ConsumerWidget {
                         color: Colors.black.withOpacity(0.6),
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      child: const Icon(Symbols.fullscreen,
+                      child: const Icon(Icons.fullscreen,
                           size: 18, color: Colors.white),
                     ),
                   ),
@@ -303,7 +302,7 @@ class _MachineCard extends ConsumerWidget {
                     color: stateColor.withOpacity(0.12),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(Symbols.build,
+                  child: Icon(Icons.build,
                       size: 20, color: stateColor),
                 ),
                 const SizedBox(width: 12),
@@ -362,7 +361,7 @@ class _MachineCard extends ConsumerWidget {
               width: double.infinity,
               child: FilledButton.icon(
                 onPressed: onJog,
-                icon: const Icon(Symbols.gps_fixed, size: 18, color: Colors.black),
+                icon: const Icon(Icons.gps_fixed, size: 18, color: Colors.black),
                 label: const Text('Jog 手动',
                     style:
                         TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
@@ -384,28 +383,28 @@ class _MachineCard extends ConsumerWidget {
               runSpacing: 8,
               children: [
                 _Chip(
-                  icon: Symbols.build,
+                  icon: Icons.build,
                   label: '刀仓',
                   value: status.tools.isEmpty
                       ? null
                       : '${status.installedToolCount}/${status.tools.length}',
                 ),
                 _Chip(
-                  icon: Symbols.thermostat,
+                  icon: Icons.thermostat,
                   label: '温度',
                   value: telemetry?.temp == null
                       ? null
                       : '${telemetry!.temp!.toStringAsFixed(1)}°C',
                 ),
                 _Chip(
-                  icon: Symbols.rotate_right,
+                  icon: Icons.rotate_right,
                   label: '转速',
                   value: telemetry?.rpm == null
                       ? null
                       : '${telemetry!.rpm!.round()}',
                 ),
                 _Chip(
-                  icon: Symbols.speed,
+                  icon: Icons.speed,
                   label: '进给',
                   value: telemetry?.speed == null
                       ? null
@@ -413,21 +412,21 @@ class _MachineCard extends ConsumerWidget {
                 ),
                 // —— V1.1 §10.2 status 扩展字段展示（门 / GRBL 在线 / 报警码）——
                 _Chip(
-                  icon: Symbols.door_front,
+                  icon: Icons.sensor_door,
                   label: '门',
                   value: status.door == null
                       ? null
                       : (status.door! ? '开' : '关'),
                 ),
                 _Chip(
-                  icon: Symbols.memory,
+                  icon: Icons.memory,
                   label: 'GRBL',
                   value: status.grblOnline == null
                       ? null
                       : (status.grblOnline! ? '在线' : '离线'),
                 ),
                 _Chip(
-                  icon: Symbols.warning,
+                  icon: Icons.warning,
                   label: '报警',
                   value: (status.alarmCode == null || status.alarmCode == 0)
                       ? null
@@ -435,7 +434,7 @@ class _MachineCard extends ConsumerWidget {
                 ),
                 // V1.1 §10.4 Tool 富最小集：高亮当前装夹刀（isCurrent）
                 _Chip(
-                  icon: Symbols.build_circle,
+                  icon: Icons.build_circle,
                   label: '当前刀',
                   value: status.tools.where((t) => t.isCurrent).isEmpty
                       ? null
@@ -511,7 +510,7 @@ class _NotifyBanner extends StatelessWidget {
         child: Row(
           children: [
             Icon(
-              alarm ? Symbols.warning : Symbols.notifications_active,
+              alarm ? Icons.warning : Icons.notifications_active,
               size: 16,
               color: alarm ? CncColors.danger : CncColors.primaryInk,
             ),
@@ -559,10 +558,10 @@ class _BroadcastBanner extends StatelessWidget {
           children: [
             Icon(
               alarm
-                  ? Symbols.error
+                  ? Icons.error
                   : warn
-                      ? Symbols.warning
-                      : Symbols.campaign,
+                      ? Icons.warning
+                      : Icons.campaign,
               size: 16,
               color: tint,
             ),
@@ -603,7 +602,7 @@ class _AwaitConfirmBanner extends StatelessWidget {
       ),
       child: const Row(
         children: [
-          Icon(Symbols.front_hand, size: 16, color: CncColors.warning),
+          Icon(Icons.front_hand, size: 16, color: CncColors.warning),
           SizedBox(width: 8),
           Expanded(
             child: Text('请在机旁确认后再继续（等待机身物理按键确认）',
@@ -671,7 +670,7 @@ class _CurrentWorkCard extends StatelessWidget {
                 child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Symbols.add, size: 18, color: Colors.black),
+                    Icon(Icons.add, size: 18, color: Colors.black),
                     SizedBox(width: 8),
                     Text('从模型库选模型',
                         style: TextStyle(
@@ -718,7 +717,7 @@ class _CurrentWorkCard extends StatelessWidget {
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
-                  completed ? Symbols.check_circle : Symbols.play_circle,
+                  completed ? Icons.check_circle : Icons.play_circle,
                   color: completed ? CncColors.primary : CncColors.warning,
                   size: 20,
                 ),
@@ -762,7 +761,7 @@ class _CurrentWorkCard extends StatelessWidget {
               child: const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Symbols.visibility, size: 16),
+                  Icon(Icons.visibility, size: 16),
                   SizedBox(width: 8),
                   Text('查看实时监控',
                       style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
@@ -1007,7 +1006,7 @@ class _RecentCardState extends ConsumerState<_RecentCard> {
       return Container(
         color: CncColors.primary.withOpacity(0.25),
         child: const Center(
-          child: Icon(Symbols.image, color: Colors.white70, size: 22),
+          child: Icon(Icons.image, color: Colors.white70, size: 22),
         ),
       );
     }
@@ -1016,7 +1015,7 @@ class _RecentCardState extends ConsumerState<_RecentCard> {
         errorBuilder: (_, __, ___) => Container(
           color: CncColors.primary.withOpacity(0.25),
           child: const Center(
-            child: Icon(Symbols.image, color: Colors.white70, size: 22),
+            child: Icon(Icons.image, color: Colors.white70, size: 22),
           ),
         ));
   }

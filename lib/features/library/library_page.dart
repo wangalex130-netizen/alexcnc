@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
 import '../../app/runtime_config.dart';
@@ -484,7 +483,7 @@ class _InspirationSliver extends StatelessWidget {
           ),
           child: Row(
             children: [
-              const Icon(Symbols.search, size: 16, color: CncColors.textSub),
+              const Icon(Icons.search, size: 16, color: CncColors.textSub),
               const SizedBox(width: 10),
               Expanded(
                 child: TextField(
@@ -502,7 +501,7 @@ class _InspirationSliver extends StatelessWidget {
                             onTap: () => onKeyword(''),
                             child: const Padding(
                               padding: EdgeInsets.only(left: 8),
-                              child: Icon(Symbols.close,
+                              child: Icon(Icons.close,
                                   size: 14, color: CncColors.textSub),
                             ),
                           ),
@@ -825,7 +824,7 @@ class _SyncButtonState extends State<_SyncButton> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Symbols.refresh, size: 14, color: Colors.white),
+              const Icon(Icons.refresh, size: 14, color: Colors.white),
               const SizedBox(width: 4),
               Text(_label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
             ],
@@ -865,7 +864,7 @@ class _ProjectItem extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: CncColors.border),
                 ),
-                child: Center(child: Icon(dimmed ? Symbols.check_circle : Symbols.folder,
+                child: Center(child: Icon(dimmed ? Icons.check_circle_outline : Icons.folder_outlined,
                     size: 22, color: CncColors.textSub)),
               ),
               const SizedBox(width: 12),
@@ -905,7 +904,7 @@ class _ProjectItem extends StatelessWidget {
                       color: CncColors.danger.withOpacity(0.08),
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    child: const Icon(Symbols.delete_outline,
+                    child: const Icon(Icons.delete_outline,
                         size: 15, color: CncColors.danger),
                   ),
                 ),

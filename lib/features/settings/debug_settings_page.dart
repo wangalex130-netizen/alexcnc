@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/runtime_config.dart';
 import '../../app/theme.dart';
@@ -134,7 +133,7 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
         backgroundColor: CncColors.bg,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Symbols.arrow_back, color: CncColors.textMain),
+          icon: const Icon(Icons.arrow_back, color: CncColors.textMain),
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text('联调设置',
@@ -152,7 +151,7 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
             ),
             child: Row(
               children: [
-                const Icon(Symbols.cloud_sync,
+                const Icon(Icons.sync,
                     color: CncColors.primary, size: 22),
                 const SizedBox(width: 10),
                 Expanded(
@@ -292,7 +291,7 @@ class _DiagnosticCard extends ConsumerWidget {
         children: [
           Row(
             children: [
-              Icon(Symbols.troubleshoot, size: 18, color: CncColors.textMain),
+              Icon(Icons.troubleshoot, size: 18, color: CncColors.textMain),
               const SizedBox(width: 8),
               Text('连接诊断',
                   style: const TextStyle(

@@ -48,8 +48,26 @@ class Machine {
 
   /// 远程监视拉流地址：固定中继（AppConfig.cameraRelayBaseUrl）+ 机器码（sn 即摄像头 ID）。
   /// 不再依赖后端逐机器存储的 relay_url/cam_device，避免后端填错导致硬转圈。
-  String streamUrl(String relayToken) =>
-      '${AppConfig.cameraRelayBaseUrl}/stream/${sn.isNotEmpty ? sn : camDevice}?token=$relayToken';
+  /// [userId] 透传到中继的 `user=` 查询参数，供中继按账号做绑定鉴权（relay.py
+  /// 的 REQUIRE_BINDING 开启后生效；缺省为空 = 兼容期 demo 放行）。
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'code': sn,
+        'sn': sn,
+        'machineName': name,
+        'machineType': machineType,
+        'cam_device': camDevice,
+        'relay_url': relayUrl,
+        'online': online,
+        'isDefault': isDefault,
+        'bound_at': boundAt,
+      };
+
+  String streamUrl(String relayToken, [String? userId]) {
+    final dev = sn.isNotEmpty ? sn : camDevice;
+    final user = (userId != null && userId.isNotEmpty) ? '&user=$userId' : '';
+    return '${AppConfig.cameraRelayBaseUrl}/stream/$dev?token=$relayToken$user';
+  }
 }
 
 /// 机器服务：扫码绑定 / 我的机器列表。

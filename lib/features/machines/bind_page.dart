@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:material_symbols_icons/symbols.dart';
+
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../app/runtime_config.dart';
@@ -99,7 +99,7 @@ class _BindPageState extends ConsumerState<BindPage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Symbols.lock, size: 48, color: CncColors.textSub),
+              const Icon(Icons.lock, size: 48, color: CncColors.textSub),
               const SizedBox(height: 12),
               const Text('请先登录后再绑定机器',
                   style: TextStyle(fontSize: 14, color: CncColors.textMain)),
@@ -162,7 +162,7 @@ class _BindPageState extends ConsumerState<BindPage> {
               child: TextButton.icon(
                 onPressed: () =>
                     setState(() => _showManual = !_showManual),
-                icon: const Icon(Symbols.keyboard,
+                icon: const Icon(Icons.keyboard,
                     size: 18, color: CncColors.primaryInk),
                 label: Text(_showManual ? '收起手动输入' : '扫码不清晰？手动输入机器码',
                     style:

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
 import '../../services/bit_config_service.dart';
@@ -107,7 +106,7 @@ class _BitConfigDialogState extends State<BitConfigDialog> {
       backgroundColor: CncColors.card,
       title: Row(
         children: [
-          const Icon(Symbols.shelves, color: CncColors.primaryInk, size: 22),
+          const Icon(Icons.widgets, color: CncColors.primaryInk, size: 22),
           const SizedBox(width: 8),
           const Text('刀仓配置', style: TextStyle(color: CncColors.textMain)),
         ],
@@ -138,7 +137,7 @@ class _BitConfigDialogState extends State<BitConfigDialog> {
                       padding: const EdgeInsets.only(bottom: 8),
                       child: Row(
                         children: [
-                          const Icon(Symbols.check_circle,
+                          const Icon(Icons.check_circle,
                               color: CncColors.primaryInk, size: 16),
                           const SizedBox(width: 6),
                           Text(_mqttStatus!,

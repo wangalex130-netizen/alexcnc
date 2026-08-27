@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
 import '../../state/auth_provider.dart';
@@ -57,7 +56,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Icon(Symbols.manufacturing, size: 56, color: CncColors.primaryInk),
+              const Icon(Icons.precision_manufacturing, size: 56, color: CncColors.primaryInk),
               const SizedBox(height: 8),
               const Text(
                 '登录 Smart CNC Pro',
@@ -73,18 +72,18 @@ class _LoginPageState extends ConsumerState<LoginPage> {
               const SizedBox(height: 28),
               _Field(
                 controller: _username,
-                icon: Symbols.person,
+                icon: Icons.person,
                 hint: '邮箱（name@example.com）',
                 keyboardType: TextInputType.emailAddress,
               ),
               const SizedBox(height: 14),
               _Field(
                 controller: _password,
-                icon: Symbols.lock,
+                icon: Icons.lock,
                 hint: '密码',
                 obscure: _obscure,
                 trailing: IconButton(
-                  icon: Icon(_obscure ? Symbols.visibility : Symbols.visibility_off,
+                  icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off,
                       size: 20, color: CncColors.textSub),
                   onPressed: () => setState(() => _obscure = !_obscure),
                 ),

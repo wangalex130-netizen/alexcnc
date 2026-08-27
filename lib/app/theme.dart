@@ -136,6 +136,16 @@ class AppTheme {
     textTheme: _textTheme(Brightness.dark),
   );
 
+  /// 字体回退链：优先系统默认，随后 Roboto / Noto Sans CJK SC / sans-serif。
+  /// 解决鸿蒙 AOSP 兼容层（及个别 Android ROM）在页面切换时自定义字体加载失败、
+  /// 中文/图标glyph显示为方块的乱码问题。
+  static const List<String> _fontFallback = [
+    'Roboto',
+    'Noto Sans CJK SC',
+    'NotoSansCJKsc',
+    'sans-serif',
+  ];
+
   static TextTheme _textTheme(Brightness b) {
     final base = b == Brightness.light ? const Color(0xFF1A1D1F) : Colors.white;
     final muted = b == Brightness.light
@@ -143,15 +153,30 @@ class AppTheme {
         : const Color(0xFF888888);
     return TextTheme(
       displaySmall: TextStyle(
-          fontSize: 28, fontWeight: FontWeight.w700, color: base, letterSpacing: -0.5),
-      titleLarge:
-          TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: base),
-      titleMedium:
-          TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: base),
-      bodyLarge: TextStyle(fontSize: 15, color: base),
-      bodyMedium: TextStyle(fontSize: 14, color: muted),
-      labelLarge:
-          TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: base),
+          fontSize: 28,
+          fontWeight: FontWeight.w700,
+          color: base,
+          letterSpacing: -0.5,
+          fontFamilyFallback: _fontFallback),
+      titleLarge: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.w700,
+          color: base,
+          fontFamilyFallback: _fontFallback),
+      titleMedium: TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+          color: base,
+          fontFamilyFallback: _fontFallback),
+      bodyLarge: TextStyle(
+          fontSize: 15, color: base, fontFamilyFallback: _fontFallback),
+      bodyMedium: TextStyle(
+          fontSize: 14, color: muted, fontFamilyFallback: _fontFallback),
+      labelLarge: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+          color: base,
+          fontFamilyFallback: _fontFallback),
     );
   }
 }

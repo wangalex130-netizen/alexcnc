@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/config.dart';
 import '../../app/runtime_config.dart';
@@ -49,6 +48,26 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
     }
   }
 
+  /// 点选一台机器作为 App 当前控制的机器，持久化并触发全局服务重建。
+  Future<void> _selectMachine(Machine m) async {
+    await ref.read(currentMachineProvider.notifier).select(m);
+    final device = m.sn.isNotEmpty ? m.sn : m.camDevice;
+    if (device.isNotEmpty) {
+      TimeLapseClient.configure(
+        base: AppConfig.cameraRelayBaseUrl,
+        device: device,
+      );
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('已选择当前机器：${m.name.isNotEmpty ? m.name : m.sn}'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+    Navigator.of(context).pop();
+  }
+
   void _openPreview(Machine m) {
     final device = m.sn.isNotEmpty ? m.sn : m.camDevice;
     if (device.isEmpty) {
@@ -60,17 +79,11 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
       );
       return;
     }
-    // A3：选中机器写入全局，控制台拉流 / 延时摄影 / 全屏预览统一用它的中继。
-    // 架构：中继固定（AppConfig 北京），设备 ID = 机器码（sn 即摄像头 ID）。
-    ref.read(currentMachineProvider.notifier).state = m;
-    TimeLapseClient.configure(
-      base: AppConfig.cameraRelayBaseUrl,
-      device: device,
-    );
+    // A3：全屏预览继续用当前机器的中继。
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => FullscreenPreviewPage(
-          url: m.streamUrl(AppConfig.cameraRelayToken),
+          url: m.streamUrl(AppConfig.cameraRelayToken, AppConfig.appUserId),
           machine: m,
         ),
       ),
@@ -88,7 +101,7 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Symbols.sensors,
+              const Icon(Icons.sensors_outlined,
                   size: 48, color: CncColors.textSub),
               const SizedBox(height: 12),
               const Text('登录后查看我的机器',
@@ -116,7 +129,7 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
         title: const Text('我的机器'),
         actions: [
           IconButton(
-            icon: const Icon(Symbols.add, color: CncColors.textMain),
+            icon: const Icon(Icons.add, color: CncColors.textMain),
             tooltip: '扫码绑定机器',
             onPressed: () async {
               await Navigator.of(context).push(
@@ -143,7 +156,7 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
                 ? ListView(
                     children: [
                       const SizedBox(height: 120),
-                      const Icon(Symbols.add_to_queue,
+                      const Icon(Icons.add_to_queue,
                           size: 48,
                           color: CncColors.textSub,
                           textDirection: TextDirection.ltr),
@@ -171,7 +184,7 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
                             );
                             _load();
                           },
-                          icon: const Icon(Symbols.qr_code_scanner,
+                          icon: const Icon(Icons.qr_code_scanner,
                               size: 18),
                           label: const Text('扫码绑定'),
                         ),
@@ -185,9 +198,13 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
                         const SizedBox(height: 10),
                     itemBuilder: (context, i) {
                       final m = machines[i];
+                      final current = ref.watch(currentMachineProvider);
+                      final selected = current?.sn == m.sn && m.sn.isNotEmpty;
                       return _MachineCard(
                         machine: m,
-                        onTap: () => _openPreview(m),
+                        selected: selected,
+                        onTap: () => _selectMachine(m),
+                        onPreview: () => _openPreview(m),
                         onBitConfig: () => showBitConfigDialog(
                             context, m.sn),
                       );
@@ -200,11 +217,15 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
 class _MachineCard extends StatelessWidget {
   final Machine machine;
+  final bool selected;
   final VoidCallback onTap;
+  final VoidCallback onPreview;
   final VoidCallback onBitConfig;
   const _MachineCard({
     required this.machine,
+    this.selected = false,
     required this.onTap,
+    required this.onPreview,
     required this.onBitConfig,
   });
 
@@ -217,7 +238,10 @@ class _MachineCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: CncColors.card,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: CncColors.border),
+            border: Border.all(
+              color: selected ? CncColors.primary : CncColors.border,
+              width: selected ? 2 : 1,
+            ),
           ),
           child: Row(
             children: [
@@ -225,23 +249,46 @@ class _MachineCard extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: CncColors.primary.withOpacity(0.15),
+                  color: selected
+                      ? CncColors.primary.withOpacity(0.22)
+                      : CncColors.primary.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Symbols.manufacturing,
-                    size: 24, color: CncColors.primaryInk),
+                child: Icon(
+                    selected ? Icons.check_rounded : Icons.precision_manufacturing_outlined,
+                    size: 24,
+                    color: selected ? CncColors.primaryInk : CncColors.primaryInk),
               ),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      machine.name.isEmpty ? machine.sn : machine.name,
-                      style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: CncColors.textMain)),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            machine.name.isEmpty ? machine.sn : machine.name,
+                            style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: CncColors.textMain)),
+                        ),
+                        if (selected)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: CncColors.primary.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text('当前控制',
+                                style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: CncColors.primaryInk)),
+                          ),
+                      ],
+                    ),
                     const SizedBox(height: 4),
                     Text(
                       machine.sn.isEmpty ? '未配置机器码' : machine.sn,
@@ -263,12 +310,18 @@ class _MachineCard extends StatelessWidget {
                 ),
               ),
               IconButton(
-                icon: const Icon(Symbols.shelves,
+                icon: const Icon(Icons.storage_outlined,
                     color: CncColors.primaryInk, size: 20),
                 tooltip: '刀仓配置',
                 onPressed: onBitConfig,
               ),
-              const Icon(Symbols.chevron_right,
+              IconButton(
+                icon: const Icon(Icons.videocam_outlined,
+                    color: CncColors.textSub, size: 20),
+                tooltip: '远程预览',
+                onPressed: onPreview,
+              ),
+              const Icon(Icons.chevron_right,
                   color: CncColors.textSub, size: 20),
             ],
           ),

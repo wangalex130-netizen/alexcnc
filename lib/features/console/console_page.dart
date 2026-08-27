@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/config.dart';
 import '../../app/runtime_config.dart';
@@ -173,7 +172,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   /// 后端即使填错 relay_url/cam_device 也不会再导致硬转圈。
   String _resolvedRelayUrl(RuntimeConfig cfg) {
     final m = ref.read(currentMachineProvider);
-    if (m != null) return m.streamUrl(cfg.resolvedCameraRelayToken);
+    if (m != null) return m.streamUrl(cfg.resolvedCameraRelayToken, cfg.resolvedAppUserId);
     return '${cfg.resolvedCameraRelayBaseUrl}/stream/${cfg.resolvedCameraRelayDevice}'
         '?token=${cfg.resolvedCameraRelayToken}';
   }
@@ -456,7 +455,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                               ),
                               const SizedBox(width: 5),
                             ],
-                            Icon(Symbols.schedule, size: 13, color: _tlColor()),
+                            Icon(Icons.schedule, size: 13, color: _tlColor()),
                             const SizedBox(width: 4),
                             Text(_tlLabel(),
                                 style: TextStyle(fontSize: 10, color: _tlColor(), fontWeight: FontWeight.bold)),
@@ -479,7 +478,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                         ),
                         child: Row(
                           children: [
-                            Icon(isLocal ? Symbols.wifi : Symbols.cloud,
+                            Icon(isLocal ? Icons.wifi : Icons.cloud_outlined,
                                 size: 12, color: isLocal ? CncColors.primary : CncColors.warning),
                             const SizedBox(width: 4),
                             Row(
@@ -519,7 +518,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
           Row(
             children: [
               _ToggleBtn(
-                  icon: Symbols.lightbulb,
+                  icon: Icons.lightbulb_outline,
                   label: '机箱照明',
                   active: lightOn,
                   onTap: () {
@@ -527,7 +526,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     hw.setAux('light', _light);
                   }),
               _ToggleBtn(
-                  icon: Symbols.gps_fixed,
+                  icon: Icons.gps_fixed,
                   label: '红点激光',
                   active: laserOn,
                   onTap: () {
@@ -535,7 +534,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     hw.setAux('laser', _laser);
                   }),
               _ToggleBtn(
-                  icon: Symbols.air,
+                  icon: Icons.air,
                   label: '冷却风扇',
                   active: fanOn,
                   onTap: () {
@@ -562,7 +561,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     ),
                     child: Row(
                       children: [
-                        const Icon(Symbols.priority_high, size: 16, color: CncColors.warning),
+                        const Icon(Icons.priority_high, size: 16, color: CncColors.warning),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text('等待机旁确认：请在机器面板按下确认键后继续加工。',
@@ -584,7 +583,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     ),
                     child: Row(
                       children: [
-                        const Icon(Symbols.wifi_off, size: 16, color: CncColors.danger),
+                        const Icon(Icons.wifi_off, size: 16, color: CncColors.danger),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text('与机器断开连接：命令与状态无法同步，请检查网络后重连。',
@@ -606,7 +605,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     ),
                     child: Row(
                       children: [
-                        const Icon(Symbols.lock, size: 14, color: CncColors.warning),
+                        const Icon(Icons.lock_outline, size: 14, color: CncColors.warning),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text('远程监视模式：主动移动/开切已锁定，仅可查看状态与软停止/暂停。',
@@ -669,7 +668,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                                 shape: BoxShape.circle,
                               ),
                               child: Icon(
-                                  completed ? Symbols.check_circle : Symbols.play_circle,
+                                  completed ? Icons.check_circle_outline : Icons.play_circle_outline,
                                   color: completed
                                       ? CncColors.primary
                                       : CncColors.warning,
@@ -700,7 +699,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                                 ],
                               ),
                             ),
-                            const Icon(Symbols.chevron_right,
+                            const Icon(Icons.chevron_right,
                                 color: CncColors.textSub),
                           ],
                         ),
@@ -807,7 +806,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
               children: [
                 Expanded(
                   child: _ActionBtn(
-                    icon: Symbols.stop,
+                    icon: Icons.stop,
                     label: '停止',
                     fg: CncColors.danger,
                     bg: CncColors.danger.withOpacity(0.15),
@@ -845,7 +844,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 const SizedBox(width: 10),
                 Expanded(
                   child: _ActionBtn(
-                    icon: isPaused ? Symbols.play_arrow : Symbols.pause,
+                    icon: isPaused ? Icons.play_arrow : Icons.pause,
                     label: isPaused ? '继续' : '暂停',
                     fg: CncColors.textMain,
                     bg: const Color(0xFFEDEFF2),
@@ -935,6 +934,10 @@ class _ConnStatusChip extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final connecting = connState == LinkState.connecting;
     final lastError = ref.watch(lastConnErrorProvider);
+    final currentMachine = ref.watch(currentMachineProvider);
+    final machineName = currentMachine?.name.isNotEmpty == true
+        ? currentMachine!.name
+        : (currentMachine?.sn.isNotEmpty == true ? currentMachine!.sn : '未选择机器');
     final Color color;
     final String label;
     if (isCloud) {
@@ -978,8 +981,14 @@ class _ConnStatusChip extends ConsumerWidget {
           children: [
             _statusDot(color),
             const SizedBox(width: 8),
+            Text(machineName,
+                style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: CncColors.textMain)),
+            const SizedBox(width: 6),
             Icon(
-              isCloud ? Symbols.cloud : Symbols.wifi,
+              isCloud ? Icons.cloud_outlined : Icons.wifi,
               size: 14,
               color: color,
             ),
@@ -1011,7 +1020,7 @@ class _ConnStatusChip extends ConsumerWidget {
             ),
             if (!mqttConnected)
               Icon(
-                Symbols.refresh,
+                Icons.refresh,
                 size: 16,
                 color: color,
               ),
@@ -1166,9 +1175,9 @@ class _JogCard extends StatelessWidget {
               width: 50,
               child: Column(
                 children: [
-                  _HomeBtn(icon: Symbols.add_location, label: '定原点', onTap: onSetZero, enabled: enabled),
+                  _HomeBtn(icon: Icons.add_location_alt_outlined, label: '定原点', onTap: onSetZero, enabled: enabled),
                   const SizedBox(height: 4),
-                  _HomeBtn(icon: Symbols.home, label: '回零', onTap: onHome, enabled: enabled),
+                  _HomeBtn(icon: Icons.home_outlined, label: '回零', onTap: onHome, enabled: enabled),
                 ],
               ),
             ),
@@ -1270,7 +1279,7 @@ class _SpindleCard extends StatelessWidget {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(spindleOn && enabled ? Symbols.stop_circle : Symbols.play_arrow,
+                          Icon(spindleOn && enabled ? Icons.stop_circle : Icons.play_arrow,
                               size: 14, color: spindleOn && enabled ? CncColors.danger : CncColors.textMain),
                           const SizedBox(width: 6),
                           Text(spindleOn && enabled ? '停止转动' : '测试启动',
@@ -1351,7 +1360,7 @@ class _AtcEntry extends ConsumerWidget {
                   children: const [
                     Text('管理刀仓', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: CncColors.blue)),
                     SizedBox(width: 4),
-                    Icon(Symbols.chevron_right, size: 14, color: CncColors.blue),
+                    Icon(Icons.chevron_right, size: 14, color: CncColors.blue),
                   ],
                 ),
               ),
@@ -1561,7 +1570,7 @@ class _AtcSheetState extends ConsumerState<_AtcSheet> {
                 child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Symbols.sync, size: 18, color: Colors.black),
+                    Icon(Icons.sync, size: 18, color: Colors.black),
                     SizedBox(width: 8),
                     Text('同步到机器', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                   ],
@@ -1648,7 +1657,7 @@ class _TimeLapseStatusCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Symbols.schedule, size: 16, color: CncColors.blue),
+              Icon(Icons.schedule, size: 16, color: CncColors.blue),
               const SizedBox(width: 6),
               const Text('延时摄影',
                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: CncColors.textMain)),
