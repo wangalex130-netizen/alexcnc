@@ -46,9 +46,9 @@ android {
         // 占位符名称 GETUI_APPID / GETUI_APPKEY / GETUI_APPSECRET 与
         // AndroidManifest.xml 的 ${GETUI_APPID} 等严格对应（来自验证通过的配置）。
         // ===================================================================
-        manifestPlaceholders["GETUI_APPID"] = "ffOcDMIMVq6m6BgRrHkXZ6"
-        manifestPlaceholders["GETUI_APPKEY"] = "JnzfUALRbv5mnJkOMUkdkA"
-        manifestPlaceholders["GETUI_APPSECRET"] = "06XOqIMguXAq5WstZXgYF4"
+        manifestPlaceholders["GETUI_APPID"] = "2BrsBCR7hU9a1COnJw8P87"
+        manifestPlaceholders["GETUI_APPKEY"] = "jhbuwBzhei7EkKVoN5BVP5"
+        manifestPlaceholders["GETUI_APPSECRET"] = "k7YztPilxEAqmXv4ishpz6"
     }
 
     buildTypes {
