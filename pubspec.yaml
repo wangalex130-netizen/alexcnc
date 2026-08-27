@@ -41,6 +41,9 @@ dependencies:
   # 先让用户在通知栏看到事件）。锁 ^17.2.4（CI Flutter 3.29.0 / Dart 3.7 兼容；
   # 18/19.x 要求更高 Dart 版本装不上）。
   flutter_local_notifications: ^17.2.4
+  # 个推推送（B阶段）：真实厂商通道 CID + alias 绑定/解绑（账号↔机器隔离）。
+  # 版本以 pub.dev 当前为准（^0.2.41，2026-08 验证）。
+  getuiflut: ^0.2.41
 
 dev_dependencies:
   flutter_test:

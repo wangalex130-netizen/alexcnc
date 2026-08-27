@@ -42,6 +42,21 @@
             android:name="flutterEmbedding"
             android:value="2" />
 
+        <!-- 个推（GeTui）推送凭据：值来自 app/build.gradle.kts 的
+             manifestPlaceholders（GETUI_APPID / GETUI_APPKEY / GETUI_APPSECRET）。
+             三件套为 Run 15 验证通过的「测试应用 com.alexcnc.pushtest」REAL 凭据，
+             复用于主 App 即可立即注册+收推送；量产时为 com.alexcnc.alexcnc 建独立应用后替换。
+             注意：未同意隐私政策前 App 只 preInit，不 initialize，满足合规红线。 -->
+        <meta-data
+            android:name="PUSH_APPID"
+            android:value="${GETUI_APPID}" />
+        <meta-data
+            android:name="PUSH_APPKEY"
+            android:value="${GETUI_APPKEY}" />
+        <meta-data
+            android:name="PUSH_APPSECRET"
+            android:value="${GETUI_APPSECRET}" />
+
         <!-- flutter_local_notifications：调度通知的接收器（17.x 官方要求，
              即时通知不调度也一样注册，确保重启/覆盖安装后插件正常工作） -->
         <receiver android:exported="false"
@@ -65,6 +80,12 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Android 11+（API 30+）包可见性：个推 SDK 需显式声明才能查到自身组件，
+             否则在 Android 11+ 设备上 CID 注册/透传接收会失效。 -->
+        <intent>
+            <action android:name="com.getui.sdk.action" />
+        </intent>
         </intent>
     </queries>
 </manifest>

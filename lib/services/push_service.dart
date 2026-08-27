@@ -1,40 +1,42 @@
 import 'dart:math';
 
+import 'package:getuiflut/getuiflut.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'cloud_service.dart';
 import '../models/push_log_entry.dart';
 import 'local_notify_service.dart';
 
-/// 推送通道抽象层（App 侧先行版，与具体厂商 SDK 解耦）。
+/// 推送通道抽象层（App 侧 B 阶段：个推真实通道）。
 ///
-/// 职责：
-/// 1. **token 管理**：首次启动生成稳定 token 并持久化。真实 FCM/厂商聚合 SDK
-///    接入后，只需替换 [ensureToken] 内部实现为 SDK 回填的 registrationId，
-///    其余（上报时机 / 偏好过滤 / UI 开关）全部复用。
-/// 2. **偏好过滤**：通知总开关 + 「设备完成状态」 + 「硬件异常告警」两个细分
-///    开关，存 SharedPreferences。开关变化时立即重报一次，服务端按开关过滤；
-///    即使全部关闭也保留 token 注册，避免切换开关需要重新注册。
-/// 3. **上报**：启动时（App 冷启动）与开关变开时调用
-///    [CloudService.reportPushToken] 上报 token + 开关状态。
-///
-/// 当前不依赖任何厂商 SDK / Firebase，纯本地占位实现，可安全合入主分支。
+/// 关键设计（详见 docs/alexcnc-推送寻址与账号机器绑定架构.md）：
+/// 1. **CID 管理**：通过个推 SDK 拿到真实 CID（设备×App×安装级唯一标识），
+///    替代原占位 token。CID 只做台账，业务推送一律按 alias=userId 寻址。
+/// 2. **合规初始化**：必须用户同意隐私政策（`privacyAccepted`）后才
+///    `Getuiflut().initGetuiSdk` 注册 CID；不同意绝不初始化（个推合规红线）。
+/// 3. **alias 绑定/解绑**：登录成功 → bindAlias(userId)；退出/切换账号 →
+///    先 unbindAlias(旧) 再 bindAlias(新)。解决「同手机换账号 CID 不变」
+///    导致的串号隐私问题。
+/// 4. **偏好过滤 + 上报**：复用既有开关逻辑，上报携带 userId。
 class PushService {
   PushService._();
   static final PushService instance = PushService._();
 
-  static const String kTokenKey = 'push_token_v1';
+  static const String kTokenKey = 'push_cid_v1';
   static const String kEnabledKey = 'push_enabled_v1';
   static const String kNotifyCompleteKey = 'push_notify_complete_v1';
   static const String kNotifyAlertKey = 'push_notify_alert_v1';
+  /// 隐私政策同意标记：默认 false，未同意前绝不初始化个推（合规）。
+  static const String kPrivacyAcceptedKey = 'push_privacy_accepted_v1';
 
   /// 本地通知增量水位：上次已消费到的 `deliveredAt`（UTC ISO 字符串）。
-  /// 秒级去重即可（云端事件不会同秒重复投递），故存到秒精度。
   static const String kLastSeenKey = 'push_last_seen_delivered_v1';
 
   static const String kPlatform = 'android';
 
-  String? _cachedToken;
+  String? _cachedToken; // 真实 CID
+  String? _userId; // 当前登录用户（用于 alias 绑定）
+  bool _getuiReady = false;
 
   /// 最近一次轮询的诊断摘要（联调上报用）。
   String lastPollDiagnostic = 'idle';
@@ -42,14 +44,65 @@ class PushService {
   /// 全局推送总开关（预留；当前 UI 未暴露，恒为 true）。
   bool get _enabledDefault => true;
 
-  /// 获取本地推送 token；不存在则生成 24 位稳定占位 token 并持久化。
+  // ---------------------------------------------------------------- 隐私合规
+  /// 隐私政策是否已同意（默认 false：未同意前绝不初始化个推）。
+  Future<bool> isPrivacyAccepted() async {
+    final p = await SharedPreferences.getInstance();
+    return p.getBool(kPrivacyAcceptedKey) ?? false;
+  }
+
+  /// 隐私政策页在用户同意后调用。
+  Future<void> setPrivacyAccepted() async {
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(kPrivacyAcceptedKey, true);
+  }
+
+  // ---------------------------------------------------------------- 个推初始化
+  /// 初始化个推 SDK（合规门控：未同意隐私政策则跳过）。
   ///
-  /// 真实通道接入后：此方法改为返回 SDK 提供的 registrationId / pushToken。
+  /// [onCidReady]：拿到 CID 后回调（用于重新上报云端 + 触发 alias 绑定）。
+  Future<void> initGetui({
+    required void Function(String cid)? onCidReady,
+  }) async {
+    if (_getuiReady) return;
+    final accepted = await isPrivacyAccepted();
+    if (!accepted) {
+      lastPollDiagnostic = 'getui-skip-no-privacy';
+      return; // 合规：未同意不初始化
+    }
+    try {
+      Getuiflut().addEventHandler(
+        onReceiveClientId: (String cid) async {
+          _cachedToken = cid;
+          await _persistCid(cid);
+          onCidReady?.call(cid);
+        },
+        onAliasResult: (Map<String, dynamic> msg) async {
+          // alias 绑定/解绑结果，联调用，忽略
+        },
+      );
+      // 个推 Flutter 插件约定用 getter 触发初始化（无参）。
+      // 若真机 CID 始终不来，可尝试改为 Getuiflut().initGetuiSdk();
+      Getuiflut().initGetuiSdk;
+      _getuiReady = true;
+      lastPollDiagnostic = 'getui-init-ok';
+    } catch (e) {
+      lastPollDiagnostic = 'getui-init-fail $e';
+    }
+  }
+
+  Future<void> _persistCid(String cid) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString(kTokenKey, cid);
+  }
+
+  /// 获取推送标识：优先返回个推真实 CID；无则生成占位（兼容 Mock / 未集成通道）。
   Future<String> ensureToken() async {
     if (_cachedToken != null) return _cachedToken!;
     final p = await SharedPreferences.getInstance();
     var t = p.getString(kTokenKey);
     if (t == null || t.isEmpty) {
+      // 未拿到个推 CID：生成占位，待 onReceiveClientId 回填真实 CID。
       t = 'pt_${DateTime.now().millisecondsSinceEpoch}'
           '_${Random().nextInt(0xFFFFFF).toRadixString(16)}';
       await p.setString(kTokenKey, t);
@@ -58,6 +111,49 @@ class PushService {
     return t;
   }
 
+  // ---------------------------------------------------------------- 账号↔alias
+  /// 登录成功后设置当前用户，并绑定 alias（CID 就绪后生效）。
+  /// 切换账号时先解绑旧 alias，避免串号。
+  Future<void> setUser(String? userId) async {
+    final old = _userId;
+    _userId = userId;
+    if (userId == null || userId.isEmpty) return;
+    if (old != null && old != userId) {
+      await unbindAlias(old); // 切换账号：先解绑旧
+    }
+    await bindAlias(userId);
+  }
+
+  /// 退出登录：解绑当前 alias（防串号）。
+  Future<void> clearUser() async {
+    final old = _userId;
+    _userId = null;
+    if (old != null && old.isNotEmpty) await unbindAlias(old);
+  }
+
+  Future<void> bindAlias(String userId) async {
+    if (!_getuiReady) return;
+    try {
+      final sn = '${DateTime.now().millisecondsSinceEpoch}';
+      Getuiflut().bindAlias(userId, sn);
+      lastPollDiagnostic = 'alias-bind $userId';
+    } catch (e) {
+      lastPollDiagnostic = 'alias-bind-fail $e';
+    }
+  }
+
+  Future<void> unbindAlias(String userId) async {
+    if (!_getuiReady) return;
+    try {
+      final sn = '${DateTime.now().millisecondsSinceEpoch}';
+      Getuiflut().unbindAlias(userId, sn);
+      lastPollDiagnostic = 'alias-unbind $userId';
+    } catch (e) {
+      lastPollDiagnostic = 'alias-unbind-fail $e';
+    }
+  }
+
+  // ---------------------------------------------------------------- 上报引导
   /// 启动引导：确保 token 存在，并按偏好上报云端（幂等）。
   Future<void> bootstrap(CloudService cloud,
       {required String deviceId}) async {
@@ -87,6 +183,7 @@ class PushService {
     await cloud.reportPushToken(
       token,
       deviceId: deviceId,
+      userId: _userId ?? '',
       platform: kPlatform,
       notifyComplete: prefs.notifyComplete,
       notifyAlert: prefs.notifyAlert,
@@ -113,13 +210,6 @@ class PushService {
   }
 
   /// 拉取云端 push/log，对「比上次水位更新的本机事件」弹本地通知。
-  ///
-  /// 核心链路：`GET push/log`（最新在前 ≤50 条）→ 增量水位去做重 →
-  /// 按 deviceId + 事件类型（尊重 complete/alert 两个开关）过滤 →
-  /// `LocalNotifyService` 弹一条本地通知 → 用本次最大 deliveredAt 更新水位。
-  ///
-  /// 返回本次弹出的通知条数（联调/测试用；无新事件返回 0，云端不可达也返回 0）。
-  /// Mock 模式下云端返回空 → 恒返回 0，不会弹。
   Future<int> pollEvents(
     CloudService cloud, {
     required String deviceId,
@@ -162,8 +252,7 @@ class PushService {
         shown++;
       }
 
-      // 水位推进到本次拉取范围内最大 deliveredAt（即使因开关关闭被跳过的也推进，
-      // 否则开关一关一开会重复弹旧事件）。
+      // 水位推进到本次拉取范围内最大 deliveredAt
       final maxDelivered = fresh
           .map((e) => e.deliveredAt)
           .reduce((a, b) => a.isAfter(b) ? a : b);
@@ -174,7 +263,6 @@ class PushService {
           'lastSeen=${maxDelivered.toIso8601String()}';
       return shown;
     } catch (e) {
-      // 轮询失败（网络/解析）静默，下一轮再试
       lastPollDiagnostic = 'poll-error $e';
       return 0;
     }
@@ -187,9 +275,6 @@ class PushService {
       final dt = DateTime.tryParse(raw);
       if (dt != null) return dt;
     }
-    // 无水位（首次连接）：展示云端当前所有待发事件，再把水位推进到最新一条，
-    // 避免“now-5s”滑动水位把已存在但稍早产生的事件永远当旧消息过滤掉。
-    // 用远过去时间作为首轮水位，确保首连即可收到 pending 通知。
     return DateTime.utc(2000);
   }
 

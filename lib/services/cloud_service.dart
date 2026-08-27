@@ -57,6 +57,7 @@ abstract class CloudService {
   Future<bool> reportPushToken(
     String token, {
     String deviceId,
+    String userId = '',
     String platform,
     bool notifyComplete,
     bool notifyAlert,

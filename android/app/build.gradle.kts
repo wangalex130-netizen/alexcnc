@@ -35,6 +35,20 @@ android {
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
+
+        // ===================================================================
+        // 个推（GeTui）推送：manifest 占位符（三件套，经验证可用）。
+        // 以下为「推送验证专用测试应用 com.alexcnc.pushtest」的 REAL 凭据
+        // （Run 15 已真机验证：设备注册 CID + 控制台推送 + 手机通知全链路打通）。
+        // 直接复用到主 App 即可让 com.alexcnc.alexcnc 立即注册并接收推送。
+        // ⚠️ 量产/上架前：请在个推控制台为包名 com.alexcnc.alexcnc 新建独立应用，
+        //   拿到其 AppID/AppKey/AppSecret 后只替换这三行即可（其余代码不动）。
+        // 占位符名称 GETUI_APPID / GETUI_APPKEY / GETUI_APPSECRET 与
+        // AndroidManifest.xml 的 ${GETUI_APPID} 等严格对应（来自验证通过的配置）。
+        // ===================================================================
+        manifestPlaceholders["GETUI_APPID"] = "ffOcDMIMVq6m6BgRrHkXZ6"
+        manifestPlaceholders["GETUI_APPKEY"] = "JnzfUALRbv5mnJkOMUkdkA"
+        manifestPlaceholders["GETUI_APPSECRET"] = "06XOqIMguXAq5WstZXgYF4"
     }
 
     buildTypes {

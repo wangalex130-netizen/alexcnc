@@ -172,6 +172,7 @@ class RealCloudService implements CloudService {
   Future<bool> reportPushToken(
     String token, {
     String deviceId = '',
+    String userId = '',
     String platform = 'android',
     bool notifyComplete = true,
     bool notifyAlert = true,
@@ -184,6 +185,7 @@ class RealCloudService implements CloudService {
             body: jsonEncode({
               'token': token,
               'deviceId': deviceId.isEmpty ? this.deviceId : deviceId,
+              'userId': userId,
               'platform': platform,
               'notifyComplete': notifyComplete,
               'notifyAlert': notifyAlert,

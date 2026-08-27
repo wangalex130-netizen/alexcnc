@@ -187,14 +187,24 @@ final pushPrefsProvider = NotifierProvider<PushNotifier, PushPrefs>(
 /// 注册请求永远发不出去。改为先等待已保存配置加载完成（runtimeConfigProvider.hydrated），
 /// 再构建云端服务，确保走 RealCloudService 且地址/设备号是用户保存的值。
 final pushBootstrapProvider = Provider<void>((ref) async {
-  // 1) 先确保本地 token 存在（不依赖云端，先行断言）
-  await PushService.instance.ensureToken();
-  // 2) 等待联调设置（已保存的云端地址 / 真实后端开关）加载完成
+  // 1) 等待联调设置（已保存的云端地址 / 真实后端开关）加载完成
   final cfg = await ref.read(runtimeConfigProvider.notifier).hydrated;
-  // 3) 按最终生效的配置构建云端服务并上报（幂等，可重复调用）
   final cloud = cfg.resolvedUseRealBackend
       ? RealCloudService(cfg.resolvedCloudBaseUrl, cfg.resolvedDeviceId)
       : MockCloudService();
+  // 2) 初始化个推（合规：仅在用户同意隐私政策后才会真正注册 CID；
+  //    CID 就绪后回调里重新上报云端 + 绑定当前账号 alias）
+  final auth = ref.read(authProvider);
+  final userId = auth.isLoggedIn ? (auth.userId ?? '') : '';
+  await PushService.instance.initGetui(
+    onCidReady: (cid) {
+      PushService.instance.reportNow(cloud, deviceId: cfg.resolvedDeviceId);
+    },
+  );
+  // 3) 已登录则立即设账号（绑 alias，防串号）并上报（幂等，可重复调用）
+  if (userId.isNotEmpty) {
+    await PushService.instance.setUser(userId);
+  }
   await PushService.instance.bootstrap(
     cloud,
     deviceId: cfg.resolvedDeviceId,
