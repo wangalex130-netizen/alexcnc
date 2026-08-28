@@ -22,8 +22,12 @@ class _JogSheetState extends ConsumerState<JogSheet> {
   @override
   Widget build(BuildContext context) {
     final step = ref.watch(jogStepProvider);
-    final canControl =
-        ref.watch(isLocalLANProvider) && ref.watch(machineStatusProvider).value?.state == MachineState.idle;
+    // 终局方案（2026-08-28）：命令一律经云端 MQTT 下发，内外网权限无区别，
+    // 能否手动移动只取决于机器状态 —— 空闲可动，加工中/报警/回零中/未连接均锁定。
+    final mState = ref.watch(machineStatusProvider).value?.state;
+    final canControl = mState == MachineState.idle;
+    final lockLabel =
+        (mState == null || mState == MachineState.disconnected) ? '未连接 · 已锁定' : '加工中 · 已锁定';
 
     void jog(String axis, int sign) {
       if (!canControl) return;
@@ -53,8 +57,8 @@ class _JogSheetState extends ConsumerState<JogSheet> {
                     color: CncColors.warning.withOpacity(0.12),
                     borderRadius: BorderRadius.circular(6),
                   ),
-                  child: const Text('远程/加工中 · 已锁定',
-                      style: TextStyle(fontSize: 10, color: CncColors.warning)),
+                  child: Text(lockLabel,
+                      style: const TextStyle(fontSize: 10, color: CncColors.warning)),
                 ),
             ],
           ),

@@ -103,7 +103,6 @@ class _WorkbenchPageState extends ConsumerState<WorkbenchPage> {
   Widget build(BuildContext context) {
     final status = ref.watch(machineStatusProvider).value ?? const MachineStatus();
     final telemetry = ref.watch(telemetryStreamProvider).value;
-    final isLocal = ref.watch(isLocalLANProvider);
     final job = ref.watch(activeJobProvider);
     final step = ref.watch(wizardStepProvider);
     final hw = ref.read(hardwareServiceProvider);
@@ -125,9 +124,6 @@ class _WorkbenchPageState extends ConsumerState<WorkbenchPage> {
             child: _MachineCard(
               status: status,
               telemetry: telemetry,
-              isLocal: isLocal,
-              onToggleLan: () =>
-                  ref.read(isLocalLANProvider.notifier).state = !isLocal,
               onJog: () => _openJog(hw),
               onExpand: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const ConsolePage()),
@@ -189,15 +185,11 @@ class _WorkbenchPageState extends ConsumerState<WorkbenchPage> {
 class _MachineCard extends ConsumerWidget {
   final MachineStatus status;
   final Telemetry? telemetry;
-  final bool isLocal;
-  final VoidCallback onToggleLan;
   final VoidCallback onJog;
   final VoidCallback onExpand;
   const _MachineCard({
     required this.status,
     this.telemetry,
-    required this.isLocal,
-    required this.onToggleLan,
     required this.onJog,
     required this.onExpand,
   });
@@ -234,40 +226,6 @@ class _MachineCard extends ConsumerWidget {
                   height: 200,
                   child: RtspPreviewWidget(
                     rtspUrl: ref.watch(runtimeConfigProvider).resolvedCameraRtsp,
-                  ),
-                ),
-                // LAN / WAN 切换
-                Positioned(
-                  top: 12,
-                  right: 12,
-                  child: GestureDetector(
-                    onTap: onToggleLan,
-                    child: Container(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.6),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            isLocal ? Icons.wifi : Icons.cloud,
-                            size: 12,
-                            color: isLocal ? CncColors.primary : CncColors.warning,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            isLocal ? '局域网' : '远程',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: isLocal ? CncColors.primary : CncColors.warning,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
                   ),
                 ),
                 // 展开全屏监控

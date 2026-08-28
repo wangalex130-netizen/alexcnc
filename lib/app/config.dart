@@ -23,8 +23,8 @@ class AppConfig {
     defaultValue: '',
   );
 
-  // ---- 摄像头云中继（远程监视模式）----
-  // 摄像头把 JPEG 帧直推到这台服务器，App 在远程网络下从中继拉 MJPEG 流。
+  // ---- 摄像头云中继（App 侧唯一取流通道，内外网同一套）----
+  // 摄像头把 JPEG 帧直推到这台服务器，App 按需从中继拉 MJPEG 流（后端鉴权）。
   // 与固件 RELAY: 指令一致：RELAY:<baseUrl>|<token>|<device>|<fps>
   // 示例：--dart-define=CAMERA_RELAY_BASE_URL=http://43.154.192.242:8080
   static const String cameraRelayBaseUrl = String.fromEnvironment(

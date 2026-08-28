@@ -49,7 +49,7 @@ abstract class HardwareService {
   /// Machine physical work area (mm). Determined by connected model config.
   Future<({double widthMm, double heightMm})> getWorkArea();
 
-  // --- Motion (locked when !isLocalLAN) ---
+  // --- Motion（终局方案：只由机器状态决定可否执行，不再看内外网）---
   Future<void> jog(String axis, double distanceMm); // axis: x | y | z
   Future<void> home(); // homing cycle ($H)
   Future<void> setWorkZero({double x = 0, double y = 0, double z = 0}); // G54

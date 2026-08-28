@@ -32,9 +32,12 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
    - 任务元数据 `TaskMetadata`（尺寸、材质建议等轻量字段）
    - 极小的 **2D 矢量渲染 JSON**（用于实时轨迹预览）
    App 永不下载 / 存储实体 G-code 文件。
-3. **LAN / WAN 鉴权**
-   手机与 ESP32 同 Wi-Fi → `isLocalLAN = true`（全功能：Jog、回零、开切）。
-   手机走 4G/5G 公网 / 云端 MQTT → `isLocalLAN = false`（监视模式：锁死 Jog / 开切，仅留监控 + pause/resume/stop + light/fan + OTA）。
+3. **内外网权限统一（2026-08-28 终局方案，取代原 LAN / WAN 鉴权）**
+   命令一律经云端 MQTT 主题 `cnc/<deviceId>/cmd` 下发，**内外网不再有权限区别**：
+   Jog / 回零 / 开切 / 主轴 / 刀仓 在任何网络下都由 App 正常下发，
+   **是否可执行只由机器状态决定**（`idle` 可执行；`busy`/`paused`/`homing`/`alarm`/`disconnected` 由固件侧安全逻辑裁决）。
+   > 历史口径（已废弃）：同 Wi-Fi = 全功能、公网 = 监视模式锁 Jog。
+   > `isLocalLAN` 现仅用于选择摄像头取流路径（局域网 RTSP 直连 / 云中继 MJPEG），**不再参与鉴权**。
 
 ---
 
@@ -390,13 +393,19 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 
 ---
 
-## 4. LAN / WAN 鉴权逻辑
+## 4. 取流路径判定（原 LAN / WAN 鉴权已废弃）
 
-- `RealHardwareService.connect()` 时判定：
-  - 手机与 ESP32 在**同一子网**（或连的是本地 MQTT broker）→ `isLocalLAN = true`（全功能）。
-  - 走公网 / 云端 MQTT → `false`（监视模式）。
-- App 据此在 UI **自动**锁死 Jog / 开切，仅留监控 + Stop / Pause。
-- `isLocalLANProvider`（`lib/state/providers.dart`）由 `RealHardwareService` 在连接时更新；**开发期可用 App 顶部按钮手动切换**做测试。
+> **2026-08-28 变更**：原「同 Wi-Fi = 全功能、公网 = 监视模式」的鉴权模型已废除。
+> 命令通道统一为云端 MQTT，内外网权限一致；控制可用性只取决于机器状态。
+
+- `isLocalLANProvider`（`lib/state/providers.dart`）**只用于选择摄像头取流路径**：
+  - `true` → 摄像头走局域网 RTSP 直连（`cfg.resolvedCameraRtsp`）
+  - `false` → 走云中继 MJPEG（`_resolvedRelayUrl()`，摄像头持续推流 + 后端鉴权）
+- 判定方式：`ConsolePage` 每 10s / 启动 300ms / 切回前台，用 `DeviceDiscovery.discover()`
+  + `NetworkProbe.probe(host, 8899)` 探测控制器局域网可达性，结果写回该 provider（持久化）。
+- UI 层**不再展示**「远程 / 局域网」字样，也不再提供手动切换入口，避免向 B2C 用户暴露技术概念。
+- 运动安全由**固件侧**闭环：即使 App 在公网下发 Jog / 开切，固件仍按自身安全策略（门开关、
+  Feed Hold 15s 无心跳等）裁决是否执行。
 
 ---
 

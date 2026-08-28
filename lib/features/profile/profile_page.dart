@@ -139,7 +139,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
             _MenuItem(
               icon: Icons.sensors_outlined,
               title: '我的机器',
-              trailing: const Text('扫码绑定 · 远程看',
+              trailing: const Text('扫码绑定机器',
                   style: TextStyle(fontSize: 12, color: CncColors.primaryInk)),
               onTap: _goMachines,
             ),

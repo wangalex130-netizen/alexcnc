@@ -46,7 +46,7 @@ class Machine {
         boundAt: j['bound_at']?.toString() ?? j['createTime']?.toString(),
       );
 
-  /// 远程监视拉流地址：固定中继（AppConfig.cameraRelayBaseUrl）+ 机器码（sn 即摄像头 ID）。
+  /// 云中继拉流地址：固定中继（AppConfig.cameraRelayBaseUrl）+ 机器码（sn 即摄像头 ID）。
   /// 不再依赖后端逐机器存储的 relay_url/cam_device，避免后端填错导致硬转圈。
   /// [userId] 透传到中继的 `user=` 查询参数，供中继按账号做绑定鉴权（relay.py
   /// 的 REQUIRE_BINDING 开启后生效；缺省为空 = 兼容期 demo 放行）。

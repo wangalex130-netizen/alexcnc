@@ -29,7 +29,8 @@ import '../wizard/self_check_page.dart';
 ///
 /// 顶部视频监控 + 闪烁「实时监控」；快捷开关（机箱照明/红点激光/延时摄影）；
 /// 全局 DRO（Smart 3020 + 待机/加工中）；IDLE 时展开 Jog / 主轴 / ATC；
-/// 底部常驻 停止 / 暂停。远程监视模式（isLocalLAN=false）下主动控制自动锁死。
+/// 底部常驻 停止 / 暂停。主动控制（Jog / 主轴 / 刀仓）常驻展示，
+/// 是否可用只取决于机器状态（空闲可用，加工中禁用），与内外网无关。
 class ConsolePage extends ConsumerStatefulWidget {
   const ConsolePage({super.key});
 
@@ -61,7 +62,8 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   /// 再点才真正调用 start()。服务端只有 start/stop，故 arm 状态存本地。
   bool _tlArmed = false;
 
-  /// 网络自动探测周期器：每 10s 探测一次控制器 TCP 8899，写回 isLocalLANProvider。
+  /// 取流路径探测周期器：每 10s 探测一次控制器 TCP 8899，写回 isLocalLANProvider
+  /// （仅用于决定摄像头走局域网直连还是云中继，与控制权限无关）。
   Timer? _netTimer;
 
   /// 乐观 UI：暂停/继续按钮立即切换，等机器状态回传后校准。
@@ -82,7 +84,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     _broadcastSub =
         ref.read(hardwareServiceProvider).broadcastStream.listen(_onBroadcast);
 
-    // 自动探测网络模式（LAN = 完整控制 / WAN = 远程监视）。
+    // 自动探测摄像头取流路径（局域网直连 / 云中继），不再影响控制权限。
     WidgetsBinding.instance.addObserver(this);
     Future.delayed(const Duration(milliseconds: 300), _autoDetectNetwork);
     _netTimer = Timer.periodic(
@@ -122,14 +124,17 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   }
 
   /// TCP 探测控制器局域网可达性，结果写入 [isLocalLANProvider]。
-  /// 可达 → 直连（解锁控制）；不可达 → 远程监视（锁控制、走香港中继）。
   ///
-  /// 局域网可达性判定（需求：Jog 页在真实测试模式下局域网内可见）：
+  /// 终局方案（2026-08-28）后，该探测**只用于选择摄像头取流路径**，不再决定控制权限：
+  /// 可达 → 摄像头走局域网 RTSP 直连；不可达 → 走云中继 MJPEG。
+  /// 控制权限一律由机器状态决定（见 canControl）。
+  ///
+  /// 局域网可达性判定：
   /// 1) 先跑 [DeviceDiscovery.discover()] 自动发现真机 IP
   ///    （缓存 → UDP 信标 → mDNS → 兜底固定地址），拿到真机地址再探测，
   ///    避免配置的固定 IP（默认 192.168.1.50）写错导致误判不可达；
   /// 2) 再用 resolved 配置地址做兜底探测，兼容「配置固定 IP + DHCP 绑定」场景；
-  /// 3) 任一可达 → isLocal=true（解锁 Jog/主轴 等主动控制）。
+  /// 3) 任一可达 → isLocal=true（摄像头走局域网直连）。
   Future<void> _autoDetectNetwork() async {
     if (!mounted) return;
     final cfg = ref.read(runtimeConfigProvider);
@@ -168,7 +173,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     }
   }
 
-  /// 远程监视拉流地址（A3 解耦）：
+  /// 云中继拉流地址（A3 解耦）：
   /// 架构对齐——中继地址固定（AppConfig 北京），摄像头设备 ID = 机器码（sn）。
   /// 后端即使填错 relay_url/cam_device 也不会再导致硬转圈。
   String _resolvedRelayUrl(RuntimeConfig cfg) {
@@ -336,7 +341,10 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
     final idle = status.state == MachineState.idle;
     final busy = status.state == MachineState.busy;
-    final canControl = isLocal && idle;
+    // 终局方案（2026-08-28）：命令一律经云端 MQTT 下发，内外网权限已无区别，
+    // 主动控制只由机器状态决定 —— 空闲可动，加工中/报警/回零中等禁用。
+    // （历史：此前还要求 isLocalLAN 局域网直连才解锁，现已废除。）
+    final canControl = idle;
 
     // 乐观 UI：机器状态一旦发生任何变化，立即让本地覆盖让位给机器回传。
     if (_pausedLocal != null && _lastMachineState != null &&
@@ -372,6 +380,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 height: 220,
                 child: RtspPreviewWidget(
                   // 真实后端模式下须登录才允许拉流（杜绝「不登录也能看」）。
+                  // isLocal 现在只决定取流路径（局域网直连 / 云中继），与控制权限无关。
                   rtspUrl: (isLocal && (!realMode || loggedIn))
                       ? cfg.resolvedCameraRtsp
                       : null,
@@ -432,8 +441,10 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     ),
                   ),
                 ),
-              // LAN / WAN 状态：点击触发「重新探测」，避免后台/网络切换后状态过期。
-              // 自动探测也会在启动 300ms / 每 10s / 切回前台时跑，无需手动切。
+              // 右上角只保留延时摄影入口。
+              // 摄像头取流路径（局域网直连 / 云中继）由 isLocalLANProvider 自动探测决定，
+              // 探测在启动 300ms / 每 10s / 切回前台时跑；界面不再暴露「远程 / 局域网」概念，
+              // 因为终局方案下命令一律走云端 MQTT，内外网权限已无区别。
               Positioned(
                 top: 40,
                 right: 15,
@@ -469,40 +480,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    GestureDetector(
-                      onTap: () {
-                        _showHint('重新检测网络模式…');
-                        _autoDetectNetwork();
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.6),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: CncColors.border),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(isLocal ? Icons.wifi : Icons.cloud_outlined,
-                                size: 12, color: isLocal ? CncColors.primary : CncColors.warning),
-                            const SizedBox(width: 4),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                _statusDot(isLocal ? CncColors.primary : CncColors.warning),
-                                const SizedBox(width: 5),
-                                Text(isLocal ? '局域网直连' : '远程监视',
-                                    style: TextStyle(
-                                        fontSize: 10,
-                                        color: isLocal ? CncColors.primary : CncColors.warning,
-                                        fontWeight: FontWeight.bold)),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
                   ],
                 ),
               ),
@@ -512,7 +489,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
             ],
           ),
 
-          // ---- 链路连接状态（doc 25 需求：区分云端 MQTT / 局域网 TCP）----
+          // ---- 链路连接状态（doc 25 需求：直观显示当前机器与链路连通情况）----
           _ConnStatusChip(
             isCloud: hw.isCloudMode,
             mqttConnected: hw.isMqttConnected,
@@ -577,7 +554,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     ),
                   ),
 
-                // 掉线横幅：纯外网模式下 MQTT 断开 / 局域网 TCP 断开时提示
+                // 掉线横幅：云端 MQTT 断开时提示
                 if (status.state == MachineState.disconnected)
                   Container(
                     margin: const EdgeInsets.only(bottom: 12),
@@ -594,28 +571,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                         Expanded(
                           child: Text('与机器断开连接：命令与状态无法同步，请检查网络后重连。',
                               style: const TextStyle(fontSize: 11, color: CncColors.danger)),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                // 远程监视提示
-                if (!isLocal)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: CncColors.warning.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: CncColors.warning.withOpacity(0.4)),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.lock_outline, size: 14, color: CncColors.warning),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text('远程监视模式：主动移动/开切已锁定，仅可查看状态与软停止/暂停。',
-                              style: const TextStyle(fontSize: 11, color: CncColors.warning)),
                         ),
                       ],
                     ),
@@ -773,8 +728,8 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                 const SizedBox(height: 12),
 
-                // 主动控制区：局域网直连始终展示，加工中仅禁用不隐藏
-                if (isLocal) ...[
+                // 主动控制区：始终展示（终局方案内外网权限一致），加工中仅禁用不隐藏
+                ...[
                   const _SectionTitle('定位与回零'),
                   _JogCard(
                     enabled: canControl,
@@ -920,9 +875,9 @@ Widget _statusDot(Color color) => Container(
       decoration: BoxDecoration(color: color, shape: BoxShape.circle),
     );
 
-/// 链路连接状态条（doc 25 需求）：直观显示命令当前会走哪条通道、是否连通。
-/// - 云端模式：显示「云端 MQTT · 已连接/连接中/未连接」
-/// - 局域网模式：显示「局域网 TCP · 已连接/未连接」
+/// 链路连接状态条（doc 25 需求）：直观显示当前机器与链路是否连通。
+/// - 云端模式（终局方案下的常态）：显示「云端 MQTT · 已连接/连接中/未连接」
+/// - 设备直连（仅联调兜底）：显示「设备直连 · 已连接/未连接」
 /// 点击可触发一次手动重连；未连接时显示最近一次错误文本，便于诊断。
 class _ConnStatusChip extends ConsumerWidget {
   final bool isCloud;
@@ -960,10 +915,10 @@ class _ConnStatusChip extends ConsumerWidget {
     } else {
       if (tcpConnected) {
         color = CncColors.primary;
-        label = '局域网 TCP · 已连接';
+        label = '设备直连 · 已连接';
       } else {
         color = CncColors.danger;
-        label = '局域网 TCP · 未连接';
+        label = '设备直连 · 未连接';
       }
     }
     final showError = !mqttConnected && lastError != null && lastError.isNotEmpty;

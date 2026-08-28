@@ -73,7 +73,7 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
     if (device.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('该机器尚未配置摄像头，暂不能远程预览'),
+          content: const Text('该机器尚未配置摄像头，暂不能预览'),
           duration: Duration(seconds: 2),
         ),
       );
@@ -318,7 +318,7 @@ class _MachineCard extends StatelessWidget {
               IconButton(
                 icon: const Icon(Icons.videocam_outlined,
                     color: CncColors.textSub, size: 20),
-                tooltip: '远程预览',
+                tooltip: '实时预览',
                 onPressed: onPreview,
               ),
               const Icon(Icons.chevron_right,
