@@ -186,7 +186,7 @@ jobs:
 
             echo "=== flutter build apk --release ===" >> "$LOG"
 
-            flutter build apk --release --verbose --dart-define=USE_REAL_BACKEND=true >> "$LOG" 2>&1
+            flutter build apk --release --verbose >> "$LOG" 2>&1
 
             BUILD=$?
 
