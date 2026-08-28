@@ -1,206 +1,412 @@
 name: Build alexcnc (APK + IPA)
 
+
+
 on:
+
   push:
+
     branches: [main, master]
+
   workflow_dispatch:
 
+
+
 jobs:
+
   build:
+
     runs-on: ubuntu-latest
+
     permissions:
+
       contents: write
+
     steps:
+
       - uses: actions/checkout@v4
 
+
+
       - name: Setup Java (Zulu 17)
+
         uses: actions/setup-java@v4
+
         with:
+
           distribution: 'zulu'
+
           java-version: '17'
 
+
+
       - name: Setup Flutter (stable)
+
         uses: subosito/flutter-action@v2
+
         with:
+
           flutter-version: '3.29.0'
+
           channel: 'stable'
 
+
+
       # ------------------------------------------------------------------
+
       # android/ 只在「仓库里还没有」时生成一次，生成完会在最后一步提交回仓库。
+
       # 从此以后 AGP / Gradle / Kotlin / minSdk / 权限全部是仓库里的可见文件，
+
       # 不再每次现场生成 + sed 打补丁 —— 这是过去反复盲调的根源。
+
       # ------------------------------------------------------------------
+
       - name: Generate Android platform (first time only)
+
         run: |
+
           if [ -d android ]; then
+
             echo "android/ already committed - skip generation"
+
             exit 0
+
           fi
+
           echo "android/ missing - generating once"
+
           cp lib/main.dart /tmp/main.dart.bak
+
           cp pubspec.yaml /tmp/pubspec.yaml.bak
+
           flutter create --platforms=android --org com.alexcnc .
+
           cp /tmp/main.dart.bak lib/main.dart
+
           cp /tmp/pubspec.yaml.bak pubspec.yaml
+
           rm -rf test
 
+
+
           # libVLC (libvlc-all 3.6.4) 要求 minSdk >= 24
+
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/' android/app/build.gradle.kts
 
+
+
           MANIFEST=android/app/src/main/AndroidManifest.xml
+
           grep -q 'android.permission.INTERNET' "$MANIFEST" || \
+
             sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' "$MANIFEST"
+
           grep -q 'CHANGE_WIFI_MULTICAST_STATE' "$MANIFEST" || \
+
             sed -i 's#<application#<uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>\n    <application#' "$MANIFEST"
+
           grep -q 'ACCESS_WIFI_STATE' "$MANIFEST" || \
+
             sed -i 's#<application#<uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>\n    <application#' "$MANIFEST"
+
           grep -q 'ACCESS_NETWORK_STATE' "$MANIFEST" || \
+
             sed -i 's#<application#<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>\n    <application#' "$MANIFEST"
+
           grep -q 'usesCleartextTraffic' "$MANIFEST" || \
+
             sed -i 's#<application#<application android:usesCleartextTraffic="true"#' "$MANIFEST"
 
+
+
       # ------------------------------------------------------------------
+
       # 关键：这一步永远返回 0，把 pub get / analyze / build 的完整输出写进
+
       # ci-log.txt。真正的成败通过 step output 传给后面的 "Fail if build failed"。
+
       # 这样即使构建挂了，下一步的「日志写回仓库」也一定会执行。
+
       # ------------------------------------------------------------------
+
       - name: Build APK (capture full log)
+
         id: build
+
         run: |
+
           set +e
+
           LOG=/tmp/ci.log
+
           : > "$LOG"
 
+
+
           echo "=== flutter --version ===" >> "$LOG"
+
           flutter --version >> "$LOG" 2>&1
 
+
+
           echo "" >> "$LOG"
+
           echo "=== tree: packages/ ===" >> "$LOG"
+
           find packages -type f | sort >> "$LOG" 2>&1
 
+
+
           echo "" >> "$LOG"
+
           echo "=== flutter pub get ===" >> "$LOG"
+
           flutter pub get >> "$LOG" 2>&1
+
           PUB=$?
+
           echo "### pub get exit=$PUB" >> "$LOG"
 
+
+
           BUILD=99
+
           if [ "$PUB" -eq 0 ]; then
+
             echo "" >> "$LOG"
+
             echo "=== .flutter-plugins-dependencies ===" >> "$LOG"
+
             cat .flutter-plugins-dependencies >> "$LOG" 2>&1
 
+
+
             echo "" >> "$LOG"
+
             echo "=== flutter build apk --release ===" >> "$LOG"
-            flutter build apk --release --verbose >> "$LOG" 2>&1
+
+            flutter build apk --release --verbose --dart-define=USE_REAL_BACKEND=true >> "$LOG" 2>&1
+
             BUILD=$?
+
           fi
+
           echo "### build exit=$BUILD" >> "$LOG"
 
+
+
           # 只保留尾部 200KB，避免超出 GitHub 单文件展示限制
+
           tail -c 200000 "$LOG" > ci-log.txt
+
           echo "code=$BUILD" >> "$GITHUB_OUTPUT"
+
           echo "----- last 60 lines -----"
+
           tail -n 60 "$LOG"
+
           exit 0
 
+
+
       # ------------------------------------------------------------------
+
       # 把「生成好的 android/ 工程」和「完整构建日志」提交回仓库。
+
       # [skip ci] 防止触发新一轮构建造成死循环。
+
       # ------------------------------------------------------------------
+
       - name: Freeze android/ + publish build log back to repo
+
         if: always()
+
         run: |
+
           git config user.name "alexcnc-ci"
+
           git config user.email "ci@alexcnc.local"
+
           git add ci-log.txt
+
           if [ -d android ]; then git add android; fi
+
           if git diff --cached --quiet; then
+
             echo "nothing to commit"
+
           else
+
             git commit -m "chore(ci): freeze android project + publish build log [skip ci]"
+
             git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
+
             git push origin "HEAD:${GITHUB_REF_NAME}"
+
           fi
 
+
+
       - name: Upload APK artifact
+
         if: steps.build.outputs.code == '0'
+
         uses: actions/upload-artifact@v4
+
         with:
+
           name: alexcnc-app
+
           path: build/app/outputs/flutter-apk/app-release.apk
 
+
+
       - name: Publish APK release
+
         if: steps.build.outputs.code == '0'
+
         run: |
+
           gh release create "apk-${{ github.sha }}" \
+
             build/app/outputs/flutter-apk/app-release.apk \
+
             --title "Smart CNC Pro APK" \
+
             --notes "Automated build from ${{ github.sha }}"
+
         env:
+
           GH_TOKEN: ${{ github.token }}
 
+
+
       - name: Fail if build failed
+
         if: steps.build.outputs.code != '0'
+
         run: |
+
           echo "Build failed (exit ${{ steps.build.outputs.code }})."
+
           echo "Full log committed to ci-log.txt on ${GITHUB_REF_NAME}."
+
           exit 1
 
+
+
   # iOS 构建暂时关闭（省 GitHub Actions 分钟数；macOS runner 按 10 倍扣额）。
+
   # 需要时去掉下面的注释即可恢复。
+
   # build-ios:
+
   #   runs-on: macos-latest
+
   #   continue-on-error: true
+
   #   permissions:
+
   #     contents: read
+
   #   steps:
+
   #     - uses: actions/checkout@v4
+
   #
+
   #     - name: Setup Flutter (stable)
+
   #       uses: subosito/flutter-action@v2
+
   #       with:
+
   #         flutter-version: '3.29.0'
+
   #         channel: 'stable'
+
   #
+
   #     - name: Backup custom entry files
+
   #       run: |
+
   #         cp lib/main.dart /tmp/main.dart.bak
+
   #         cp pubspec.yaml /tmp/pubspec.yaml.bak
+
   #
+
   #     - name: Generate iOS platform
+
   #       run: flutter create --platforms=ios --org com.alexcnc .
+
   #
+
   #     - name: Restore custom entry files
+
   #       run: |
+
   #         cp /tmp/main.dart.bak lib/main.dart
+
   #         cp /tmp/pubspec.yaml.bak pubspec.yaml
+
   #
+
   #     - name: Inject iOS network permissions (Info.plist)
+
   #       run: |
+
   #         PLIST=ios/Runner/Info.plist
+
   #         /usr/libexec/PlistBuddy -c "Add :NSLocalNetworkUsageDescription string '用于发现并连接局域网内的 CNC 雕刻机与摄像头'" "$PLIST"
+
   #         /usr/libexec/PlistBuddy -c "Add :NSBonjourServices array" "$PLIST"
+
   #         /usr/libexec/PlistBuddy -c "Add :NSBonjourServices:0 string _alexcnc._tcp" "$PLIST"
+
   #         /usr/libexec/PlistBuddy -c "Add :NSBonjourServices:1 string _http._tcp" "$PLIST"
+
   #         /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$PLIST"
+
   #         /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" "$PLIST"
+
   #
+
   #     - name: Install dependencies
+
   #       run: flutter pub get
+
   #
+
   #     - name: Build iOS (no codesign)
+
   #       run: flutter build ios --release --no-codesign
+
   #
+
   #     - name: Package unsigned IPA
+
   #       run: |
+
   #         cd build/ios/iphoneos
+
   #         mkdir -p Payload
+
   #         cp -r Runner.app Payload/
+
   #         zip -qry alexcnc-ios-unsigned.ipa Payload
+
   #
+
   #     - name: Upload IPA artifact
+
   #       uses: actions/upload-artifact@v4
+
   #       with:
+
   #         name: alexcnc-ios-unsigned
+
   #         path: build/ios/iphoneos/alexcnc-ios-unsigned.ipa
+
