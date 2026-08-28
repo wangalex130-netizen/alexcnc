@@ -72,10 +72,15 @@ Query 参数：
 **生产要加（mirror 第 29 行 cam 正则，贴到 `deny, all.` 之前）：**
 
 ```erlang
-%%% App 客户端（clientId=app-<userId>，生产/联调通用）
-{allow, {username, {re, "^app-[a-z0-9-]+$"}}, publish, ["cnc/+/cmd", "gw/+/cmd"]}.
-{allow, {username, {re, "^app-[a-z0-9-]+$"}}, subscribe, ["cnc/+/status", "cnc/+/notify", "cnc/+/telemetry", "cnc/+/log", "cnc/+/job", "cnc/+/sys", "cnc/broadcast/#", "gw/+/ack"]}.
+%%% App 客户端（终局方案 2026-08-28：clientId=android-<deviceId>，命令直发 cnc/+/cmd）
+{allow, {username, {re, "^app-[a-z0-9-]+$"}}, publish, ["cnc/+/cmd"]}.
+{allow, {username, {re, "^app-[a-z0-9-]+$"}}, subscribe, ["cnc/+/status", "cnc/+/notify", "cnc/+/telemetry", "cnc/+/log", "cnc/+/job", "cnc/+/sys", "cnc/broadcast/#"]}.
 ```
+
+> **2026-08-28 变更说明**：`gw/+/cmd` 与 `gw/+/ack` 已从规则中移除（网关转发废弃），
+> 心跳 `{"cmd":"hello"}` 现经 `cnc/+/cmd` 下发，故该主题必须允许 App PUBLISH。
+> ACL 主体仍按 `username` 正则，不依赖 `${clientid}`，因此带前缀的
+> `android-<deviceId>` 不会导致匹配失败。
 
 > ⚠️ 跨租户风险：`cnc/+/cmd` 通配允许任意 app 用户给**任意设备**发 cmd（含非法开启他人摄像头）。
 > demo 无所谓；**量产须改为按绑定关系下发的 ACL**（EMQX HTTP authz webhook 接 037123 `/api/auth/stream` 同一套绑定），否则不能封板。

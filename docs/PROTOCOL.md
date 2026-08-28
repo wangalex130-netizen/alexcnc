@@ -58,15 +58,31 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 
 #### 🔵 第二步（外网，已实现）：云端 MQTT Broker 中继
 
+> **2026-08-28 终局方案变更**（PC / 云端 / 固件三方确认，替代原 R2 网关转发）：
+> - **不再区分内网 / 外网权限**，命令与状态**全部走外网 MQTT Broker**；
+> - ClientId 约定：App = `android-<deviceId>`，屏幕 = `screen-<deviceId>`，
+>   摄像头 = `cam-<deviceId>`，云网关 = `bridge-aliyun-api`（`driver-*` 身份不存在）；
+> - **命令直发** `cnc/<deviceId>/cmd`，原 `gw/<deviceId>/cmd` 网关转发、
+>   `wan_whitelist` 白名单与 `gw/<deviceId>/ack` 回执主题**全部废弃**；
+> - ACL 按 `username + cnc/#` 通配授权，不依赖 `${clientid}` 模板，
+>   故带前缀的 ClientId 不会导致 ACL 失配。
+
 - 主链路切换为**云端 MQTT Broker**（出厂即用、WAN 远程天然打通）：
   - 状态订阅：`cnc/<deviceId>/status`
-  - 命令下发：`gw/<deviceId>/cmd`（**经网关白名单转发固件**，R2；非直发 `cnc/<deviceId>/cmd`）
+  - 命令下发：`cnc/<deviceId>/cmd`（App 直接发布，固件订阅）
   - 事件通知：`cnc/<deviceId>/notify`（job_done / alarm / confirm_required 等）
   - 遥测订阅：`cnc/<deviceId>/telemetry`（温度/转速/进给/坐标，QoS0 高频）
-  - 网关回执：`gw/<deviceId>/ack`（白名单外命令回 E401，App 弹红色通知）
+  - 作业明细：`cnc/<deviceId>/job`、系统帧：`cnc/<deviceId>/sys`（V1.1，QoS1 + retain）
+  - 心跳保活：`cnc/<deviceId>/cmd` 上周期发 `{"cmd":"hello"}`（10s 一次，
+    用于重置机器主控 15s Feed Hold 定时器；原走局域网 TCP，现已改为 MQTT）
   - 生产端口：**8883 TLS** + 关匿名 + 私有 Broker 域名；**1883 仅本地联调**。
-- ESP32 新增 **MQTT Client** 连同一 Broker；TCP:8899 局域网增强保留（同 Wi-Fi 时运动命令直发降抖动）。
-- App 侧把 `RealHardwareService(cloudEnabled: true)` 即可启用，**命令/状态帧无需改动**；命令统一经 `_dispatch` 路由：**云端模式（cloudEnabled）一律走 `gw/` MQTT 网关，不再自动连局域网 TCP**（避免命令被 TCP 吃掉、云端收不到，见 doc 25 诊断）；局域网模式（cloudEnabled=false）经 TCP:8899 直连。两种模式下 UI 顶部均有「链路连接状态」指示当前走哪条通道。
+- ESP32 侧 MQTT Client 连同一 Broker；TCP:8899 局域网增强代码保留但**暂不启用**
+  （"暂时停止内外网区分"），后续恢复低延迟本地控制只需在 `_dispatch` 加回分支。
+- App 侧 `RealHardwareService(cloudEnabled: true)` 启用，**命令/状态帧无需改动**；
+  命令统一经 `_dispatch` 路由发布到 `cnc/<deviceId>/cmd`。
+- **摄像头共用同一命令主题**：`cnc/<deviceId>/cmd`，靠 payload 区分——
+  机器帧为 `{"cmd": ...}`，摄像头帧为 `{"action": "stream_start"/"stream_stop"}`。
+  机器码与摄像头码统一后，两端都会收到彼此的帧，**双方固件都必须按 payload 过滤**。
 
 #### 公共要求（两步都适用）
 
@@ -154,8 +170,15 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 
 ### 2.5 MQTT 外网通道（第二步，**已实现，主外网链路**）
 
-> 2026-08-15 落地：外网命令经**网关白名单** `gw/<deviceId>/cmd` 转发固件（R2），
-> 状态/事件仍由固件直发 `cnc/<deviceId>/*`；App 在线态经 LWT 声明。第一步请用 §2.1「TCP:8899 直连」实现。
+> 2026-08-15 落地：外网命令经**网关白名单** `gw/<deviceId>/cmd` 转发固件（R2）。
+>
+> **⚠️ 2026-08-28 终局方案已变更（上述 R2 网关转发废弃）**：
+> - 命令改为 **App 直发 `cnc/<deviceId>/cmd`**，`gw/<deviceId>/cmd` 与
+>   `gw/<deviceId>/ack` 主题、`wan_whitelist` 白名单**全部废弃**；
+> - App ClientId 由 `app-<userId>-<后缀>` 改为 **`android-<deviceId>`**；
+> - 心跳 `{"cmd":"hello"}` 由局域网 TCP 改为经同一 MQTT 命令主题下发（10s）。
+>
+> 状态/事件仍由固件直发 `cnc/<deviceId>/*`；App 在线态经 LWT 声明。
 
 **主题清单（App 视角，username = app-demo 经 ACL 授权）：**
 
@@ -166,17 +189,19 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 | 订阅 | `cnc/<deviceId>/telemetry` | 遥测帧（温度/转速/进给/坐标，QoS0 高频，R13） |
 | 订阅 | `cnc/broadcast/msg` | 系统级业务广播（docs/03 §6：`{level,title,body,target}`，维护通知/警告/紧急） |
 | 订阅 | `cnc/broadcast/system` | 系统级事件广播（docs/03 §7：`{event,deviceId,ts}`，如 `device_offline`） |
-| 订阅 | `gw/<deviceId>/ack` | 网关命令回执；白名单外命令回 `{"ok":false,"code":"E401"}` |
-| 发布 | `gw/<deviceId>/cmd` | 命令经网关白名单转发固件（R2）；**仅云端模式（cloudEnabled）使用**，局域网模式走 TCP:8899 直连、不发布此主题 |
+| 发布 | `cnc/<deviceId>/cmd` | **命令直发**（终局方案）；机器帧 `{"cmd":...}`、摄像头帧 `{"action":...}`、心跳 `{"cmd":"hello"}` |
 | 发布 | `cnc/<deviceId>/app` | App 在线态：连接时发 `{"online":true}` retain；异常断线 Broker 代发 LWT `{"online":false}` retain |
 | 订阅 | `cnc/<deviceId>/job` | 作业明细帧（V1.1 §10.5：file/line/total/percent/phase，QoS1+retain，App 仅订阅） |
 | 订阅 | `cnc/<deviceId>/sys` | 系统帧（V1.1 §10.6：id/model/fw/ip/bootAt，上电一次，QoS1+retain，App 仅订阅） |
 
 - **V1.1 §10.7 notify 扩展**：`notify` 帧新增可选字段 `code`(String 业务码) / `data`(Map 附加数据) / `ts`(int 事件时间戳)；`type` 扩展 `knife`/`inspect`/`sound`/`led`/`cmd_ack`/`unknown`。App 先行解析 `alarm`/`door` 类，其余类型预留后续阶段。
 - 生产端口：**8883 TLS**；本地联调可用 **1883**。
-- 命令帧 `gw/<deviceId>/cmd` 格式与 §2.2 完全一致（含 `gcodeUrl` 下载链接，**MQTT 不传文件本体**）。
-- 网关对 `gw/<deviceId>/cmd` 按设备白名单放行（aux/pause 等安全命令）或拒绝（jog/hello 等运动类回 E401），拒绝时 App 弹红色通知。
-- `hello` 心跳**仅走局域网 TCP**（不进 `gw/`，否则被 E401 拒绝并刷错误日志；外网靠 MQTT keepAlive 保活）。
+- 命令帧 `cnc/<deviceId>/cmd` 格式与 §2.2 完全一致（含 `gcodeUrl` 下载链接，**MQTT 不传文件本体**）。
+- **终局方案废弃网关白名单**：不再按内外网区分放行/拒绝，jog/hello 等命令与其余命令一样
+  直接发布到 `cnc/<deviceId>/cmd`，ACL 按 username 授权，不存在 E401 拒绝。
+- `hello` 心跳**经 MQTT 命令主题下发**（10s 一次），不再依赖局域网 TCP；
+  原「hello 不在网关白名单内、经 gw 下发会被 E401 拒绝」的问题随网关废弃一并消失。
+  目的：重置机器主控 15s Feed Hold 定时器，避免用户长时间只监看不操作时加工被误暂停。
 
 ### 2.6 设备唯一码与注册（D5/D7，机器始终在线模型）
 

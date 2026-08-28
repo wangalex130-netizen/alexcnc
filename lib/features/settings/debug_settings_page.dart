@@ -193,7 +193,7 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
           _Field(label: 'MQTT 密码', hint: '（留空=匿名）', c: _mqttPass, obscure: true),
           _Field(label: '设备局域网 TCP 主机', hint: '192.168.1.50', c: _tcpHost),
           _Field(label: '设备 ID', hint: 'alexcnc-001', c: _deviceId),
-          _Field(label: 'App 用户 ID（MQTT clientId = app-<此值>）', hint: 'local', c: _appUserId),
+          _Field(label: 'App 用户 ID（摄像头拉流 user 鉴权参数）', hint: 'local', c: _appUserId),
           // 摄像头地址：留空=自动发现；也可一键填入已知摄像头。
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,

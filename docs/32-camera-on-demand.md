@@ -26,7 +26,11 @@ App(HTTP 拉) ◀── MJPEG ── 中继 /stream/<device>?token=<token>
 App(退预览) ──MQTT─▶ cnc/<deviceId>/cmd  {"action":"stream_stop"} ─▶ 固件停推
 ```
 
-- 摄像头订阅主题：`cnc/<deviceId>/cmd`（**非**机器控制 `gw/<id>/cmd`，两者分流）。
+- 摄像头订阅主题：`cnc/<deviceId>/cmd`。
+  - **2026-08-28 终局方案**：机器控制命令也改走同一主题（原 `gw/<id>/cmd` 已废弃），
+    两者**不再分流**，靠 payload 区分：机器帧 `{"cmd":...}`、摄像头帧 `{"action":...}`、
+    心跳 `{"cmd":"hello"}`。机器码与摄像头码统一后，两端都会收到彼此的帧，
+    **摄像头固件必须忽略 payload 中非 `stream_start`/`stream_stop` 的帧**。
 - 客户端 ID：`cam-<deviceId>`，broker 密码 `demo123`（联调期，上线换正式）。
 - 命令：`{"action":"stream_start"}` / `{"action":"stream_stop"}`（firmware 子串匹配，容错）。
 - 额外命令（固件已支持，待 App 暴露 UI）：`set_quality`(4–40)、`set_framesize`(qvga/qqvga…)。
@@ -57,7 +61,9 @@ App(退预览) ──MQTT─▶ cnc/<deviceId>/cmd  {"action":"stream_stop"} ─
    - 按 `账号 → 设备` 做 ACL：未绑定/未登录拒绝 `/stream/<device>` 与 `/publish/<device>`。
    - 多观众引用计数：最后一个观众退预览才真正停推（避免一人退出掐掉他人画面）。
 3. **EMQX broker（HK）**
-   - 放行 App 客户端（`app-<userId>`）对 `cnc/<deviceId>/cmd` 的 **PUBLISH**（当前 ACL 仅放行 `gw/<id>/cmd`、`cnc/<id>/{job,sys,app,notify,status}`，需补 `cmd`）。
+   - 放行 App 客户端（`android-<deviceId>`）对 `cnc/<deviceId>/cmd` 的 **PUBLISH**。
+   - ✅ **2026-08-28 已完成**：ACL 改为按 `username + cnc/#` 通配授权，
+     `gw/#` 与 `wan_whitelist` 已废弃，App 可直接发布 `cnc/<deviceId>/cmd`。
 4. **固件（可选增强）**
    - 摄像头在 `stream_start`/`stream_stop` 时发布自身 `online/streaming` 状态到 `cnc/<deviceId>/status`，App 直接订阅真实状态（当前 App 用「首帧到达/超时」反推，已可用）。
 

@@ -25,7 +25,6 @@ import '../services/message_store.dart';
 import '../services/network_auth.dart';
 import '../services/push_service.dart';
 import '../services/local_notify_service.dart';
-import 'auth_provider.dart';
 
 /// 当前选中的绑定机器（A3 拉流解耦：relay/cam 由后端返回，不写死）。
 /// 登录/绑定/我的机器页选择后写入；null = 未选（回退 runtime_config 调试地址）。
@@ -78,10 +77,8 @@ final hardwareServiceProvider = Provider<HardwareService>((ref) {
   final deviceId = currentMachine?.sn.isNotEmpty == true
       ? currentMachine!.sn
       : cfg.resolvedDeviceId;
-  // A1：登录后 MQTT clientId 用真实 userId（app-<userId>-<唯一后缀>）；
-  // 未登录用运行时配置/默认 'demo' 兜底，保证未登录也能跑本地调试。
-  final auth = ref.watch(authProvider);
-  final appUserId = auth.isLoggedIn ? auth.userId! : cfg.resolvedAppUserId;
+  // 终局方案（2026-08-28）：MQTT clientId 固定为 android-<deviceId>（设备维度），
+  // 不再依赖登录 userId，故本 provider 不再需要 watch authProvider。
   final HardwareService svc;
   if (cfg.resolvedUseRealBackend) {
     final r = RealHardwareService(
@@ -92,8 +89,7 @@ final hardwareServiceProvider = Provider<HardwareService>((ref) {
       deviceId: deviceId,
       tcpHost: cfg.resolvedDeviceTcpHost,
       tcpPort: cfg.resolvedDeviceTcpPort,
-      appUserId: appUserId,
-      cloudEnabled: true, // 启用云端 MQTT（否则 App 不连 broker，只走局域网）
+      cloudEnabled: true, // 终局方案：命令全部走外网 MQTT，不再区分内外网
     );
     r.connect(); // P0 根因：缺失 connect()，MQTT/TCP 从未建立，外网命令与状态订阅全部失效
     svc = r;

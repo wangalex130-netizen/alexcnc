@@ -77,11 +77,12 @@ abstract class HardwareService {
 
   // --- Camera on-demand streaming (see docs/03 §camera-on-demand) ---
   /// 摄像头按需推流控制：点播放发 `stream_start`，退出预览发 `stream_stop`。
-  /// 摄像头固件订阅 `cnc/<deviceId>/cmd`（见 cam_mqtt.c），与机器控制 `gw/<id>/cmd` 分流。
+  /// 摄像头固件订阅 `cnc/<deviceId>/cmd`（见 cam_mqtt.c）。
+  /// 终局方案下机器控制命令也走同一主题，靠 payload 区分（机器 `cmd` / 摄像头 `action`）。
   /// [deviceId] 省略时取当前实例 deviceId（= 机器码 = 摄像头 ID）。
   void sendCameraStream(String action, {String? deviceId});
 
-  /// 当前是否为云端模式（命令走 MQTT 网关，不自动连局域网 TCP）。
+  /// 当前是否为云端模式（终局方案：命令走外网 MQTT，不自动连局域网 TCP）。
   bool get isCloudMode;
 
   /// 云端 MQTT 是否已连接（仅云端模式有意义）。

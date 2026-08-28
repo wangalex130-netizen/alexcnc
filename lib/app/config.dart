@@ -95,9 +95,9 @@ class AppConfig {
   static const String deviceId =
       String.fromEnvironment('DEVICE_ID', defaultValue: 'cnc-demo-01');
 
-  // ---- App 用户标识（MQTT clientId = app-<userId>，契约 auth.client_id_pattern）----
-  // 注意：这里存的是「裸 userId」（默认 demo），clientId 由 RealHardwareService 拼成
-  // app-<userId>。之前默认写 'app-demo' 会导致 clientId 变成 'app-app-demo'（双前缀，R12）。
+  // ---- App 用户标识（不再参与 MQTT clientId 派生）----
+  // 终局方案（2026-08-28）：MQTT clientId 固定为 android-<deviceId>，与 userId 无关。
+  // 本值现仅用于摄像头中继拉流的 `user=` 鉴权参数（relay.py 按账号做绑定鉴权）。
   static const String appUserId =
       String.fromEnvironment('APP_USER_ID', defaultValue: 'demo');
 
@@ -124,6 +124,7 @@ class AppConfig {
   /// MQTT 状态广播主题：cnc/<deviceId>/status
   static String get mqttStatusTopic => 'cnc/$deviceId/status';
 
-  /// MQTT 命令下发主题：gw/<deviceId>/cmd（经网关白名单转发固件；与实例级一致）
-  static String get mqttCmdTopic => 'gw/$deviceId/cmd';
+  /// MQTT 命令下发主题：cnc/<deviceId>/cmd
+  /// 终局方案（2026-08-28）：App 直接发布，原网关 gw/<deviceId>/cmd 已废弃。
+  static String get mqttCmdTopic => 'cnc/$deviceId/cmd';
 }

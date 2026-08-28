@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
@@ -18,27 +17,18 @@ import '../models/tool.dart';
 import 'device_discovery.dart';
 import 'hardware_service.dart';
 
-/// 生成短随机后缀，使每个 App 实例的 MQTT clientId 唯一，避免多端共用账号时撞车。
-String _genClientSuffix() {
-  final r = Random();
-  final t = DateTime.now().microsecondsSinceEpoch;
-  final a = (t & 0xFFFFFF).toRadixString(16).padLeft(6, '0');
-  final b = r.nextInt(0xFFFF).toRadixString(16).padLeft(4, '0');
-  return '$a$b';
-}
-
 /// 真实硬件实现。
 ///
-/// **第一步（局域网，默认）**：以 [tcpHost]:[tcpPort]（默认 8899）为**唯一控制 +
-/// 状态通道**，App 直连机器（ESP32 TCP Server）。详见 `docs/PROTOCOL.md` Step1。
+/// **2026-08-28 终局方案**（PC / 云端 / 固件三方确认，替代原 R2 网关转发）：
+///  - 不再区分内网 / 外网权限，命令与状态**全部走外网 MQTT Broker**；
+///  - ClientId = `android-<deviceId>`（设备维度，不再按账号维度、也不再加随机后缀）；
+///  - 命令发布到 `cnc/<deviceId>/cmd`；原 `gw/<deviceId>/cmd` 网关转发、
+///    `wan_whitelist` 白名单与 `gw/<deviceId>/ack` 回执主题均已废弃；
+///  - 心跳 `{"cmd":"hello"}` 由原局域网 TCP 改为经同一 MQTT 命令主题下发，
+///    用于重置机器主控的 15s Feed Hold 定时器。
 ///
-/// **第二步（外网，[cloudEnabled]=true 时启用）**：额外连接云端 MQTT Broker，状态/
-/// 事件订阅 cnc/<deviceId>/status、cnc/<deviceId>/notify；命令经网关白名单转发
-/// gw/<deviceId>/cmd（R2），网关回执订阅 gw/<deviceId>/ack。帧格式与 TCP 完全一致，
-/// 仅传输层不同。
-///
-/// 两条链路汇入同一 [statusStream]，App 其余代码无需区分来源。离线/未连时静默
-/// 不报错，UI 仅显示为 disconnected。连接态以 TCP 为准（第一步唯一通道）。
+/// 状态 / 事件订阅 `cnc/<deviceId>/status`、`notify`、`telemetry`、`job`、`sys`
+/// 与 `cnc/broadcast/#`。离线 / 未连时静默不报错，UI 仅显示为 disconnected。
 class RealHardwareService implements HardwareService {
   final String broker;
   final int mqttPort;
@@ -48,12 +38,9 @@ class RealHardwareService implements HardwareService {
   final int tcpPort;
   /// 第二步外网开关；第一步（LAN）保持 false，MQTT 链路不启用。
   final bool cloudEnabled;
-  /// App 登录身份（契约 auth.client_id_pattern = app-<userId>），用于派生 MQTT clientId。
-  /// 注意：最终 clientId 为 app-<userId>-<唯一后缀>（见 _mqttClientId），避免多端共用
-  /// 同一账号（如隔壁车道的监视器/网关也用 app-demo）时 clientId 撞车 → broker 互相踢
-  /// 下线、出现 online/offline 每 2~3 秒反复跳的抖动（doc 25 问题 B）。ACL 按用户名
-  /// app-demo 鉴权，clientId 加后缀不影响权限。
-  final String appUserId;
+  // 说明：App 登录身份（userId）已不再参与 MQTT ClientId 派生 —— 终局方案固定为
+  // `android-<deviceId>`。userId 现仅用于摄像头中继拉流的 `user=` 鉴权参数，
+  // 由 RuntimeConfig.resolvedAppUserId 提供，本服务不再持有该字段。
 
   /// 局域网 TCP 主机（可变：未手动配置时由 UDP beacon 自动发现覆盖）。
   String _tcpHost;
@@ -86,8 +73,12 @@ class RealHardwareService implements HardwareService {
   int _reconnectAttempts = 0;
   bool _closing = false;
 
-  /// 本实例专属的 MQTT clientId（app-<userId>-<唯一后缀>）。每次 App 启动生成一个，
-  /// 同一运行期内所有重连复用，跨启动/跨设备不同 → 不再与共享账号的其他客户端撞车。
+  /// MQTT clientId：终局方案固定为 `android-<deviceId>`（设备维度，无随机后缀）。
+  /// 与屏幕 `screen-<deviceId>`、摄像头 `cam-<deviceId>`、云网关 `bridge-aliyun-api`
+  /// 互不相同，故多端可同时连同一 Broker 而不互踢。
+  ///
+  /// **已知限制**：同一台机器被多台手机同时连接时会因 ClientId 重复而互踢。
+  /// 工程师确认"暂不考虑此场景"；量产前若需支持，需重新约定命名规则（如补随机后缀）。
   final String _mqttClientId;
 
   final Map<String, bool> _aux = {
@@ -106,22 +97,22 @@ class RealHardwareService implements HardwareService {
     String tcpHost = AppConfig.deviceTcpHost,
     this.tcpPort = AppConfig.deviceTcpPort,
     this.cloudEnabled = false,
-    this.appUserId = AppConfig.appUserId,
   })  : _tcpHost = tcpHost,
-        _mqttClientId = 'app-$appUserId-${_genClientSuffix()}';
+        _mqttClientId = 'android-$deviceId';
 
   /// MQTT 状态广播主题：cnc/<deviceId>/status（按实例 deviceId 推导，App 订阅）
   String get mqttStatusTopic => 'cnc/$deviceId/status';
 
-  /// MQTT 命令下发主题：gw/<deviceId>/cmd（经网关白名单转发固件；ACL 已放行 app-demo 发布）
-  String get mqttCmdTopic => 'gw/$deviceId/cmd';
+  /// MQTT 命令下发主题：cnc/<deviceId>/cmd
+  /// 终局方案：App 直接发布，固件（屏幕 / 主控）订阅该主题；
+  /// 原 `gw/<deviceId>/cmd` 网关转发与 wan_whitelist 白名单已废弃。
+  String get mqttCmdTopic => 'cnc/$deviceId/cmd';
 
-  /// 摄像头命令主题：cnc/<deviceId>/cmd（摄像头固件订阅，见 cam_mqtt.c；
-  /// 与机器控制 gw/<id>/cmd 分流）。按需推流经此下发 stream_start/stream_stop。
+  /// 摄像头命令主题：cnc/<deviceId>/cmd（摄像头固件订阅，见 cam_mqtt.c）。
+  /// 终局方案下与机器控制命令**同一个主题**，靠 payload 区分：
+  /// 机器帧为 {'cmd': ...}，摄像头帧为 {'action': 'stream_start'/'stream_stop'}。
+  /// 按需推流经此下发 stream_start/stream_stop。
   String mqttCamCmdTopic(String id) => 'cnc/$id/cmd';
-
-  /// 网关 ACK 回执主题：gw/<deviceId>/ack（App 订阅，网关对命令的回执）
-  String get mqttAckTopic => 'gw/$deviceId/ack';
 
   /// App 在线状态主题（LWT + 上线发布，retain）：cnc/<deviceId>/app
   String get mqttAppTopic => 'cnc/$deviceId/app';
@@ -203,9 +194,8 @@ class RealHardwareService implements HardwareService {
   @override
   Future<void> connect() async {
     if (cloudEnabled) {
-      // 第二步外网：仅连云端 MQTT 主链路，不再自动连局域网 TCP。
-      // 避免命令被 TCP 通道"吃掉"而云端网关收不到（doc 25 诊断结论）。
-      // 命令一律经网关 gw/<deviceId>/cmd 下发。
+      // 终局方案：统一走外网 MQTT 主链路，不再自动连局域网 TCP。
+      // 命令一律发布到 cnc/<deviceId>/cmd（原网关 gw/<deviceId>/cmd 已废弃）。
       await _connectMqtt();
       return;
     }
@@ -227,9 +217,8 @@ class RealHardwareService implements HardwareService {
     _setConn(LinkState.connecting);
     try {
       // 每次重连都新建 client，避免复用已断开实例的脏状态。
-      // clientId 用本实例专属的 _mqttClientId（app-<userId>-<唯一后缀>），既保留账号维度
-      // 便于 Broker ACL 鉴权，又避免多端共用 app-demo 账号时 clientId 撞车被 broker 互相踢
-      // （doc 25 问题 B：online/offline 每 2~3 秒反复跳的抖动根因）。
+      // clientId 用终局方案约定的 android-<deviceId>（设备维度），与屏幕 screen-<deviceId>、
+      // 摄像头 cam-<deviceId>、云网关 bridge-aliyun-api 互不相同，多端不会互踢。
       final client = MqttServerClient(broker, _mqttClientId);
       client.port = mqttPort;
       client.secure = true;                          // 启用 TLS（8883）
@@ -262,7 +251,6 @@ class RealHardwareService implements HardwareService {
         client.subscribe(mqttStatusTopic, MqttQos.atLeastOnce);
         client.subscribe(mqttNotifyTopic, MqttQos.atLeastOnce);
         client.subscribe(mqttTelemetryTopic, MqttQos.atMostOnce); // 遥测高频，QoS0
-        client.subscribe(mqttAckTopic, MqttQos.atLeastOnce); // 网关命令回执
         // docs/03 §6/§7 系统级广播（全局主题，任意设备发起的事件/消息）
         client.subscribe(mqttBroadcastTopic, MqttQos.atLeastOnce);
         client.subscribe(mqttSystemTopic, MqttQos.atLeastOnce);
@@ -347,11 +335,6 @@ class RealHardwareService implements HardwareService {
       if (msg is! MqttPublishMessage) continue;
       final payload =
           MqttPublishPayload.bytesToStringAsString(msg.payload.message);
-      // 网关 ACK 回执：白名单拒绝时回 {ok:false,code:E401,msg}，需弹通知；放行命令无 ack。
-      if (ev.topic == mqttAckTopic) {
-        _handleGwAck(payload);
-        continue;
-      }
       // 遥测帧（QoS0 高频）：仅驱动 telemetryStream，不进 statusStream。
       if (ev.topic == mqttTelemetryTopic) {
         _handleTelemetry(payload);
@@ -378,29 +361,6 @@ class RealHardwareService implements HardwareService {
         continue;
       }
       _parseAndEmit(payload);
-    }
-  }
-
-  /// 网关命令回执处理（R2）：仅当 ok=false 且 code=E401（白名单外命令被拒）时弹一次
-  /// 通知，提示用户当前网络模式不支持该操作；放行命令不回 ack，不弹通知。
-  void _handleGwAck(String payload) {
-    try {
-      final j = jsonDecode(payload) as Map<String, dynamic>;
-      if (j['ok'] == true) return; // 放行/无回执：不打扰
-      final code = j['code']?.toString() ?? '';
-      final msg = j['msg']?.toString() ?? '';
-      if (code == 'E401') {
-        if (!_notifyCtrl.isClosed) {
-          _notifyCtrl.add(NotifyEvent(
-            type: 'gw_rejected',
-            message: msg.isEmpty ? '远程操作被拒绝（需局域网直连）' : msg,
-            at: DateTime.now(),
-            isAlarm: true,
-          ));
-        }
-      }
-    } catch (_) {
-      // ACK 帧非预期格式时静默忽略
     }
   }
 
@@ -585,29 +545,24 @@ class RealHardwareService implements HardwareService {
   }
 
   void _publish(Map<String, dynamic> cmd) {
-    // R3：云端模式下命令一律经网关下发（cloudEnabled 已隐含非局域网、无 TCP 直连）。
-    //   不再以 _tcpConnected 为闸门，避免命令被局域网 TCP 吃掉而云端收不到（doc 25）。
-    if (!cloudEnabled) return;
-    final json = jsonEncode(cmd);
-    if (_mqtt?.connectionStatus?.state == MqttConnectionState.connected) {
-      final builder = MqttClientPayloadBuilder();
-      builder.addString(json);
-      _mqtt!.publishMessage(
-          mqttCmdTopic, MqttQos.atLeastOnce, builder.payload!);
-    }
+    // 终局方案（2026-08-28）：不再区分内外网权限，命令一律经外网 MQTT 发布到
+    // cnc/<deviceId>/cmd（原网关 gw/<deviceId>/cmd 与 wan_whitelist 已废弃）。
+    // 仅以 MQTT 连接态为闸门：未连上时静默丢弃，由调用方按连接态决定是否补发。
+    if (_mqtt?.connectionStatus?.state != MqttConnectionState.connected) return;
+    final builder = MqttClientPayloadBuilder();
+    builder.addString(jsonEncode(cmd));
+    _mqtt!.publishMessage(mqttCmdTopic, MqttQos.atLeastOnce, builder.payload!);
   }
 
-  /// 命令分发：
-  ///  - 云端模式（cloudEnabled）：一律经云端 MQTT 网关下发（R2/R3），不依赖局域网 TCP。
-  ///  - 局域网模式：经 TCP 直连下发（低延迟，hello 心跳也走 TCP）。
+  /// 命令分发：终局方案下不再区分内外网，**一律经外网 MQTT 下发**到
+  /// cnc/<deviceId>/cmd。局域网 TCP 直连代码保留但暂不启用（"暂时停止"），
+  /// 后续若要恢复低延迟本地控制，在此处加回 TCP 分支即可。
   void _dispatch(Map<String, dynamic> cmd) {
-    if (cloudEnabled) {
-      _publish(cmd);
-    } else if (_tcpConnected) {
-      _sendTcp(cmd);
-    }
+    _publish(cmd);
   }
 
+  /// 局域网 TCP 直连下发。**终局方案下暂不启用**（命令一律走外网 MQTT），
+  /// 代码保留以备后续恢复低延迟本地控制；恢复时只需在 [_dispatch] 加回分支。
   void _sendTcp(Map<String, dynamic> cmd) {
     if (_tcpConnected && _tcp != null) {
       _tcp!.write('${jsonEncode(cmd)}\n');
@@ -629,10 +584,12 @@ class RealHardwareService implements HardwareService {
   }
 
   // ---- 心跳：固件 15s 内收不到任何命令即进入 Feed Hold，App 须周期发 hello ----
-  /// R3：心跳仅由局域网 TCP 存活驱动。外网模式下 _tcpConnected 为 false，不跑 hello，
-  /// 固件存活由 MQTT keepAlive(30s) 维持，App 不额外发空帧污染网关。
+  /// 终局方案：局域网 TCP 停用后，心跳改由 **MQTT 连接**驱动，经命令主题
+  /// cnc/<deviceId>/cmd 下发 {"cmd":"hello"}（网关白名单已废弃，不会再被 E401 拒绝）。
+  /// 目的：用户长时间只看画面、不下发任何命令时，也能持续重置机器主控的
+  /// 15s Feed Hold 定时器，避免加工被误暂停。
   void _updateHeartbeat() {
-    if (_tcpConnected) {
+    if (_mqttConnected) {
       _startHeartbeat();
     } else {
       _stopHeartbeat();
@@ -651,11 +608,11 @@ class RealHardwareService implements HardwareService {
     _heartbeatTimer = null;
   }
 
-  /// 心跳帧：R3 改为**仅走局域网 TCP**。hello 不在网关白名单内，若经 gw 下发会被
-  /// 网关拒绝（E401）并刷错误日志；外网模式下固件存活靠 MQTT keepAlive(30s)，无需空心跳。
+  /// 心跳帧：经 MQTT 命令主题下发（原先走局域网 TCP）。
+  /// 注意：机器码与摄像头码统一后，该帧也会被摄像头收到；摄像头固件须忽略
+  /// payload 中非 stream_start / stream_stop 的帧。
   void _sendHello() {
-    final cmd = {'cmd': 'hello'};
-    _sendTcp(cmd); // 局域网低延迟通道；未连 TCP 时静默不发（外网由 keepAlive 保活）
+    _publish({'cmd': 'hello'});
   }
 
   @override
