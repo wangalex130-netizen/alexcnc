@@ -13,6 +13,7 @@ import '../../models/broadcast_message.dart';
 import '../../models/notify_event.dart';
 import '../../models/tool.dart';
 import '../../state/providers.dart';
+import '../../state/auth_provider.dart';
 import '../../services/hardware_service.dart';
 import '../../services/device_discovery.dart';
 import '../preview/rtsp_preview_widget.dart';
@@ -327,6 +328,8 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     final status = ref.watch(machineStatusProvider).value ?? const MachineStatus();
     final isLocal = ref.watch(isLocalLANProvider);
     final cfg = ref.watch(runtimeConfigProvider);
+    final realMode = cfg.resolvedUseRealBackend;
+    final loggedIn = ref.watch(authProvider).isLoggedIn;
     final hw = ref.read(hardwareServiceProvider);
     // 链路连接态（云端 MQTT / 局域网 TCP 的连通状态），用于顶部连接指示。
     final conn = ref.watch(connectionStateProvider).value;
@@ -368,10 +371,13 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
               SizedBox(
                 height: 220,
                 child: RtspPreviewWidget(
-                  rtspUrl: isLocal ? cfg.resolvedCameraRtsp : null,
-                  relayUrl: isLocal
-                      ? null
-                      : _resolvedRelayUrl(cfg),
+                  // 真实后端模式下须登录才允许拉流（杜绝「不登录也能看」）。
+                  rtspUrl: (isLocal && (!realMode || loggedIn))
+                      ? cfg.resolvedCameraRtsp
+                      : null,
+                  relayUrl: (!isLocal && (!realMode || loggedIn))
+                      ? _resolvedRelayUrl(cfg)
+                      : null,
                   onFullscreen: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(

@@ -117,7 +117,10 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
   }
 
   void _reset() {
-    ref.read(runtimeConfigProvider.notifier).save(const RuntimeConfig());
+    // 重置为「编译期默认值」(--dart-define)，而非永远 false；real 包重置后恢复 real。
+    ref.read(runtimeConfigProvider.notifier).save(
+      RuntimeConfig(useRealBackend: AppConfig.useRealBackend),
+    );
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('已重置为编译期默认值 (--dart-define)')),
     );

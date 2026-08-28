@@ -53,7 +53,10 @@ class RuntimeConfig {
   });
 
   // ---- resolved：空值 / 0 回落 AppConfig（--dart-define 默认值）----
-  bool get resolvedUseRealBackend => useRealBackend || AppConfig.useRealBackend;
+  // 注意：历史上曾写成 `useRealBackend || AppConfig.useRealBackend`，导致 real 包里
+  // AppConfig.useRealBackend 恒为 true，运行时「真实后端」开关永远关不掉。现改为权威
+  // 取自持久化值（首次启动由 _doHydrate 固化编译期默认），开关即可真正生效。
+  bool get resolvedUseRealBackend => useRealBackend;
   String get resolvedCloudBaseUrl =>
       cloudBaseUrl.isNotEmpty ? cloudBaseUrl : AppConfig.cloudBaseUrl;
   // ---- 账号后端地址（登录/绑定/我的机器），独立可配，默认回落 AppConfig.backendBaseUrl ----
@@ -145,7 +148,14 @@ class RuntimeConfigNotifier extends Notifier<RuntimeConfig> {
     try {
       final p = await SharedPreferences.getInstance();
       final raw = p.getString(_key);
-      if (raw == null || raw.isEmpty) return;
+      if (raw == null || raw.isEmpty) {
+        // 首次启动：把编译期默认值固化进持久化配置，使「真实后端」开关可权威生效
+        // （否则 real 包里 AppConfig.useRealBackend 恒为 true，运行时关不掉该开关）。
+        final seeded = RuntimeConfig(useRealBackend: AppConfig.useRealBackend);
+        state = seeded;
+        await p.setString(_key, jsonEncode(seeded.toJson()));
+        return;
+      }
       final j = jsonDecode(raw) as Map<String, dynamic>;
       // 版本迁移：v1 之前摄像头中继字段可能存的是旧的 cnc-cam-01，
       // 新包默认已改为 cnc-demo-01；升级时清理这些字段，让 AppConfig 兜底生效。

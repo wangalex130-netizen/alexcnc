@@ -9,6 +9,7 @@ import 'package:image_gallery_saver_plus/image_gallery_saver_plus.dart';
 import '../../app/config.dart';
 import '../../services/hardware_service.dart';
 import '../../services/machines_service.dart';
+import '../../state/auth_provider.dart';
 import '../../state/providers.dart';
 import 'mjpeg_stream_player.dart';
 
@@ -56,17 +57,24 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
   }
 
   String get _streamUrl {
+    // 关键闸门：真实后端（量产）模式下，必须「已登录 + 已选绑定机器」才允许拉流。
+    // 之前只判断 widget.machine != null，而 currentMachineProvider 会把上次选中的机器
+    // 持久化到 SharedPreferences，导致「不登录也能看」。现显式校验登录态。
+    final cfg = ref.watch(runtimeConfigProvider);
+    final realMode = cfg.resolvedUseRealBackend;
+    final loggedIn = ref.watch(authProvider).isLoggedIn;
+    if (realMode && !loggedIn) return '';
     if (widget.url != null && widget.url!.isNotEmpty) return widget.url!;
     final m = widget.machine;
     if (m != null && (m.sn.isNotEmpty || m.camDevice.isNotEmpty)) {
       // 透传 userId 供中继做按账号绑定鉴权（demo 期 appUserId='demo' 仍放行）。
-      return m.streamUrl(AppConfig.cameraRelayToken, AppConfig.appUserId);
+      return m.streamUrl(cfg.resolvedCameraRelayToken, cfg.resolvedAppUserId);
     }
     // 真实后端（量产）模式下，未登录/未选机器禁止直拉硬编码演示流；
     // demo 模式（useRealBackend=false）保留兜底默认地址，便于本机联调。
-    if (AppConfig.useRealBackend) return '';
-    return '${AppConfig.cameraRelayBaseUrl}/stream/${AppConfig.cameraRelayDevice}'
-        '?token=${AppConfig.cameraRelayToken}';
+    if (realMode) return '';
+    return '${cfg.resolvedCameraRelayBaseUrl}/stream/${cfg.resolvedCameraRelayDevice}'
+        '?token=${cfg.resolvedCameraRelayToken}';
   }
 
   @override
@@ -80,7 +88,11 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
 
     _hw = ref.read(hardwareServiceProvider);
     // 真实后端（量产）模式下，未登录/未选机器不拉演示流、也不发启停命令。
-    final canStream = !AppConfig.useRealBackend || widget.machine != null;
+    final cfg = ref.read(runtimeConfigProvider);
+    final realMode = cfg.resolvedUseRealBackend;
+    final loggedIn = ref.read(authProvider).isLoggedIn;
+    final canStream =
+        !realMode || (loggedIn && widget.machine != null);
     if (canStream) {
       _requestCameraStart();
       // MQTT 可能晚于本页打开才连上：连上即补发 stream_start，避免摄像头迟迟不推。
@@ -110,7 +122,10 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
   void dispose() {
     _connSub?.cancel();
     // 退出预览即停推流（按需推流模型），省带宽/电量、延寿、护隐私。
-    if (!AppConfig.useRealBackend || widget.machine != null) {
+    final cfg = ref.read(runtimeConfigProvider);
+    final realMode = cfg.resolvedUseRealBackend;
+    final loggedIn = ref.read(authProvider).isLoggedIn;
+    if (!realMode || (loggedIn && widget.machine != null)) {
       _hw.sendCameraStream('stream_stop', deviceId: _cameraDeviceId);
     }
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
