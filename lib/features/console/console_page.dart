@@ -374,7 +374,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                             ? CncColors.danger
                             : CncColors.primaryInk;
     final String stateLabel = !hasMachine
-        ? '未选择机器'
+        ? '待选择'
         : status.state == MachineState.disconnected
             ? '未连接'
             : status.state == MachineState.busy
@@ -875,14 +875,17 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
           // ---- 底部动作条（2026-08-29 瘦身：原 24px 底部留白 + 56px 高按钮
           // 吃掉了滚动区高度，导致 Jog 显示不全；现压到 40px 高、留白减半）----
-          Container(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-            decoration: BoxDecoration(
-              color: CncColors.panel,
-              border: Border(top: BorderSide(color: CncColors.border)),
-            ),
-            child: Row(
-              children: [
+          // 真实模式下未选机器时整条隐藏：此时没有可操作的机器，
+          // 留着只会让人误点、把停止/暂停发到默认的联调设备上。
+          if (hasMachine || !realMode)
+            Container(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+              decoration: BoxDecoration(
+                color: CncColors.panel,
+                border: Border(top: BorderSide(color: CncColors.border)),
+              ),
+              child: Row(
+                children: [
                 Expanded(
                   child: _ActionBtn(
                     icon: Icons.stop_rounded,
@@ -1017,9 +1020,15 @@ class _ConnStatusChip extends ConsumerWidget {
     final machineName = currentMachine?.name.isNotEmpty == true
         ? currentMachine!.name
         : (currentMachine?.sn.isNotEmpty == true ? currentMachine!.sn : '未选择机器');
+    // 演示模式识别：CI 包默认 USE_REAL_BACKEND=false，此时用的是 Mock 服务，
+    // 界面一切正常但命令根本不会下发。必须显式提示，否则用户/客户会被静默误导。
+    final realMode = ref.watch(runtimeConfigProvider).resolvedUseRealBackend;
     final Color color;
     final String label;
-    if (isCloud) {
+    if (!realMode) {
+      color = CncColors.warning;
+      label = '演示模式 · 命令不会下发';
+    } else if (isCloud) {
       if (mqttConnected) {
         color = CncColors.primary;
         label = '云端 MQTT · 已连接';
@@ -1039,7 +1048,9 @@ class _ConnStatusChip extends ConsumerWidget {
         label = '设备直连 · 未连接';
       }
     }
-    final showError = !mqttConnected && lastError != null && lastError.isNotEmpty;
+    // 演示模式下不显示「最近错误」与重连入口（Mock 服务没有真实链路可重连）。
+    final showError =
+        realMode && !mqttConnected && lastError != null && lastError.isNotEmpty;
     return GestureDetector(
       onTap: () async {
         final hw = ref.read(hardwareServiceProvider);
@@ -1097,7 +1108,7 @@ class _ConnStatusChip extends ConsumerWidget {
                 ],
               ),
             ),
-            if (!mqttConnected)
+            if (realMode && !mqttConnected)
               Icon(
                 Icons.refresh,
                 size: 16,

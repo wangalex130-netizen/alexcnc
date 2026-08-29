@@ -13,7 +13,9 @@ class Machine {
   final String machineType;
   final String camDevice;
   final String relayUrl;
-  final bool online;
+  /// 在线状态。**可为 null** —— 后端不返回该字段时表示「未知」，
+  /// 不能默认 false，否则所有机器都会被显示成离线，误导客户选择。
+  final bool? online;
   final bool isDefault;
   final String? boundAt;
 
@@ -24,7 +26,7 @@ class Machine {
     this.machineType = '',
     this.camDevice = '',
     this.relayUrl = '',
-    this.online = false,
+    this.online,
     this.isDefault = false,
     this.boundAt,
   });
@@ -41,7 +43,7 @@ class Machine {
             j['sn']?.toString() ??
             '',
         relayUrl: j['relay_url']?.toString() ?? '',
-        online: j['online'] == true,
+        online: j['online'] is bool ? j['online'] as bool : null,
         isDefault: j['isDefault'] == 1 || j['isDefault'] == true,
         boundAt: j['bound_at']?.toString() ?? j['createTime']?.toString(),
       );

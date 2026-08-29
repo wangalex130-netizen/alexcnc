@@ -335,7 +335,9 @@ class RealHardwareService implements HardwareService {
       if (msg is! MqttPublishMessage) continue;
       // mqtt_client 的 bytesToStringAsString 按 Latin1 解码，中文会乱码。
       // 协议文本是 UTF-8，所以必须显式用 utf8.decode。
-      final payload = utf8.decode(msg.payload.message);
+      // allowMalformed：固件偶发半包/脏字节时不能让解码抛异常，
+      // 否则异常会冒泡到 MQTT 回调里，打断整条订阅循环甚至导致掉线。
+      final payload = utf8.decode(msg.payload.message, allowMalformed: true);
       // 遥测帧（QoS0 高频）：仅驱动 telemetryStream，不进 statusStream。
       if (ev.topic == mqttTelemetryTopic) {
         _handleTelemetry(payload);
@@ -456,7 +458,8 @@ class RealHardwareService implements HardwareService {
       _setConn(LinkState.connected); // 第一步唯一通道，TCP 通即"已连"
       _updateHeartbeat();
       _tcp!.listen((data) {
-        final text = utf8.decode(data);
+        // TCP 是字节流，粘包/半包都会出现，allowMalformed 防止解码抛异常打断 listen。
+        final text = utf8.decode(data, allowMalformed: true);
         for (final line in text.split('\n')) {
           final t = line.trim();
           if (t.isNotEmpty) _parseAndEmit(t);

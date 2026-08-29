@@ -230,21 +230,41 @@ class _MachineCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: CncColors.card,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: selected ? CncColors.primary : CncColors.border,
-              width: selected ? 2 : 1,
-            ),
+  Widget build(BuildContext context) {
+    // 在线状态三态：在线 / 离线 / 未知（后端未返回 online 字段）。
+    // 未知时不能当离线显示，否则客户会以为所有机器都不可用。
+    final online = machine.online;
+    final String statusText;
+    final Color statusColor;
+    if (machine.sn.isEmpty) {
+      statusText = '未配置';
+      statusColor = CncColors.textSub;
+    } else if (online == null) {
+      statusText = '状态未知';
+      statusColor = CncColors.textSub;
+    } else if (online) {
+      statusText = '在线';
+      statusColor = CncColors.primary;
+    } else {
+      statusText = '离线';
+      statusColor = CncColors.danger;
+    }
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: CncColors.card,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected ? CncColors.primary : CncColors.border,
+            width: selected ? 2 : 1,
           ),
-          child: Row(
-            children: [
+        ),
+        child: Row(
+          children: [
               Container(
                 width: 44,
                 height: 44,
@@ -296,27 +316,19 @@ class _MachineCard extends StatelessWidget {
                           width: 7,
                           height: 7,
                           decoration: BoxDecoration(
-                            color: machine.sn.isEmpty
-                                ? CncColors.textSub
-                                : (machine.online
-                                    ? CncColors.primary
-                                    : CncColors.danger),
+                            color: statusColor,
                             shape: BoxShape.circle,
                           ),
                         ),
                         const SizedBox(width: 5),
                         Text(
-                          machine.sn.isEmpty
-                              ? '未配置'
-                              : (machine.online ? '在线' : '离线'),
+                          statusText,
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.bold,
-                            color: machine.sn.isEmpty
-                                ? CncColors.textSub
-                                : (machine.online
-                                    ? CncColors.primaryInk
-                                    : CncColors.danger),
+                            color: statusColor == CncColors.primary
+                                ? CncColors.primaryInk
+                                : statusColor,
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -361,4 +373,5 @@ class _MachineCard extends StatelessWidget {
           ),
         ),
       );
+  }
 }
