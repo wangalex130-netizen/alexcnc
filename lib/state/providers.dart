@@ -175,6 +175,12 @@ final cloudServiceProvider = Provider<CloudService>((ref) {
 
 final networkProbeProvider = Provider<NetworkProbe>((ref) => NetworkProbe());
 
+/// Jog 手动移动步进档位（mm）：控制台内联键盘与二级 Jog 浮层共享，
+/// 三档 0.1 / 1.0 / 10，默认 1.0。
+/// 注意：该 provider 只被 jog_sheet.dart 使用；此前 jog_sheet 未被任何页面
+/// 引用（不可达，编译期不检查），控制台接「展开」入口后才暴露出来。
+final jogStepProvider = StateProvider<double>((ref) => 1.0);
+
 /// 推送偏好（响应式状态），初始默认开启；持久化读写由 [PushService] 承担。
 /// UI（我的页）toggle 后调用 [PushNotifier.toggleComplete]/[toggleAlert]。
 class PushNotifier extends Notifier<PushPrefs> {
