@@ -114,9 +114,44 @@ final jogStepProvider = StateProvider<double>((ref) => 1.0);
 | 3 | 「状态未知是不是就是不在线？改成不在线更直接」 | 采纳。三态（在线/离线/状态未知）合并为**两态**：**在线**（绿）/ **不在线**（灰）。对客户而言只关心"这台现在能不能用"，"状态未知"是纯技术措辞 |
 | 4 | （自查发现）向导 Step3 刀位卡片看着能点实际没反应 | `_Slot` 外面套了 `GestureDetector` 但回调是空的 `onTap: () {}`。已移除 GestureDetector 与 onTap 参数，明确为只读展示（未擅自新增"点击换刀"的功能） |
 
-## 六、待确认事项（沿用）
+### 5.5 刀位接真实数据 / 模型库删假库（commit `08318337`）
+
+**刀位（Step3 + 控制台 ATC）**
+- 此前 `ToolMagazine` 硬编码假刀位（`1号平底 + 2号60°V`），**完全没调接口**。
+- 现改为按 `currentMachine.sn` 调 `GET /api/device/bit-config/info?deviceCode=` 拉取真实刀仓，
+  改动后通过 `POST /api/device/bit-config/insertOrUpdate` 写回（服务端直发 MQTT）。
+- 未登录 / 未选机器 / 接口异常 → **空仓**，绝不再填充假刀。
+- 批量赋值（向导 Step3 一次动多个刀位）走新的 `setAll()`，不再绕过云端保存。
+
+**共享模型库**
+- 此前是假数据，有两层原因：① `cloudServiceProvider` 被 `resolvedUseRealBackend` 闸门挡住
+  （CI 包默认关闭 → 直接返回 Mock）；② `RealCloudService` 请求失败时**静默回退 Mock**。
+- 现新增 `modelLibraryServiceProvider`：**始终**走真实云端，与"是否连接真实设备"开关无关；
+  `/api/model-library/*` 无需登录，打开 App 联网即有。
+- 5 个模型库方法的假数据回退已删除：拿不到就是空，UI 显示加载失败。
+
+**清理**
+- 删除死代码 `lib/features/workbench/workbench_page.dart`（36KB，零引用）。
+- 发现 `getModelLibraryCategories` / `getModelLibraryTags` 从未被调用（接口留着未用）。
+
+## 六、待确认事项（沿用 + 本轮新增）
 
 1. 固件确认 `{"cmd":"hello"}`（MQTT `cnc/<deviceId>/cmd`，10s 一次）能喂住 15s Feed Hold 计时器。
 2. 摄像头固件按 payload 过滤（见上）。
 3. 量产前替换 MQTT 专属账号密码。
 4. 云端确认 `/api/machine/list` 的 `online` 字段实时性。
+5. **【本轮新增·需后端确认】刀仓 `slot1~4` 的整数是否等于「系统默认刀具表 id」**
+   App 侧目前按 `ToolDef.systemId` 映射：
+
+   | App 内部 id | systemId | 名称 |
+   |---|---|---|
+   | `t_v90_3175` | 1 | 90 Deg 1/8 V-Bit |
+   | `t_v60_3175` | 2 | 60 Deg 1/8 V-Bit |
+   | `t_v30_3175` | 3 | 30 Deg 1/8 V-Bit |
+   | `t_flat_3175` | 5 | 1/8 in Flat Cutter |
+   | `t_ball_3175` | 8 | 1/8 in Ballnose |
+
+   若后端实际用自增主键或其他编码，只需改 `toolBySystemId()` 这一处映射。
+   App 遇到不认识的刀头 ID 会把该仓显示为空（不会崩），但配置会"看起来丢失"。
+6. **【建议】刀仓接口加白名单校验**：`bit_config_dialog.dart` 目前允许手填任意整数，
+   缺少对 5 把官方刀的校验，可能写入非法 ID。建议后端拒绝非 1/2/3/5/8 的值。
