@@ -90,7 +90,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     if (_tab != 0) return;
     setState(() => _loading = true);
     try {
-      final cloud = ref.read(cloudServiceProvider);
+      // 共享模型库：始终走真实云端（公开内容，无需登录，与"真实设备连接"开关无关）
+      final cloud = ref.read(modelLibraryServiceProvider);
       final home = await cloud.getModelLibraryHome(
         keyword: _keyword.isEmpty ? null : _keyword,
         category: _category.isEmpty ? null : _category,
@@ -132,7 +133,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   Future<void> _applyFilter() async {
     setState(() => _loading = true);
     try {
-      final cloud = ref.read(cloudServiceProvider);
+      final cloud = ref.read(modelLibraryServiceProvider);
       final page = await cloud.getModelLibraryList(
         pageNo: 1,
         keyword: _keyword.isEmpty ? null : _keyword,
@@ -160,7 +161,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   Future<void> _loadMore() async {
     if (_loadingMore || _pageNo >= _pages) return;
     setState(() => _loadingMore = true);
-    final cloud = ref.read(cloudServiceProvider);
+    final cloud = ref.read(modelLibraryServiceProvider);
     final next = _pageNo + 1;
     final page = await cloud.getModelLibraryList(
       pageNo: next,
@@ -202,7 +203,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   Future<void> _openModel(LibraryItem item) async {
     // 先用 detail 接口补全字段（尺寸/转速/刀路），再进详情页
     final enriched =
-        await ref.read(cloudServiceProvider).getModelLibraryDetail(item.id) ??
+        await ref.read(modelLibraryServiceProvider).getModelLibraryDetail(item.id) ??
             item;
     if (!mounted) return;
     Navigator.of(context).push(

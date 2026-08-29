@@ -301,14 +301,9 @@ class RealCloudService implements CloudService {
             hero: hero,
             sortBy: sortBy));
     if (data != null) return ModelLibraryHome.fromJson(data);
-    return _fallback.getModelLibraryHome(
-        pageNo: pageNo,
-        pageSize: pageSize,
-        keyword: keyword,
-        category: category,
-        tag: tag,
-        hero: hero,
-        sortBy: sortBy);
+    // 共享模型库**不再回退假数据**：拿不到就是空，由 UI 显示「加载失败，请下拉刷新」。
+    // （此前会静默返回内置假库，客户以为这就是真模型库，是严重误导）
+    return const ModelLibraryHome();
   }
 
   @override
@@ -330,21 +325,15 @@ class RealCloudService implements CloudService {
             hero: hero,
             sortBy: sortBy));
     if (data != null) return ModelLibraryPage.fromJson(data);
-    return _fallback.getModelLibraryList(
-        pageNo: pageNo,
-        pageSize: pageSize,
-        keyword: keyword,
-        category: category,
-        tag: tag,
-        hero: hero,
-        sortBy: sortBy);
+    // 同上：不再回退假数据
+    return ModelLibraryPage(pageNo: pageNo, pageSize: pageSize);
   }
 
   @override
   Future<LibraryItem?> getModelLibraryDetail(String id) async {
     final data = await _mlGet('/api/model-library/detail/$id');
     if (data != null) return LibraryItem.fromJson(data);
-    return _fallback.getModelLibraryDetail(id);
+    return null; // 不再回退假数据
   }
 
   @override
@@ -355,7 +344,7 @@ class RealCloudService implements CloudService {
       final list = raw['list'] ?? raw['categories'] ?? raw['items'];
       if (list is List) return _asStringList(list);
     }
-    return _fallback.getModelLibraryCategories();
+    return const <String>[]; // 不再回退假数据
   }
 
   @override
@@ -366,6 +355,6 @@ class RealCloudService implements CloudService {
       final list = raw['list'] ?? raw['tags'] ?? raw['items'];
       if (list is List) return _asStringList(list);
     }
-    return _fallback.getModelLibraryTags();
+    return const <String>[]; // 不再回退假数据
   }
 }

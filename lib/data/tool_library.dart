@@ -121,6 +121,22 @@ const List<ToolDef> toolCatalog = [
 ToolDef toolById(String id) =>
     toolCatalog.firstWhere((t) => t.id == id, orElse: () => toolCatalog.first);
 
+/// 按**系统默认刀具表 id**（1/2/3/5/8）反查本地刀具。
+///
+/// 用途：阿里云刀仓接口 `/api/device/bit-config/*` 的 `slot1~4` 存的是
+/// 「刀头 ID」（整数），与本表 `systemId` 同源；App 内部用字符串 id
+/// （如 `t_flat_3175`），二者需要互转。
+///
+/// ⚠️ 该假设待与后端工程师确认：slotN 的整数是否就等于系统刀具表 id。
+/// 若后端另有编码（如自增主键），只需改这一张映射，不必动业务代码。
+ToolDef? toolBySystemId(int? systemId) {
+  if (systemId == null) return null;
+  for (final t in toolCatalog) {
+    if (t.systemId == systemId) return t;
+  }
+  return null; // 后端存了本地刀库不认识的刀头 ID
+}
+
 /// 防呆色值表：系统表 info.color → 定位环实物同色
 /// （红=1/8 平底，橙=1/8 球头，黄=30°V，绿=60°V，蓝=90°V）。
 /// App 显示色必须与实物定位环一致，故用精确 hex，不复用主题令牌。

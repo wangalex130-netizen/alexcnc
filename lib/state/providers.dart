@@ -6,7 +6,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app/config.dart';
 import '../app/runtime_config.dart';
+import '../data/tool_library.dart';
 import '../models/library_item.dart';
+import '../state/auth_provider.dart';
+import '../services/auth_service.dart';
+import '../services/bit_config_service.dart';
 import '../models/broadcast_message.dart';
 import '../models/job_progress.dart';
 import '../models/machine_status.dart';
@@ -171,6 +175,25 @@ final cloudServiceProvider = Provider<CloudService>((ref) {
   return cfg.resolvedUseRealBackend
       ? RealCloudService(cfg.resolvedCloudBaseUrl, deviceId)
       : MockCloudService();
+});
+
+/// **共享模型库服务：始终走真实云端。**
+///
+/// 2026-08-29：此前模型库共用 [cloudServiceProvider]，而后者被
+/// `resolvedUseRealBackend` 闸门控制 —— 该开关默认关闭（CI 包不带
+/// `USE_REAL_BACKEND`），于是客户打开 App 看到的是内置假库，且永远不会刷新。
+///
+/// 共享模型库是**公开内容、不需要登录**（`/api/model-library/*` 无需
+/// Authorization，见 RealCloudService._headers 的 TODO），
+/// 因此它与"是否连接真实设备"完全无关，必须无条件走真实接口。
+/// 用户私有内容（我的空间 / 删除模型）仍走 [cloudServiceProvider]。
+final modelLibraryServiceProvider = Provider<CloudService>((ref) {
+  final cfg = ref.watch(runtimeConfigProvider);
+  final currentMachine = ref.watch(currentMachineProvider);
+  final deviceId = currentMachine?.sn.isNotEmpty == true
+      ? currentMachine!.sn
+      : cfg.resolvedDeviceId;
+  return RealCloudService(cfg.resolvedCloudBaseUrl, deviceId);
 });
 
 final networkProbeProvider = Provider<NetworkProbe>((ref) => NetworkProbe());
@@ -367,25 +390,132 @@ class LocalModeNotifier extends Notifier<bool> {
 /// 控制台「管理刀仓」与向导 Step3 共用同一份本地状态（己方信息同步）：
 /// 任一处修改，另一处立即反映。
 class ToolMagazine extends StateNotifier<Map<int, String?>> {
-  ToolMagazine()
-      : super(const {
-          1: 't_flat_3175', // 红环 3.175 平底刀
-          2: 't_v60', // 绿环 60° V 型刀
-          3: null,
-          4: null,
-        });
+  ToolMagazine(this._ref) : super(_empty);
 
-  void assign(int slot, String? defId) =>
-      state = {...state, slot: defId};
+  final Ref _ref;
+
+  static const Map<int, String?> _empty = {1: null, 2: null, 3: null, 4: null};
+
+  /// 已成功加载过的机器码；换机器时必须重新拉取（刀仓按机器归属）。
+  String? _loadedFor;
+  bool _loading = false;
+  bool _saving = false;
+  bool _dirty = false;
+  String? _error;
+
+  bool get loading => _loading;
+  String? get error => _error;
+
+  /// 当前机器码；未选机器返回 null。
+  String? get _deviceCode {
+    final sn = _ref.read(currentMachineProvider)?.sn ?? '';
+    return sn.isEmpty ? null : sn;
+  }
+
+  BitConfigService get _service => BitConfigService(
+        baseUrl: _ref.read(runtimeConfigProvider).resolvedBackendBaseUrl,
+      );
+
+  /// 从阿里云读取**当前机器**的刀仓配置（按机器码 deviceCode 归属）。
+  ///
+  /// 约束（2026-08-29 用户要求：必须是真实数据）：
+  /// - 未登录 / 未选机器 / 接口异常 → 一律**空仓**，
+  ///   **绝不填充任何假刀**（此前硬编码了 1 号平底 + 2 号 60°V，属误导）。
+  /// - 后端 slot1~4 是「刀头 ID」（整数），经 [toolBySystemId] 映射到本地刀具。
+  Future<void> refresh({bool force = false}) async {
+    final device = _deviceCode;
+    if (device == null) {
+      _loadedFor = null;
+      state = _empty;
+      return;
+    }
+    if (!force && _loadedFor == device) return; // 同一台机器不重复拉取
+    _loading = true;
+    try {
+      final cfg = await _service.fetch(device);
+      final slots = cfg?.slots ?? const [null, null, null, null];
+      final map = <int, String?>{};
+      for (var i = 0; i < 4; i++) {
+        // 后端存了本地刀库不认识的刀头 ID 时，该仓显示为空而不是崩
+        map[i + 1] = toolBySystemId(slots[i])?.id;
+      }
+      state = map;
+      _loadedFor = device;
+      _error = null;
+    } catch (e) {
+      // 这台机器从未成功加载过 → 空仓；已加载过的保留原值，避免网络抖动清掉配置
+      if (_loadedFor != device) state = _empty;
+      _error = e.toString().replaceFirst('Exception: ', '');
+    } finally {
+      _loading = false;
+    }
+  }
+
+  /// 改刀位：本地立即生效（乐观 UI），再异步落云端。
+  Future<void> assign(int slot, String? defId) async {
+    state = {...state, slot: defId};
+    await _saveToCloud();
+  }
+
+  /// 批量写入（向导 Step3 一次会动多个刀位：先清重复再落位），只落一次云端。
+  Future<void> setAll(Map<int, String?> next) async {
+    state = {...next};
+    await _saveToCloud();
+  }
+
+  /// 把当前四个刀位写回阿里云（服务端会直接下发 MQTT 给机器）。
+  ///
+  /// 保存期间若又发生改动（用户快速连点），标记为 dirty 并在本次结束后补一次，
+  /// 避免"最后一次改动被上一次请求覆盖 / 直接丢掉"。
+  Future<void> _saveToCloud() async {
+    if (_deviceCode == null) return;
+    if (_saving) {
+      _dirty = true;
+      return;
+    }
+    _saving = true;
+    try {
+      do {
+        _dirty = false;
+        final device = _deviceCode;
+        if (device == null) break;
+        int? sid(int i) {
+          final id = state[i];
+          return id == null ? null : toolById(id).systemId;
+        }
+
+        await _service.save(
+          BitConfig(
+            deviceCode: device,
+            slot1: sid(1),
+            slot2: sid(2),
+            slot3: sid(3),
+            slot4: sid(4),
+          ),
+        );
+        _error = null;
+      } while (_dirty);
+    } catch (e) {
+      _error = e.toString().replaceFirst('Exception: ', '');
+    } finally {
+      _saving = false;
+    }
+  }
 
   bool get slot1Installed => state[1] != null;
   bool get slot2Installed => state[2] != null;
 }
 
 final toolMagazineProvider =
-    StateNotifierProvider<ToolMagazine, Map<int, String?>>(
-  (ref) => ToolMagazine(),
-);
+    StateNotifierProvider<ToolMagazine, Map<int, String?>>((ref) {
+  final n = ToolMagazine(ref);
+  // 切换当前机器 → 重新拉取该机器的刀仓；登录状态变化 → 强制刷新
+  // （刀仓接口需要 Bearer Token，未登录时保持空仓）。
+  ref.listen(currentMachineProvider, (_, __) => n.refresh());
+  ref.listen(authProvider, (_, __) => n.refresh(force: true));
+  Future<void>.delayed(Duration.zero, n.refresh);
+  return n;
+});
 
 /// 当前正在进行的全局加工任务。
 ///

@@ -138,7 +138,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
         if (mag[k] == tid) mag[k] = null; // 防止重复入兜
       }
       mag[slot] = tid;
-      ref.read(toolMagazineProvider.notifier).state = mag;
+      // 用 setAll 而非直接改 state：批量改动也要落云端（刀仓是机器级真实配置）
+      ref.read(toolMagazineProvider.notifier).setAll(mag);
       _procConfirmed.remove(p); // 刀兜变动，实物确认需重做
       _syncedToMachine = false; // 映射变动，需重新同步到机器
     });
