@@ -367,6 +367,17 @@ class RealHardwareService implements HardwareService {
     }
   }
 
+  /// 判定是否为「摄像头状态帧」：带摄像头专属字段、且不含任何机器状态字段。
+  /// 命中则直接丢弃，不交给 MachineStatus 解析（理由见 _parseAndEmit 注释）。
+  static bool _isCameraStatusFrame(Map<String, dynamic> j) {
+    const camMarkers = ['streaming', 'cam', 'camera', 'online'];
+    const machineMarkers = ['state', 'pos', 'mpos', 'mp'];
+    final hasCam = camMarkers.any(j.containsKey);
+    if (!hasCam) return false;
+    final hasMachine = machineMarkers.any(j.containsKey);
+    return !hasMachine; // 同时带机器字段 → 视为合法机器帧，不拦
+  }
+
   /// 遥测帧解析（R13）：高频 QoS0，仅 emit 到 telemetryStream；字段缺失安全回退 null。
   void _handleTelemetry(String payload) {
     try {
@@ -494,6 +505,15 @@ class RealHardwareService implements HardwareService {
     try {
       final j = jsonDecode(text);
       if (j is! Map<String, dynamic>) return;
+
+      // 摄像头状态帧防护（2026-08-29）：
+      // docs/32 §4.4 提议摄像头把 online/streaming 发到 cnc/<deviceId>/status。
+      // 但 MachineStatus.fromJson 对陌生字段一律回落成「idle + 坐标 0 + 进度 0 +
+      // awaitingConfirm=false」，一旦摄像头往 status 主题发帧，就会把
+      // 「加工中」刷成「待机」、把报警态清掉、把机旁确认横幅抹掉，
+      // 进而**解锁已锁定的 Jog**——这是安全漏洞，必须先拦。
+      // 约定：摄像头状态请发专用主题 cnc/<deviceId>/cam，不要占用 status。
+      if (_isCameraStatusFrame(j)) return;
 
       // notify 事件：固件通过 cnc/<deviceId>/notify 广播的异步事件
       // （job_done / alarm / error / tool_changed / confirm_required 等）。
