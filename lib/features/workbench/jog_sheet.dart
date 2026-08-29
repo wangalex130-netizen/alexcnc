@@ -27,9 +27,17 @@ class _JogSheetState extends ConsumerState<JogSheet> {
     // 终局方案（2026-08-28）：命令一律经云端 MQTT 下发，内外网权限无区别，
     // 能否手动移动只取决于机器状态 —— 空闲可动，加工中/报警/回零中/未连接均锁定。
     final mState = ref.watch(machineStatusProvider).value?.state;
-    final canControl = mState == MachineState.idle;
-    final lockLabel =
-        (mState == null || mState == MachineState.disconnected) ? '未连接 · 已锁定' : '加工中 · 已锁定';
+    // 2026-08-29 安全加固：真实后端模式下未选机器时同样锁定
+    //（未选机器 deviceId 会回退到默认联调设备，不能往未知机器下发运动命令）。
+    final hasMachine = ref.watch(currentMachineProvider) != null;
+    final lockedByMachine =
+        ref.watch(runtimeConfigProvider).resolvedUseRealBackend && !hasMachine;
+    final canControl = mState == MachineState.idle && !lockedByMachine;
+    final lockLabel = lockedByMachine
+        ? '未选择机器 · 已锁定'
+        : (mState == null || mState == MachineState.disconnected)
+            ? '未连接 · 已锁定'
+            : '加工中 · 已锁定';
 
     void jog(String axis, int sign) {
       if (!canControl) return;

@@ -25,6 +25,7 @@ import '../../services/network_auth.dart';
 import '../wizard/job_monitor_page.dart';
 import '../wizard/self_check_page.dart';
 import '../workbench/jog_sheet.dart';
+import '../machines/machines_page.dart';
 
 /// 状态驱动设备控制台 (Core 3) —— 严格对齐 控制页面.html。
 ///
@@ -351,7 +352,12 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     // 终局方案（2026-08-28）：命令一律经云端 MQTT 下发，内外网权限已无区别，
     // 主动控制只由机器状态决定 —— 空闲可动，加工中/报警/回零中等禁用。
     // （历史：此前还要求 isLocalLAN 局域网直连才解锁，现已废除。）
-    final canControl = idle;
+    //
+    // 2026-08-29 安全加固：**真实后端模式下必须先选择机器**。
+    // 未选机器时 deviceId 会回退到 AppConfig 默认值（联调用的 cnc-demo-01），
+    // 不加闸门的话 Jog / 主轴 / 回零会打到一台用户根本没选中的机器上。
+    // 联调 / Mock 模式（!realMode）保持放开，不影响工程师调试。
+    final canControl = idle && (hasMachine || !realMode);
 
     // DRO 状态标签：未选机器 → 不显示任何运行状态，避免误导客户。
     final Color stateColor = !hasMachine
@@ -590,6 +596,59 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
             child: ListView(
               padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
               children: [
+                // 未选择机器引导：真实后端模式下禁止下发任何运动命令，
+                // 避免打到默认的联调设备（cnc-demo-01）上。
+                if (realMode && !hasMachine)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: CncColors.blue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: CncColors.blue.withOpacity(0.4)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.sensors_outlined, size: 16, color: CncColors.blue),
+                            const SizedBox(width: 6),
+                            const Expanded(
+                              child: Text('请先选择要控制的机器',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: CncColors.textMain)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        const Text('未选择机器前，移动 / 主轴 / 换刀等操作已锁定，仅可查看画面与状态。',
+                            style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => const MachinesPage()),
+                            ),
+                            icon: const Icon(Icons.sensors_outlined, size: 16),
+                            label: const Text('选择机器',
+                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: CncColors.primary,
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8)),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
                 // 机旁确认横幅：固件广播 awaitingConfirm（notify 流 confirm_required 同步触发）
                 if (status.awaitingConfirm)
                   Container(

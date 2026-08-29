@@ -71,8 +71,33 @@
 - 仍待确认（沿用上次）：摄像头固件需按 payload 过滤 `cnc/<deviceId>/cmd`，
   只处理 `stream_start` / `stream_stop`，忽略机器命令与 `{"cmd":"hello"}` 心跳。
 
-## 五、待确认事项（沿用）
+## 五、补充修复（同一轮后半段）
+
+### 5.1 补回 `jogStepProvider`（编译错误）
+`jog_sheet.dart` 引用了 `jogStepProvider`，但该 provider 在早期 UI 重构里被删除了。
+由于 `jog_sheet.dart` 长期**没有任何页面 import**（工作台页早就不在底部导航），
+Dart 只编译从入口可达的文件，这个错误一直没暴露；控制台接入「展开」入口后 CI 立刻失败。
+
+```dart
+// lib/state/providers.dart
+final jogStepProvider = StateProvider<double>((ref) => 1.0);
+```
+
+> **协作提醒**：今后 import 一个"当前无人引用的文件"之前，先确认它引用的标识符都还在。
+
+### 5.2 未选择机器时禁止下发运动命令（安全加固）
+**问题**：未选择机器时 `deviceId` 会回退到 `AppConfig.deviceId`（联调用的 `cnc-demo-01`）。
+也就是说——客户没选机器，Jog / 主轴 / 回零命令仍会打到那台默认设备上，属于**误操控风险**。
+
+**修复**：
+- 控制台：`canControl = idle && (hasMachine || !realMode)`
+  —— 真实后端模式（`USE_REAL_BACKEND`）必须先选机器；联调 / Mock 模式保持放开，不影响工程师调试。
+- 真实模式且未选机器时，滚动区顶部显示蓝色引导卡「请先选择要控制的机器」+「选择机器」按钮（跳「我的机器」）。
+- Jog 二级浮层同步加锁，锁定角标显示「未选择机器 · 已锁定」。
+
+## 六、待确认事项（沿用）
 
 1. 固件确认 `{"cmd":"hello"}`（MQTT `cnc/<deviceId>/cmd`，10s 一次）能喂住 15s Feed Hold 计时器。
 2. 摄像头固件按 payload 过滤（见上）。
 3. 量产前替换 MQTT 专属账号密码。
+4. 云端确认 `/api/machine/list` 的 `online` 字段实时性。
