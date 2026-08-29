@@ -95,6 +95,16 @@ final jogStepProvider = StateProvider<double>((ref) => 1.0);
 - 真实模式且未选机器时，滚动区顶部显示蓝色引导卡「请先选择要控制的机器」+「选择机器」按钮（跳「我的机器」）。
 - Jog 二级浮层同步加锁，锁定角标显示「未选择机器 · 已锁定」。
 
+### 5.3 复校补修 5 项（commit `bf425a95`）
+
+| # | 问题 | 修复 |
+|---|---|---|
+| 1 | **CI 包默认是演示(Mock)模式**。`AppConfig.useRealBackend` 默认 `false`，而工作流不传 `USE_REAL_BACKEND`。新装/重装的包界面正常但命令不下发，用户完全看不出来 | 连接状态条在 `!resolvedUseRealBackend` 时显示黄色「**演示模式 · 命令不会下发**」，并隐藏重连入口与错误文本。**默认值是否改 true 属产品决策，未擅自改动** |
+| 2 | `utf8.decode` 遇到脏字节会**抛异常**，异常冒泡到 MQTT 回调会打断订阅循环 | 两处（MQTT `_onMqtt`、TCP `listen`）均加 `allowMalformed: true` |
+| 3 | `Machine.online` 字段缺失时被当成 `false`，**所有机器显示离线**，误导客户 | 改为 `bool?`，UI 三态：在线 / 离线 / **状态未知**（灰） |
+| 4 | 未选机器时底部**停止/暂停仍可点**，会往默认联调设备发命令 | 真实模式 + 未选机器 → 整条动作条隐藏 |
+| 5 | 未选机器时标题与徽标都写「未选择机器」，重复 | 徽标改为「待选择」 |
+
 ## 六、待确认事项（沿用）
 
 1. 固件确认 `{"cmd":"hello"}`（MQTT `cnc/<deviceId>/cmd`，10s 一次）能喂住 15s Feed Hold 计时器。
