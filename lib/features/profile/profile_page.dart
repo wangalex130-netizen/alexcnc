@@ -164,8 +164,23 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
             _MenuItem(
               icon: Icons.notifications_outlined,
               title: '系统消息与历史告警',
-              trailing: const Text('2 条未读',
-                  style: TextStyle(fontSize: 12, color: CncColors.textSub)),
+              trailing: Consumer(
+                builder: (context, ref, _) {
+                  final async = ref.watch(storedMessagesProvider);
+                  return async.when(
+                    data: (list) => Text(
+                        list.isEmpty ? '暂无记录' : '${list.length} 条历史',
+                        style: const TextStyle(
+                            fontSize: 12, color: CncColors.textSub)),
+                    loading: () => const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 1.5, color: CncColors.textSub)),
+                    error: (_, __) => const SizedBox.shrink(),
+                  );
+                },
+              ),
               onTap: () => _openSheet(const _MessagesSheet()),
             ),
             _MenuItem(
@@ -464,6 +479,8 @@ class _MessagesSheetState extends ConsumerState<_MessagesSheet> {
       _msgs = list;
       _loaded = true;
     });
+    // 刷新「我的」页未读/历史数
+    ref.invalidate(storedMessagesProvider);
   }
 
   @override

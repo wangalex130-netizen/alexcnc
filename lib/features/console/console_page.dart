@@ -24,6 +24,7 @@ import '../preview/timelapse_video_page.dart';
 import '../../services/network_auth.dart';
 import '../wizard/job_monitor_page.dart';
 import '../wizard/self_check_page.dart';
+import '../workbench/jog_sheet.dart';
 
 /// 状态驱动设备控制台 (Core 3) —— 严格对齐 控制页面.html。
 ///
@@ -338,13 +339,47 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     final hw = ref.read(hardwareServiceProvider);
     // 链路连接态（云端 MQTT / 局域网 TCP 的连通状态），用于顶部连接指示。
     final conn = ref.watch(connectionStateProvider).value;
+    // 当前选中的机器：未选择时不显示任何机器状态（修复「没选机器却有 Smart 3020 待机」）。
+    final currentMachine = ref.watch(currentMachineProvider);
+    final hasMachine = currentMachine != null &&
+        (currentMachine.name.isNotEmpty || currentMachine.sn.isNotEmpty);
+    final machineTitle = hasMachine
+        ? (currentMachine!.name.isNotEmpty ? currentMachine.name : currentMachine.sn)
+        : '未选择机器';
 
     final idle = status.state == MachineState.idle;
-    final busy = status.state == MachineState.busy;
     // 终局方案（2026-08-28）：命令一律经云端 MQTT 下发，内外网权限已无区别，
     // 主动控制只由机器状态决定 —— 空闲可动，加工中/报警/回零中等禁用。
     // （历史：此前还要求 isLocalLAN 局域网直连才解锁，现已废除。）
     final canControl = idle;
+
+    // DRO 状态标签：未选机器 → 不显示任何运行状态，避免误导客户。
+    final Color stateColor = !hasMachine
+        ? CncColors.textSub
+        : status.state == MachineState.disconnected
+            ? CncColors.danger
+            : status.state == MachineState.busy
+                ? CncColors.warning
+                : status.state == MachineState.paused
+                    ? CncColors.blue
+                    : status.state == MachineState.homing
+                        ? CncColors.warning
+                        : status.state == MachineState.alarm
+                            ? CncColors.danger
+                            : CncColors.primaryInk;
+    final String stateLabel = !hasMachine
+        ? '未选择机器'
+        : status.state == MachineState.disconnected
+            ? '未连接'
+            : status.state == MachineState.busy
+                ? '加工中'
+                : status.state == MachineState.paused
+                    ? '已暂停'
+                    : status.state == MachineState.homing
+                        ? '回零中'
+                        : status.state == MachineState.alarm
+                            ? '报警'
+                            : '待机';
 
     // 乐观 UI：机器状态一旦发生任何变化，立即让本地覆盖让位给机器回传。
     if (_pausedLocal != null && _lastMachineState != null &&
@@ -377,7 +412,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
               // A3 拉流解耦：优先用「当前绑定机器」后端返回的 relay_url/cam_device；
               // 未绑定/调试期回退 runtime_config 固定地址。
               SizedBox(
-                height: 220,
+                height: 180,
                 child: RtspPreviewWidget(
                   // 真实后端模式下须登录才允许拉流（杜绝「不登录也能看」）。
                   // isLocal 现在只决定取流路径（局域网直连 / 云中继），与控制权限无关。
@@ -497,40 +532,63 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
             connState: conn,
           ),
 
-          // ---- 快捷开关 ----
-          Row(
-            children: [
-              _ToggleBtn(
-                  icon: Icons.lightbulb_outline,
-                  label: '机箱照明',
-                  active: lightOn,
-                  onTap: () {
-                    setState(() => _light = !_light);
-                    hw.setAux('light', _light);
-                  }),
-              _ToggleBtn(
-                  icon: Icons.gps_fixed,
-                  label: '红点激光',
-                  active: laserOn,
-                  onTap: () {
-                    setState(() => _laser = !_laser);
-                    hw.setAux('laser', _laser);
-                  }),
-              _ToggleBtn(
-                  icon: Icons.air,
-                  label: '冷却风扇',
-                  active: fanOn,
-                  onTap: () {
-                    setState(() => _fan = !_fan);
-                    hw.setAux('fan', _fan);
-                  }),
-            ],
+          // ---- 机器状态与坐标：常驻显示，不随内容滚动 ----
+          Container(
+            margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+            padding: const EdgeInsets.all(10),
+            decoration: _cardDeco(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(machineTitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: CncColors.textMain)),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: stateColor.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _statusDot(stateColor),
+                          const SizedBox(width: 5),
+                          Text(stateLabel,
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: stateColor)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    _DroAxis(label: 'X 轴', color: CncColors.danger, value: status.position.x),
+                    _DroAxis(label: 'Y 轴', color: CncColors.primaryInk, value: status.position.y),
+                    _DroAxis(label: 'Z 轴', color: CncColors.blue, value: status.position.z),
+                  ],
+                ),
+              ],
+            ),
           ),
 
-          // ---- 内容滚动区 ----
+          // ---- 内容滚动区：快捷开关 / Jog / 主轴 / 刀仓随内容滚动 ----
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
               children: [
                 // 机旁确认横幅：固件广播 awaitingConfirm（notify 流 confirm_required 同步触发）
                 if (status.awaitingConfirm)
@@ -680,49 +738,40 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     onDownload: () => _downloadTimeLapse(_tlJobId!),
                   ),
 
-                // 全局 DRO
+                // 快捷开关：随内容滚动（原先固定在顶部，挤压了下方 Jog 区可用空间）
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  margin: const EdgeInsets.only(bottom: 12),
                   decoration: _cardDeco(),
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Smart 3020',
-                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: CncColors.textMain)),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: busy ? CncColors.warning.withOpacity(0.15) : CncColors.primary.withOpacity(0.15),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                _statusDot(busy ? CncColors.warning : CncColors.primary),
-                                const SizedBox(width: 5),
-                                Text(
-                                  busy ? '加工中 (BUSY)' : '待机 (IDLE)',
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: busy ? CncColors.warning : CncColors.primaryInk),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          _DroAxis(label: 'X 轴', color: CncColors.danger, value: status.position.x),
-                          _DroAxis(label: 'Y 轴', color: CncColors.primaryInk, value: status.position.y),
-                          _DroAxis(label: 'Z 轴', color: CncColors.blue, value: status.position.z),
-                        ],
-                      ),
-                    ],
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Row(
+                      children: [
+                        _ToggleBtn(
+                            icon: Icons.lightbulb_outline,
+                            label: '机箱照明',
+                            active: lightOn,
+                            onTap: () {
+                              setState(() => _light = !_light);
+                              hw.setAux('light', _light);
+                            }),
+                        _ToggleBtn(
+                            icon: Icons.gps_fixed,
+                            label: '红点激光',
+                            active: laserOn,
+                            onTap: () {
+                              setState(() => _laser = !_laser);
+                              hw.setAux('laser', _laser);
+                            }),
+                        _ToggleBtn(
+                            icon: Icons.air,
+                            label: '冷却风扇',
+                            active: fanOn,
+                            onTap: () {
+                              setState(() => _fan = !_fan);
+                              hw.setAux('fan', _fan);
+                            }),
+                      ],
+                    ),
                   ),
                 ),
 
@@ -736,6 +785,12 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     onJog: (axis, d) => hw.jog(axis, d),
                     onSetZero: () => hw.setWorkZero(),
                     onHome: () => hw.home(),
+                    onExpand: () => showModalBottomSheet(
+                      context: context,
+                      backgroundColor: Colors.transparent,
+                      isScrollControlled: true,
+                      builder: (_) => JogSheet(hw: hw),
+                    ),
                   ),
                   const SizedBox(height: 12),
                   const _SectionTitle('主轴调试 (Spindle)'),
@@ -759,15 +814,19 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
             ),
           ),
 
-          // ---- 底部动作条 ----
+          // ---- 底部动作条（2026-08-29 瘦身：原 24px 底部留白 + 56px 高按钮
+          // 吃掉了滚动区高度，导致 Jog 显示不全；现压到 40px 高、留白减半）----
           Container(
-            padding: const EdgeInsets.fromLTRB(15, 10, 15, 24),
-            color: CncColors.panel,
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+            decoration: BoxDecoration(
+              color: CncColors.panel,
+              border: Border(top: BorderSide(color: CncColors.border)),
+            ),
             child: Row(
               children: [
                 Expanded(
                   child: _ActionBtn(
-                    icon: Icons.stop,
+                    icon: Icons.stop_rounded,
                     label: '停止',
                     fg: CncColors.danger,
                     bg: CncColors.danger.withOpacity(0.15),
@@ -805,7 +864,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 const SizedBox(width: 10),
                 Expanded(
                   child: _ActionBtn(
-                    icon: isPaused ? Icons.play_arrow : Icons.pause,
+                    icon: isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
                     label: isPaused ? '继续' : '暂停',
                     fg: CncColors.textMain,
                     bg: const Color(0xFFEDEFF2),
@@ -1082,16 +1141,62 @@ class _JogCard extends StatelessWidget {
   final void Function(String axis, double d) onJog;
   final VoidCallback onSetZero;
   final VoidCallback onHome;
-  const _JogCard({this.enabled = true, required this.onJog, required this.onSetZero, required this.onHome});
+  /// 打开二级「手动移动」浮层（大按键 + 步进档位），便于精细对刀。
+  final VoidCallback? onExpand;
+  const _JogCard(
+      {this.enabled = true,
+      required this.onJog,
+      required this.onSetZero,
+      required this.onHome,
+      this.onExpand});
 
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.all(10),
         decoration: _cardDeco(),
-        child: Row(
+        child: Column(
           children: [
-            // XY 九宫格
-            Expanded(
+            // 标题行：右侧「展开」进入二级浮层（大按键，便于精细移动）
+            Row(
+              children: [
+                const Expanded(
+                  child: Text('手动移动',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: CncColors.textMain)),
+                ),
+                if (onExpand != null)
+                  GestureDetector(
+                    onTap: onExpand,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEDEFF2),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: CncColors.border),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.open_in_full, size: 12, color: CncColors.primaryInk),
+                          SizedBox(width: 4),
+                          Text('展开',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: CncColors.primaryInk)),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                // XY 九宫格
+                Expanded(
               child: GridView.count(
                 crossAxisCount: 3,
                 shrinkWrap: true,
@@ -1141,6 +1246,8 @@ class _JogCard extends StatelessWidget {
                   _HomeBtn(icon: Icons.home_outlined, label: '回零', onTap: onHome, enabled: enabled),
                 ],
               ),
+            ),
+              ],
             ),
           ],
         ),
@@ -1560,21 +1667,21 @@ class _ActionBtn extends StatelessWidget {
   Widget build(BuildContext context) => GestureDetector(
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 14),
+          padding: const EdgeInsets.symmetric(vertical: 9),
           decoration: BoxDecoration(
             color: bg,
             border: Border.all(color: border),
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(8),
           ),
           child: Center(
             child: icon == null
-                ? Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: fg))
+                ? Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: fg))
                 : Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(icon, size: 18, color: fg),
-                      const SizedBox(width: 6),
-                      Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: fg)),
+                      Icon(icon, size: 16, color: fg),
+                      const SizedBox(width: 5),
+                      Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: fg)),
                     ],
                   ),
           ),

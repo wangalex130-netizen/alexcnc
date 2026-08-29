@@ -131,6 +131,12 @@ final messageStoreProvider = Provider<MessageStore>((ref) {
   return store;
 });
 
+/// 本地持久化的历史消息列表（用于「我的」页未读数 / 消息抽屉）。
+/// 抽屉关闭后会 [ref.invalidate] 它，保证外部数字实时刷新。
+final storedMessagesProvider = FutureProvider<List<StoredMessage>>((ref) {
+  return MessageStore.instance.load();
+});
+
 /// 雕刻作业明细流（docs/03 §10.5 cnc/<deviceId>/job）。
 final jobProgressProvider = StreamProvider<JobProgress>((ref) {
   return ref.watch(hardwareServiceProvider).jobStream;

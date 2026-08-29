@@ -23,7 +23,7 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
 
 ---
 
-## 1. 三大设计原则（对接时必须遵守）
+## 1. 四大设计原则（对接时必须遵守）
 
 1. **ESP32 是唯一真值源（SSOT）**
    App 不裁决坐标、刀仓、状态；它只监听 ESP32 广播的状态并渲染。所有 `MachineStatus` 由 MCU 产生。
@@ -38,6 +38,14 @@ App  UI  ──调用──▶  HardwareService / CloudService（抽象接口）
    **是否可执行只由机器状态决定**（`idle` 可执行；`busy`/`paused`/`homing`/`alarm`/`disconnected` 由固件侧安全逻辑裁决）。
    > 历史口径（已废弃）：同 Wi-Fi = 全功能、公网 = 监视模式锁 Jog。
    > `isLocalLAN` 现仅用于选择摄像头取流路径（局域网 RTSP 直连 / 云中继 MJPEG），**不再参与鉴权**。
+4. **载荷编码统一 UTF-8（2026-08-29 新增，各端必须遵守）**
+   MQTT 载荷（status / notify / broadcast / job / sys）一律 **UTF-8 编码**。
+   App 侧已改为 `utf8.decode(payloadBytes)`——此前误用
+   `MqttPublishPayload.bytesToStringAsString`，该方法按 **Latin1** 解码，
+   含中文的 `msg` / `body` 会变成 `æºåº` 之类乱码，并已被落盘进「系统消息与历史告警」。
+   > 各端自检：固件（cJSON）/ 云网关发布含中文的 JSON 时确认走 UTF-8。
+   > cJSON 默认输出即为 UTF-8；若用 `snprintf("%s")` 逐字节拼装或从 GBK 源串拷贝，
+   > 需确认未发生二次转码。App 侧对存量脏数据已加自动还原（Latin1 → UTF-8 字节 → utf8.decode）。
 
 ---
 

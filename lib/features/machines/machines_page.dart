@@ -290,12 +290,46 @@ class _MachineCard extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      machine.sn.isEmpty ? '未配置机器码' : machine.sn,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: CncColors.textSub,
-                      ),
+                    Row(
+                      children: [
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            color: machine.sn.isEmpty
+                                ? CncColors.textSub
+                                : (machine.online
+                                    ? CncColors.primary
+                                    : CncColors.danger),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          machine.sn.isEmpty
+                              ? '未配置'
+                              : (machine.online ? '在线' : '离线'),
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: machine.sn.isEmpty
+                                ? CncColors.textSub
+                                : (machine.online
+                                    ? CncColors.primaryInk
+                                    : CncColors.danger),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            machine.sn.isEmpty ? '未配置机器码' : machine.sn,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: CncColors.textSub,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     if (machine.boundAt != null &&
                         machine.boundAt!.isNotEmpty)

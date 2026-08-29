@@ -333,8 +333,9 @@ class RealHardwareService implements HardwareService {
     for (final ev in events) {
       final msg = ev.payload;
       if (msg is! MqttPublishMessage) continue;
-      final payload =
-          MqttPublishPayload.bytesToStringAsString(msg.payload.message);
+      // mqtt_client 的 bytesToStringAsString 按 Latin1 解码，中文会乱码。
+      // 协议文本是 UTF-8，所以必须显式用 utf8.decode。
+      final payload = utf8.decode(msg.payload.message);
       // 遥测帧（QoS0 高频）：仅驱动 telemetryStream，不进 statusStream。
       if (ev.topic == mqttTelemetryTopic) {
         _handleTelemetry(payload);

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -173,27 +175,66 @@ class _JogSheetState extends ConsumerState<JogSheet> {
   }
 }
 
-class _JogKey extends StatelessWidget {
+class _JogKey extends StatefulWidget {
   final String label;
   final VoidCallback onTap;
   final bool enabled;
   final bool tall;
   const _JogKey(this.label, this.onTap,
       {this.enabled = true, this.tall = false});
+
+  @override
+  State<_JogKey> createState() => _JogKeyState();
+}
+
+class _JogKeyState extends State<_JogKey> {
+  Timer? _repeat;
+  bool _holding = false;
+
+  /// 按下即走一步；按住 500ms 后转入连续点动（每 180ms 一步），
+  /// 解决「一次点动只走 0.1mm、对刀要点几十次」的操作痛点。
+  void _start() {
+    if (!widget.enabled) return;
+    if (mounted) setState(() => _holding = true);
+    widget.onTap();
+    _repeat?.cancel();
+    _repeat = Timer(const Duration(milliseconds: 500), () {
+      _repeat = Timer.periodic(const Duration(milliseconds: 180), (_) {
+        if (widget.enabled) widget.onTap();
+      });
+    });
+  }
+
+  void _stop() {
+    _repeat?.cancel();
+    _repeat = null;
+    if (mounted && _holding) setState(() => _holding = false);
+  }
+
+  @override
+  void dispose() {
+    _repeat?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) => GestureDetector(
-        onTap: enabled ? onTap : null,
+        onTapDown: (_) => _start(),
+        onTapUp: (_) => _stop(),
+        onTapCancel: _stop,
+        onLongPressEnd: (_) => _stop(),
         child: Opacity(
-          opacity: enabled ? 1 : 0.45,
+          opacity: widget.enabled ? 1 : 0.45,
           child: Container(
-            height: tall ? 44 : 40,
+            height: widget.tall ? 44 : 40,
             decoration: BoxDecoration(
-              color: CncColors.panelAlt,
+              color: _holding ? CncColors.primary.withOpacity(0.22) : CncColors.panelAlt,
               borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: CncColors.border),
+              border: Border.all(
+                  color: _holding ? CncColors.primary : CncColors.border),
             ),
             child: Center(
-              child: Text(label,
+              child: Text(widget.label,
                   style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.bold,

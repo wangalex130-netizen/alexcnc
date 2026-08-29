@@ -43,12 +43,34 @@ class StoredMessage {
   factory StoredMessage.fromJson(Map<String, dynamic> j) => StoredMessage(
         source: (j['source'] as String?) ?? 'notify',
         type: (j['type'] as String?) ?? '',
-        title: (j['title'] as String?) ?? '',
-        body: (j['body'] as String?) ?? '',
+        title: _repairMojibake((j['title'] as String?) ?? ''),
+        body: _repairMojibake((j['body'] as String?) ?? ''),
         at: DateTime.tryParse((j['at'] as String?) ?? '') ?? DateTime.now(),
         isAlarm: j['isAlarm'] == true,
         isWarn: j['isWarn'] == true,
       );
+
+  /// 修复历史乱码：早期 MQTT 用 `bytesToStringAsString`（Latin1）解码 UTF-8 载荷，
+  /// 中文被拆成一堆 Latin1 高层字符（"æºåº" 之类）并已落盘。
+  /// 现网载荷已改用 utf8.decode，这里只把**存量脏数据**还原：
+  /// Latin1 字符 → 原始 UTF-8 字节 → utf8.decode。
+  /// 合法 Unicode（含正常中文，码位 > 0xFF）原样返回，不做任何处理。
+  static String _repairMojibake(String s) {
+    if (s.isEmpty) return s;
+    var hasHigh = false;
+    for (final cu in s.codeUnits) {
+      if (cu > 0xFF) return s; // 已是合法多字节字符（如正常中文）
+      if (cu >= 0x80) hasHigh = true;
+    }
+    if (!hasHigh) return s; // 纯 ASCII
+    try {
+      final fixed = utf8.decode(latin1.encode(s));
+      if (fixed.contains('\uFFFD')) return s; // 解出替换字符，放弃修复
+      return fixed;
+    } catch (_) {
+      return s;
+    }
+  }
 
   factory StoredMessage.fromNotify(NotifyEvent e) => StoredMessage(
         source: 'notify',
