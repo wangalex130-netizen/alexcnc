@@ -231,23 +231,21 @@ class _MachineCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 在线状态三态：在线 / 离线 / 未知（后端未返回 online 字段）。
-    // 未知时不能当离线显示，否则客户会以为所有机器都不可用。
+    // 在线状态：对客户只分「在线 / 不在线」两种。
+    // 后端未返回 online 字段时也归为不在线 —— 客户只关心这台现在能不能用，
+    // "状态未知"这种技术化措辞没有意义（2026-08-29 按用户反馈把三态合并为两态）。
     final online = machine.online;
     final String statusText;
     final Color statusColor;
     if (machine.sn.isEmpty) {
       statusText = '未配置';
       statusColor = CncColors.textSub;
-    } else if (online == null) {
-      statusText = '状态未知';
-      statusColor = CncColors.textSub;
-    } else if (online) {
+    } else if (online == true) {
       statusText = '在线';
       statusColor = CncColors.primary;
     } else {
-      statusText = '离线';
-      statusColor = CncColors.danger;
+      statusText = '不在线';
+      statusColor = CncColors.textSub;
     }
 
     return InkWell(

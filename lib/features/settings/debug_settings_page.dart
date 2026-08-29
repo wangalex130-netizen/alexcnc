@@ -162,11 +162,11 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('启用真实后端 (Real)',
+                      const Text('启用真实设备连接',
                           style: TextStyle(
                               color: CncColors.textMain, fontSize: 14)),
                       const SizedBox(height: 2),
-                      const Text('关闭则回落 Mock 演示数据',
+                      const Text('关闭则只演示：命令不会下发给机器',
                           style: TextStyle(
                               color: CncColors.textSub, fontSize: 11)),
                     ],

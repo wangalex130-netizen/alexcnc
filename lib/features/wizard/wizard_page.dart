@@ -1111,7 +1111,6 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                     defId: magazine[s],
                     procSlot: widget.procSlot,
                     confirmed: widget.confirmed,
-                    onTap: () {},
                   ))
               .toList(),
         ),
@@ -1215,13 +1214,13 @@ class _Slot extends StatelessWidget {
   final String? defId;
   final Map<int, int> procSlot; // 工序 index → 物理刀兜（用于同步显示工序标签）
   final Set<int> confirmed; // 已实物确认的工序 index（防呆）
-  final VoidCallback onTap;
-  const _Slot(
-      {required this.slot,
-      required this.defId,
-      required this.procSlot,
-      required this.confirmed,
-      required this.onTap});
+  // onTap 已移除：这是只读展示，套 GestureDetector 会给出错误的可点暗示。
+  const _Slot({
+    required this.slot,
+    required this.defId,
+    required this.procSlot,
+    required this.confirmed,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1234,19 +1233,20 @@ class _Slot extends StatelessWidget {
         : procSlot.entries.firstWhere((e) => e.value == slot);
     final proc = procEntry?.key;
     final isConfirmed = proc != null && confirmed.contains(proc);
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        children: [
-          Stack(
-            alignment: Alignment.topCenter,
-            children: [
-              Container(
-                width: 62,
-                height: 62,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: ring, width: 3),
+    // 刀位卡片是**只读状态展示**，不可点击。
+    // 此前外面套了 GestureDetector 但回调是空的（onTap: () {}），
+    // 视觉上像可按、按下去却毫无反应，是典型的误导性交互。已去掉可点外观。
+    return Column(
+      children: [
+        Stack(
+          alignment: Alignment.topCenter,
+          children: [
+            Container(
+              width: 62,
+              height: 62,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: ring, width: 3),
                   color: ring.withOpacity(0.12),
                 ),
                 child: Center(
@@ -1308,8 +1308,7 @@ class _Slot extends StatelessWidget {
                   style: const TextStyle(
                       fontSize: 9, color: CncColors.textSub)),
             ),
-        ],
-      ),
+      ],
     );
   }
 }

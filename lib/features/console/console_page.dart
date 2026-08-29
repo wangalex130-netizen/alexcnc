@@ -26,6 +26,7 @@ import '../wizard/job_monitor_page.dart';
 import '../wizard/self_check_page.dart';
 import '../workbench/jog_sheet.dart';
 import '../machines/machines_page.dart';
+import '../settings/debug_settings_page.dart';
 
 /// 状态驱动设备控制台 (Core 3) —— 严格对齐 控制页面.html。
 ///
@@ -596,6 +597,64 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
             child: ListView(
               padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
               children: [
+                // 演示模式提醒：CI 包默认 USE_REAL_BACKEND=false，此时用的是 Mock 服务，
+                // 界面一切正常但命令根本不会下发到真机。必须显式告知 + 给出一键开启入口，
+                // 否则会被误解成"机器没在线"。
+                if (!realMode)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: CncColors.warning.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: CncColors.warning.withOpacity(0.5)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: const [
+                            Icon(Icons.science_outlined, size: 16, color: CncColors.warning),
+                            SizedBox(width: 6),
+                            Expanded(
+                              child: Text('演示模式',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: CncColors.textMain)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                            '当前未连接真实设备，画面与状态仅供演示，'
+                            '移动 / 主轴等命令不会真正下发。与机器是否开机无关。',
+                            style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                  builder: (_) => const DebugSettingsPage()),
+                            ),
+                            icon: const Icon(Icons.tune, size: 16),
+                            label: const Text('开启真实设备连接',
+                                style: TextStyle(
+                                    fontSize: 13, fontWeight: FontWeight.bold)),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: CncColors.warning,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8)),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
                 // 未选择机器引导：真实后端模式下禁止下发任何运动命令，
                 // 避免打到默认的联调设备（cnc-demo-01）上。
                 if (realMode && !hasMachine)
@@ -1279,13 +1338,7 @@ class _JogCard extends StatelessWidget {
                   _JogBtn('Y+', () => onJog('y', 1), enabled: enabled),
                   const SizedBox(),
                   _JogBtn('X-', () => onJog('x', -1), enabled: enabled),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE6E9ED),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: const Center(child: Text('XY', style: TextStyle(fontSize: 10, color: Color(0xFF555555)))),
-                  ),
+                  _axisLabel('XY'),
                   _JogBtn('X+', () => onJog('x', 1), enabled: enabled),
                   const SizedBox(),
                   _JogBtn('Y-', () => onJog('y', -1), enabled: enabled),
@@ -1300,7 +1353,9 @@ class _JogCard extends StatelessWidget {
               child: Column(
                 children: [
                   _JogBtn('Z+', () => onJog('z', 1), enabled: enabled),
-                  _JogBtn('Z', () => onJog('z', 0), plain: true, enabled: enabled),
+                  // 轴标签（装饰、不可点）。此前这里是一个会下发 jog(z, 0) 的按钮：
+                  // 点了毫无反应，还会往机器发一条 0mm 的空命令并刷新固件 Feed Hold 计时器。
+                  _axisLabel('Z'),
                   _JogBtn('Z-', () => onJog('z', -1), enabled: enabled),
                 ],
               ),
@@ -1323,6 +1378,24 @@ class _JogCard extends StatelessWidget {
         ),
       );
 }
+
+/// 坐标轴标签（XY / Z）：**纯装饰、不可点击**。
+/// 刻意做成无边框 + 更淡的底色与文字，与真正的 Jog 按键在视觉上区分开，
+/// 避免被误认为可以按（历史上 Z 曾是按钮且会下发 0mm 空命令）。
+Widget _axisLabel(String text) => Container(
+      height: 38,
+      decoration: BoxDecoration(
+        color: CncColors.bg,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Center(
+        child: Text(text,
+            style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: CncColors.textSub)),
+      ),
+    );
 
 class _JogBtn extends StatelessWidget {
   final String label;
