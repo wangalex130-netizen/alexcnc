@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../models/broadcast_message.dart';
+import '../models/camera_stream_state.dart';
 import '../models/job_progress.dart';
 import '../models/machine_status.dart';
 import '../models/notify_event.dart';
@@ -41,6 +42,13 @@ abstract class HardwareService {
   /// 机器系统帧流（docs/03 §10.6 `cnc/<deviceId>/sys`，QoS1 + retain，上电一次）。
   /// 设备身份 / 机型 / 固件版本 / 局域网 IP / 启动时间戳，用于设备信息展示与诊断。
   Stream<SysInfo> get sysStream;
+
+  /// 摄像头推流状态流（docs/03 `cnc/<deviceId>/cam`）。
+  /// 摄像头对 `stream_start` / `stream_stop` 的回执（`{"streaming":true/false}`）
+  /// 与上下线帧（`{"online":true/false}`）。
+  /// App 据此判断摄像头是否真的启动了推流，避免只能干等第一帧 MJPEG。
+  /// 未订阅该主题（如 Mock）时为空流。
+  Stream<CameraStreamState> get cameraStream;
 
   Future<void> connect();
   Future<void> disconnect();
@@ -100,6 +108,14 @@ abstract class HardwareService {
   /// 最近一次连接/掉线的错误信息（仅用于 UI 诊断）。
   /// null 表示尚未失败或错误已被清除。
   String? get lastConnectionError;
+
+  /// 被 broker 拒绝的订阅主题（SUBACK 返回 0x80）。
+  ///
+  /// `deny_action=ignore` 下被拒的订阅**不会断线、界面也无任何异常** ——
+  /// App 只是永远收不到该主题的帧。这类故障极难排查（表现为"点了没反应"），
+  /// 因此在这里显式暴露出来，供联调设置 / 诊断展示。
+  /// Mock 恒为空。
+  List<String> get deniedSubscriptions;
 
   /// 手动触发一次重连（取消等待中的退避计时，立即重试）。
   Future<void> reconnect();

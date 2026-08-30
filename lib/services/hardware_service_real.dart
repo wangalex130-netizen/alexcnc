@@ -7,6 +7,7 @@ import 'package:mqtt_client/mqtt_server_client.dart';
 
 import '../app/config.dart';
 import '../models/broadcast_message.dart';
+import '../models/camera_stream_state.dart';
 import '../models/job_progress.dart';
 import '../models/machine_status.dart';
 import '../models/notify_event.dart';
@@ -60,6 +61,12 @@ class RealHardwareService implements HardwareService {
   final _jobCtrl = StreamController<JobProgress>.broadcast();
   /// 机器系统帧流（docs/03 §10.6 cnc/<deviceId>/sys，QoS1 + retain，上电一次）。
   final _sysCtrl = StreamController<SysInfo>.broadcast();
+
+  /// 摄像头推流状态（cnc/<deviceId>/cam）。2026-08-30 补：此前 App 未订阅该主题。
+  final _camCtrl = StreamController<CameraStreamState>.broadcast();
+
+  /// 被 broker 拒绝的订阅主题（SUBACK 0x80）。见 [deniedSubscriptions]。
+  final List<String> _deniedSubs = <String>[];
   MqttServerClient? _mqtt;
   Socket? _tcp;
   bool _tcpConnected = false;
@@ -139,6 +146,12 @@ class RealHardwareService implements HardwareService {
   ///  {id, model, fw, ip, bootAt}
   String get mqttSysInfoTopic => 'cnc/$deviceId/sys';
 
+  /// 摄像头状态主题（docs/03 §camera-on-demand）：cnc/<deviceId>/cam
+  ///  摄像头固件发布 {"streaming":true/false}（流控回执）与 {"online":true/false}（上下线）。
+  ///  注意：**不是** cnc/<deviceId>/status —— status 是机器状态专用主题，
+  ///  摄像头发过去会被 App 解析成 idle，导致加工中 Jog 被误解锁（08-29 安全修复）。
+  String get mqttCamStatusTopic => 'cnc/$deviceId/cam';
+
   @override
   Stream<MachineStatus> get statusStream => _ctrl.stream;
 
@@ -162,6 +175,10 @@ class RealHardwareService implements HardwareService {
   @override
   Stream<SysInfo> get sysStream => _sysCtrl.stream;
 
+  /// 摄像头推流状态流：UI 订阅以判断摄像头是否真的启动了推流。
+  @override
+  Stream<CameraStreamState> get cameraStream => _camCtrl.stream;
+
   /// 连接态流：connecting / connected / disconnected，UI 订阅以显示链路状态。
   Stream<LinkState> get connectionState => _connCtrl.stream;
   LinkState get currentLinkState => _conn;
@@ -169,6 +186,9 @@ class RealHardwareService implements HardwareService {
   /// 最近一次连接失败的错误信息，供 UI 诊断用。
   @override
   String? get lastConnectionError => _lastConnError;
+
+  @override
+  List<String> get deniedSubscriptions => List<String>.unmodifiable(_deniedSubs);
 
   /// 取消退避计时并立即重试一次（用于 UI 手动重连 / 设置页诊断）。
   @override
@@ -230,6 +250,17 @@ class RealHardwareService implements HardwareService {
       client.keepAlivePeriod = 30;
       client.logging(on: false);
       client.onDisconnected = _onMqttDisconnected;
+      // 订阅被 broker 拒绝（SUBACK 0x80）时记录。
+      // deny_action=ignore 下连接照常、界面无异常，只是永远收不到该主题的帧 ——
+      // 这是最难排查的一类故障（表现为"点了没反应"），必须显式留痕。
+      // 2026-08-30：cnc/<id>/cam 当前就处于这个状态（acl.conf 未给 app-demo 开订阅）。
+      client.onSubscribeFail = (String topic) {
+        if (!_deniedSubs.contains(topic)) {
+          _deniedSubs.add(topic);
+        }
+        // ignore: avoid_print
+        print('[MQTT] subscribe DENIED (ACL): $topic');
+      };
       // App LWT：断线时 Broker 代发 offline（retain），使其他端能感知 App 掉线。
       // 上线后下方主动发布 online（retain）覆盖，呈现"在线"最新态。
       // 注意：acl.conf 需放行 app-demo 对 cnc/<deviceId>/app 的 PUBLISH，否则 will 被丢弃（连接仍成功）。
@@ -254,6 +285,13 @@ class RealHardwareService implements HardwareService {
         // docs/03 §6/§7 系统级广播（全局主题，任意设备发起的事件/消息）
         client.subscribe(mqttBroadcastTopic, MqttQos.atLeastOnce);
         client.subscribe(mqttSystemTopic, MqttQos.atLeastOnce);
+        // 摄像头推流状态（2026-08-30 补订阅）：此前未订阅，导致发出 stream_start 后
+        // 无法确认摄像头是否真的启动，只能干等第一帧 MJPEG（实测约一二十秒）。
+        // ⚠️ 依赖 broker 侧：app-demo 的 subscribe 白名单需包含 cnc/+/cam
+        //    （见 docs/38 的 M-5）。当前 acl.conf:23 尚未包含，
+        //    在开通前这一行会被静默拒绝（deny_action=ignore，SUBACK 0x80 无提示），
+        //    由 onSubscribeFail 回调暴露出来，不会影响其它订阅。
+        client.subscribe(mqttCamStatusTopic, MqttQos.atLeastOnce);
         // V1.1（docs/03 §10.5/§10.6）设备→服务器上行主题（QoS1 + retain）。
         // 受 broker ACL 限制，默认不订阅；等服务器 ACL 开放后再启用。
         if (AppConfig.v11MqttTopicsEnabled) {
@@ -363,6 +401,13 @@ class RealHardwareService implements HardwareService {
         _handleSys(payload);
         continue;
       }
+      // 摄像头推流状态帧（cnc/<deviceId>/cam）：emit 到 cameraStream，不进 statusStream。
+      // 注意：绝不能让摄像头帧流进 _parseAndEmit —— status 主题是机器状态专用，
+      // 摄像头帧没有 state/pos，会被解析成 idle 从而误解锁 Jog（08-29 安全修复）。
+      if (ev.topic == mqttCamStatusTopic) {
+        _handleCam(payload);
+        continue;
+      }
       _parseAndEmit(payload);
     }
   }
@@ -458,6 +503,22 @@ class RealHardwareService implements HardwareService {
       }
     } catch (_) {
       // 非预期系统帧静默忽略
+    }
+  }
+
+  /// 摄像头推流状态帧解析（docs/03 §camera-on-demand）：emit 到 cameraStream。
+  /// 只认 `streaming` / `online` 两个字段；两者皆无的帧视为无效，直接丢弃，
+  /// 避免把摄像头帧误当成机器状态帧（会导致 Jog 误解锁）。
+  void _handleCam(String payload) {
+    try {
+      final j = jsonDecode(payload) as Map<String, dynamic>;
+      final s = CameraStreamState.fromJson(j);
+      if (s.isEmpty) return;
+      if (!_camCtrl.isClosed) {
+        _camCtrl.add(s);
+      }
+    } catch (_) {
+      // 非预期摄像头帧静默忽略
     }
   }
 
@@ -765,6 +826,7 @@ class RealHardwareService implements HardwareService {
     _broadcastCtrl.close();
     _jobCtrl.close();
     _sysCtrl.close();
+    _camCtrl.close();
     _connCtrl.close();
   }
 }

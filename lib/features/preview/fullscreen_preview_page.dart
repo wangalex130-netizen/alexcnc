@@ -8,6 +8,7 @@ import 'package:image_gallery_saver_plus/image_gallery_saver_plus.dart';
 
 import '../../app/config.dart';
 import '../../app/runtime_config.dart';
+import '../../models/camera_stream_state.dart';
 import '../../services/hardware_service.dart';
 import '../../services/machines_service.dart';
 import '../../state/auth_provider.dart';
@@ -49,6 +50,19 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
   late final HardwareService _hw;
   StreamSubscription<LinkState>? _connSub;
 
+  /// 摄像头状态帧订阅（docs/03 `cnc/<deviceId>/cam`）。
+  /// 2026-08-30 补：此前 App 不订阅该主题，只能干等第一帧 MJPEG（实测一二十秒），
+  /// 也无法区分「摄像头没收到命令」和「收到命令但推流失败」。
+  StreamSubscription<CameraStreamState>? _camSub;
+
+  /// 摄像头是否已回执 `{"streaming":true}`（用于把"启动中"细化成"已启动·等待画面"）。
+  bool _camAcked = false;
+
+  /// 续租计时器（docs/38 A-6）：摄像头侧若启用"无续租则停推"的看门狗，
+  /// App 必须周期性补发 stream_start，否则画面会在看门狗超时后中断。
+  /// 仅在真实模式 + 已登录 + 已选机器时启动。
+  Timer? _renewTimer;
+
   /// 摄像头设备 ID = 机器码（= 摄像头 ID）；无机器时回退配置默认值。
   String get _cameraDeviceId {
     final m = widget.machine;
@@ -74,7 +88,11 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
     // 真实后端（量产）模式下，未登录/未选机器禁止直拉硬编码演示流；
     // demo 模式（useRealBackend=false）保留兜底默认地址，便于本机联调。
     if (realMode) return '';
-    return '${cfg.resolvedCameraRelayBaseUrl}/stream/${cfg.resolvedCameraRelayDevice}'
+    // 兜底设备码默认已置空（docs/38 A-1），为空时返回空地址并提示选择机器，
+    // 避免拼出 /stream/?token=... 这类无效地址导致无限转圈。
+    final dev = cfg.resolvedCameraRelayDevice;
+    if (dev.isEmpty) return '';
+    return '${cfg.resolvedCameraRelayBaseUrl}/stream/$dev'
         '?token=${cfg.resolvedCameraRelayToken}';
   }
 
@@ -104,6 +122,29 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
           _hw.sendCameraStream('stream_start', deviceId: _cameraDeviceId);
         }
       });
+      // A-6 续租：摄像头固件若带「无续租则停推」看门狗，本页存活期间须周期性补发。
+      // 周期 30s 远小于约定的 90s 看门狗窗口，留足两倍以上冗余。
+      // 注意：看门狗必须与本续租**配套**上线，否则画面会在 90s 时断掉（docs/38 C-2）。
+      if (_cameraDeviceId.isNotEmpty) {
+        _renewTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+          if (!mounted) return;
+          _hw.sendCameraStream('stream_start', deviceId: _cameraDeviceId);
+        });
+      }
+      // A-3：订阅摄像头状态帧，用于把"启动中"细化成"已启动·等待画面"。
+      // 该订阅需要 broker 侧给 app-demo 开通 cnc/+/cam 订阅权限（docs/38 M-5），
+      // 未开通时被拒也不会影响其它订阅（deny_action=ignore），仅本信号失效。
+      _camSub = _hw.cameraStream.listen((s) {
+        if (!mounted) return;
+        if (s.streaming == true && !_camAcked) {
+          setState(() => _camAcked = true);
+        } else if (s.streaming == false && _camAcked) {
+          setState(() => _camAcked = false);
+        }
+        if (s.online == false) {
+          _setCamLink(_CamLink.error, '摄像头离线');
+        }
+      });
     }
   }
 
@@ -122,6 +163,8 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
   @override
   void dispose() {
     _connSub?.cancel();
+    _camSub?.cancel();
+    _renewTimer?.cancel();
     // 退出预览即停推流（按需推流模型），省带宽/电量、延寿、护隐私。
     final cfg = ref.read(runtimeConfigProvider);
     final realMode = cfg.resolvedUseRealBackend;
@@ -266,7 +309,9 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
                               ? '已连接'
                               : _camLink == _CamLink.error
                                   ? '无信号'
-                                  : '启动中…',
+                                  : _camAcked
+                                      ? '已启动·等待画面'
+                                      : '启动中…',
                           style: const TextStyle(color: Colors.white, fontSize: 12),
                         ),
                       ],

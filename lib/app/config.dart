@@ -36,10 +36,13 @@ class AppConfig {
     defaultValue: 'lunyee-cnc-relay-7k2p',
   );
   // 2026-08-25 对齐「量产统一机器码」决策：摄像头 device_id = 机器码（同一字符串）。
-  // 测试机机器码为 cnc-demo-01，故兜底默认值同步改为 cnc-demo-01。
+  // 2026-08-30：兜底默认值由 'cnc-demo-01' 改为**空**。
+  // 真实模式下拉流设备码取「当前选中机器」的 sn；留空时由调用方返回空 URL 并提示
+  // 「请先选择机器」，而不是静默去拉某一台写死的机器（见 docs/38 A-1）。
+  // 联调需要固定目标时用 --dart-define=CAMERA_RELAY_DEVICE=<机器码> 覆盖。
   static const String cameraRelayDevice = String.fromEnvironment(
     'CAMERA_RELAY_DEVICE',
-    defaultValue: 'cnc-demo-01',
+    defaultValue: '',
   );
 
   // ---- 后端选择 ----
@@ -92,8 +95,13 @@ class AppConfig {
       int.fromEnvironment('DEVICE_TCP_PORT', defaultValue: 8899);
 
   // ---- 设备标识（用于 MQTT topic 与云端任务下发目标）----
+  // 2026-08-30：默认值由 'cnc-demo-01' 改为**空**。
+  // 真实模式下设备 ID 一律来自「用户选中的绑定机器」的 sn（后端 code 字段）；
+  // 把某个机器码写死在默认值里，会让"未选机器"时静默指向某一台具体机器
+  // —— 测试期是串台，量产期是事故（见 docs/38 A-1）。
+  // 联调需要固定目标时用 --dart-define=DEVICE_ID=<机器码> 覆盖，不写死在默认值里。
   static const String deviceId =
-      String.fromEnvironment('DEVICE_ID', defaultValue: 'cnc-demo-01');
+      String.fromEnvironment('DEVICE_ID', defaultValue: '');
 
   // ---- App 用户标识（不再参与 MQTT clientId 派生）----
   // 终局方案（2026-08-28）：MQTT clientId 固定为 android-<deviceId>，与 userId 无关。

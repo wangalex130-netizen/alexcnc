@@ -135,7 +135,17 @@ App 每 **10 秒**往 `cnc/<deviceId>/cmd` 发一次心跳 `{"cmd":"hello"}`
 | M-1 | 确认 `cam-cnc-demo-01` **客户端**是否已自动消失（摄像头重刷成 03 后应已掉线），如仍在请踢除 | ✅ 可以发。（账号建议**暂不删**，留作回退；只清理在线客户端） |
 | M-2 | ~~预备：若为 01 则补 `cam-cnc-demo-01` 账号~~ | ✅ **已作废** —— 0.3 已确认绑的是 03，不需要回退到 01 |
 | M-3 | 仓库 `DENY_ACTION` 改 `ignore`（对齐线上） | ✅ 可以发。**两个文件都要改**：`docker-compose.cloud.yml:43` 与 `docker-compose.emqx.yml:40`，两处都是 `disconnect`。`docker-compose.mosquitto.yml` 不涉及（它用 mosquitto 的 acl.conf，不是 EMQX 环境变量） |
+| **M-5** | **`acl.conf` 给 `app-demo` 的 subscribe 白名单补 `cnc/+/cam`** | ⏳ **App 侧已改完并依赖它** |
+
+> **M-5 说明（2026-08-30 App 侧改代码时发现）**：
+> App 已补上订阅 `cnc/<deviceId>/cam`（用于接收摄像头 `{"streaming":true}` 回执，
+> 解决"点播放后要干等一二十秒"）。但 `acl.conf:23` 里 `app-demo` 的 subscribe 白名单
+> **不含 `cnc/+/cam`** → 该订阅会被静默拒绝（`no_match=deny` + `deny_action=ignore`，SUBACK 0x80）。
+> **影响**：不开通的话 App 只是收不到摄像头回执（退回"干等第一帧"的旧行为），
+> 不影响机器控制和画面本身，**不是阻塞项**，但会让 A-3 的效果出不来。
+> 行内改法：在 `acl.conf:23` 的 subscribe 数组里加一项 `"cnc/+/cam"`，然后重启 EMQX。
 | M-4 | 把 `svc-bridge-aliyun-api` 的密码**通过单独安全渠道**给用户（不要发群/仓库） | ⏳ |
+| **M-5** | 🆕 **`acl.conf` 给 `app-demo` 的 subscribe 白名单补上 `cnc/+/cam`** | ⏳ **App 已依赖** |
 
 ### 1.4 阿里云 / PC 工程师
 

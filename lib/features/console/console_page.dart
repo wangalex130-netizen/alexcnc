@@ -182,7 +182,12 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   String _resolvedRelayUrl(RuntimeConfig cfg) {
     final m = ref.read(currentMachineProvider);
     if (m != null) return m.streamUrl(cfg.resolvedCameraRelayToken, cfg.resolvedAppUserId);
-    return '${cfg.resolvedCameraRelayBaseUrl}/stream/${cfg.resolvedCameraRelayDevice}'
+    // 未选机器：不再回退到写死的演示设备码。
+    // AppConfig.cameraRelayDevice 默认已置空（docs/38 A-1），这里直接返回空地址，
+    // 界面提示「请先选择机器」，避免静默指向某一台具体机器。
+    final dev = cfg.resolvedCameraRelayDevice;
+    if (dev.isEmpty) return '';
+    return '${cfg.resolvedCameraRelayBaseUrl}/stream/$dev'
         '?token=${cfg.resolvedCameraRelayToken}';
   }
 

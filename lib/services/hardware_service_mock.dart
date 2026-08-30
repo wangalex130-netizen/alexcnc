@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../models/broadcast_message.dart';
+import '../models/camera_stream_state.dart';
 import '../models/machine_status.dart';
 import '../models/notify_event.dart';
 import '../models/position.dart';
@@ -130,6 +131,14 @@ class MockHardwareService implements HardwareService {
 
   @override
   Stream<SysInfo> get sysStream => _sysCtrl.stream;
+
+  /// Mock 不接真摄像头，返回空流（真实实现见 RealHardwareService）。
+  @override
+  Stream<CameraStreamState> get cameraStream =>
+      Stream<CameraStreamState>.empty();
+
+  @override
+  List<String> get deniedSubscriptions => const <String>[];
 
   @override
   bool get isCloudMode => false;

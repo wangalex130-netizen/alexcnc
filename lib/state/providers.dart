@@ -95,7 +95,13 @@ final hardwareServiceProvider = Provider<HardwareService>((ref) {
       tcpPort: cfg.resolvedDeviceTcpPort,
       cloudEnabled: true, // 终局方案：命令全部走外网 MQTT，不再区分内外网
     );
-    r.connect(); // P0 根因：缺失 connect()，MQTT/TCP 从未建立，外网命令与状态订阅全部失效
+    // 2026-08-30（docs/38 A-1）：deviceId 为空时**不建连**。
+    // 真实模式下设备码只能来自用户选中的绑定机器；AppConfig.deviceId 默认已置空，
+    // 若此处仍照连，会订阅到 cnc//status 这类退化主题，且界面显示"已连接"却什么都控不了
+    // —— 又是一类静默故障。宁可不连、让 UI 明确显示"请先选择机器"。
+    if (deviceId.isNotEmpty) {
+      r.connect(); // P0 根因：缺失 connect()，MQTT/TCP 从未建立，外网命令与状态订阅全部失效
+    }
     svc = r;
   } else {
     svc = MockHardwareService();

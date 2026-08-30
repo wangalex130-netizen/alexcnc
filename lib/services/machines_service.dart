@@ -67,6 +67,11 @@ class Machine {
 
   String streamUrl(String relayToken, [String? userId]) {
     final dev = sn.isNotEmpty ? sn : camDevice;
+    // 后端存在「未配置机器码」的机器（实测账号列表里就有一台）：
+    // sn 与 camDevice 皆为空时会拼出 /stream/?token=... 这类无效地址，
+    // 最终表现为无限转圈且无任何报错。这里直接返回空，
+    // 由调用方提示「该机器未配置机器码」（见 docs/38 A-1）。
+    if (dev.isEmpty) return '';
     final user = (userId != null && userId.isNotEmpty) ? '&user=$userId' : '';
     return '${AppConfig.cameraRelayBaseUrl}/stream/$dev?token=$relayToken$user';
   }
@@ -119,7 +124,10 @@ class MachinesService {
   /// 绑定/匹配机器。
   ///
   /// 线上后端要求先有机器档案（machineId），扫码只能匹配账号中已创建的机器。
-  /// 测试账号的 `3020 Nova` 已由工程师预绑定 `cnc-demo-01`，扫码/输入即可命中。
+  /// 2026-08-30 更正：测试账号 `Lunyee@517788.xyz` 名下同时绑了
+  /// `cnc-demo-01` / `cnc-demo-02` / `cnc-demo-03`（真机列表实测），
+  /// 并不存在"默认就是 01"这回事 —— 以用户在列表里选中的那台为准。
+  /// （旧注释写"已预绑定 cnc-demo-01"是早期状态，已误导过排查方向。）
   Future<Machine> bind(String machineCode) async {
     final code = machineCode.trim();
     if (code.isEmpty) throw Exception('请输入机器码');
