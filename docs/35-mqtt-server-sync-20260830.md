@@ -70,12 +70,23 @@ App 侧与摄像头侧已闭环的部分列在文末「已闭环」，供对照�
 建议在 `topics.json` 补上该主题并注明：**摄像头状态上报用，App 当前不订阅**
 （App 为显式逐一订阅，无通配，因此收不到也不会收）。
 
-### 6. 建议清理 relay 的遗留 MQTT 身份
+### 6. 建议清理 relay 的遗留 MQTT 身份 —— ✅ **已闭环（2026-08-30 深夜）**
 
-HK 线上有 2 个 `cnc-relay` 客户端在线（订阅数 0、无收发），与 §「relay 零 MQTT 依赖」
-的架构决策不符。当前 ACL 未授予其权限，无害。
-建议确认 relay 是否真的不需要任何 MQTT 能力；若不需要，从 `users.json` / ACL 移除其凭据，
-避免遗留凭证长期挂着。
+> **更新**：摄像头团队已查明 `cnc-relay` 并非"无收发"，而是**每 3 秒强推一次 `stream_start`**。
+> 根因是 relay 里「有观众但收不到新帧就补发 `stream_start`」的自愈逻辑，
+> 在按需推流架构下变成死循环。
+>
+> 已在两台 `relay.py` 加 `RELAY_MQTT_ENABLE`（默认关闭，置 1 可回滚），服务已重启，
+> **EMQX 上 `cnc-relay` 客户端归零**。流控 100% 由 App 独占，`/stream` 拉流不受影响。
+
+**仍需 MQTT 轨做的收尾**：
+
+1. 从 `deploy/users.json` / ACL 中**移除 `cnc-relay` 的凭据**（客户端虽已归零，但凭证还在库里，将来可能被误启用）。
+2. 复核 EMQX 上确实没有 `cnc-relay` 连接残留。
+
+**附带强约束（请同步给 PC / 阿里云工程师）**：
+任何"中间节点看到没画面就帮忙发一条启动指令"的逻辑都会重演该死循环——
+**流控指令的发起方只能是 App，且必须幂等。**
 
 ---
 
@@ -88,6 +99,7 @@ HK 线上有 2 个 `cnc-relay` 客户端在线（订阅数 0、无收发），�
 | 摄像头流控指令归属：由**摄像头固件自带 MQTT client** 接收，relay 零 MQTT 依赖 | ✅ 架构已钉死，固件已改待烧录 |
 | 摄像头 payload 精确匹配（新增 `json_get_action()`，`strstr` 子串误触发已根治） | ✅ 固件侧完成 |
 | 摄像头心跳 `{"cmd":"hello"}`（10s）被正确忽略 | ✅ 固件侧完成 |
+| `cnc-relay` 每 3s 强推 `stream_start` 的死循环（relay 自愈逻辑） | ✅ 已根治：`RELAY_MQTT_ENABLE=0`，服务重启，EMQX 客户端归零 |
 | App clientId `android-<deviceId>` | ✅ 与契约一致 |
 | MQTT 载荷编码统一 UTF-8（App 侧已改 `utf8.decode` + 容错） | ✅ 已写入 `docs/PROTOCOL.md` §1 第 4 条 |
 
