@@ -741,3 +741,84 @@ PC 工程师此前给出的参数是「用户名 `cam-cnc-demo-01` / ClientId `c
 
 > **理由**：一个写死在代码里的机器码，在量产包里是定时炸弹。
 > 既然方向是"一切按实际来"，就该顺着这个方向把它**去掉**，而不是**换个数字**。
+
+---
+
+## 廿一、登录后「账号信息 → 设备 ID」完整链路（代码级核实，2026-08-30）
+
+> 用途：与 PC / 阿里云工程师**逐字段对账**。所有结论均来自代码，非推测。
+
+### 21.1 第一步：登录拿账号信息
+
+```
+POST https://037123.xyz/api/auth/android/login
+body: {"email":"<账号>", "password":"sha256(明文密码 + your-unique-salt-key-for-development)"}
+```
+
+返回 `{code:200, data:{...}}`，App 取用（`auth_service.dart`）：
+
+| data 字段 | App 存到哪 | 后续用途 |
+|---|---|---|
+| `id` | `auth.userId` | 仅作中继 `user=` 参数（`config.dart:98-102`，默认 `demo`） |
+| `token` | `auth.token` | 后续所有接口 `Authorization: Bearer <token>` |
+| `userName` | `auth.username` | 我的页顶部显示 |
+| `email` / `avatar` / `firstLogin` | — | 未使用 |
+
+> ⚠️ **userId 不再参与 MQTT clientId 派生**（终局方案：clientId 固定 `android-<deviceId>`，设备维度）。
+
+### 21.2 第二步：拉机器列表
+
+```
+GET https://037123.xyz/api/machine/list
+Header: Authorization: Bearer <token>
+```
+
+返回 `{code:200, data:[ {...}, {...} ]}`。每一项的字段映射（`machines_service.dart:34-49`）：
+
+| App 字段 | 取的 JSON 键（**按优先级兜底**） |
+|---|---|
+| **`sn` ← 这就是设备 ID（全局驱动源）** | **`code`** → `sn` |
+| `id` | `id` |
+| `name` | `machineName` |
+| `machineType` | `machineType` |
+| `camDevice` | `cam_device` → `cameraId` → `code` → `sn` |
+| `relayUrl` | `relay_url`（**解析了但未使用**，见 21.4） |
+| `online` | `online`（缺字段 → `null`，不会默认离线） |
+| `isDefault` | `isDefault`（**解析了但未使用**，见 21.4） |
+
+> **🔑 全链路唯一的变量就是 `code` 字段。**
+
+### 21.3 第三步：`sn` 驱动哪些地方（选中一台机器后）
+
+| # | 用途 | 代码位置 |
+|---|---|---|
+| 1 | MQTT clientId = `android-<sn>` | `hardware_service_real.dart:101` |
+| 2 | 订阅 `cnc/<sn>/{status,notify,telemetry,log,job,sys,broadcast}` | `hardware_service_real.dart:251-256` |
+| 3 | 发机器命令 → `cnc/<sn>/cmd` | `hardware_service_real.dart:578` |
+| 4 | 发摄像头流控 → `cnc/<sn>/cmd`（`{"action":"stream_start"}`） | `hardware_service_real.dart:601-607` |
+| 5 | 拉流 `{relay}/stream/<sn>?token=<中继token>&user=<userId>` | `machines_service.dart:68-72` |
+| 6 | 刀仓配置按 `deviceCode=<sn>` 读取 | `providers.dart:409-412` |
+| 7 | 延时摄影 `TimeLapseClient.configure(device: <sn>)` | `machines_page.dart:54-60` |
+
+**未选机器时** → deviceId 回退 `AppConfig.deviceId = cnc-demo-01`（硬编码，见 §二十）。
+
+### 21.4 顺带核出的两个逻辑点
+
+| # | 发现 | 影响 |
+|---|---|---|
+| 1 | **`isDefault` 解析了，但代码里没有任何地方用它自动选中机器** | 用户登录后**必须手动点一次**机器，才会触发 `currentMachineProvider` → 全局 MQTT/服务重建。不点的话 deviceId 就是硬编码的 `cnc-demo-01` |
+| 2 | **`relay_url` 解析了，但拉流不用它** —— 中继基址固定用 `AppConfig.cameraRelayBaseUrl`（`http://39.106.144.53:8080`） | 这是**有意为之**（注释：避免后端填错导致硬转圈）。后端 `relay_url` / `cam_device` 填错也不影响 App |
+
+### 21.5 需要 PC / 阿里云工程师确认的（只这一条是决定性的）
+
+> **请用 `Lunyee@517788.xyz` 登录后调 `GET /api/machine/list`，把原始 JSON 贴出来。**
+> 我们只看一个字段：那台 `3020 Nova` 的 **`code`** 是 `cnc-demo-03` 还是 `cnc-demo-01`。
+>
+> - 是 **`cnc-demo-03`** → 摄像头切 03 切对了，全链路已通；
+> - 是 **`cnc-demo-01`** → 切反了：App 登录后用 `sn=cnc-demo-01`，拉 `/stream/cnc-demo-01`（空）、
+>   控 `cnc/cnc-demo-01/cmd`（摄像头收不到），而摄像头在 `cnc-demo-03` 上待命。
+>
+> 顺带一起确认（非阻塞）：
+> - `machineName` / `machineType` 是否有值（App 靠它显示机器名）；
+> - `online` 字段是否返回（不返回则永远显示"未知"）；
+> - `isDefault` 是否会返回 1（若希望"登录后自动选中默认机器"，我们可以补这个逻辑）。
