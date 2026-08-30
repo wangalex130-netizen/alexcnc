@@ -290,3 +290,84 @@ MQTT 轨已回执，完整记录见 `cnc-control-server/docs/46-mqtt-acl-two-sou
 > **部署后必须复验两条**：任意新增设备码 → ALLOW；`gw/+/ack` → DENY（后者用于证明线上 DB 已同步到新版）。
 >
 > 一条硬约束：`cnc/+/cmd` 的 publish 任何阶段都不能拦（App 每 10s 的心跳 `{"cmd":"hello"}` 走这里，用于重置固件 15s Feed Hold）。
+
+---
+
+## 八、给 MQTT 任务的「线上变更指令」（可直接转发，2026-08-30）
+
+> 适用对象：**有腾讯云服务器权限的人**（MQTT 任务或代执行的运维）。
+> 完整作业指导书已由 MQTT 轨写就：**`cnc-control-server/docs/47-mqtt-deploy-runbook-20260830.md`**。
+> 本节是给它的一页纸指令 —— 照做即可，不需要再回问为什么。
+
+### 8.1 先回一句「能不能上机」（决定后面怎么配合）
+
+| # | 请回答 | 若答「否」的后果 |
+|---|---|---|
+| 1 | 能否 SSH 登录 `43.154.192.242`（用户 `ubuntu`）？ | 不能就只能出操作清单，请别人代执行 |
+| 2 | 有没有 EMQX Dashboard（`18083`）的**管理员**账号密码？ | 不能建号、不能导入内置数据库规则（第 4/5 步做不了） |
+| 3 | 仓库在服务器上的**部署目录**是哪个？`<部署目录>/deploy/` 下应有 `docker-compose.cloud.yml` | 无法定位 acl.conf 挂载路径 |
+
+> 注：Dashboard 18083 **只绑 127.0.0.1**，必须走 SSH 隧道：
+> `ssh -L 18083:127.0.0.1:18083 ubuntu@43.154.192.242` → 本机开 `http://127.0.0.1:18083`
+
+### 8.2 按 `docs/47` 顺序执行（共 9 步，别跳）
+
+| 步 | 做什么 | 关键命令 / 动作 | 验收 |
+|---|---|---|---|
+| 1 | SSH 隧道 | `ssh -L 18083:127.0.0.1:18083 ubuntu@43.154.192.242` | 浏览器能开 Dashboard |
+| 2 | **备份** | `cp acl.conf acl.conf.bak.$(date +%Y%m%d-%H%M)`；`cp users.json users.json.bak....`；Dashboard 各授权源**导出规则** | 备份文件存在；**并记录线上实际有几个授权源** |
+| 3 | 更新文件源 | 上传新 `deploy/acl.conf` → `docker compose -f docker-compose.cloud.yml restart emqx` | `ps` 显示 emqx healthy。**此步单独就能修好"新增机器不可用"** |
+| 4 | 建号 | `export SVC_BRIDGE_MQTT_PASSWORD="$(openssl rand -base64 24)"` 后跑 `emqx-init.py` | 输出 `7 成功, 0 失败, 0 跳过` |
+| 5 | 同步内置数据库 | `gen_authz_import.py` 生成 → Dashboard 导入 | **先全删再导入**（14 条 users.json 规则 → 83 条） |
+| 6 | 清理 `cnc-relay` | 认证删用户 + 授权删规则 + `grep cnc-relay acl.conf` 无输出 | 两处 grep **都无输出** |
+| 7 | 踢旧客户端 | Dashboard → 连接 → 搜 `cam-cnc-demo-01` → 踢除 | Dashboard 里看不到该客户端 |
+| 8 | **两条验收** | 见 8.4 | ① ALLOW ② DENY，**缺一不可** |
+| 9 | 回滚预案（不做，仅备查） | `cp acl.conf.bak.<时间戳> acl.conf` + restart | — |
+
+### 8.3 三个最容易踩的坑（踩了就白干）
+
+| # | 坑 | 后果 | 规避 |
+|---|---|---|---|
+| 1 | `emqx-init.py` 加了 `--write-acl` | 用 users.json **反向覆盖** acl.conf → 丢失 cam 正则、`cnc-server`、08-29 摄像头安全修复 `cnc/+/status`→`cnc/+/cam` | **绝对不加这个参数** |
+| 2 | Dashboard 导入前**没先清空旧规则** | 旧枚举规则 + 废弃 `gw/` 残留 → 第 8 步第 ② 条验收失败，且"看起来能用"实则靠并集蒙对 | **先全选删除，再导入** |
+| 3 | 只改 `acl.conf`，不改内置数据库 | 两个授权源取并集，线上仍是旧版 → 效果不可预期 | **两个源都要改** |
+| 4 | （附）云网关密码写进文件/仓库/聊天 | 凭据泄露（`alexcnc` 是**公开仓库**） | 只走 `SVC_BRIDGE_MQTT_PASSWORD` 环境变量 |
+
+### 8.4 验收（两条，缺一不可）
+
+```bash
+# ① 任意新增设备码 -> 必须 ALLOW（证明通配已生效）
+python verify/acl_probe.py -u app-demo -P demo123 -t "cnc/zzz-new-999/status" --expect-allow
+
+# ② 已废弃的 gw 路径 -> 必须 DENY (0x80)（证明内置数据库确实同步到新版）
+python verify/acl_probe.py -u app-demo -P demo123 -t "gw/+/ack"
+```
+
+| 检查 | 期望 | 不符说明 |
+|---|---|---|
+| ① `cnc/zzz-new-999/status` | **ALLOW** | 第 3 步没生效：容器没重启 / 挂载被 `:ro` 覆盖 |
+| ② `gw/+/ack` | **DENY (0x80)** | 第 5 步没生效：内置数据库还是旧版，或没先清空旧的 |
+
+> 第 ② 条是唯一能证明"线上数据库确实同步到新版"的判据，别省。
+
+### 8.5 完成后请回报这五项
+
+1. 第 8 步两条验收的**实际输出**（ALLOW / DENY，截图或文字）；
+2. 线上**实际有几个授权源**、分别是什么类型（内置数据库源是否存在）；
+3. `cnc-relay` 是否已从**认证 + 授权两处**彻底删除；
+4. ACL deny 审计日志是否开启、查询方式是什么（后续静默故障的唯一抓手）；
+5. **`cam-cnc-demo-03` 账号是否可连通、凭据是什么**（仓库里是 `demo123`，如有变更请告知）—— 摄像头端烧录要用。
+
+### 8.6 顺序依赖（不能颠倒）
+
+```
+MQTT 部署上线（第 3/4/5 步）
+      ↓
+我这边跑两条验收 + App 联调
+      ↓
+摄像头端烧录：设备码 cnc-demo-03 + username/clientId = cam-cnc-demo-03
+      ↓
+三方联调
+```
+
+> 第 1 步没上线上服务器之前，摄像头烧 03 也连不上 —— **部署是目前唯一的硬卡点**。
