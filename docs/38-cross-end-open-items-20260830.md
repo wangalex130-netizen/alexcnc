@@ -71,10 +71,47 @@
 | A-3 | 订阅 `cnc/<id>/cam` | ✅ **已确认要做** | App 目前**收不到**摄像头的 `{"streaming":true}` / `{"online":true}`（只订阅了 status/notify/telemetry/broadcast）。实测"点播放后要等一二十秒才出画面"正是缺这个状态确认 |
 | A-4 | 显式 `setProtocolV311()` | 💡 建议 | 现在走库默认 v3.1；零风险补齐。**但不要改投 MQTT 5**（见 0.2 第 15 条，需换包） |
 | A-5 | `isDefault` 自动选中默认机器 | 💡 建议 | 目前登录后必须手点机器才生效；若后端会返回 `isDefault`，可补自动选中 |
-| **A-6** | **App 侧 30s 续租** | 🔴 **必须与 C-2 配套** | 见下方「⚠️ C-2 硬冲突」。App 目前**只在打开预览和 MQTT 重连时发一次 `stream_start`，没有任何周期性续租**（`fullscreen_preview_page.dart:98/100-106/111`）。**若摄像头先加 90s 看门狗，画面会在 90 秒时断掉** |
+| **A-6** | **App 侧 30s 续租** | ✅ **已实现**（`129ac1af`） | 见下方「⚠️ C-2 硬冲突」。⚠️ **上线前必须确认 C-6 幂等性，见 N-1** |
+| **A-7** | `deniedSubscriptions` 接进 UI | 💡 待办 | A-2 目前**只落 log（print）**，没有 UI 展示，所以"把静默失败变可见"只兑现了一半。建议接进「联调设置」诊断区 |
+| **A-8** | cam 订阅跟随预览目标设备 | 💡 待办（低优先） | 见下方「N-3」：从「机器列表」入口进预览时，`_cameraDeviceId` 与实例 `deviceId` 可能不是同一台 → 收不到该机器的 cam 回执（不影响画面与控制） |
 
 > **调试前必读**：`useRealBackend` 默认 **false**。接真机调试必须在「联调设置」里打开「真实后端」，
 > 或出包时带 `--dart-define=USE_REAL_BACKEND=true`。**不开就是 Mock，什么都连不上。**
+
+### ⚠️ N-1（严重 · 需立即验证）：A-6 续租依赖摄像头 `stream_start` **幂等**
+
+**事实链**：
+
+1. A-6 已上线：全屏预览页每 **30 秒**补发一次 `{"action":"stream_start"}`
+   （`fullscreen_preview_page.dart`，`Timer.periodic(const Duration(seconds: 30))`）。
+2. 若摄像头把每一次 `stream_start` 都当成「重新推流」（重启编码器 / 重建 RTSP 会话 / 重置缓冲），
+   则**画面会每 30 秒闪断一次** —— 这比没有看门狗更糟。
+
+**必须向摄像头确认（编号 C-6）**：
+
+> 「收到 `stream_start` 时，如果**已经在推流**，是否是直接忽略（幂等）？
+> 还是会重新初始化推流？」
+>
+> - 若**幂等** → A-6 安全，看门狗可以直接上；
+> - 若**不幂等** → 二选一：
+>   - 摄像头侧改为幂等（推荐，改动最小）；或
+>   - App 侧改成发一个专门的续租帧（如 `{"action":"stream_ping"}`），
+>     摄像头只在看门狗计时器上续期、不动推流状态。
+
+**验证方法（无需等回复也能先做）**：装上新 APK 打开预览，**连续观察 3 分钟**，
+看画面是否每 30 秒卡一次。出现即说明不幂等，立即停用手头版本。
+
+### 其余次要发现（不阻塞，记录在案）
+
+| # | 发现 | 影响 | 出处 |
+|---|---|---|---|
+| **N-2** | A-2 的 `deniedSubscriptions` **只落 log，没有 UI 展示** | "把静默失败变可见"只兑现了一半 —— 目前只有看 log 才知道订阅被拒。待 A-7 接进联调设置 | `hardware_service_real.dart` 仅 `print` |
+| **N-3** | 从**「机器列表」入口**进预览时，`_cameraDeviceId` 与实例 `deviceId` 可能不是同一台 | 订阅的是 `cnc/<当前选中机器>/cam`，`stream_start` 却发到 `cnc/<列表项机器>/cmd` → **该机器的 cam 回执收不到**（退回"干等第一帧"）。**不影响画面与控制** | `machines_page.dart:85` 传 `machine: m`；`console_page.dart:440` 传 `currentMachineProvider`（同源，无此问题） |
+| **N-4** | 空拉流地址时播放器报「**无信号**」 | 措辞不精确 ——「未配置机器码」的机器应提示「该机器未配置机器码」，而不是让用户以为摄像头坏了 | `mjpeg_stream_player.dart` catch → `_onError` |
+| ✅ 已核实安全 | 空 URL **不会崩溃** | 播放器 `Uri.parse` 包在 try 内，走 `_onError` → 上层显示错误态 | `mjpeg_stream_player.dart:108-149` |
+| ✅ 已核实安全 | `LinkState` 初始为 `disconnected` | A-1 让空 deviceId 不建连后，**不会出现"假已连接"** | `hardware_service_real.dart:75` |
+| ✅ 已核实安全 | CI 未传 `--dart-define=DEVICE_ID` | A-1 把默认值改成空后，CI 构建产物行为 = 用户选机器后才连，符合设计 | `.github/workflows/build.yml` 无 dart-define |
+| ✅ 已核实 | 机器心跳周期确为 **10 秒** | 之前给摄像头的口径无误 | `hardware_service_real.dart:51` `_heartbeatInterval = Duration(seconds: 10)` |
 
 ### 1.2 摄像头端
 
@@ -85,6 +122,7 @@
 | C-3 | 固件加 **token 默认值**（`lunyee-cnc-relay-7k2p`） | 💡 建议（它自己在考虑） |
 | C-4 | 设备码目前**硬编码三处** → 量产须改 NVS / 自注册 | 📅 量产前 |
 | C-5 | **认知纠正**：「`cnc-demo-03` 在 `app-demo` 枚举白名单内」已过时 | ⚠️ 需同步 |
+| **C-6** | 🔴 **确认 `stream_start` 是否幂等**（已在推流时收到该帧是直接忽略，还是会重新初始化推流） | ❓ **阻塞 A-6 的安全使用，见 N-1** |
 
 > C-5 的准确说法：`app-demo` 已于 2026-08-30 13:35 改为**通配** `cnc/+/...` 并上线。
 > **任意新增设备码都已放行**，不是"03 正好在名单里"。结论对但理由错，会在讨论新机器时误导判断。
