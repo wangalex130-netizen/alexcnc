@@ -8,6 +8,28 @@ on:
 
     branches: [main, master]
 
+    # 只在「会影响产物」的路径变动时构建。
+    # 纯文档（docs/**、ci-log.txt）提交不再触发完整 APK 构建，
+    # 避免每次写文档都白烧一次 Actions 分钟数。
+    # 需要强制构建时用 workflow_dispatch（手动触发不看 paths）。
+    paths:
+
+      - 'lib/**'
+
+      - 'pubspec.yaml'
+
+      - 'pubspec.lock'
+
+      - 'android/**'
+
+      - 'ios/**'
+
+      - 'packages/**'
+
+      - 'assets/**'
+
+      - '.github/workflows/**'
+
   workflow_dispatch:
 
 
@@ -268,13 +290,26 @@ jobs:
 
         run: |
 
-          gh release create "apk-${{ github.sha }}" \
+          # 幂等：同一 sha 重跑（或重复触发）时 tag 已存在，
+          # 原写法 `gh release create` 会因 "tag already exists" 非零退出，
+          # 把整个 job 标红 —— 而构建和产物其实都是好的。
+          # 这里改为：已存在则只覆盖上传 asset，且失败不阻断 job。
 
-            build/app/outputs/flutter-apk/app-release.apk \
+          TAG="apk-${{ github.sha }}"
 
-            --title "Smart CNC Pro APK" \
+          APK=build/app/outputs/flutter-apk/app-release.apk
 
-            --notes "Automated build from ${{ github.sha }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+
+            echo "release $TAG already exists - upload with --clobber"
+
+            gh release upload "$TAG" "$APK" --clobber || echo "upload failed (non-fatal)"
+
+          else
+
+            gh release create "$TAG" "$APK" --title "Smart CNC Pro APK" --notes "Automated build from ${{ github.sha }}" || echo "release create failed (non-fatal)"
+
+          fi
 
         env:
 
