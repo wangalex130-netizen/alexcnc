@@ -268,32 +268,77 @@ App 侧 clientId 已是 `android-<deviceId>`，与本条无关，无需改动。
 
 ---
 
-## 七、回执：MQTT 轨的核定结论与落地状态（2026-08-30 收到）
+## 七、两次回执与一处勘误（2026-08-30）
 
-MQTT 轨已回执，完整记录见 `cnc-control-server/docs/46-mqtt-acl-two-source-findings-and-apply-20260830.md`。
-核心结论三条：
+### 7.1 第一次回执（部署前）
 
-| # | 结论 | 影响 |
+完整记录见 `cnc-control-server/docs/46-mqtt-acl-two-source-findings-and-apply-20260830.md`。三条结论的当前状态：
+
+| # | 当时的结论 | 现状 |
 |---|---|---|
-| 1 | **线上是两个授权源并集**：内置数据库（users.json rules）优先，未匹配回退文件源（acl.conf） | 改 ACL 必须**两个源都改**；且线上删除不等于生效，需 Dashboard 同步导入 |
-| 2 | **线上没被改成通配**，任意新增设备码订阅返回 `0x80` | P0-1 不是"怕被覆盖"，是**现在就坏** —— 印证了本工单的判断 |
-| 3 | 发现**根因级陷阱**：`emqx-init.py` 会用 users.json 反向覆盖生成 acl.conf，而 users.json 写不了正则 → 会丢失 cam 正则、cnc-server，以及 08-29 摄像头安全修复 | 已改为 `--write-acl` 显式开启才执行。**这是"重新部署会静默弄坏"的真正根因** |
+| 1 | 线上是「内置数据库 + 文件」**两源取并集** | ❌ **已证伪**，见 7.2 |
+| 2 | 线上没被改成通配，任意新增设备码订阅返回 `0x80` | ✅ 成立，且**已修复** |
+| 3 | `emqx-init.py` 的 `--write-acl` 反向覆盖是根因级陷阱 | ✅ 成立，已改为显式开启才执行 |
 
-**仓库侧已全部改完**（app-demo/pc-demo/screen 通配、cam-cnc-demo-03、svc-bridge-aliyun-api、
-清除 `gw/`、补 cam/app 主题、contract_check 退出码 0）。
+### 7.2 ⚠️ 勘误：线上**只有一个授权源（file）**（2026-08-30 13:35 实锤）
 
-**⛔ 但仓库改动不会自动生效** —— MQTT 轨**没有服务器权限**（Dashboard 18083 仅绑 127.0.0.1，无 SSH 密钥）。
-必须由有服务器权限者（PC / 阿里云工程师）上机执行部署，详见 `docs/46` 第四节。
+MQTT 轨登上服务器后自行推翻了自己的结论，见 `cnc-control-server/docs/48-mqtt-live-deployment-report-20260830.md` §二。
 
-> **最小修复**：只做「上传新 acl.conf + `docker compose restart emqx`」即可修好 P0-1（新增机器不可用）。
-> **建号与 Dashboard 导入**可排期后续做。
-> **部署后必须复验两条**：任意新增设备码 → ALLOW；`gw/+/ack` → DENY（后者用于证明线上 DB 已同步到新版）。
->
-> 一条硬约束：`cnc/+/cmd` 的 publish 任何阶段都不能拦（App 每 10s 的心跳 `{"cmd":"hello"}` 走这里，用于重置固件 15s Feed Hold）。
+- `GET /api/v5/authorization/sources` → 只有 `{"type":"file"}` 一项；
+- 查 `built_in_database/rules` 返回 **HTTP 405**（该源根本不存在）；
+- 日志追踪判定链：`emqx_authz_client_info(ignore)` → `emqx_authz_file(deny)`，只有 file 生效。
+
+**误判原因**：线上 `acl.conf` 长期未与仓库同步，还留着仓库早已删掉的 `gw/` 条目 ——
+所以「`gw/+/ack` 被允许」完全能由**单文件源**解释，被误当成了"第二个源在生效"。
+
+> **教训（通用）**：SUBACK 只能证明「订阅是否被允许」，**不能反推有几个授权源**。要数源必须用 EMQX API。
+
+**对工作的实际简化**：改权限 = **只改 `acl.conf` + 重启 EMQX**，不用往内置数据库导入任何东西。
+`authz-rules-import.json` 与 `gen_authz_import.py` 保留为将来启用内置数据库源时的素材。
+
+### 7.3 部署已完成 ✅（2026-08-30 13:35）
+
+| 项 | 结果 |
+|---|---|
+| 备份 / 上传 / 重启 | ✅ 完成（时间戳后缀 `20260830-135725`） |
+| 建号 | ✅ **8 成功 / 0 失败 / 0 跳过**（含 `cam-cnc-demo-03`、`svc-bridge-aliyun-api`） |
+| 清 `cnc-relay` | ✅ 已删除（HTTP 204）—— 印证「仓库干净 ≠ 线上干净」 |
+| 重连 | ✅ 重启后 4 个客户端全部自动重连，无中断事故 |
+| **① `cnc/zzz-new-999/status`** | ✅ **ALLOW** —— 任意新增机器可用，**P0-1 目标达成** |
+| **② `gw/+/ack`** | ✅ **DENY (0x80)** |
+| `cam-cnc-demo-03` | ✅ 认证通过，订阅 `cnc/+/cmd` ALLOW（符合设计） |
+| `svc-bridge-aliyun-api` | ✅ 认证通过，订阅 DENY（只发布账号，符合设计） |
+
+### 7.4 P2-1 已实测解决：ACL deny 怎么查
+
+- 文件日志**未启用**、console 仅 `warning` → 被拒发布**不落盘**；
+- **用日志追踪 API 抓**（`POST /api/v5/trace` → 复现 → `GET /api/v5/trace/<name>/log`，**每页仅 1000 字节，用 `position` 翻页**）；
+- 检索关键字：`tag: AUTHZ` / `cannot_publish_to_topic_due_to_not_authorized`。
+
+**额外收获（对 App 有意义）**：被拒的发布返回 `PUBACK ReasonCode=135（Not authorized）` ——
+`deny_action=ignore` 只是不断开连接，**不代表客户端无法感知**。
+→ 但**本 App 用不了**，原因见 §九。
+
+### 7.5 与工单假设不符、需各端知悉的 4 件事
+
+| # | 事实 | 处置 |
+|---|---|---|
+| 1 | 线上原本**没有** `cam-cnc-demo-03`（本次才建）；在线的唯一摄像头是 `cam-cnc-demo-01` | MQTT 轨**没有踢除**它（踢了会直接断流）—— 判断正确。等摄像头端切 03 上线后再踢 |
+| 2 | 云网关 `bridge-aliyun-api` 与 `gw-1787738111` 实际是用 **username `admin`（全权限）** 连的 | 新账号已建好，但**要切过去需阿里云侧改配置**。长期用 admin 跑网关是安全风险 |
+| 3 | 线上 acl.conf 里有 **`3020-2.0`**（生产机器码直连账号，仓库没有） | 已原样保留，避免打断那台机器。**这同时回答了 B3**：`3020-2.0` 确实是**真实 MQTT username**（历史遗留，以机型命名），将来量产统一时再迁到 `screen-<deviceId>` |
+| 4 | 线上 `deny_action=ignore` / `no_match=deny`，仓库 compose 写的是 `disconnect` | ⚠️ **线上是权威**：必须把**仓库**对齐成 `ignore`，**绝不能反过来把线上改成 disconnect**（会导致所有被拒设备直接掉线） |
+
+> 另：服务器上的 compose 文件名是 **`docker-compose.yml`**（不是仓库里的 `docker-compose.cloud.yml`），
+> 后续再上机执行时要用前者。
 
 ---
 
-## 八、给 MQTT 任务的「线上变更指令」（可直接转发，2026-08-30）
+## 八、给 MQTT 任务的「线上变更指令」（2026-08-30，已于 13:35 执行完毕）
+
+> ✅ **本指令已执行完成，结果与勘误见 §七。此处保留作历史记录与回滚参考。**
+> ⚠️ 两处现实差异（下次上机前必读）：
+> ① 服务器上 compose 文件名是 **`docker-compose.yml`**（不是 `docker-compose.cloud.yml`）；
+> ② 线上是**单文件源**，下面 8.2 表格中的第 5 步（内置数据库导入）**当时不需要做**。
 
 > 适用对象：**有腾讯云服务器权限的人**（MQTT 任务或代执行的运维）。
 > 完整作业指导书已由 MQTT 轨写就：**`cnc-control-server/docs/47-mqtt-deploy-runbook-20260830.md`**。
@@ -371,3 +416,52 @@ MQTT 部署上线（第 3/4/5 步）
 ```
 
 > 第 1 步没上线上服务器之前，摄像头烧 03 也连不上 —— **部署是目前唯一的硬卡点**。
+
+---
+
+## 九、App 侧评估：`PUBACK 135` 能不能用来暴露静默拒绝？（2026-08-30 核定）
+
+MQTT 轨建议「App 端评估是否检查 `PUBACK ReasonCode=135`」。**结论：本 App 做不到，不建议做。**
+
+### 9.1 为什么做不到
+
+| 事实 | 依据 |
+|---|---|
+| App 当前用 `mqtt_client: 10.5.0` | `pubspec.yaml:24` |
+| **该包不支持 MQTT 5** | pub.dev 官方 API 文档：`MqttClient` 只有 `setProtocolV31()` / `setProtocolV311()`，**没有 `setProtocolV5()`** |
+| App 目前用 `MqttConnectMessage()`（v3.1.1 族） | `hardware_service_real.dart:237` |
+| `PUBACK ReasonCode` 是 **MQTT 5 才有的字段** | MQTT 3.1.1 的 PUBACK 只有 2 字节固定头 + packet id，**无 reason code** |
+
+→ 要拿到 135，必须把 `mqtt_client` **整体换成 `mqtt5_client`**（另一个包、另一套 API），
+会影响连接、订阅、发布全链路。**收益（能看见发布被拒）远小于风险。**
+
+### 9.2 但有更划算的替代方案：`onSubscribeFail`（v3.1.1 就能用）
+
+`mqtt_client 10.5.0` 提供 **`onSubscribeFail` 回调**（类型 `SubscribeCallback?`）。
+其内部逻辑（`SubscriptionsManager.confirmSubscription`）为：
+SUBACK 返回 `0x80`（`MqttQos.failure`）→ 调用 `onSubscribeFail(topic)`。
+
+这**正好命中我们真正吃过的亏**：
+
+| 场景 | 后果 | v3.1.1 可检测？ |
+|---|---|---|
+| **订阅被拒**（SUBACK 0x80） | 收不到任何状态帧 → 状态永远不是 idle → **Jog 锁死，界面无任何提示** | ✅ **能**（`onSubscribeFail`） |
+| 发布被拒（PUBACK 135） | 命令发不出去，设备无反应 | ❌ 不能（需 MQTT 5） |
+
+> **优先级判断**：真正造成"点了没反应也不报错"的是**订阅被拒**，
+> 而这恰恰是不换包就能检测的那一种。发布被拒在 ACL 改通配后已属小概率。
+
+### 9.3 建议（待拍板，当前未实施）
+
+```dart
+client.onSubscribeFail = (String topic) {
+  // 记录 + 上抛到连接状态层，UI 显示"无权订阅该机器的状态"
+};
+```
+
+- 改动面：仅 `hardware_service_real.dart` 一处回调 + 一处 UI 提示文案；
+- 不动协议版本、不动发布路径、不动订阅逻辑 → **风险极低**；
+- 价值：把当前最难排查的一类故障（静默 Jog 锁死）变成可见错误。
+
+> 另注：App 未显式调用 `setProtocolV311()`，走的是库的默认协议版本（v3.1）。
+> 建议顺手显式设为 3.1.1，属于零风险补齐项 —— 但**不要**据此改投 MQTT 5。
