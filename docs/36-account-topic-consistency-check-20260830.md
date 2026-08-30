@@ -367,6 +367,41 @@ App 在看流期间：每 30s 发一次 {"action":"stream_start"}   ← 幂等�
 推流   POST {relay}/publish/cnc-demo-03?token=...
 ```
 
+### ⚠️ 用户名必须是 `cam-cnc-demo-03`，不能沿用 `cam-cnc-demo-01`（2026-08-30 用户提出，已论证）
+
+PC 工程师此前给出的参数是「用户名 `cam-cnc-demo-01` / ClientId `cam-cnc-demo-03` / 设备码 `cnc-demo-03`」，
+**用户名这一项不符合规则**，必须改为 `cam-cnc-demo-03`。四条依据：
+
+| # | 依据 | 内容 |
+|---|---|---|
+| 1 | **契约**（`contract/topics.json`） | `identities.camera`：username `cam-<deviceId>`；`identities_final.camera`：username 与 clientId **同为 `cam-<deviceId>`**，备注「与 `screen-<deviceId>` 使用同一设备码」 |
+| 2 | **历史结论** | `docs/35` §5、`docs/36` §3.2④ 已两次建议改为 `cam-cnc-demo-03`，非新意见 |
+| 3 | **broker 侧已按 03 落地**（已核实） | `deploy/users.json` 中账号为 `cam-cnc-demo-03`；`authz-rules-import.json` 中也是 `cam-cnc-demo-03` 的 6 条规则（83 条中） |
+| 4 | **量产风险** | v4.2 方案 §5.1 要求「设备 Client ID 直接等于设备码」以便用动态 ACL `cnc/${clientid}/cmd`；username/clientId 与设备码脱钩，将来切绑定驱动会**授权错设备** |
+
+**若继续用 `cam-cnc-demo-01` 会怎样**：
+
+- 它**不在仓库里**，`emqx-init.py` 不会创建 → 现在能用纯属线上手工建的"不可复现"状态；
+  服务器重建 / 迁移 / 重装 EMQX 后该账号消失 → 摄像头认证失败 → 按需推流整体失效；
+- 它**不在导入规则里** → 授权只能靠文件源正则 `^cam-[a-z0-9-]+$` 兜底，属于"意外放行"而非"按规则授权"；
+- 线上会出现「一个 `cam-cnc-demo-01` 的客户端在服务 `cnc-demo-03` 这台机器」的错配，排查时直接误导。
+
+> **一句话**：设备码是 03，那么 username 和 clientId 就都必须是 03。
+> 三者同构是契约要求，也是将来自动化授权能做对的前提。
+
+**⚠️ 执行顺序不能反**：`cam-cnc-demo-03` 这个账号要等**部署第 4 步（`emqx-init.py` 建号）执行完才存在**。
+因此必须先部署建号，再让摄像头切 03；若摄像头先切过去，会因账号不存在而连不上 MQTT。
+
+```
+① PC 工程师修正参数（username → cam-cnc-demo-03）
+        ↓
+② 有服务器权限者执行部署（docs/47：更新 acl.conf → 重启 → 建号 → 导入规则）
+        ↓
+③ 摄像头团队按 cnc-demo-03 全量刷机
+        ↓
+④ 联调验证
+```
+
 ---
 
 ## 十三、三方（App / 摄像头 / MQTT）已冻结基线
