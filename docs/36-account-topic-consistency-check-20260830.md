@@ -159,13 +159,30 @@ App 端三条链路已经严格按这个模型实现：
 
 ### 特别注意：`deny_action = ignore` 后的静默失败
 
-摄像头侧已把 `deny_action` 从 `disconnect` 改为 `ignore`。叠加 App 仍是枚举 ACL，导致：
+摄像头侧已把 `deny_action` 从 `disconnect` 改为 `ignore`；2026-08-30 线上实测确认
+`deny_action=ignore` / `no_match=deny`。
+
+> ⚠️ **仓库 compose 写的是 `disconnect`，与线上分叉**。
+> 必须把**仓库对齐成 `ignore`**，**绝不能反过来把线上改成 `disconnect`** ——
+> 那会让所有被拒的设备直接掉线，而不是"点了没反应"。
+
+叠加 App 当时仍是枚举 ACL，导致：
 
 > App 选择**任意白名单外的机器**（`cnc-demo-04` 只是举例，换成任何新增设备码都一样）时，
 > 界面显示「MQTT 已连接」，命令按钮也响应，但命令被 Broker 静默丢弃，**没有任何报错**。
 > 更严重的是**订阅同样被拒** → 收不到状态帧 → 状态永远不是 `idle` → **Jog 被锁死**。
 
-联调排障时遇到「命令无效但连接正常」，应首先查 EMQX ACL deny 日志。
+**✅ 2026-08-30 13:35 已修复**：`app-demo` 已改通配 `cnc/+/...` 并部署上线，
+任意新增设备码的订阅与发布均放行（验收：`cnc/zzz-new-999/status` → ALLOW）。
+**本段描述的故障在 demo 期已消除。**
+
+**机制仍然存在**（将来切量产 authz 时可能重现），排障与自检测手段：
+
+| 手段 | 说明 |
+|---|---|
+| MQTT 轨侧查证 | 日志追踪 API（**每页仅 1000 字节，用 `position` 翻页**），关键字 `tag: AUTHZ` / `cannot_publish_to_topic_due_to_not_authorized` |
+| **App 侧自检测（推荐）** | `mqtt_client` 的 **`onSubscribeFail`** 回调在 SUBACK 返回 `0x80` 时触发 → 可提示"无权订阅该机器状态"。详见 `docs/37` §九 |
+| ❌ 不可行 | 发布被拒的 `PUBACK ReasonCode=135` 需 **MQTT 5**，而 `mqtt_client 10.5.0` 不支持 → 不建议为此换包 |
 
 ---
 
@@ -458,7 +475,7 @@ PC 工程师此前给出的参数是「用户名 `cam-cnc-demo-01` / ClientId `c
 |---|---|---|
 | B1 | xlsx 中 App ClientId 前缀 | `app-设备码` → **`android-<deviceId>`** |
 | B2 | 摄像头 username | `cam-cnc-demo-01` → **`cam-cnc-demo-03`**（与 clientId、设备码同构） |
-| B3 | 屏幕「业务账号」`3020-2.0` | 请明确是 MQTT username 还是机型备注；MQTT username 建议 **`screen-<deviceId>`** |
+| B3 | 屏幕「业务账号」`3020-2.0` | ✅ **已查实（2026-08-30 线上 acl.conf）**：是**真实 MQTT username**，生产机器直连账号（以机型命名，历史遗留）。**现在不要改**（改了会打断那台机器）；量产统一时再迁到 `screen-<deviceId>` |
 | B4 | 驱动 / PC 端身份 | `driver-设备码` → **`pc-<userId>`**；若指主控板，请标注「不独立联网」 |
 | B5 | 阿里云桥接 username | 「待定」→ **`svc-bridge-aliyun-api`**（clientId 保持 `bridge-aliyun-api`） |
 | B6 | Topic 清单补两条 | 增加 `cnc/<deviceId>/cam`（摄像头状态）与 `cnc/<deviceId>/app`（App 在线/LWT） |
@@ -507,7 +524,7 @@ PC 工程师此前给出的参数是「用户名 `cam-cnc-demo-01` / ClientId `c
 > A4 刀仓 `bit-config` 的 `slot1~4` = 系统刀具 id（1/2/3/5/8），及更新后是否下发 MQTT。
 > B1 App ClientId 前缀改 `android-<deviceId>`（不是 `app-`）；
 > B2 你参数表里「摄像头用户名」那一栏请同步为 `cam-cnc-demo-03` —— 这一栏的来源在 **MQTT 账号表**（MQTT 侧已按 03 建好），**不在阿里云后台**；请你把它当"抄过来的值"更新，不要自行定义；
-> B3 屏幕"业务账号"`3020-2.0` 请明确含义，MQTT username 建议 `screen-<deviceId>`；
+> B3 **（已有答案，无需再确认）**`3020-2.0` 已在线上 `acl.conf` 中找到 —— 它是**真实的 MQTT username**（一台生产机器直连用，以机型命名，历史遗留）。已原样保留、未动它。将来量产统一命名时再迁到 `screen-<deviceId>`，**现在不要改，改了会打断那台机器**；
 > B4 驱动/PC 身份用 `pc-<userId>`（不是 `driver-`）；
 > B5 阿里云桥接 username 填 `svc-bridge-aliyun-api`；
 > B6 Topic 清单补 `cnc/<deviceId>/cam` 和 `cnc/<deviceId>/app`。
@@ -539,16 +556,17 @@ PC 工程师此前给出的参数是「用户名 `cam-cnc-demo-01` / ClientId `c
 |---|---|---|---|---|
 | 1 | 后台写入绑定关系（账号 ↔ 设备码） | ✅ 自动 | 阿里云 | ✅ 已有 |
 | 2 | App 机器列表出现 + 选中后驱动全部 topic / 拉流 / 刀仓 / 延时摄影 | ✅ **自动，App 零改动** | App | ✅ 已实现（`machine.sn` 单点驱动） |
-| 3 | broker ACL 放行该设备码 | ❌ **人工** | MQTT | ❌ 卡点：`app-demo` 只枚举 01/02/03 |
-| 4 | 该机器摄像头的 MQTT 账号存在 | ❌ **人工** | MQTT | ❌ 卡点：`users.json` 无任何 `cam-*` |
-| 5 | 摄像头固件设备码烧录为该机器码 | ❌ **人工** | 摄像头 | ❌ 卡点：需逐台烧录 |
+| 3 | broker ACL 放行该设备码 | ⚠️ demo 期已自动 | MQTT | ✅ **已打通（2026-08-30 13:35 部署）**：`app-demo` 改通配 `cnc/+/...`，验收 `cnc/zzz-new-999/status` → ALLOW |
+| 4 | 该机器摄像头的 MQTT 账号存在 | ❌ **人工** | MQTT | ⚠️ 部分缓解：`cam-cnc-demo-03` 已入 `users.json` 并建号；**新机器仍需手工建一个 `cam-<设备码>` 账号** |
+| 5 | 摄像头固件设备码烧录为该机器码 | ❌ **人工** | 摄像头 | ⚠️ 进行中：摄像头端正在切 `cnc-demo-03` |
 
-**结论**：
+**结论（2026-08-30 更新）**：
 
-- 前 2 道门**已经自动化**——这是"设备码驱动"设计成立的地方，App 侧无需为新机器写任何代码。
-- 后 3 道门还是人工 —— 所以**现状是"加得进列表，但用不了"**。
-- **第 3 道是最关键的**：它不只让命令发不出去，还因为**订阅被拒**导致状态进不来 → Jog 锁死，
-  且 `deny_action=ignore` 下界面毫无异常提示。
+- 前 **3** 道门已通 —— **任意新增设备码现在「加得进列表，也能控」**（命令/状态/遥测全通）。
+- 剩下 4、5 道只影响**摄像头能力**：新机器加进来后，机器控制立即可用，
+  但**摄像头要人工建账号 + 烧录设备码**才有画面。
+- 第 3 道曾是最凶险的卡点：它不只让命令发不出去，还因为**订阅被拒**导致状态进不来 → Jog 锁死，
+  且 `deny_action=ignore` 下界面毫无异常提示。**现已解除。**
 
 **达成路径**：
 
