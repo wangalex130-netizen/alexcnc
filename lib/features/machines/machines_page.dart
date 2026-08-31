@@ -40,7 +40,11 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
       final list = await MachinesService(
         baseUrl: ref.read(runtimeConfigProvider).resolvedBackendBaseUrl,
       ).fetchMyMachines();
-      if (mounted) setState(() => _machines = list);
+      if (mounted) {
+        setState(() => _machines = list);
+        // 同步到全局绑定清单，供常驻在线监听服务订阅全部设备
+        ref.read(boundMachinesProvider.notifier).state = list;
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
@@ -200,8 +204,9 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
         final m = machines[i];
         final current = ref.watch(currentMachineProvider);
         final selected = current?.sn == m.sn && m.sn.isNotEmpty;
-        // 「在线」以 App 本地实时链路为准（后端无 online 字段，见 deviceOnlineProvider）
-        final cachedOnline = ref.watch(deviceOnlineProvider)[m.sn] ?? false;
+        // 「在线」读 App 订阅全部绑定设备的真实在线态（与 PC/服务器同源，后端无 online 字段）
+        final cachedOnline =
+            ref.watch(presenceMapProvider).valueOrNull?[m.sn]?.online ?? false;
         final online = m.online == true || cachedOnline;
         return _MachineCard(
           machine: m,

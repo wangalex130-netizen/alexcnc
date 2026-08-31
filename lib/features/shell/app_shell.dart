@@ -30,8 +30,8 @@ class AppShell extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final idx = ref.watch(navIndexProvider);
-    // 保持在线跟踪器全程存活（见 deviceOnlineTrackerProvider）
-    ref.watch(deviceOnlineTrackerProvider);
+    // 保持常驻在线监听服务存活（订阅全部绑定设备的 cnc/<id>/status）
+    ref.watch(devicePresenceServiceProvider);
     return Scaffold(
       body: SafeArea(
         child: IndexedStack(

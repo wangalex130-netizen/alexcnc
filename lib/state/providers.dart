@@ -24,6 +24,7 @@ import '../services/cloud_service_real.dart';
 import '../services/hardware_service.dart';
 import '../services/hardware_service_mock.dart';
 import '../services/hardware_service_real.dart';
+import '../services/device_presence_service.dart';
 import '../services/machines_service.dart';
 import '../services/message_store.dart';
 import '../services/network_auth.dart';
@@ -163,42 +164,34 @@ final connectionStateProvider = StreamProvider<LinkState>((ref) {
   return ref.watch(hardwareServiceProvider).connectionState;
 });
 
-/// 每台机器（按 sn）的本地在线缓存：App 当前与哪台机器有实时链路。
-///
-/// 背景：后端 `/api/machine/list` **不返回 online 字段**（PC 工程师确认：阿里云仅业务层，
-/// 不参与硬件连接）。所以机器列表「在线」徽标不能依赖后端 `machine.online`，必须由 App
-/// 本地连接态推导。单连接架构下 App 同一时刻只对 currentMachine 持有链路，故该缓存对
-/// currentMachine 是实时的，对其它机器为「未连接」——这是诚实的（App 确实没和它们建链）。
-final deviceOnlineProvider = StateProvider<Map<String, bool>>((ref) => const {});
+/// 绑定机器清单（全局）。`machines_page` 拉取 `/api/machine/list` 后写入；
+/// 常驻在线监听服务据此订阅全部绑定设备的 `cnc/<id>/status`。
+final boundMachinesProvider = StateProvider<List<Machine>>((ref) => const []);
 
-/// 跟踪器：把实时状态帧 / 链路态写入 [deviceOnlineProvider]，并把切走的旧机器标离线。
-/// 须在 App 根（AppShell）被 watch 才能全程存活（否则 ref.listen 不触发）。
-final deviceOnlineTrackerProvider = Provider((ref) {
-  final notifier = ref.watch(deviceOnlineProvider.notifier);
-  // 真实状态帧到达（且非 disconnected）→ 该机器在线
-  ref.listen<AsyncValue<MachineStatus>>(machineStatusProvider, (prev, next) {
-    final sn = ref.read(currentMachineProvider)?.sn;
-    if (sn == null || sn.isEmpty) return;
-    final st = next.value;
-    final online = st != null && st.state != MachineState.disconnected;
-    notifier.update((m) => {...m, sn: online});
+/// 常驻在线监听服务（独立 MQTT 连接，订阅**全部**绑定设备的 `cnc/<id>/status`）。
+///
+/// 与按当前机器重建的控制连接（clientId `android-<deviceId>`）分离，clientId 固定为
+/// `android-presence-<userId>`，不会因切换当前机器而重连，因此能稳定监听所有设备。
+/// 须在 App 根（AppShell）被 watch 以全程存活。
+final devicePresenceServiceProvider = Provider<DevicePresenceService>((ref) {
+  final svc = DevicePresenceService();
+  svc.init();
+  // 绑定设备清单变化时，更新要订阅的设备集合
+  ref.listen(boundMachinesProvider, (prev, next) {
+    svc.updateBoundDevices(next.map((m) => m.sn).toList());
   });
-  // broker 链路断开 → 直接判离线（不等状态帧）
-  ref.listen<AsyncValue<LinkState>>(connectionStateProvider, (prev, next) {
-    final sn = ref.read(currentMachineProvider)?.sn;
-    if (sn == null || sn.isEmpty) return;
-    if (next.valueOrNull != LinkState.connected) {
-      notifier.update((m) => {...m, sn: false});
-    }
-  });
-  // 切换机器 → 旧机器 App 已无链路，标离线（诚实，避免切走后仍显示在线）
-  ref.listen<Machine?>(currentMachineProvider, (prev, next) {
-    final old = prev?.sn;
-    if (old != null && old.isNotEmpty && old != next?.sn) {
-      notifier.update((m) => {...m, old: false});
-    }
-  });
-  return notifier.state;
+  // 初始若已有清单（例如页面已拉取过）
+  svc.updateBoundDevices(ref.read(boundMachinesProvider).map((m) => m.sn).toList());
+  ref.onDispose(() => svc.dispose());
+  return svc;
+});
+
+/// 每台设备在线态（sn -> DevicePresence），机器列表/固件页直接 watch。
+/// 数据来源 = MQTT Broker 上的真实在线状态（与 PC 监控页 / 服务器后台同源），
+/// 不再依赖后端不存在的 `online` 字段，也不再局限于当前控制机。
+final presenceMapProvider =
+    StreamProvider<Map<String, DevicePresence>>((ref) {
+  return ref.watch(devicePresenceServiceProvider).presenceStream;
 });
 
 /// 最近一次连接错误文本。依赖 [connectionStateProvider] 使其在每次状态变更时重建，
