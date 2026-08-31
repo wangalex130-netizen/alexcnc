@@ -738,6 +738,21 @@ class RealHardwareService implements HardwareService {
   }
 
   @override
+  Future<void> softReset() async {
+    // {"cmd":"reset"} —— 固件侧等价 Grbl Ctrl-X(0x18)：中止运动 + 清空规划器缓冲。
+    final cmd = {'cmd': 'reset'};
+    _dispatch(cmd);
+  }
+
+  @override
+  Future<void> unlock() async {
+    // {"cmd":"unlock"} —— 固件侧等价 Grbl `$X`：只清 Alarm/Lock 位。
+    // 不回零、不移动；解锁后坐标不可信，必须重新定原点。
+    final cmd = {'cmd': 'unlock'};
+    _dispatch(cmd);
+  }
+
+  @override
   Future<void> setWorkZero({double x = 0, double y = 0, double z = 0}) async {
     final cmd = {'cmd': 'setWorkZero', 'x': x, 'y': y, 'z': z};
     _dispatch(cmd);

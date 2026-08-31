@@ -62,6 +62,19 @@ abstract class HardwareService {
   Future<void> home(); // homing cycle ($H)
   Future<void> setWorkZero({double x = 0, double y = 0, double z = 0}); // G54
 
+  /// 软复位（Grbl `Ctrl-X` = 0x18）。立即中止当前运动、清空规划器缓冲。
+  ///
+  /// 🔴 与 [unlock] 一起构成「报警自救」组合：机器进入 Alarm 后 Jog 全部锁定，
+  /// **只有这两个动作仍然可用**，否则 App 永远救不回报警状态。
+  /// UI 上不受 `state == idle` 闸门限制（见 `jog_sheet.dart`）。
+  Future<void> softReset();
+
+  /// 解除报警锁定（Grbl `$X`）。清除 Alarm/Lock 位，让机器回到可运动状态。
+  ///
+  /// ⚠️ 安全口径：只清锁，**不自动回零、不自动移动**。解锁后坐标不可信，
+  /// 必须由用户在向导里重新定原点/回零。UI 上需二次确认。
+  Future<void> unlock();
+
   // --- Spindle / aux ---
   Future<void> startSpindle(double rpm);
   Future<void> stopSpindle();

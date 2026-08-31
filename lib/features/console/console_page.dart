@@ -365,6 +365,15 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     // 联调 / Mock 模式（!realMode）保持放开，不影响工程师调试。
     final canControl = idle && (hasMachine || !realMode);
 
+    // 报警自救通道（2026-08-31，与 `jog_sheet.dart` 同口径）：
+    // 软复位 / 解锁**刻意不受 `idle` 闸门限制**。机器进 Alarm 后 canControl=false，
+    // Jog 与回零全部锁死；若解锁也一起锁，就形成死锁——App 永远救不回报警状态，
+    // 用户只能跑到机器旁按实体键。故这两项只要「已连上机器」即可用。
+    final connected = status.state != MachineState.disconnected;
+    final canReset = connected && (hasMachine || !realMode);
+    // 解锁只在报警态点亮，避免正常状态下误触。
+    final canUnlock = canReset && status.state == MachineState.alarm;
+
     // DRO 状态标签：未选机器 → 不显示任何运行状态，避免误导客户。
     final Color stateColor = !hasMachine
         ? CncColors.textSub
@@ -905,8 +914,13 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   const _SectionTitle('定位与回零'),
                   _JogCard(
                     enabled: canControl,
+                    running: status.state == MachineState.busy ||
+                        status.state == MachineState.paused,
+                    canReset: canReset,
+                    canUnlock: canUnlock,
                     onJog: (axis, d) => hw.jog(axis, d),
-                    onSetZero: () => hw.setWorkZero(),
+                    onSoftReset: () => hw.softReset(),
+                    onUnlock: () => hw.unlock(),
                     onHome: () => hw.home(),
                     onExpand: () => showModalBottomSheet(
                       context: context,
@@ -1270,37 +1284,111 @@ class _SectionTitle extends StatelessWidget {
 
 // ===================== Jog 摇杆 =====================
 
-class _JogCard extends StatelessWidget {
+class _JogCard extends ConsumerWidget {
+  /// 步进档位从 `jogStepProvider` 读取，与「展开」浮层（JogSheet）**同一个 Provider**。
+  /// 修复前这里把距离**硬编码成 ±1**（恒等于 1.0mm），压根没读 Provider ——
+  /// 表现为：在浮层里把步进改成 0.1 / 10 后退回本页，卡片仍按 1mm 走，
+  /// 看起来像"步进没同步过来"，实际是本页从来没读取过步进值。
   final bool enabled;
+  /// 机器正在加工 / 暂停 —— 决定软复位是否需要二次确认。
+  final bool running;
+  final bool canReset;
+  final bool canUnlock;
   final void Function(String axis, double d) onJog;
-  final VoidCallback onSetZero;
+  /// 软复位（Grbl Ctrl-X）：中止运动 + 清空缓冲。不受 `enabled`（idle 闸门）限制。
+  final VoidCallback onSoftReset;
+  /// 解除报警锁定（Grbl `$X`）：只清锁，不回零、不移动，坐标会失效。
+  final VoidCallback onUnlock;
   final VoidCallback onHome;
   /// 打开二级「手动移动」浮层（大按键 + 步进档位），便于精细对刀。
   final VoidCallback? onExpand;
   const _JogCard(
       {this.enabled = true,
+      this.running = false,
+      this.canReset = true,
+      this.canUnlock = true,
       required this.onJog,
-      required this.onSetZero,
+      required this.onSoftReset,
+      required this.onUnlock,
       required this.onHome,
       this.onExpand});
 
+  /// 加工 / 暂停中软复位会中断作业 → 二次确认；空闲 / 报警态直接下发。
+  Future<void> _confirmReset(BuildContext context) async {
+    if (!canReset) return;
+    if (running) {
+      final ok = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('软复位会中断当前作业'),
+              content: const Text(
+                  '机器正在加工。软复位会立即中止运动并清空运动缓冲，'
+                  '正在进行的雕刻无法续雕。确定继续吗？'),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text('取消')),
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text('确定软复位',
+                        style: TextStyle(color: CncColors.danger))),
+              ],
+            ),
+          ) ??
+          false;
+      if (!ok) return;
+    }
+    onSoftReset();
+  }
+
+  void _doUnlock(BuildContext context) {
+    if (!canUnlock) return;
+    onUnlock();
+    // 解锁后机器坐标不可信（$X 只是清锁，没有重建坐标系），必须提示重新定原点。
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(
+          content: Text('已解除报警锁定 · 请重新定原点后再加工'),
+          duration: Duration(seconds: 3)),
+    );
+  }
+
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(10),
-        decoration: _cardDeco(),
-        child: Column(
-          children: [
-            // 标题行：右侧「展开」进入二级浮层（大按键，便于精细移动）
-            Row(
-              children: [
-                const Expanded(
-                  child: Text('手动移动',
+  Widget build(BuildContext context, WidgetRef ref) {
+    // 与浮层共用全局步进档位（0.1 / 1.0 / 10 mm），任一处修改另一处立即生效。
+    final step = ref.watch(jogStepProvider);
+    return Container(
+          padding: const EdgeInsets.all(10),
+          decoration: _cardDeco(),
+          child: Column(
+            children: [
+              // 标题行：左侧显示当前步进档位，右侧「展开」进入二级浮层。
+              // 显示步进值是必要的 —— 机器会真的按这个距离移动，
+              // 不显示的话用户改完档位回到本页，会不知道点一下走多远。
+              Row(
+                children: [
+                  const Text('手动移动',
                       style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
                           color: CncColors.textMain)),
-                ),
-                if (onExpand != null)
+                  const SizedBox(width: 6),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: CncColors.primary.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(
+                          color: CncColors.primary.withOpacity(0.5)),
+                    ),
+                    child: Text('${step.toStringAsFixed(1)} mm',
+                        style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: CncColors.primaryInk)),
+                  ),
+                  const Spacer(),
+                  if (onExpand != null)
                   GestureDetector(
                     onTap: onExpand,
                     child: Container(
@@ -1340,13 +1428,13 @@ class _JogCard extends StatelessWidget {
                 crossAxisSpacing: 4,
                 children: [
                   const SizedBox(),
-                  _JogBtn('Y+', () => onJog('y', 1), enabled: enabled),
+                  _JogBtn('Y+', () => onJog('y', step), enabled: enabled),
                   const SizedBox(),
-                  _JogBtn('X-', () => onJog('x', -1), enabled: enabled),
+                  _JogBtn('X-', () => onJog('x', -step), enabled: enabled),
                   _axisLabel('XY'),
-                  _JogBtn('X+', () => onJog('x', 1), enabled: enabled),
+                  _JogBtn('X+', () => onJog('x', step), enabled: enabled),
                   const SizedBox(),
-                  _JogBtn('Y-', () => onJog('y', -1), enabled: enabled),
+                  _JogBtn('Y-', () => onJog('y', -step), enabled: enabled),
                   const SizedBox(),
                 ],
               ),
@@ -1357,31 +1445,50 @@ class _JogCard extends StatelessWidget {
               width: 45,
               child: Column(
                 children: [
-                  _JogBtn('Z+', () => onJog('z', 1), enabled: enabled),
+                  _JogBtn('Z+', () => onJog('z', step), enabled: enabled),
                   // 轴标签（装饰、不可点）。此前这里是一个会下发 jog(z, 0) 的按钮：
                   // 点了毫无反应，还会往机器发一条 0mm 的空命令并刷新固件 Feed Hold 计时器。
                   _axisLabel('Z'),
-                  _JogBtn('Z-', () => onJog('z', -1), enabled: enabled),
+                  _JogBtn('Z-', () => onJog('z', -step), enabled: enabled),
                 ],
               ),
             ),
             const SizedBox(width: 10),
-            // 定原点 / 回零
+            // 软复位 / 解锁 / 回零（2026-08-31 调整）：
+            //  · 去掉「定原点」——定原点是发起雕刻任务向导里的环节，不该出现在 Jog 中；
+            //  · 补上「软复位 / 解锁」——机器报警后的自救入口，不受 idle 闸门限制。
             SizedBox(
               width: 50,
               child: Column(
                 children: [
-                  _HomeBtn(icon: Icons.add_location_alt_outlined, label: '定原点', onTap: onSetZero, enabled: enabled),
+                  _HomeBtn(
+                      icon: Icons.restart_alt,
+                      label: '软复位',
+                      onTap: () => _confirmReset(context),
+                      enabled: canReset,
+                      danger: true),
                   const SizedBox(height: 4),
-                  _HomeBtn(icon: Icons.home_outlined, label: '回零', onTap: onHome, enabled: enabled),
+                  _HomeBtn(
+                      icon: Icons.lock_open,
+                      label: '解锁',
+                      onTap: () => _doUnlock(context),
+                      enabled: canUnlock,
+                      danger: true),
+                  const SizedBox(height: 4),
+                  _HomeBtn(
+                      icon: Icons.home_outlined,
+                      label: '回零',
+                      onTap: onHome,
+                      enabled: enabled),
                 ],
               ),
             ),
-              ],
-            ),
-          ],
-        ),
-      );
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// 坐标轴标签（XY / Z）：**纯装饰、不可点击**。
@@ -1431,33 +1538,45 @@ class _HomeBtn extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
   final bool enabled;
-  const _HomeBtn({required this.icon, required this.label, required this.onTap, this.enabled = true});
+  /// 危险动作（软复位 / 解锁）配色：红色描边+红字，与移动键区分，降低误触。
+  final bool danger;
+  const _HomeBtn(
+      {required this.icon,
+      required this.label,
+      required this.onTap,
+      this.enabled = true,
+      this.danger = false});
   @override
-  Widget build(BuildContext context) => GestureDetector(
-        onTap: enabled ? onTap : null,
-        child: Opacity(
-          opacity: enabled ? 1 : 0.45,
-          child: Container(
-            height: 44,
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEDEFF2),
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: CncColors.border),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon, size: 18, color: CncColors.textSub),
-                const SizedBox(height: 3),
-                Text(label,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: CncColors.textSub)),
-              ],
+  Widget build(BuildContext context) {
+    final fg = danger ? CncColors.danger : CncColors.textSub;
+    return GestureDetector(
+          onTap: enabled ? onTap : null,
+          child: Opacity(
+            opacity: enabled ? 1 : 0.45,
+            child: Container(
+              height: 44,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEDEFF2),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                    color: danger ? CncColors.danger : CncColors.border),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(icon, size: 18, color: fg),
+                  const SizedBox(height: 3),
+                  Text(label,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          fontSize: 11, fontWeight: FontWeight.bold, color: fg)),
+                ],
+              ),
             ),
           ),
-        ),
-      );
+        );
+  }
 }
 
 // ===================== 主轴 =====================

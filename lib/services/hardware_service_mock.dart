@@ -207,6 +207,30 @@ class MockHardwareService implements HardwareService {
   }
 
   @override
+  Future<void> softReset() async {
+    // 模拟 Ctrl-X：中止运动、清空缓冲，回到 idle 并清报警码。
+    // 注意 copyWith 用 `??` 兜底，传 null 无法清空，故用空串表示"无错误"。
+    _current = _current.copyWith(
+      state: MachineState.idle,
+      alarmCode: 0,
+      error: '',
+      message: '软复位完成',
+    );
+    _emit();
+  }
+
+  @override
+  Future<void> unlock() async {
+    // 模拟 $X：只清 Alarm/Lock 位，不回零、不移动。
+    _current = _current.copyWith(
+      state: MachineState.idle,
+      alarmCode: 0,
+      message: '已解除报警锁定，请重新定原点',
+    );
+    _emit();
+  }
+
+  @override
   Future<void> setWorkZero({double x = 0, double y = 0, double z = 0}) async {
     _current = _current.copyWith(position: Position(x: x, y: y, z: z));
     _emit();
