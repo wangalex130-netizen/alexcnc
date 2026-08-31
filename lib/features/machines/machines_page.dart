@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/config.dart';
 import '../../app/runtime_config.dart';
 import '../../app/theme.dart';
+import '../../services/device_presence_service.dart';
 import '../../services/machines_service.dart';
 import '../../state/auth_provider.dart';
 import '../../state/providers.dart';
@@ -197,29 +198,98 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
                   )
                 : ListView.separated(
                     padding: const EdgeInsets.all(16),
-                    itemCount: machines.length,
+                    itemCount: machines.length + 1,
                     separatorBuilder: (_, __) =>
                         const SizedBox(height: 10),
                     itemBuilder: (context, i) {
-        final m = machines[i];
-        final current = ref.watch(currentMachineProvider);
-        final selected = current?.sn == m.sn && m.sn.isNotEmpty;
-        // 「在线」读 App 订阅全部绑定设备的真实在线态（与 PC/服务器同源，后端无 online 字段）
-        final cachedOnline =
-            ref.watch(presenceMapProvider).valueOrNull?[m.sn]?.online ?? false;
-        final online = m.online == true || cachedOnline;
-        return _MachineCard(
-          machine: m,
-          selected: selected,
-          online: online,
-          onTap: () => _selectMachine(m),
-          onPreview: () => _openPreview(m),
-          onBitConfig: () => showBitConfigDialog(
-              context, m.sn),
-        );
+                      if (i == 0) {
+                        return const _PresenceDiagnosticBar();
+                      }
+                      final m = machines[i - 1];
+                      final current = ref.watch(currentMachineProvider);
+                      final selected = current?.sn == m.sn && m.sn.isNotEmpty;
+                      // 「在线」读 App 订阅全部绑定设备的真实在线态（与 PC/服务器同源，后端无 online 字段）
+                      final cachedOnline = ref
+                              .watch(presenceMapProvider)
+                              .valueOrNull?[m.sn]
+                              ?.online ??
+                          false;
+                      final online = m.online == true || cachedOnline;
+                      return _MachineCard(
+                        machine: m,
+                        selected: selected,
+                        online: online,
+                        onTap: () => _selectMachine(m),
+                        onPreview: () => _openPreview(m),
+                        onBitConfig: () => showBitConfigDialog(context, m.sn),
+                      );
                     },
                   ),
       ),
+    );
+  }
+}
+
+/// 在线监听服务诊断条：仅在连接异常时显示，帮助用户/工程师判断是 App 监听断了
+/// 还是固件真的没上报。正常连接时隐藏，不打扰 UI。
+class _PresenceDiagnosticBar extends ConsumerWidget {
+  const _PresenceDiagnosticBar();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final conn = ref.watch(devicePresenceServiceProvider.select(
+        (s) => s.connectionState));
+    return StreamBuilder<PresenceConnectionState>(
+      stream: conn,
+      initialData: PresenceConnectionState.idle,
+      builder: (context, snap) {
+        final state = snap.data ?? PresenceConnectionState.idle;
+        if (state == PresenceConnectionState.connected) {
+          return const SizedBox.shrink();
+        }
+        String text;
+        Color color;
+        switch (state) {
+          case PresenceConnectionState.connecting:
+            text = '正在同步机器在线状态…';
+            color = CncColors.primary;
+          case PresenceConnectionState.disconnected:
+            text = '在线状态同步已断开，正在重连…';
+            color = CncColors.danger;
+          default:
+            text = '在线状态同步未启动';
+            color = CncColors.textSub;
+        }
+        return Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: color.withOpacity(0.3)),
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation(color),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  text,
+                  style: TextStyle(fontSize: 12, color: color),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

@@ -8,15 +8,6 @@ import '../app/config.dart';
 import '../models/machine_status.dart';
 
 /// 单台设备的在线感知（presence）。
-///
-/// 与"当前控制机"完全解耦：App 用一条**独立常驻** MQTT 连接订阅
-/// **所有绑定设备**的 `cnc/<id>/status`，从而像 PC 监控页 / 服务器后台一样，
-/// 在机器列表里同时看到每台机器真实在线状态，而不是只能看当前控制的那一台。
-///
-/// 数据来源 = MQTT Broker 上的真相（与 PC/服务器同源）：
-/// - 设备在线时，固件周期性 / 上电发布 `cnc/<id>/status`（state != disconnected）；
-/// - 设备掉线时，Broker 自动代发 LWT `{"state":"disconnected"}`（retain）。
-/// 两者共同决定每台设备的 online。
 class DevicePresence {
   final bool online;
   final MachineState? state;
@@ -29,10 +20,23 @@ class DevicePresence {
   });
 }
 
+/// 常驻在线监听服务连接状态。
+enum PresenceConnectionState {
+  idle,
+  connecting,
+  connected,
+  disconnected,
+}
+
 /// 常驻在线监听服务。
 ///
-/// 独立 clientId（`android-presence-<userId>`），与按设备重建的控制连接互不干扰，
-/// 不会因切换当前机器而重连，因此能稳定监听全部绑定设备。
+/// 与"当前控制机"完全解耦：App 用一条**独立常驻** MQTT 连接订阅
+/// **所有绑定设备**的 `cnc/<id>/status`，从而像 PC 监控页 / 服务器后台一样，
+/// 在机器列表里同时看到每台机器真实在线状态。
+///
+/// 数据来源 = MQTT Broker 上的真相（与 PC/服务器同源）：
+/// - 设备在线时，固件周期性 / 上电发布 `cnc/<id>/status`（state != disconnected）；
+/// - 设备掉线时，Broker 自动代发 LWT `{"state":"disconnected"}`（retain）。
 class DevicePresenceService {
   final String broker;
   final int mqttPort;
@@ -51,45 +55,79 @@ class DevicePresenceService {
   Stream<Map<String, DevicePresence>> get presenceStream => _ctrl.stream;
   Map<String, DevicePresence> get presence => Map.unmodifiable(_map);
 
+  final _connCtrl = StreamController<PresenceConnectionState>.broadcast();
+  Stream<PresenceConnectionState> get connectionState => _connCtrl.stream;
+
   MqttServerClient? _client;
   final Set<String> _subscribed = {};
+  final Set<String> _deniedSubs = {};
   Timer? _staleTimer;
+  Timer? _reconnectTimer;
   bool _closing = false;
+  bool _connecting = false;
+  String? lastError;
 
-  /// 启动常驻连接。可重复调用，仅首次生效。
+  /// 启动常驻连接。可重复调用，线程安全。
   void init() {
-    if (_client != null) return;
-    _closing = false;
+    if (_closing) return;
+    if (_client != null) return; // 已连接或连接中
     _connect();
     _staleTimer ??= Timer.periodic(const Duration(seconds: 30), (_) => _checkStale());
   }
 
-  void _connect() {
-    final client = MqttServerClient(
-      broker,
-      'android-presence-${AppConfig.appUserId}',
-    );
+  void _setConn(PresenceConnectionState s) {
+    _connCtrl.add(s);
+  }
+
+  Future<void> _connect() async {
+    if (_closing || _connecting) return;
+    _connecting = true;
+    _setConn(PresenceConnectionState.connecting);
+
+    // 断线后旧实例必须彻底废弃，复用已断开的 client 会导致互踢或脏状态。
+    _client?.disconnect();
+    _client = null;
+
+    final clientId = 'android-presence-${AppConfig.appUserId}';
+    final client = MqttServerClient(broker, clientId);
     client.port = mqttPort;
     client.secure = true; // TLS 8883，与控制连接一致
     client.onBadCertificate = (Object cert) => true; // 联调期信任自签；上线换正式 CA
     client.keepAlivePeriod = 30;
     client.logging(on: false);
     client.onDisconnected = _onDisconnected;
-    client.onSubscribeFail =
-        (String topic) => print('[presence] subscribe DENIED (ACL): $topic');
+    client.onSubscribeFail = (String topic) {
+      if (!_deniedSubs.contains(topic)) _deniedSubs.add(topic);
+      print('[presence] subscribe DENIED (ACL): $topic');
+    };
+    // 与控制连接一致：clean session，避免 session 残留导致订阅状态混乱。
     client.connectionMessage = MqttConnectMessage().startClean();
+
     _client = client;
-    client
-        .connect(
-      mqttUser.isEmpty ? null : mqttUser,
-      mqttPass.isEmpty ? null : mqttPass,
-    )
-        .then((_) {
+
+    try {
+      await client.connect(
+        mqttUser.isEmpty ? null : mqttUser,
+        mqttPass.isEmpty ? null : mqttPass,
+      );
       if (client.connectionStatus?.state == MqttConnectionState.connected) {
+        _setConn(PresenceConnectionState.connected);
         client.updates!.listen(_onMessage);
-        for (final id in _subscribed) _sub(id); // 重连后补订阅
+        // 重连后补订阅
+        for (final id in List<String>.from(_subscribed)) {
+          _sub(id);
+        }
+      } else {
+        throw Exception('connection status: ${client.connectionStatus?.state}');
       }
-    }).catchError((e) => print('[presence] connect error: $e'));
+    } catch (e) {
+      lastError = e.toString();
+      print('[presence] connect error: $e');
+      _setConn(PresenceConnectionState.disconnected);
+      _scheduleReconnect();
+    } finally {
+      _connecting = false;
+    }
   }
 
   /// 更新需要监听的绑定设备（sn 列表）。新增订阅、移除解绑设备。
@@ -102,8 +140,7 @@ class DevicePresenceService {
       }
     }
     for (final id in wanted) {
-      _subscribed.add(id);
-      _sub(id);
+      if (_subscribed.add(id)) _sub(id);
     }
     _emit();
   }
@@ -118,7 +155,6 @@ class DevicePresenceService {
       final msg = ev.payload;
       if (msg is! MqttPublishMessage) continue;
       final t = ev.topic;
-      // 只处理 cnc/<id>/status
       if (!t.startsWith('cnc/') || !t.endsWith('/status')) continue;
       final id = t.substring(4, t.length - 7); // 去掉 "cnc/" 与 "/status"
       final payload = utf8.decode(msg.payload.message, allowMalformed: true);
@@ -148,16 +184,21 @@ class DevicePresenceService {
   }
 
   void _onDisconnected() {
+    _setConn(PresenceConnectionState.disconnected);
     // App 自身 MQTT 断了 → 拿不到任何状态 → 全部判离线（诚实）
     for (final k in _map.keys) {
       _map[k] = DevicePresence(online: false, lastSeen: DateTime.now());
     }
     _emit();
-    if (!_closing) {
-      Future.delayed(const Duration(seconds: 3), () {
-        if (!_closing && _client == null) _connect();
-      });
-    }
+    _client = null;
+    if (!_closing) _scheduleReconnect();
+  }
+
+  void _scheduleReconnect() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(const Duration(seconds: 3), () {
+      if (!_closing && _client == null) _connect();
+    });
   }
 
   /// 长期收不到状态帧（>90s）即判离线，覆盖 LWT 偶发丢失。
@@ -165,8 +206,7 @@ class DevicePresenceService {
     final now = DateTime.now();
     var changed = false;
     for (final e in _map.entries) {
-      if (e.value.online &&
-          now.difference(e.value.lastSeen).inSeconds > 90) {
+      if (e.value.online && now.difference(e.value.lastSeen).inSeconds > 90) {
         _map[e.key] = DevicePresence(
           online: false,
           state: e.value.state,
@@ -182,6 +222,7 @@ class DevicePresenceService {
 
   void dispose() {
     _closing = true;
+    _reconnectTimer?.cancel();
     _staleTimer?.cancel();
     _client?.disconnect();
     _client = null;
