@@ -815,6 +815,15 @@ class RealHardwareService implements HardwareService {
   bool getAux(String key) => _aux[key] ?? false;
 
   void dispose() {
+    // 🔴 关键修复（2026-08-31）：必须先置 _closing = true，再断开。
+    // 原实现直接 _mqtt?.disconnect()（与 disconnect() 方法不同，未置 _closing），
+    // 导致断开回调 _onMqttDisconnected() 认为"非主动关闭"，进而调用
+    // _scheduleReconnect() 给**已销毁的实例**排一个重连定时器。
+    // 旧实例重连时用的 clientId 仍是 android-<deviceId>，与新实例同名
+    // → broker 侧互踢 → 新实例被踢 → 又触发重连 → 无限循环，
+    // 表现为"MQTT 一下连上、一下断开"的反复闪断（切换/选中机器时必现，
+    // 因为硬件服务会随 currentMachineProvider 重建）。
+    _closing = true;
     _reconnectTimer?.cancel();
     _tcpReconnectTimer?.cancel();
     _stopHeartbeat();
