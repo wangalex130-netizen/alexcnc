@@ -310,7 +310,10 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
   Widget build(BuildContext context) {
     final machine = ref.watch(currentMachineProvider);
     final sn = machine?.sn ?? '未绑定机器';
-    final online = machine?.online ?? false;
+    // 在线以 App 本地实时链路为准（后端无 online 字段，见 deviceOnlineProvider）
+    final cachedOnline =
+        ref.watch(deviceOnlineProvider)[machine?.sn ?? ''] ?? false;
+    final online = (machine?.online == true) || cachedOnline;
 
     return Scaffold(
       backgroundColor: CncColors.bg,

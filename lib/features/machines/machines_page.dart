@@ -197,17 +197,21 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
                     separatorBuilder: (_, __) =>
                         const SizedBox(height: 10),
                     itemBuilder: (context, i) {
-                      final m = machines[i];
-                      final current = ref.watch(currentMachineProvider);
-                      final selected = current?.sn == m.sn && m.sn.isNotEmpty;
-                      return _MachineCard(
-                        machine: m,
-                        selected: selected,
-                        onTap: () => _selectMachine(m),
-                        onPreview: () => _openPreview(m),
-                        onBitConfig: () => showBitConfigDialog(
-                            context, m.sn),
-                      );
+        final m = machines[i];
+        final current = ref.watch(currentMachineProvider);
+        final selected = current?.sn == m.sn && m.sn.isNotEmpty;
+        // 「在线」以 App 本地实时链路为准（后端无 online 字段，见 deviceOnlineProvider）
+        final cachedOnline = ref.watch(deviceOnlineProvider)[m.sn] ?? false;
+        final online = m.online == true || cachedOnline;
+        return _MachineCard(
+          machine: m,
+          selected: selected,
+          online: online,
+          onTap: () => _selectMachine(m),
+          onPreview: () => _openPreview(m),
+          onBitConfig: () => showBitConfigDialog(
+              context, m.sn),
+        );
                     },
                   ),
       ),
@@ -218,12 +222,14 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 class _MachineCard extends StatelessWidget {
   final Machine machine;
   final bool selected;
+  final bool online;
   final VoidCallback onTap;
   final VoidCallback onPreview;
   final VoidCallback onBitConfig;
   const _MachineCard({
     required this.machine,
     this.selected = false,
+    required this.online,
     required this.onTap,
     required this.onPreview,
     required this.onBitConfig,
@@ -232,9 +238,8 @@ class _MachineCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // 在线状态：对客户只分「在线 / 不在线」两种。
-    // 后端未返回 online 字段时也归为不在线 —— 客户只关心这台现在能不能用，
-    // "状态未知"这种技术化措辞没有意义（2026-08-29 按用户反馈把三态合并为两态）。
-    final online = machine.online;
+    // `online` 由父级按 App 本地实时链路传入（后端无 online 字段，2026-08-31 修正）。
+    final online = this.online;
     final String statusText;
     final Color statusColor;
     if (machine.sn.isEmpty) {

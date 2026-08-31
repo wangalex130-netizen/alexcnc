@@ -163,6 +163,44 @@ final connectionStateProvider = StreamProvider<LinkState>((ref) {
   return ref.watch(hardwareServiceProvider).connectionState;
 });
 
+/// 每台机器（按 sn）的本地在线缓存：App 当前与哪台机器有实时链路。
+///
+/// 背景：后端 `/api/machine/list` **不返回 online 字段**（PC 工程师确认：阿里云仅业务层，
+/// 不参与硬件连接）。所以机器列表「在线」徽标不能依赖后端 `machine.online`，必须由 App
+/// 本地连接态推导。单连接架构下 App 同一时刻只对 currentMachine 持有链路，故该缓存对
+/// currentMachine 是实时的，对其它机器为「未连接」——这是诚实的（App 确实没和它们建链）。
+final deviceOnlineProvider = StateProvider<Map<String, bool>>((ref) => const {});
+
+/// 跟踪器：把实时状态帧 / 链路态写入 [deviceOnlineProvider]，并把切走的旧机器标离线。
+/// 须在 App 根（AppShell）被 watch 才能全程存活（否则 ref.listen 不触发）。
+final deviceOnlineTrackerProvider = Provider((ref) {
+  final notifier = ref.watch(deviceOnlineProvider.notifier);
+  // 真实状态帧到达（且非 disconnected）→ 该机器在线
+  ref.listen<AsyncValue<MachineStatus>>(machineStatusProvider, (prev, next) {
+    final sn = ref.read(currentMachineProvider)?.sn;
+    if (sn == null || sn.isEmpty) return;
+    final st = next.value;
+    final online = st != null && st.state != MachineState.disconnected;
+    notifier.update((m) => {...m, sn: online});
+  });
+  // broker 链路断开 → 直接判离线（不等状态帧）
+  ref.listen<AsyncValue<LinkState>>(connectionStateProvider, (prev, next) {
+    final sn = ref.read(currentMachineProvider)?.sn;
+    if (sn == null || sn.isEmpty) return;
+    if (next.valueOrNull != LinkState.connected) {
+      notifier.update((m) => {...m, sn: false});
+    }
+  });
+  // 切换机器 → 旧机器 App 已无链路，标离线（诚实，避免切走后仍显示在线）
+  ref.listen<Machine?>(currentMachineProvider, (prev, next) {
+    final old = prev?.sn;
+    if (old != null && old.isNotEmpty && old != next?.sn) {
+      notifier.update((m) => {...m, old: false});
+    }
+  });
+  return notifier.state;
+});
+
 /// 最近一次连接错误文本。依赖 [connectionStateProvider] 使其在每次状态变更时重建，
 /// 从而同步刷新服务内部的 [lastConnectionError]。
 final lastConnErrorProvider = Provider<String?>((ref) {
