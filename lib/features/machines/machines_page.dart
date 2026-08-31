@@ -237,13 +237,19 @@ class _PresenceDiagnosticBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final conn = ref.watch(devicePresenceServiceProvider.select(
-        (s) => s.connectionState));
+    // 直接取服务实例（不是 .select(...)），保证每次 build 都能读到最新的
+    // currentConnectionState，不受 Riverpod 值比对缓存影响。
+    final svc = ref.watch(devicePresenceServiceProvider);
+    // 首帧用「当前值」而非 idle：连接在 App 启动时就已建立，StreamBuilder 订阅时
+    // 早已错过 connected 事件，若初始给 idle 会误显「未启动」并一直转圈。
+    final initial = svc.currentConnectionState;
     return StreamBuilder<PresenceConnectionState>(
-      stream: conn,
-      initialData: PresenceConnectionState.idle,
+      stream: svc.connectionState,
+      initialData: initial,
       builder: (context, snap) {
-        final state = snap.data ?? PresenceConnectionState.idle;
+        // 防御：诊断条只是辅助信息，任何异常都不得让它冒泡把整个机器列表搞白。
+        if (snap.hasError) return const SizedBox.shrink();
+        final state = snap.data ?? initial;
         if (state == PresenceConnectionState.connected) {
           return const SizedBox.shrink();
         }

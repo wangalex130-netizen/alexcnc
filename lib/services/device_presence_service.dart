@@ -28,39 +28,6 @@ enum PresenceConnectionState {
   disconnected,
 }
 
-/// 回放最近一次值的广播流：新订阅者立即收到当前值。
-///
-/// [DevicePresenceService.connectionState] 用广播流，但诊断条 [StreamBuilder] 在连接
-/// 早已 `connected` 之后才订阅，普通广播流会永远错过该事件而停在 initialData(idle)，
-/// 导致诊断条误显"在线状态同步未启动"并一直转圈。回放当前值可消除该时序竞态。
-class _ReplayBroadcaster<T> {
-  final StreamController<T> _inner = StreamController<T>.broadcast();
-  T? _last;
-  bool _closed = false;
-
-  Stream<T> get stream {
-    final out = StreamController<T>();
-    if (_last != null) out.add(_last as T);
-    final sub = _inner.stream.listen(
-      out.add,
-      onError: out.addError,
-      onDone: out.close,
-    );
-    out.onCancel = sub.cancel;
-    return out.stream;
-  }
-
-  void add(T value) {
-    _last = value;
-    if (!_closed) _inner.add(value);
-  }
-
-  void close() {
-    _closed = true;
-    _inner.close();
-  }
-}
-
 /// 常驻在线监听服务。
 ///
 /// 与"当前控制机"完全解耦：App 用一条**独立常驻** MQTT 连接订阅
@@ -88,9 +55,17 @@ class DevicePresenceService {
   Stream<Map<String, DevicePresence>> get presenceStream => _ctrl.stream;
   Map<String, DevicePresence> get presence => Map.unmodifiable(_map);
 
-  final _connCtrl = _ReplayBroadcaster<PresenceConnectionState>();
-  // 缓存一次，保证稳定 identity（供 Riverpod select 比对），且新订阅者立即收到当前值。
-  late final Stream<PresenceConnectionState> connectionState = _connCtrl.stream;
+  /// 连接态广播流。
+  ///
+  /// 必须是 **broadcast**：页面二次进入时 Flutter 会先 build 新 `StreamBuilder`
+  /// 再 dispose 旧的，两者会短暂同时订阅同一条 stream；单订阅 controller 会抛
+  /// `Bad state: Stream has already been listened to`，异常冒泡后整个机器列表
+  /// 子树渲染不出来（2026-08-31 实测「第二次进页面变白」）。
+  ///
+  /// 新订阅者取当前值走 [currentConnectionState]（作为 StreamBuilder 的
+  /// `initialData`），不在此做回放包装——避免额外 controller 与生命周期问题。
+  final _connCtrl = StreamController<PresenceConnectionState>.broadcast();
+  Stream<PresenceConnectionState> get connectionState => _connCtrl.stream;
 
   MqttServerClient? _client;
   final Set<String> _subscribed = {};
