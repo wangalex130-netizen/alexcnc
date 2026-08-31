@@ -160,21 +160,33 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
     });
   }
 
-  @override
-  void dispose() {
-    _connSub?.cancel();
-    _camSub?.cancel();
-    _renewTimer?.cancel();
-    // 退出预览即停推流（按需推流模型），省带宽/电量、延寿、护隐私。
-    final cfg = ref.read(runtimeConfigProvider);
-    final realMode = cfg.resolvedUseRealBackend;
-    final loggedIn = ref.read(authProvider).isLoggedIn;
-    if (!realMode || (loggedIn && widget.machine != null)) {
-      _hw.sendCameraStream('stream_stop', deviceId: _cameraDeviceId);
-    }
+  /// 恢复竖屏与系统 UI。务必最先执行，且不依赖任何可能抛错的清理（如停推流命令），
+  /// 否则一旦下方异常，竖屏恢复会被跳过，导致退出全屏后界面仍卡在横屏。
+  void _restoreChrome() {
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
         overlays: SystemUiOverlay.values);
+  }
+
+  @override
+  void dispose() {
+    // 1) 先恢复竖屏与系统 UI（最早、且不会因后续异常被跳过）。
+    _restoreChrome();
+    _connSub?.cancel();
+    _camSub?.cancel();
+    _renewTimer?.cancel();
+    // 2) 退出预览即停推流（按需推流模型），省带宽/电量、延寿、护隐私。
+    //    包在 try/catch 中：即便停推失败也绝不影响已完成的竖屏恢复。
+    try {
+      final cfg = ref.read(runtimeConfigProvider);
+      final realMode = cfg.resolvedUseRealBackend;
+      final loggedIn = ref.read(authProvider).isLoggedIn;
+      if (!realMode || (loggedIn && widget.machine != null)) {
+        _hw.sendCameraStream('stream_stop', deviceId: _cameraDeviceId);
+      }
+    } catch (_) {
+      // 停推失败忽略，竖屏已恢复
+    }
     _latestFrame.dispose();
     super.dispose();
   }
@@ -248,8 +260,15 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
   @override
   Widget build(BuildContext context) {
     if (_streamUrl.isEmpty) return _needLoginScaffold();
-    return Scaffold(
-      backgroundColor: Colors.black,
+    return PopScope(
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        // 在路由真正弹出前恢复竖屏，时序上比 dispose 更稳（鸿蒙等机型实测更可靠）。
+        _restoreChrome();
+        Navigator.of(context).pop();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
       body: SafeArea(
         child: Stack(
           fit: StackFit.expand,
@@ -362,6 +381,7 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
               ),
           ],
         ),
+      ),
       ),
     );
   }

@@ -28,6 +28,39 @@ enum PresenceConnectionState {
   disconnected,
 }
 
+/// 回放最近一次值的广播流：新订阅者立即收到当前值。
+///
+/// [DevicePresenceService.connectionState] 用广播流，但诊断条 [StreamBuilder] 在连接
+/// 早已 `connected` 之后才订阅，普通广播流会永远错过该事件而停在 initialData(idle)，
+/// 导致诊断条误显"在线状态同步未启动"并一直转圈。回放当前值可消除该时序竞态。
+class _ReplayBroadcaster<T> {
+  final StreamController<T> _inner = StreamController<T>.broadcast();
+  T? _last;
+  bool _closed = false;
+
+  Stream<T> get stream {
+    final out = StreamController<T>();
+    if (_last != null) out.add(_last as T);
+    final sub = _inner.stream.listen(
+      out.add,
+      onError: out.addError,
+      onDone: out.close,
+    );
+    out.onCancel = sub.cancel;
+    return out.stream;
+  }
+
+  void add(T value) {
+    _last = value;
+    if (!_closed) _inner.add(value);
+  }
+
+  void close() {
+    _closed = true;
+    _inner.close();
+  }
+}
+
 /// 常驻在线监听服务。
 ///
 /// 与"当前控制机"完全解耦：App 用一条**独立常驻** MQTT 连接订阅
@@ -55,8 +88,9 @@ class DevicePresenceService {
   Stream<Map<String, DevicePresence>> get presenceStream => _ctrl.stream;
   Map<String, DevicePresence> get presence => Map.unmodifiable(_map);
 
-  final _connCtrl = StreamController<PresenceConnectionState>.broadcast();
-  Stream<PresenceConnectionState> get connectionState => _connCtrl.stream;
+  final _connCtrl = _ReplayBroadcaster<PresenceConnectionState>();
+  // 缓存一次，保证稳定 identity（供 Riverpod select 比对），且新订阅者立即收到当前值。
+  late final Stream<PresenceConnectionState> connectionState = _connCtrl.stream;
 
   MqttServerClient? _client;
   final Set<String> _subscribed = {};
@@ -76,8 +110,14 @@ class DevicePresenceService {
   }
 
   void _setConn(PresenceConnectionState s) {
+    _connState = s;
     _connCtrl.add(s);
   }
+
+  /// 暴露当前连接态（非流），供诊断条在订阅前也能直接判读，避免首屏误显"未启动"。
+  PresenceConnectionState get currentConnectionState =>
+      _connState;
+  PresenceConnectionState _connState = PresenceConnectionState.idle;
 
   Future<void> _connect() async {
     if (_closing || _connecting) return;
@@ -226,5 +266,6 @@ class DevicePresenceService {
     _staleTimer?.cancel();
     _client?.disconnect();
     _client = null;
+    _connCtrl.close();
   }
 }
