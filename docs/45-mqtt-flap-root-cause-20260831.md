@@ -155,24 +155,26 @@ App 的机器状态**只能来自** `cnc/<deviceId>/status` 帧，而这个帧�
 
 ### 5.2 必须确认：03 的屏幕到底在不在 broker 上？
 
-**这是现象 B 的关键，需要 MQTT 任务查**：
+**✅ 已确认（14:23，PC 工程师"CNC 远程控制工作台"截图）**：
 
-> 请在 EMQX Dashboard / CLI 查在线客户端列表，确认有没有 **`screen-cnc-demo-03`**。
->
-> - **有** → 屏幕在线，那 App 收不到状态帧就是订阅/ACL 问题，继续查 §5.3；
-> - **没有** → 屏幕根本没上线，现象 B 的原因就是它，先把屏幕联上调通。
+| 项 | 状态 |
+|---|---|
+| 设备 ID | `cnc-demo-03` |
+| 屏幕 MQTT 状态 | **在线且稳定** |
+| 当前 state | `IDLE`（空闲） |
+| 坐标 | WPos X=-22.000, Y=-9.999, Z=64.201 |
+| 状态来源 | 小屏 status / notify |
 
-> ⚠️ 摄像头任务 14:00 报告里只确认了 `cam-cnc-demo-03` 在线，**没有提到 `screen-cnc-demo-03`**。
-> 这两者是不同设备：**摄像头在线 ≠ 屏幕在线 ≠ 机器能被 App 控制**。
+→ **屏幕 `screen-cnc-demo-03` 确实在线，而且稳定发状态帧。**
 
-### 5.3 若屏幕在线但 App 收不到状态帧，再查这三项
+### 5.3 所以现象 B 的真因是
 
-| # | 检查 | 方法 |
-|---|---|---|
-| 1 | App 是否订阅成功 | 看 logcat 有无 `[MQTT] subscribe DENIED (ACL)` |
-| 2 | ACL 是否放行 | `python verify/acl_probe.py -u app-demo -P demo123 -t "cnc/cnc-demo-03/status" --expect-allow` |
-| 3 | retained 帧是否为旧值 | 若屏幕很久没发状态，App 订阅时只会拿到掉线时的 LWT |
+**App 自身在闪断，订阅反复创建/销毁，导致大部分状态帧丢失。**
+只要现象 A 的闪断 bug 修复，控制台就能正常显示坐标和状态。
 
+> ⚠️ 一个小坑：App 机器列表里 03 显示"不在线"，这个字段来自后端 `/api/machine/list` 的 `online`，
+> **不是 MQTT 实时状态**。PC 端测试工具直接连 broker 看到的是实时在线；后端判定逻辑可能不同，
+> 仍需 PC 后端解释 `online` 字段来源。
 ---
 
 ## 六、如果修复后仍然闪断 —— 次可能原因（按概率）
@@ -188,12 +190,13 @@ App 的机器状态**只能来自** `cnc/<deviceId>/status` 帧，而这个帧�
 
 ## 七、给各端的动作
 
-**给 MQTT 任务（最高优先）**：
-> 查 EMQX 在线客户端，回答两个问题：
-> 1. 有没有 **`screen-cnc-demo-03`** 在线？（决定现象 B 的根因）
-> 2. 有没有**两个或更多** `android-cnc-demo-03` 在互踢？（验证 §六第 1 条）
->
-> 另外请尽快执行 M-5：`acl.conf` 给 `app-demo` 的 subscribe 加 `cnc/+/cam`。
+**给 MQTT 任务**：
+> 1. 修复后的 App 重新连上后，确认 `android-cnc-demo-03` 不再频繁上下线；
+> 2. 查 EMQX 在线客户端，看 `app-demo`、`android-cnc-demo-03` 是否正常；
+> 3. 尽快执行 M-5：`acl.conf` 给 `app-demo` 的 subscribe 加 `cnc/+/cam`。
+
+**给 PC 后端**：
+> 你的测试工具已确认 `cnc-demo-03` 屏幕在线且稳定，请解释 `/api/machine/list` 返回的 `online` 字段判定逻辑是什么？为什么 App 列表里 03 显示"不在线"？
 
 **给 App 任务**：
 > 已修复 dispose 幽灵重连 bug（`62837545`）。装新 APK 后按 §四 4 步验证，**重点测"切换机器"**。
