@@ -77,11 +77,28 @@ class Machine {
   }
 }
 
+/// 绑定失败（面向客户的通俗文案，UI 直接展示，不要再加工）。
+class BindFailure implements Exception {
+  final String message;
+  const BindFailure(this.message);
+
+  @override
+  String toString() => message;
+}
+
 /// 机器服务：扫码绑定 / 我的机器列表。
 ///
-/// 契约 2026-08-24 按 037123.xyz 生产接口实测修正：
-/// - `GET /api/machine/list`  Bearer token → code=200 + `data:[...]`
-/// - `POST /api/machine/bind` Bearer token；query `code` + `machineId`
+/// 契约依据：《设备绑定与刀仓配置接口文档 8.21 更新》§3.1/3.2/3.3
+/// （2026-09-02 由秦政提供 docx 原文，并以生产接口实测复核）：
+/// - `GET  /api/machine/list`  Bearer → `{"code":200,"message":"10010101","data":[...]}`
+/// - `POST /api/machine/bind?machineId=<long>&code=<string>` Bearer
+///   ⚠️ **参数是 Query Param，不是 JSON body**（实测：走 body 一律 HTTP 500
+///   `Internal Server Error`，压根进不了业务逻辑）。两个参数都必填。
+///
+/// **产品语义（2026-09-02 确认）**：绑定 =「把机器码贴到账户下已有的机器档案上」。
+/// 机器档案必须先由客服在后台录入到客户账户（此时 `code` 为空），客户扫码后
+/// App 找到账户里还没贴码的档案，把扫码所得的机器码贴上去。
+/// → **光扫码绑不了新机器**，售前录入是扫码绑定的硬前提。
 class MachinesService {
   MachinesService({http.Client? client, String? baseUrl, AuthService? auth})
       : _client = client ?? http.Client(),
@@ -121,20 +138,109 @@ class MachinesService {
     }
   }
 
-  /// 绑定/匹配机器。
+  /// 扫码绑定：把机器码贴到账户下「还没贴码」的机器档案上。
   ///
-  /// 线上后端要求先有机器档案（machineId），扫码只能匹配账号中已创建的机器。
-  /// 2026-08-30 更正：测试账号 `Lunyee@517788.xyz` 名下同时绑了
-  /// `cnc-demo-01` / `cnc-demo-02` / `cnc-demo-03`（真机列表实测），
-  /// 并不存在"默认就是 01"这回事 —— 以用户在列表里选中的那台为准。
-  /// （旧注释写"已预绑定 cnc-demo-01"是早期状态，已误导过排查方向。）
+  /// 真调 `POST /api/machine/bind?machineId=&code=`（Query Param）。
+  ///
+  /// 业务码映射（§3.1 权威定义，2026-09-02）：
+  /// | 码 | 含义 | App 处理 |
+  /// |---|---|---|
+  /// | 10300102 | 设备编码不能为空 | 提示重新扫码 |
+  /// | 10300103 | 编码超 128 字符 | 提示重新扫码 |
+  /// | **10300104** | **设备已绑定当前用户** | **按成功处理**（客户重复扫码不报错） |
+  /// | 10300105 | 设备编码已被绑定 | 「这台机器已绑定其他账号」 |
+  /// | 10300106 | 设备绑定成功 | 成功 |
+  /// | 10300107 | 设备不属于当前用户 | 「这台机器还没登记，请联系客服」 |
+  ///
+  /// 未知业务码按「宽容处理」：HTTP 200 即视为成功（秦政 2026-09-02 确认）。
   Future<Machine> bind(String machineCode) async {
     final code = machineCode.trim();
-    if (code.isEmpty) throw Exception('请输入机器码');
-    final list = await fetchMyMachines();
-    for (final m in list) {
-      if (m.sn == code || m.id == code || m.name == code) return m;
+    if (code.isEmpty) {
+      throw const BindFailure('这台机器还没登记，请联系客服');
     }
-    throw Exception('未找到机器码 $code，请先在电脑端创建并绑定该机器');
+    if (code.length > 128) {
+      throw const BindFailure('机器码不正确，请重新扫码');
+    }
+
+    final token = await _token();
+    if (token == null) {
+      throw const BindFailure('请先登录后再绑定机器');
+    }
+
+    // 1) 账户下的机器档案（= 客服预先录入的机器）
+    final List<Machine> list;
+    try {
+      list = await fetchMyMachines();
+    } catch (_) {
+      throw const BindFailure('网络不稳，稍后再试');
+    }
+
+    // 2) 这台已经绑过了 → 按成功处理（对应后端 10300104 的语义，客户重复扫码不报错）
+    for (final m in list) {
+      if (m.sn == code) return m;
+    }
+
+    // 3) 找「还没贴码」的档案。产品逻辑：档案由客服先录入（code 为空），
+    //    扫码只是把码贴上去。没有空档案 = 这台机器还没登记。
+    //    list 按机器 ID 倒序，first 即最新录入的那台（通常是客户刚买的）。
+    //    ⚠️ 若账户下同时存在多个空档案，目前取最新录入的一台。
+    final blank = list.where((m) => m.sn.isEmpty && m.id.isNotEmpty).toList();
+    if (blank.isEmpty) {
+      throw const BindFailure('这台机器还没登记，请联系客服');
+    }
+    final target = blank.first;
+
+    // 4) 真调绑定接口（Query Param）
+    final uri = Uri.parse('$baseUrl/api/machine/bind').replace(queryParameters: {
+      'machineId': target.id,
+      'code': code,
+    });
+
+    http.Response res;
+    try {
+      res = await _client
+          .post(uri, headers: {'Authorization': 'Bearer $token'})
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {
+      throw const BindFailure('网络不稳，稍后再试');
+    }
+
+    // 5) 按业务码给客户能看懂的反馈
+    String? message;
+    try {
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      message = body['message']?.toString();
+    } catch (_) {
+      // 非 JSON 响应，落到下面按 HTTP 状态兜底
+    }
+
+    switch (message) {
+      case '10300105':
+        throw const BindFailure('这台机器已绑定其他账号');
+      case '10300107':
+        throw const BindFailure('这台机器还没登记，请联系客服');
+      case '10300102':
+      case '10300103':
+        throw const BindFailure('机器码不正确，请重新扫码');
+      case '10300104': // 已绑定当前用户 → 按成功
+      case '10300106': // 绑定成功
+        break;
+      default:
+        // 未知业务码：宽容处理（HTTP 200 即认为成功）
+        if (res.statusCode != 200) {
+          throw const BindFailure('网络不稳，稍后再试');
+        }
+    }
+
+    // 6) 绑定后回填真实档案（拿到 machineName / id 等）
+    try {
+      final fresh = await fetchMyMachines();
+      for (final m in fresh) {
+        if (m.sn == code) return m;
+      }
+    } catch (_) {
+      // 刷新失败不阻断，返回最小可用对象
+    }
+    return Machine(sn: code, id: target.id);
   }
 }

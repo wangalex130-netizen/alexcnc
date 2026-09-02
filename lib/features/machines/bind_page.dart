@@ -7,6 +7,7 @@ import '../../app/runtime_config.dart';
 import '../../app/theme.dart';
 import '../../services/machines_service.dart';
 import '../../state/auth_provider.dart';
+import '../../state/providers.dart';
 import '../auth/login_page.dart';
 import 'machines_page.dart';
 
@@ -52,14 +53,42 @@ class _BindPageState extends ConsumerState<BindPage> {
       _error = null;
     });
     try {
-      final m = await MachinesService(
+      final svc = MachinesService(
         baseUrl: ref.read(runtimeConfigProvider).resolvedBackendBaseUrl,
-      ).bind(sn);
+      );
+      // 先记下绑定前是否已选过机器，用于「第一台自动设为当前机器」判定。
+      final hadCurrent = ref.read(currentMachineProvider) != null;
+      final m = await svc.bind(sn);
+      if (!mounted) return;
+
+      // 成功后刷新列表：重新拉一次，机器列表页进来就是新的。
+      // 若这是账户里第一台机器，自动设为当前控制的机器，省掉客户再点一次。
+      Machine? selected;
+      try {
+        final fresh = await svc.fetchMyMachines();
+        if (!hadCurrent && fresh.isNotEmpty) {
+          final first = fresh.firstWhere(
+            (x) => x.sn == m.sn,
+            orElse: () => fresh.first,
+          );
+          if (first.sn.isNotEmpty) {
+            await ref.read(currentMachineProvider.notifier).select(first);
+            selected = first;
+          }
+        }
+      } catch (_) {
+        // 刷新/自动选中失败不阻断绑定成功的主流程
+      }
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('绑定成功：${m.sn}',
-              style: const TextStyle(fontSize: 13)),
+          content: Text(
+            selected != null
+                ? '绑定成功，已设为当前机器：${m.sn}'
+                : '绑定成功：${m.sn}',
+            style: const TextStyle(fontSize: 13),
+          ),
           backgroundColor: const Color(0xFF1A1A1A),
           duration: const Duration(seconds: 2),
         ),
@@ -68,9 +97,12 @@ class _BindPageState extends ConsumerState<BindPage> {
         MaterialPageRoute(builder: (_) => const MachinesPage()),
         (route) => route.isFirst,
       );
+    } on BindFailure catch (e) {
+      if (mounted) setState(() => _error = e.message);
     } catch (e) {
       if (mounted) {
-        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+        setState(() => _error =
+            e.toString().replaceFirst('Exception: ', ''));
       }
     } finally {
       if (mounted) setState(() => _busy = false);

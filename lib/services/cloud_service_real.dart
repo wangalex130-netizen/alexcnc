@@ -9,6 +9,7 @@ import '../models/model_library.dart';
 import '../models/push_log_entry.dart';
 import '../models/task_metadata.dart';
 import '../app/config.dart';
+import 'auth_service.dart';
 import 'cloud_service.dart';
 import 'cloud_service_mock.dart';
 
@@ -24,21 +25,40 @@ class RealCloudService implements CloudService {
 
   RealCloudService(
       [this.baseUrl = AppConfig.cloudBaseUrl,
-      this.deviceId = AppConfig.deviceId]);
+      this.deviceId = AppConfig.deviceId,
+      AuthService? auth])
+      : _auth = auth ?? AuthService();
 
   static const _kMatCache = 'cloud_materials_cache_v1';
   static const _kTaskCachePrefix = 'cloud_task_';
 
+  final AuthService _auth;
+
+  /// 已登录时附带 `Authorization: Bearer <token>`（与 `machines_service` 同源）。
+  ///
+  /// 未登录（token 为空）时**不附加**该头 —— 纯公开接口（材质主表 / 模型库）
+  /// 仍可匿名访问，避免"没登录连示例数据都看不到"。
+  /// 读登录态失败时按匿名处理，不阻断请求。
   Future<Map<String, String>> get _headers async {
-    // TODO: 接入登录态后在此附加 Authorization: Bearer <token>
-    return {'content-type': 'application/json'};
+    final headers = {'content-type': 'application/json'};
+    try {
+      final session = await _auth.loadSession();
+      final token = session?.$2;
+      if (token != null && token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+    } catch (_) {
+      // 按匿名继续
+    }
+    return headers;
   }
 
   @override
   Future<List<MaterialSpec>> fetchMaterials() async {
     try {
       final res = await http
-          .get(Uri.parse('$baseUrl/api/v1/materials'))
+          .get(Uri.parse('$baseUrl/api/v1/materials'),
+              headers: await _headers)
           .timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
         final list = (jsonDecode(res.body) as List)
@@ -64,7 +84,8 @@ class RealCloudService implements CloudService {
   Future<TaskMetadata?> getActiveTask() async {
     try {
       final res = await http
-          .get(Uri.parse('$baseUrl/api/v1/tasks/active'))
+          .get(Uri.parse('$baseUrl/api/v1/tasks/active'),
+              headers: await _headers)
           .timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
         return TaskMetadata.fromJson(jsonDecode(res.body));
@@ -77,7 +98,8 @@ class RealCloudService implements CloudService {
   Future<TaskMetadata?> getTaskById(String id) async {
     try {
       final res = await http
-          .get(Uri.parse('$baseUrl/api/v1/tasks/$id'))
+          .get(Uri.parse('$baseUrl/api/v1/tasks/$id'),
+              headers: await _headers)
           .timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
         final prefs = await SharedPreferences.getInstance();
@@ -96,7 +118,7 @@ class RealCloudService implements CloudService {
   Future<List<LibraryItem>?> _tryGetList(String path) async {
     try {
       final res = await http
-          .get(Uri.parse('$baseUrl$path'))
+          .get(Uri.parse('$baseUrl$path'), headers: await _headers)
           .timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
         return (jsonDecode(res.body) as List)
@@ -203,7 +225,8 @@ class RealCloudService implements CloudService {
   Future<List<PushLogEntry>> fetchPushLog() async {
     try {
       final res = await http
-          .get(Uri.parse('$baseUrl/api/v1/push/log'))
+          .get(Uri.parse('$baseUrl/api/v1/push/log'),
+              headers: await _headers)
           .timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
         final body = jsonDecode(utf8.decode(res.bodyBytes));
@@ -251,7 +274,7 @@ class RealCloudService implements CloudService {
   Future<Map<String, dynamic>?> _mlGet(String path, [String query = '']) async {
     try {
       final res = await http
-          .get(Uri.parse('$baseUrl$path$query'))
+          .get(Uri.parse('$baseUrl$path$query'), headers: await _headers)
           .timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
         final body = jsonDecode(res.body);
@@ -269,7 +292,7 @@ class RealCloudService implements CloudService {
   Future<dynamic> _mlDataRaw(String path, [String query = '']) async {
     try {
       final res = await http
-          .get(Uri.parse('$baseUrl$path$query'))
+          .get(Uri.parse('$baseUrl$path$query'), headers: await _headers)
           .timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
         final body = jsonDecode(res.body);
