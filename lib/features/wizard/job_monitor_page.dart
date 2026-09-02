@@ -422,6 +422,13 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
         return '报警';
       case MachineState.idle:
         return '待机';
+      case MachineState.disconnected:
+        return '未连接';
+      case MachineState.homing:
+        return '回零中';
+      case MachineState.unknown:
+        // 收到契约外的 state 值：如实告知，不要假装正常（安全侧：Jog 已锁定）
+        return '状态未知';
       default:
         return '—';
     }

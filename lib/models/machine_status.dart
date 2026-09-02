@@ -9,6 +9,17 @@ enum MachineState {
   busy,
   paused,
   alarm,
+
+  /// 🔴 收到**不认识**的 state 值时的兜底态（2026-09-02 安全加固）。
+  ///
+  /// 背景：此前未知值会**静默回落 idle**（见 [MachineStatus.fromJson] 旧实现），
+  /// 而 Jog 闸门是 `state == idle` —— 一旦小屏发出契约外的值（如闫安文档里的
+  /// `"state": "run"`），App 会误判"机器空闲"，**加工中把 Jog 解锁**，
+  /// 客户点一下就撞刀。这是 `docs/43` 记过的老坑，2026-09-02 新文档再次踩中。
+  ///
+  /// 现在未知值一律判为 [unknown]：它**不等于 idle**，因此 Jog 保持锁定（安全侧），
+  /// 同时 UI 可显式提示"状态未知，请检查机器"。
+  unknown,
 }
 
 /// Snapshot of the controller state. MCU is the single source of truth;
@@ -136,12 +147,26 @@ class MachineStatus {
   /// 字段缺失时安全回退默认值；同时兼容文档字段名与其历史别名
   ///（mp/mpos、spindle/rpm、prog/progress、eta/etaSec），便于联调期双向对齐。
   factory MachineStatus.fromJson(Map<String, dynamic> j) {
-    MachineState state = MachineState.idle;
-    final s = (j['state'] ?? 'idle').toString();
+    // 🔴 安全加固（2026-09-02）：未知 state 一律判为 [MachineState.unknown]，
+    // **不再回落 idle**。回落 idle 会让 Jog 闸门（state == idle）误开，
+    // 加工中被客户点动轴 = 撞刀风险。
+    MachineState state = MachineState.unknown;
+    final s = (j['state'] ?? '').toString();
     for (final e in MachineState.values) {
       if (e.name == s) {
         state = e;
         break;
+      }
+    }
+    // 兼容契约外但语义明确的常见值，避免误显示"未知"困扰客户：
+    // 闫安 2026-09-02 文档的 status 示例用的是 `run`（= 加工中）。
+    if (state == MachineState.unknown) {
+      switch (s) {
+        case 'run':
+        case 'running':
+          state = MachineState.busy;
+        case '':
+          state = MachineState.idle; // 帧里根本没有 state 字段 → 按空闲
       }
     }
     Position _pos(List<String> keys) {

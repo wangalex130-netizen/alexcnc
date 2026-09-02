@@ -615,7 +615,11 @@ class RealHardwareService implements HardwareService {
         final msg = j['msg']?.toString() ?? '';
         MachineStatus notifyStatus;
         switch (type) {
+          // 双名兼容（2026-09-02）：App 沿用 `job_done`，闫安小屏文档用
+          // `job_completed`。两者必须都识别，否则完成事件会落进 default 分支，
+          // 只弹一句 toast 而**不触发完成逻辑**（进度不置 100%、不跳完成态）。
           case 'job_done':
+          case 'job_completed':
             notifyStatus = const MachineStatus(
               state: MachineState.idle,
               progress: 1.0,
