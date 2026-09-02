@@ -14,6 +14,7 @@ import '../../models/tool.dart';
 import '../../state/providers.dart';
 import '../preview/timelapse_client.dart';
 import 'self_check_page.dart';
+import 'job_launch_banner.dart';
 import 'job_monitor_page.dart';
 
 /// Core 2: 6-step foolproof processing wizard.
@@ -2082,6 +2083,10 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
   bool _timeLapse = false;
   final TextEditingController _durCtrl = TextEditingController(text: '120');
 
+  /// 两段式启动（2026-09-02）：点「开始」后按钮立刻进入「已下发」态并禁用，
+  /// 避免在指令还没送达时用户连点造成重复下发。
+  bool _launching = false;
+
   @override
   void dispose() {
     _durCtrl.dispose();
@@ -2091,6 +2096,8 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
   Future<void> _start() async {
     final task = widget.task;
     if (task == null) return;
+    if (_launching) return; // 防连点
+    if (mounted) setState(() => _launching = true);
 
     // 延时摄影：开启则让服务器从本刻起按雕刻时长抽样存图（与固件雕刻并行，
     // 手机/电脑/机器本身均不存照片，全部在服务器完成）。
@@ -2151,6 +2158,7 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
       onToggleTimeLapse: (v) => setState(() => _timeLapse = v),
       durationController: _durCtrl,
       onStart: _start,
+      launching: _launching,
     );
   }
 }
@@ -2163,6 +2171,9 @@ class _ReadyPhase extends StatelessWidget {
   final ValueChanged<bool> onToggleTimeLapse;
   final TextEditingController durationController;
   final VoidCallback onStart;
+
+  /// 已发起启动（指令在途）。为 true 时按钮禁用并显示「已下发…」。
+  final bool launching;
   const _ReadyPhase({
     required this.mat,
     required this.requiredTools,
@@ -2171,6 +2182,7 @@ class _ReadyPhase extends StatelessWidget {
     required this.onToggleTimeLapse,
     required this.durationController,
     required this.onStart,
+    this.launching = false,
   });
 
   @override
@@ -2273,14 +2285,24 @@ class _ReadyPhase extends StatelessWidget {
             ],
           ),
         ),
+        // 雕刻启动三态（两段式，2026-09-02）：已下发 / 待确认 / 指令未送达
+        const JobLaunchBanner(),
         const SizedBox(height: 14),
         SizedBox(
           width: double.infinity,
           child: FilledButton.icon(
-            onPressed: onStart,
-            icon: const Icon(Icons.play_arrow, color: Colors.black),
-            label: const Text('开始自检并雕刻',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+            onPressed: launching ? null : onStart,
+            icon: launching
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.black54),
+                  )
+                : const Icon(Icons.play_arrow, color: Colors.black),
+            label: Text(launching ? '已下发，等待机器响应…' : '开始自检并雕刻',
+                style: const TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.bold)),
           ),
         ),
       ],

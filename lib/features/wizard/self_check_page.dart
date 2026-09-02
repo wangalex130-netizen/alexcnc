@@ -7,6 +7,7 @@ import '../../data/tool_library.dart';
 import '../../models/task_metadata.dart';
 import '../../state/providers.dart';
 import '../shell/app_shell.dart';
+import 'job_launch_banner.dart';
 import 'job_monitor_page.dart';
 
 /// Step6 自检流水线页。
@@ -130,6 +131,8 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // 雕刻启动三态：已下发 / 待确认（请在机器上按开始键）/ 指令未送达
+          const JobLaunchBanner(),
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(

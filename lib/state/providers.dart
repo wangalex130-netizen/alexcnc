@@ -164,6 +164,58 @@ final connectionStateProvider = StreamProvider<LinkState>((ref) {
   return ref.watch(hardwareServiceProvider).connectionState;
 });
 
+/// 关键命令（开始/暂停/继续/停止雕刻）的送达 / 回执状态流。
+///
+/// 雕刻启动两段式（2026-09-02）：命令是否真的送到机器，App 必须如实呈现，
+/// 不能"点了就算成功"。UI 据此显示「已下发 / 指令未送达，正在重试」。
+final commandDeliveryProvider = StreamProvider<CommandDeliveryState>((ref) {
+  return ref.watch(hardwareServiceProvider).commandDelivery;
+});
+
+/// 雕刻启动的阶段（两段式 UI 的单一数据源）。
+///
+/// 优先级：待确认 > 加工中 > 送达失败 > 已下发 > 空闲。
+enum JobLaunchPhase {
+  /// 尚未发起，或上一次启动已结束。
+  idle,
+
+  /// 已下发，等待机器响应（含排队待补发 / 重试中）。
+  dispatched,
+
+  /// 机器已就位，等客户在机器上按物理键确认（数据源：status.awaitingConfirm
+  /// + notify confirm_required）。
+  awaitingConfirm,
+
+  /// 加工中。
+  running,
+
+  /// 重发耗尽仍未送达。
+  failed,
+}
+
+/// 由「命令送达态 + 机器状态帧」推导当前启动阶段。
+///
+/// **老固件兼容**：老固件 `awaitingConfirm` 恒 false、收到 start 后直接进 `busy`，
+/// 于是本值从 [dispatched] 直接跳到 [running]，中间不出现 [awaitingConfirm]，
+/// UI 自然退化为「已下发 → 加工中」，不报错、不需要固件配合。
+final jobLaunchPhaseProvider = Provider<JobLaunchPhase>((ref) {
+  // watch 流以获得响应式；pendingCommand 只是快照，用 read 避免多余依赖。
+  final delivery = ref.watch(commandDeliveryProvider).valueOrNull;
+  final status = ref.watch(machineStatusProvider).valueOrNull;
+  final pending = ref.read(hardwareServiceProvider).pendingCommand;
+
+  if (status?.awaitingConfirm == true) return JobLaunchPhase.awaitingConfirm;
+  if (status?.state == MachineState.busy) return JobLaunchPhase.running;
+  if (delivery == CommandDeliveryState.failed) return JobLaunchPhase.failed;
+  if (pending != null &&
+      (delivery == CommandDeliveryState.sent ||
+          delivery == CommandDeliveryState.queued ||
+          delivery == CommandDeliveryState.retrying)) {
+    return JobLaunchPhase.dispatched;
+  }
+  return JobLaunchPhase.idle;
+});
+
 /// 绑定机器清单（全局）。`machines_page` 拉取 `/api/machine/list` 后写入；
 /// 常驻在线监听服务据此订阅全部绑定设备的 `cnc/<id>/status`。
 final boundMachinesProvider = StateProvider<List<Machine>>((ref) => const []);

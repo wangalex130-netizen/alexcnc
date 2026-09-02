@@ -156,6 +156,14 @@ class MockHardwareService implements HardwareService {
   @override
   LinkState get currentLinkState => LinkState.disconnected;
 
+  /// Mock 恒无待处理命令：命令"立即成功"，不做送达跟踪与重发。
+  @override
+  Stream<CommandDeliveryState> get commandDelivery =>
+      Stream.value(CommandDeliveryState.idle);
+
+  @override
+  PendingCommand? get pendingCommand => null;
+
   @override
   String? get lastConnectionError => null;
 

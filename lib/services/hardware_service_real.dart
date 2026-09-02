@@ -80,6 +80,27 @@ class RealHardwareService implements HardwareService {
   int _reconnectAttempts = 0;
   bool _closing = false;
 
+  // ---- 关键命令送达 / 重发队列（雕刻启动两段式，2026-09-02）----
+  /// 送达状态广播流：UI 据此显示「已下发 / 指令未送达，正在重试」。
+  /// 必须是 broadcast（StreamBuilder 订阅的流若单订阅，页面二次进入会抛
+  /// `already listened to` 并把整块子树搞白 —— 2026-08-31 已踩过这个坑）。
+  final _cmdCtrl = StreamController<CommandDeliveryState>.broadcast();
+
+  /// 当前等待送达的关键命令（null = 无待处理）。
+  PendingCommand? _pending;
+
+  /// MQTT 未连接时暂存的关键命令，链路恢复后按序补发。
+  final List<PendingCommand> _cmdQueue = <PendingCommand>[];
+
+  /// 回执超时定时器：下发后 N 秒未收到机器回执即触发重发。
+  Timer? _ackTimer;
+
+  /// 关键命令回执等待时长。固件自检 / 待确认广播有延迟，给足窗口避免误重发。
+  static const Duration _ackTimeout = Duration(seconds: 5);
+
+  /// 关键命令最大重发次数（不含首次下发）。超限判定 failed，由 UI 提示。
+  static const int _maxCmdRetries = 3;
+
   /// MQTT clientId：终局方案固定为 `android-<deviceId>`（设备维度，无随机后缀）。
   /// 与屏幕 `screen-<deviceId>`、摄像头 `cam-<deviceId>`、云网关 `bridge-aliyun-api`
   /// 互不相同，故多端可同时连同一 Broker 而不互踢。
@@ -182,6 +203,12 @@ class RealHardwareService implements HardwareService {
   /// 连接态流：connecting / connected / disconnected，UI 订阅以显示链路状态。
   Stream<LinkState> get connectionState => _connCtrl.stream;
   LinkState get currentLinkState => _conn;
+
+  @override
+  Stream<CommandDeliveryState> get commandDelivery => _cmdCtrl.stream;
+
+  @override
+  PendingCommand? get pendingCommand => _pending;
 
   /// 最近一次连接失败的错误信息，供 UI 诊断用。
   @override
@@ -308,6 +335,8 @@ class RealHardwareService implements HardwareService {
         _reconnectAttempts = 0;
         _setConn(LinkState.connected);
         _updateHeartbeat();
+        // 补发断连期间排队的关键命令（雕刻启动两段式：指令不能因掉线丢失）
+        _flushCmdQueue();
       } else {
         _mqttConnected = false;
         final reason = client.connectionStatus?.returnCode?.toString() ?? 'broker returned non-zero CONNACK';
@@ -604,6 +633,16 @@ class RealHardwareService implements HardwareService {
               awaitingConfirm: true,
               message: '等待机旁确认',
             );
+          case 'confirm_timeout':
+            // 雕刻启动两段式（2026-09-02）：客户未在机器上按物理键，机器已取消
+            // 本次启动。固件后补该事件，**收到才显示**，老固件无此事件即无此提示。
+            // 状态回到 idle（机器确实取消了），并把待处理命令标记为已送达 ——
+            // 命令送到了、机器明确回应"不执行"，绝不能再重发。
+            notifyStatus = MachineStatus(
+              state: MachineState.idle,
+              message: msg.isEmpty ? '确认超时已取消' : msg,
+            );
+            _settlePendingAcked();
           default:
             notifyStatus = MachineStatus(message: msg.isEmpty ? type : msg);
         }
@@ -619,31 +658,198 @@ class RealHardwareService implements HardwareService {
             ts: (j['ts'] is num) ? (j['ts'] as num).toInt() : null,
           ));
         }
+        _checkCmdAck(notifyStatus);
         _ctrl.add(notifyStatus);
         return;
       }
 
-      _ctrl.add(MachineStatus.fromJson(j));
+      final parsed = MachineStatus.fromJson(j);
+      _checkCmdAck(parsed);
+      _ctrl.add(parsed);
     } catch (_) {
       // 非 JSON 行（如 Grbl 原始 <...>）可在此扩展解析
     }
   }
 
-  void _publish(Map<String, dynamic> cmd) {
-    // 终局方案（2026-08-28）：不再区分内外网权限，命令一律经外网 MQTT 发布到
-    // cnc/<deviceId>/cmd（原网关 gw/<deviceId>/cmd 与 wan_whitelist 已废弃）。
-    // 仅以 MQTT 连接态为闸门：未连上时静默丢弃，由调用方按连接态决定是否补发。
-    if (_mqtt?.connectionStatus?.state != MqttConnectionState.connected) return;
+  /// 发布一条命令到 cnc/<deviceId>/cmd。返回是否真的发出去了。
+  ///
+  /// 终局方案（2026-08-28）：不再区分内外网权限，命令一律经外网 MQTT 发布到
+  /// cnc/<deviceId>/cmd（原网关 gw/<deviceId>/cmd 与 wan_whitelist 已废弃）。
+  ///
+  /// 2026-09-02：改为返回 bool，**不再静默丢弃**（原来直接 `return`）。
+  /// 未连上时由 [_dispatch] 决定是否入队补发。
+  bool _publish(Map<String, dynamic> cmd) {
+    if (_mqtt?.connectionStatus?.state != MqttConnectionState.connected) {
+      return false;
+    }
     final builder = MqttClientPayloadBuilder();
     builder.addString(jsonEncode(cmd));
     _mqtt!.publishMessage(mqttCmdTopic, MqttQos.atLeastOnce, builder.payload!);
+    return true;
   }
 
   /// 命令分发：终局方案下不再区分内外网，**一律经外网 MQTT 下发**到
   /// cnc/<deviceId>/cmd。局域网 TCP 直连代码保留但暂不启用（"暂时停止"），
   /// 后续若要恢复低延迟本地控制，在此处加回 TCP 分支即可。
+  ///
+  /// 2026-09-02：雕刻启动两段式 —— 关键命令（开始/暂停/继续/停止雕刻）走
+  /// [_dispatchCritical] 做送达跟踪与超时重发；其余命令（Jog/主轴/辅助等）
+  /// 保持"尽力而为"语义，**绝不重发**（重发运动指令会造成意外位移）。
   void _dispatch(Map<String, dynamic> cmd) {
+    final label = _criticalLabelOf(cmd);
+    if (label != null) {
+      _dispatchCritical(cmd, label);
+      return;
+    }
     _publish(cmd);
+  }
+
+  /// 若 [cmd] 属于「关键命令」，返回其中文名；否则返回 null。
+  ///
+  /// 🔴 只有**幂等且不涉及运动**的作业控制命令才纳入重发。Jog / 回零 /
+  /// 设原点等运动指令一律不重发 —— 一次误重发就是一次意外位移。
+  String? _criticalLabelOf(Map<String, dynamic> cmd) {
+    if (cmd['cmd'] != 'job') return null;
+    switch (cmd['action']) {
+      case 'start':
+        return '开始雕刻';
+      case 'pause':
+        return '暂停雕刻';
+      case 'resume':
+        return '继续雕刻';
+      case 'stop':
+        return '停止雕刻';
+      default:
+        return null;
+    }
+  }
+
+  /// 两条命令是否同类（用于同类命令只保留最后一条，避免排队重发一串旧指令）。
+  bool _sameCommandKind(Map<String, dynamic> a, Map<String, dynamic> b) =>
+      a['cmd'] == b['cmd'] && a['action'] == b['action'];
+
+  /// 下发关键命令并启动送达跟踪。
+  void _dispatchCritical(Map<String, dynamic> cmd, String label) {
+    // 同类旧命令作废：用户连点两次「开始」，只跟踪最后一次，避免补发两次。
+    _cmdQueue.removeWhere((p) => _sameCommandKind(p.cmd, cmd));
+
+    final sent = PendingCommand(
+      cmd: cmd,
+      label: label,
+      state: CommandDeliveryState.sent,
+    );
+    if (!_publish(cmd)) {
+      // 链路未通：入队，等重连后补发。
+      _pending = sent.copyWith(state: CommandDeliveryState.queued);
+      _cmdQueue.add(_pending!);
+      _ackTimer?.cancel();
+      _emitCmd(CommandDeliveryState.queued);
+      return;
+    }
+    _pending = sent;
+    _emitCmd(CommandDeliveryState.sent);
+    _startAckTimer();
+  }
+
+  void _startAckTimer() {
+    _ackTimer?.cancel();
+    _ackTimer = Timer(_ackTimeout, _onAckTimeout);
+  }
+
+  /// 回执超时：重发一次（仍失败则继续排队），次数耗尽判 failed。
+  void _onAckTimeout() {
+    final p = _pending;
+    if (p == null || _closing) return;
+    if (p.retries >= _maxCmdRetries) {
+      _pending = p.copyWith(state: CommandDeliveryState.failed);
+      _ackTimer?.cancel();
+      _ackTimer = null;
+      _emitCmd(CommandDeliveryState.failed);
+      return;
+    }
+    final next =
+        p.copyWith(state: CommandDeliveryState.retrying, retries: p.retries + 1);
+    _pending = next;
+    _emitCmd(CommandDeliveryState.retrying);
+    if (!_publish(next.cmd)) {
+      // 重发瞬间链路又断了 → 入队等补发，不再起定时器。
+      _cmdQueue.add(next);
+      _ackTimer?.cancel();
+      _ackTimer = null;
+      return;
+    }
+    _startAckTimer();
+  }
+
+  /// 链路恢复后补发排队命令。
+  void _flushCmdQueue() {
+    if (_cmdQueue.isEmpty) return;
+    final queued = List<PendingCommand>.from(_cmdQueue);
+    _cmdQueue.clear();
+    for (final p in queued) {
+      if (_publish(p.cmd)) {
+        _pending = p.copyWith(state: CommandDeliveryState.sent);
+        _emitCmd(CommandDeliveryState.sent);
+        _startAckTimer();
+      } else {
+        _cmdQueue.add(p); // 仍未通，继续排
+      }
+    }
+  }
+
+  /// 判定待处理命令为「已送达」并停止重发。
+  ///
+  /// 用于机器已明确回应（如 `confirm_timeout` 取消启动）的场景：命令确实送到
+  /// 了，只是机器决定不执行。此时**绝不能重发** —— 重发等于绕过客户取消。
+  void _settlePendingAcked() {
+    final p = _pending;
+    if (p == null) return;
+    if (p.state == CommandDeliveryState.acked ||
+        p.state == CommandDeliveryState.failed) return;
+    _pending = p.copyWith(state: CommandDeliveryState.acked);
+    _ackTimer?.cancel();
+    _ackTimer = null;
+    _emitCmd(CommandDeliveryState.acked);
+  }
+
+  /// 收到机器帧时调用：若达到该命令的期待状态即判定「已送达」。
+  void _checkCmdAck(MachineStatus s) {
+    final p = _pending;
+    if (p == null) return;
+    if (p.state == CommandDeliveryState.acked ||
+        p.state == CommandDeliveryState.failed) return;
+    if (!_isAckStateFor(p.cmd, s)) return;
+    _pending = p.copyWith(state: CommandDeliveryState.acked);
+    _ackTimer?.cancel();
+    _ackTimer = null;
+    _emitCmd(CommandDeliveryState.acked);
+  }
+
+  /// [cmd] 的期待到达状态。收到这些状态即认为机器已收到并执行了该命令。
+  ///
+  /// 兼容老固件：老固件 `awaitingConfirm` 恒 false、收到 start 后直接 `busy`，
+  /// 命中 `s.state == MachineState.busy` 分支照样 acked，无需改固件。
+  /// `alarm` 也算送达 —— 命令到了，只是机器拒绝执行（UI 另行提示报警）。
+  bool _isAckStateFor(Map<String, dynamic> cmd, MachineStatus s) {
+    if (cmd['cmd'] != 'job') return true;
+    switch (cmd['action']) {
+      case 'start':
+        return s.awaitingConfirm ||
+            s.state == MachineState.busy ||
+            s.state == MachineState.alarm;
+      case 'pause':
+        return s.state == MachineState.paused || s.state == MachineState.alarm;
+      case 'resume':
+        return s.state == MachineState.busy || s.state == MachineState.alarm;
+      case 'stop':
+        return s.state == MachineState.idle || s.state == MachineState.alarm;
+      default:
+        return true;
+    }
+  }
+
+  void _emitCmd(CommandDeliveryState s) {
+    if (!_cmdCtrl.isClosed) _cmdCtrl.add(s);
   }
 
   /// 局域网 TCP 直连下发。**终局方案下暂不启用**（命令一律走外网 MQTT），
@@ -841,6 +1047,10 @@ class RealHardwareService implements HardwareService {
     _closing = true;
     _reconnectTimer?.cancel();
     _tcpReconnectTimer?.cancel();
+    _ackTimer?.cancel();
+    _ackTimer = null;
+    _cmdQueue.clear();
+    _pending = null;
     _stopHeartbeat();
     _tcp?.destroy();
     _mqtt?.disconnect();
@@ -852,5 +1062,6 @@ class RealHardwareService implements HardwareService {
     _sysCtrl.close();
     _camCtrl.close();
     _connCtrl.close();
+    _cmdCtrl.close();
   }
 }

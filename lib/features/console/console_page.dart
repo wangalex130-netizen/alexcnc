@@ -22,6 +22,7 @@ import '../preview/mjpeg_stream_player.dart';
 import '../preview/fullscreen_preview_page.dart';
 import '../preview/timelapse_video_page.dart';
 import '../../services/network_auth.dart';
+import '../wizard/job_launch_banner.dart';
 import '../wizard/job_monitor_page.dart';
 import '../wizard/self_check_page.dart';
 import '../workbench/jog_sheet.dart';
@@ -721,6 +722,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                       ],
                     ),
                   ),
+
+                // 雕刻启动三态：已下发 / 待确认 / 指令未送达（两段式启动，2026-09-02）
+                const JobLaunchBanner(),
 
                 // 机旁确认横幅：固件广播 awaitingConfirm（notify 流 confirm_required 同步触发）
                 if (status.awaitingConfirm)

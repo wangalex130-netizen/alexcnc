@@ -12,6 +12,63 @@ import '../models/tool.dart';
 /// 链路连接态：UI 据此显示「连接中 / 已连 / 掉线」，不影响功能逻辑。
 enum LinkState { disconnected, connecting, connected }
 
+/// 关键命令的送达 / 回执状态（雕刻启动两段式，2026-09-02）。
+///
+/// 远程启动改为「App 下发 → 机器待确认 → 客户按物理键动刀」后，命令是否真的
+/// 送达机器、机器是否真的进入待确认，App 必须如实呈现，不能"点了就算成功"。
+enum CommandDeliveryState {
+  /// 无待处理命令。
+  idle,
+
+  /// MQTT 未连接，命令已入队，等链路恢复后自动补发。
+  queued,
+
+  /// 已发出，正在等机器回执（状态变化或 notify 事件）。
+  sent,
+
+  /// 超时未收到回执，正在重发（第 n 次）。
+  retrying,
+
+  /// 已确认：机器回执到达（状态变化 / notify / awaitingConfirm）。
+  acked,
+
+  /// 重试次数耗尽仍无回执。UI 应提示"指令未送达，请检查机器联网"。
+  failed,
+}
+
+/// 一条待送达命令的运行时状态，供 UI 显示"指令未送达，正在重试"。
+class PendingCommand {
+  /// 下发的命令帧（JSON），用于重发。
+  final Map<String, dynamic> cmd;
+
+  /// 命令的可读名（用于 UI 文案，如「开始雕刻」）。
+  final String label;
+
+  /// 当前送达状态。
+  final CommandDeliveryState state;
+
+  /// 已重发次数（0 = 尚未重发）。
+  final int retries;
+
+  const PendingCommand({
+    required this.cmd,
+    required this.label,
+    required this.state,
+    this.retries = 0,
+  });
+
+  PendingCommand copyWith({
+    CommandDeliveryState? state,
+    int? retries,
+  }) =>
+      PendingCommand(
+        cmd: cmd,
+        label: label,
+        state: state ?? this.state,
+        retries: retries ?? this.retries,
+      );
+}
+
 /// Hardware boundary for the ESP32 / modified-Grbl controller.
 ///
 /// All wire-protocol JSON (Grbl `$`-commands, status reports, MQTT payloads)
@@ -114,6 +171,16 @@ abstract class HardwareService {
 
   /// 链路连接态流：connecting / connected / disconnected，UI 订阅以显示链路状态。
   Stream<LinkState> get connectionState;
+
+  /// 关键命令的送达 / 回执状态流（雕刻启动两段式，2026-09-02）。
+  ///
+  /// 只有「关键命令」（开始 / 暂停 / 继续 / 停止雕刻）参与重发与回执跟踪；
+  /// Jog、主轴等高频或即时命令不参与（避免重发造成意外运动）。
+  /// 无待处理命令时为 [CommandDeliveryState.idle] 且 [pendingCommand] 为 null。
+  Stream<CommandDeliveryState> get commandDelivery;
+
+  /// 当前待处理命令快照（null = 无）。UI 据此显示「指令未送达，正在重试（第 n 次）」。
+  PendingCommand? get pendingCommand;
 
   /// 当前链路连接态快照。
   LinkState get currentLinkState;
