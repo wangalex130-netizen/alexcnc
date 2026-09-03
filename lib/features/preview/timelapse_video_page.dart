@@ -63,6 +63,8 @@ class _TimeLapseVideoPageState extends State<TimeLapseVideoPage> {
     final screenW = MediaQuery.of(context).size.width;
     // 16:9 播放框：宽度铺满、高度按比例、竖屏内垂直居中（上下留白、左右不留白）。
     final boxH = screenW / (16 / 9);
+    // 2026-09-03 改：全屏覆盖（之前 16:9 容器上下留黑边严重）。
+    // 用 FittedBox(fit: cover) 让视频铺满整个可用空间。
     return Scaffold(
       backgroundColor: CncColors.bg,
       appBar: AppBar(
@@ -80,14 +82,20 @@ class _TimeLapseVideoPageState extends State<TimeLapseVideoPage> {
       body: Column(
         children: [
           Expanded(
-            child: Center(
-              child: Container(
-                width: screenW,
-                height: boxH,
-                color: Colors.black,
-                child: NativeVlcPlayer(
-                  url: widget.url,
-                  onEvent: _onEvent,
+            child: Container(
+              width: screenW,
+              color: Colors.black,
+              // 全框覆盖：视频铺满整个可用区域，按 cover 模式裁切短边。
+              // 720P 视频宽度等于屏幕宽时不会有可见裁切；竖屏会有少量裁切但不再有黑边。
+              child: FittedBox(
+                fit: BoxFit.cover,
+                child: SizedBox(
+                  width: screenW,
+                  height: boxH, // FittedBox 内部保持原始 16:9，外部按 cover 适配
+                  child: NativeVlcPlayer(
+                    url: widget.url,
+                    onEvent: _onEvent,
+                  ),
                 ),
               ),
             ),

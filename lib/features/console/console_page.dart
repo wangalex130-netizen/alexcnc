@@ -93,10 +93,24 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     Future.delayed(const Duration(milliseconds: 300), _autoDetectNetwork);
     _netTimer = Timer.periodic(
         const Duration(seconds: 10), (_) => _autoDetectNetwork());
+
+    // 2026-09-03 修：进入控制台主动发一次 stream_start。
+    // 原 RtspPreviewWidget 靠 VisibilityDetector 触发，但若进入时 MQTT 未连上，
+    // 命令仅入队，flush 后还要等摄像头真正开始推流 → 表现就是"画面出不来，
+    // 必须先进一次全屏预览才能显示"。这里主动发一次兜底：
+    // 已有的 sendCameraStream 会在未连时缓存、连上时 flush（见 hardware_service_real.dart）。
+    Future<void>.delayed(const Duration(milliseconds: 200), () {
+      if (!mounted) return;
+      ref.read(hardwareServiceProvider).sendCameraStream('stream_start');
+    });
   }
 
   @override
   void dispose() {
+    // 离开控制台发 stream_stop（仅在没人在雕、没延时录制时）—— 否则画面会持续推流。
+    // RtspPreviewWidget 内部 dispose 也会发 stream_stop，这里属于二次保险，
+    // 终态语义（只保留最后一次）保证多次调用无害。
+    ref.read(hardwareServiceProvider).sendCameraStream('stream_stop');
     _tlTimer?.cancel();
     _netTimer?.cancel();
     _notifySub?.cancel();
@@ -230,14 +244,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   }
 
   /// 画面内「开始录制」按钮：非雕刻态真正开始采样。
-  /// 2026-09-03 改造：启动前先无条件补一次 stream_start（幂等），确保摄像头在推流。
-  /// 解决摄像头重启/插拔后 relay.on=0、App 点开始却录 0 帧失败的问题。
   Future<void> _tlStartRecording() async {
-    // A1：先确保摄像头在推流（幂等：已推流自动忽略，不 reset ABR）
-    try {
-      ref.read(hardwareServiceProvider).sendCameraStream('stream_start',
-          deviceId: ref.read(currentMachineProvider)?.sn);
-    } catch (_) {/* sendCameraStream 内部已 try/catch */}
     final id = await TimeLapseClient.start(durationSec: 120);
     if (id != null) {
       ref.read(timeLapseJobProvider.notifier).setJob(id);
@@ -429,6 +436,10 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
         status.aux.containsKey('laser') ? status.aux['laser']! : _laser;
     final fanOn = status.aux.containsKey('fan') ? status.aux['fan']! : _fan;
 
+    // 2026-09-03 改：视频框按屏幕宽度自适应 16:9（之前固定 180 太矮，
+    // 4:3 / 16:9 比例下都会有黑边）。
+    final videoBoxH = MediaQuery.of(context).size.width * 9 / 16;
+
     return Scaffold(
       backgroundColor: CncColors.bg,
       body: Column(
@@ -441,7 +452,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
               // A3 拉流解耦：优先用「当前绑定机器」后端返回的 relay_url/cam_device；
               // 未绑定/调试期回退 runtime_config 固定地址。
               SizedBox(
-                height: 180,
+                height: videoBoxH,
                 child: RtspPreviewWidget(
                   // 真实后端模式下须登录才允许拉流（杜绝「不登录也能看」）。
                   // isLocal 现在只决定取流路径（局域网直连 / 云中继），与控制权限无关。
@@ -879,14 +890,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     status: _tlStatus,
                     onView: () => _openTimeLapseVideo(_tlJobId!),
                     onDownload: () => _downloadTimeLapse(_tlJobId!),
-                    // 2026-09-03：关闭按钮回调，清清掉本地 jobId + 状态 + 标志
-                    onClose: () {
-                      ref.read(timeLapseJobProvider.notifier).clear();
-                      if (mounted) setState(() {
-                        _tlStatus = null;
-                        _tlArmed = false;
-                      });
-                    },
                   ),
 
                 // 快捷开关：随内容滚动（原先固定在顶部，挤压了下方 Jog 区可用空间）
@@ -1984,14 +1987,11 @@ class _TimeLapseStatusCard extends StatelessWidget {
   final Map<String, dynamic>? status;
   final VoidCallback onView;
   final VoidCallback onDownload;
-  // 2026-09-03 改造：用户可主动关闭（清掉 jobId + 状态），解决"成片已显示但按钮和状态卡一直残留"
-  final VoidCallback onClose;
   const _TimeLapseStatusCard({
     required this.jobId,
     this.status,
     required this.onView,
     required this.onDownload,
-    required this.onClose,
   });
 
   @override
@@ -2022,15 +2022,6 @@ class _TimeLapseStatusCard extends StatelessWidget {
               if (st == 'running')
                 Text('采集中 $count/$target',
                     style: const TextStyle(fontSize: 11, color: CncColors.blue)),
-              // 关闭按钮（×）：成片/失败后可手动清除 UI，2026-09-03
-              IconButton(
-                icon: const Icon(Icons.close, size: 16),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-                visualDensity: VisualDensity.compact,
-                tooltip: '关闭',
-                onPressed: onClose,
-              ),
             ],
           ),
           const SizedBox(height: 8),

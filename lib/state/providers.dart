@@ -811,9 +811,37 @@ final activeJobProvider = StateNotifierProvider<ActiveJobNotifier, ActiveJob?>(
 // ===================== 延时摄影 job =====================
 /// 保存本次雕刻开启的延时摄影 jobId，供「查看视频」入口读取。
 class TimeLapseJobNotifier extends StateNotifier<String?> {
-  TimeLapseJobNotifier() : super(null);
-  void setJob(String id) => state = id;
-  void clear() => state = null;
+  static const _key = 'timelapse_active_job_v1';
+
+  TimeLapseJobNotifier() : super(null) {
+    _hydrate();
+  }
+
+  Future<void> _hydrate() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      final id = p.getString(_key);
+      if (id != null && id.isNotEmpty) state = id;
+    } catch (_) {
+      // 保持 null
+    }
+  }
+
+  Future<void> setJob(String id) async {
+    state = id;
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setString(_key, id);
+    } catch (_) {/* 落盘失败不影响内存态 */}
+  }
+
+  Future<void> clear() async {
+    state = null;
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.remove(_key);
+    } catch (_) {/* 落盘失败不影响内存态 */}
+  }
 }
 
 final timeLapseJobProvider =
