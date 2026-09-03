@@ -50,12 +50,21 @@ class SysBit {
     );
   }
 
-  /// 是否本机可用：与本地刀库（官方 5 把）按系统表名称精确匹配。
+  /// 是否本机可用：与本地刀库（官方 5 把）按 **systemId == id** 精确匹配。
   ///
-  /// ⚠️ 不能按 id 匹配 —— 云端 `bit/sys/list` 的 id 与本地 `systemId`
-  /// 是两套编号体系（例：云端 id=5 是双刃直刀，本地 systemId=5 是平底刀）。
+  /// `systemId` 与云端 `id` 同源同值（2026-09-03 实测确认 1/2/3/5/74），
+  /// 是最可靠的关联键（name 可能随后端文案微调）。
   bool get isLocalSupported =>
-      toolCatalog.any((t) => t.name == name);
+      toolCatalog.any((t) => t.systemId == id);
+
+  /// 对应的本地刀具（含定位环色 / 防呆色 / 适用材质等硬件约束字段）。
+  /// 非本机可用时为 null。
+  ToolDef? get localTool {
+    for (final t in toolCatalog) {
+      if (t.systemId == id) return t;
+    }
+    return null;
+  }
 
   /// B2C 展示名：直径 + 角度/类型，技术字段不放主标题。
   String get displaySpec {
