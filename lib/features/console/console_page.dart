@@ -344,7 +344,13 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
         builder: (_) => TimeLapseVideoPage(
           url: url,
           jobId: jobId,
-          onClose: () => Navigator.of(context).pop(),
+          // 2026-09-03：看完关闭视频页 = 这次延时摄影任务完成，自动清掉本地状态。
+          // 客户不需要再手动点「完成」—— 看完就结束，符合"每次都是唯一的一次"。
+          // 清干净后下次雕刻仍可从零开始新一轮（功能的可循环体现在这里）。
+          onClose: () {
+            Navigator.of(context).pop();
+            _tlDismissReady();
+          },
         ),
       ),
     );
@@ -913,8 +919,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     status: _tlStatus,
                     onView: () => _openTimeLapseVideo(_tlJobId!),
                     onDownload: () => _downloadTimeLapse(_tlJobId!),
-                    // 再录一次/重试：清掉本地状态让客户可以开始新一轮。
-                    onRetry: _tlDismissReady,
+                    // 「完成」/「知道了」：这次延时摄影任务结束，清掉本地状态回到干净状态。
+                    // 下次雕刻时可以从零开始新一轮（功能的"可循环"体现在这里）。
+                    onDone: _tlDismissReady,
                   ),),
 
                 // 快捷开关：随内容滚动（原先固定在顶部，挤压了下方 Jog 区可用空间）
@@ -2013,15 +2020,21 @@ class _TimeLapseStatusCard extends StatelessWidget {
   final VoidCallback onView;
   final VoidCallback onDownload;
 
-  /// 已生成/失败时点击"再录一次"或"重试" → 清掉本地状态回到 idle。
-  final VoidCallback? onRetry;
+  /// 「完成」（已生成）/「知道了」（失败）：这次延时摄影任务结束，收起卡片并清掉
+  /// 本地状态回到 idle。
+  ///
+  /// ⚠️ 刻意不叫「再录一次」—— 对客户来说每一次延时摄影都是**唯一的一次**，
+  /// 跟着当前这次雕刻走；给他一个"再录"按钮会暗示这是可重复操作，与真实场景不符
+  /// （录完就代表这次雕刻结束了）。
+  /// 状态的"可循环"体现在：清干净后下次雕刻仍能从零开始新一轮，而不是立即重录。
+  final VoidCallback? onDone;
 
   const _TimeLapseStatusCard({
     required this.jobId,
     this.status,
     required this.onView,
     required this.onDownload,
-    this.onRetry,
+    this.onDone,
   });
 
   @override
@@ -2069,11 +2082,14 @@ class _TimeLapseStatusCard extends StatelessWidget {
                   children: [
                     TextButton(onPressed: onView, child: const Text('查看', style: TextStyle(color: CncColors.primary))),
                     TextButton(onPressed: onDownload, child: const Text('下载', style: TextStyle(color: CncColors.blue))),
-                    if (onRetry != null) ...[
+                    // 「完成」而不是「再录一次」：对客户来说每次延时摄影都是唯一的一次，
+                    // 看完/下载完点完成 = 这次任务结束、卡片收起。
+                    // 功能本身是可循环的 —— 回到干净状态后，下次雕刻仍可从零开始新一轮。
+                    if (onDone != null) ...[
                       const Spacer(),
                       TextButton(
-                        onPressed: onRetry,
-                        child: const Text('再录一次',
+                        onPressed: onDone,
+                        child: const Text('完成',
                             style: TextStyle(color: CncColors.textSub)),
                       ),
                     ],
@@ -2088,10 +2104,10 @@ class _TimeLapseStatusCard extends StatelessWidget {
                 Text('生成失败：${status?['error'] ?? ''}',
                     style: const TextStyle(fontSize: 11, color: CncColors.danger)),
                 const SizedBox(height: 6),
-                if (onRetry != null)
+                if (onDone != null)
                   TextButton(
-                    onPressed: onRetry,
-                    child: const Text('重试', style: TextStyle(color: CncColors.primary)),
+                    onPressed: onDone,
+                    child: const Text('知道了', style: TextStyle(color: CncColors.primary)),
                   ),
               ],
             )
