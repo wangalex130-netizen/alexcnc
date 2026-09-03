@@ -7,6 +7,7 @@ import '../data/material_db.dart';
 import '../models/library_item.dart';
 import '../models/model_library.dart';
 import '../models/push_log_entry.dart';
+import '../models/sys_bit.dart';
 import '../models/task_metadata.dart';
 import '../app/config.dart';
 import 'auth_service.dart';
@@ -241,6 +242,22 @@ class RealCloudService implements CloudService {
       }
     } catch (_) {
       // 云端不可达：返回空（轮询下一轮再试，不弹通知）
+    }
+    return const [];
+  }
+
+  @override
+  Future<List<SysBit>> fetchSysBits() async {
+    try {
+      // /api/bit/sys/list 返回 {code:200, message, data:[...]}
+      final raw = await _mlDataRaw('/api/bit/sys/list');
+      if (raw is List) {
+        return raw
+            .map((e) => SysBit.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+    } catch (_) {
+      // 云端不可达：返回空（调用方回退本地刀库）
     }
     return const [];
   }

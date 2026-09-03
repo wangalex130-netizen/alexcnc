@@ -16,6 +16,7 @@ import '../models/job_progress.dart';
 import '../models/machine_status.dart';
 import '../models/notify_event.dart';
 import '../models/sys_info.dart';
+import '../models/sys_bit.dart';
 import '../models/telemetry.dart';
 import '../models/task_metadata.dart';
 import '../services/cloud_service.dart';
@@ -283,6 +284,15 @@ final modelLibraryServiceProvider = Provider<CloudService>((ref) {
       ? currentMachine!.sn
       : cfg.resolvedDeviceId;
   return RealCloudService(cfg.resolvedCloudBaseUrl, deviceId);
+});
+
+/// 系统内置刀头列表（`GET /api/bit/sys/list`，公开接口）。
+///
+/// 云端是官方刀头**全集**，本机可用是子集（见 `SysBit.isLocalSupported`）。
+/// 失败/离线返回空列表，页面据此显示"暂无数据"。
+final sysBitsProvider = FutureProvider<List<SysBit>>((ref) async {
+  final svc = ref.watch(cloudServiceProvider);
+  return svc.fetchSysBits();
 });
 
 final networkProbeProvider = Provider<NetworkProbe>((ref) => NetworkProbe());

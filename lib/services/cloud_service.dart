@@ -2,6 +2,7 @@ import '../data/material_db.dart';
 import '../models/library_item.dart';
 import '../models/model_library.dart';
 import '../models/push_log_entry.dart';
+import '../models/sys_bit.dart';
 import '../models/task_metadata.dart';
 
 /// Cloud boundary (Smart CNC Studio / 阿里云|AWS MQTT).
@@ -69,4 +70,11 @@ abstract class CloudService {
   /// 本机事件→弹本地通知。真实厂商聚合通道接入后，本接口契约不变（通道
   /// 换成 FCM/厂商，但发送记录仍落 push/log），可无缝复用。
   Future<List<PushLogEntry>> fetchPushLog();
+
+  /// 系统内置刀头列表（GET /api/bit/sys/list，公开接口无需登录）。
+  ///
+  /// 云端是官方刀头**全集**（V Bits / End Mills / Ballnose…）；
+  /// 本机可用的是子集（见 `SysBit.isLocalSupported`，与本地 5 把官方刀
+  /// 按系统表名称匹配）。失败返回空列表（调用方回退/提示）。
+  Future<List<SysBit>> fetchSysBits();
 }

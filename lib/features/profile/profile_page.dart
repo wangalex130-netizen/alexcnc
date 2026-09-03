@@ -11,6 +11,7 @@ import '../auth/register_page.dart';
 import '../firmware/firmware_page.dart';
 import '../machines/machines_page.dart';
 import '../preview/timelapse_gallery_page.dart';
+import 'sys_bits_page.dart';
 import '../settings/debug_settings_page.dart';
 
 /// Core 5: personal hub & device manager.
@@ -213,6 +214,14 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                 context,
                 MaterialPageRoute(
                     builder: (_) => const TimeLapseGalleryPage()),
+              ),
+            ),
+            _MenuItem(
+              icon: Icons.construction_outlined,
+              title: '官方刀头库',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SysBitsPage()),
               ),
             ),
           ],

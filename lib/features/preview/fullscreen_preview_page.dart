@@ -144,6 +144,21 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
         if (s.online == false) {
           _setCamLink(_CamLink.error, '摄像头离线');
         }
+        // 摄像头（重新）上线 → 补发 stream_start（黑屏修复，2026-09-03）。
+        //
+        // 场景：摄像头断电重启后 10~30s 才重连 MQTT；期间 App 发的 stream_start
+        // （retain=false）全部丢失，且 App 自身 MQTT「一直是 connected」，
+        // 原有只监听 App 连接态的补发逻辑永远不会触发 → 黑屏。
+        // 摄像头重连后会发 {"online":true}（cam_mqtt.c:196），此时它已能收 cmd
+        // （先订阅后广播，cam_mqtt.c:195-196），补发幂等、安全。
+        if (s.online == true) {
+          if (_camLink == _CamLink.error || _camLink == _CamLink.connecting) {
+            _setCamLink(_CamLink.connecting);
+          }
+          if (_camLink != _CamLink.connected) {
+            _hw.sendCameraStream('stream_start', deviceId: _cameraDeviceId);
+          }
+        }
       });
     }
   }

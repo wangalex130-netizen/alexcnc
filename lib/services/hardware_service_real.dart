@@ -337,6 +337,8 @@ class RealHardwareService implements HardwareService {
         _updateHeartbeat();
         // 补发断连期间排队的关键命令（雕刻启动两段式：指令不能因掉线丢失）
         _flushCmdQueue();
+        // 补发断连期间缓存的摄像头流控命令（黑屏修复，2026-09-03）
+        _flushPendingCameraAction();
       } else {
         _mqttConnected = false;
         final reason = client.connectionStatus?.returnCode?.toString() ?? 'broker returned non-zero CONNACK';
@@ -867,15 +869,40 @@ class RealHardwareService implements HardwareService {
   /// 摄像头按需推流控制（docs/03 §camera-on-demand）：
   /// 点播放发 `stream_start`、退出预览发 `stream_stop`。
   /// 摄像头为纯外网设备，命令只走 MQTT（cnc/<deviceId>/cmd），
-  /// 不依赖 cloudEnabled 局域网闸门；MQTT 未连时静默跳过（由调用方在连接态补发）。
+  /// 不依赖 cloudEnabled 局域网闸门。
+  ///
+  /// 🔴 黑屏修复（2026-09-03，摄像头线任务单改动 3）：MQTT 未连接时
+  /// **不再静默丢弃**，改为缓存最后一次动作，连接成功后自动补发。
+  /// start/stop 都是幂等的「终态命令」，只需保留**最终意图**——
+  /// start 后又 stop 只补发 stop，不会先开后停浪费一次推流。
   @override
   void sendCameraStream(String action, {String? deviceId}) {
     final id = deviceId ?? this.deviceId;
-    if (_mqtt?.connectionStatus?.state != MqttConnectionState.connected) return;
+    if (_mqtt?.connectionStatus?.state != MqttConnectionState.connected) {
+      _pendingCameraAction = action; // 终态命令：覆盖旧的，只留最终意图
+      return;
+    }
+    _publishCameraCmd(id, action);
+  }
+
+  void _publishCameraCmd(String id, String action) {
     final builder = MqttClientPayloadBuilder();
     builder.addString(jsonEncode({'action': action}));
     _mqtt!.publishMessage(
         mqttCamCmdTopic(id), MqttQos.atLeastOnce, builder.payload!);
+  }
+
+  /// 断连期间缓存的摄像头流控动作（null = 无）。连接成功后补发一次即清空。
+  String? _pendingCameraAction;
+
+  /// MQTT 连接成功后补发缓存的摄像头流控命令（黑屏修复改动 3 的 flush 半段）。
+  void _flushPendingCameraAction() {
+    final a = _pendingCameraAction;
+    if (a == null) return;
+    _pendingCameraAction = null;
+    if (_mqtt?.connectionStatus?.state == MqttConnectionState.connected) {
+      _publishCameraCmd(deviceId, a);
+    }
   }
 
   // ---- 心跳：固件 15s 内收不到任何命令即进入 Feed Hold，App 须周期发 hello ----
@@ -1055,6 +1082,7 @@ class RealHardwareService implements HardwareService {
     _ackTimer = null;
     _cmdQueue.clear();
     _pending = null;
+    _pendingCameraAction = null; // 摄像头流控缓存随实例销毁（黑屏修复）
     _stopHeartbeat();
     _tcp?.destroy();
     _mqtt?.disconnect();

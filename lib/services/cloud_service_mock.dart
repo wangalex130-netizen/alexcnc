@@ -2,6 +2,7 @@ import '../data/material_db.dart';
 import '../models/library_item.dart';
 import '../models/model_library.dart';
 import '../models/push_log_entry.dart';
+import '../models/sys_bit.dart';
 import '../models/task_metadata.dart';
 import 'cloud_service.dart';
 
@@ -222,6 +223,18 @@ class MockCloudService implements CloudService {
     await Future.delayed(const Duration(milliseconds: 100));
     // Mock 下无事件源，返回空（本地通知消费端在 Mock 模式下不弹）
     return const [];
+  }
+
+  @override
+  Future<List<SysBit>> fetchSysBits() async {
+    // Mock 兜底：返回与本地官方刀库一致的子集，保证离线也能看。
+    return const [
+      SysBit(id: 5, type: 'End Mills', name: '1/8 in Flat Cutter', bitType: 'Flat Cutter', diameter: '1/8 in'),
+      SysBit(id: 20, type: 'Ballnose', name: '1/8 in Ballnose', bitType: 'Ballnose', diameter: '1/8 in'),
+      SysBit(id: 1, type: 'V Bits', name: '30 Deg 1/8 V-Bit', bitType: 'V', diameter: '1/8 in', angle: '30'),
+      SysBit(id: 2, type: 'V Bits', name: '60 Deg 1/8 V-Bit', bitType: 'V', diameter: '1/8 in', angle: '60'),
+      SysBit(id: 3, type: 'V Bits', name: '90 Deg 1/8 V-Bit', bitType: 'V', diameter: '1/8 in', angle: '90'),
+    ];
   }
 
   // ===================== 模型库 5 接口（Mock 兜底） =====================
