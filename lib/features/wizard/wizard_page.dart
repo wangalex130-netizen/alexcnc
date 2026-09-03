@@ -2101,7 +2101,12 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
 
     // 延时摄影：开启则让服务器从本刻起按雕刻时长抽样存图（与固件雕刻并行，
     // 手机/电脑/机器本身均不存照片，全部在服务器完成）。
+    // 2026-09-03 改造：启动前先补一次 stream_start（幂等），确保摄像头在推流。
     if (_timeLapse) {
+      // A1：先确保摄像头在推流（幂等：已推流自动忽略，不 reset ABR）
+      try {
+        ref.read(hardwareServiceProvider).sendCameraStream('stream_start');
+      } catch (_) {}
       final dur = double.tryParse(_durCtrl.text) ?? 120.0;
       final tlJobId = await TimeLapseClient.start(durationSec: dur);
       if (tlJobId != null) {

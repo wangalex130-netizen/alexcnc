@@ -230,7 +230,14 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   }
 
   /// 画面内「开始录制」按钮：非雕刻态真正开始采样。
+  /// 2026-09-03 改造：启动前先无条件补一次 stream_start（幂等），确保摄像头在推流。
+  /// 解决摄像头重启/插拔后 relay.on=0、App 点开始却录 0 帧失败的问题。
   Future<void> _tlStartRecording() async {
+    // A1：先确保摄像头在推流（幂等：已推流自动忽略，不 reset ABR）
+    try {
+      ref.read(hardwareServiceProvider).sendCameraStream('stream_start',
+          deviceId: ref.read(currentMachineProvider)?.sn);
+    } catch (_) {/* sendCameraStream 内部已 try/catch */}
     final id = await TimeLapseClient.start(durationSec: 120);
     if (id != null) {
       ref.read(timeLapseJobProvider.notifier).setJob(id);
@@ -872,6 +879,14 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     status: _tlStatus,
                     onView: () => _openTimeLapseVideo(_tlJobId!),
                     onDownload: () => _downloadTimeLapse(_tlJobId!),
+                    // 2026-09-03：关闭按钮回调，清清掉本地 jobId + 状态 + 标志
+                    onClose: () {
+                      ref.read(timeLapseJobProvider.notifier).clear();
+                      if (mounted) setState(() {
+                        _tlStatus = null;
+                        _tlArmed = false;
+                      });
+                    },
                   ),
 
                 // 快捷开关：随内容滚动（原先固定在顶部，挤压了下方 Jog 区可用空间）
@@ -1969,7 +1984,15 @@ class _TimeLapseStatusCard extends StatelessWidget {
   final Map<String, dynamic>? status;
   final VoidCallback onView;
   final VoidCallback onDownload;
+  // 2026-09-03 改造：用户可主动关闭（清掉 jobId + 状态），解决"成片已显示但按钮和状态卡一直残留"
+  final VoidCallback onClose;
   const _TimeLapseStatusCard({
+    required this.jobId,
+    this.status,
+    required this.onView,
+    required this.onDownload,
+    required this.onClose,
+  });
     required this.jobId,
     this.status,
     required this.onView,
@@ -2004,6 +2027,15 @@ class _TimeLapseStatusCard extends StatelessWidget {
               if (st == 'running')
                 Text('采集中 $count/$target',
                     style: const TextStyle(fontSize: 11, color: CncColors.blue)),
+              // 关闭按钮（×）：成片/失败后可手动清除 UI，2026-09-03
+              IconButton(
+                icon: const Icon(Icons.close, size: 16),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                visualDensity: VisualDensity.compact,
+                tooltip: '关闭',
+                onPressed: onClose,
+              ),
             ],
           ),
           const SizedBox(height: 8),

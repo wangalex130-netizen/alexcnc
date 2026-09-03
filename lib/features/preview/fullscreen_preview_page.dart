@@ -192,11 +192,18 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
     _renewTimer?.cancel();
     // 2) 退出预览即停推流（按需推流模型），省带宽/电量、延寿、护隐私。
     //    包在 try/catch 中：即便停推失败也绝不影响已完成的竖屏恢复。
+    // 2026-09-03 改造（A2）：延时摄影运行中中**不**停推流。
+    //    延时摄影依赖摄像头持续推流（服务器从推流里抽帧存图）。
+    //    若在录像中途退出预览，把推流也停了 → 录像会断帧。
+    //    故：timeLapseJobProvider 非空（说明有延时摄影任务在录）则跳过 stream_stop，
+    //    由 relay 的 60s 无帧兜底或云网关联动收尾。
     try {
       final cfg = ref.read(runtimeConfigProvider);
       final realMode = cfg.resolvedUseRealBackend;
       final loggedIn = ref.read(authProvider).isLoggedIn;
-      if (!realMode || (loggedIn && widget.machine != null)) {
+      final tlJobId = ref.read(timeLapseJobProvider);
+      if (tlJobId == null &&
+          (!realMode || (loggedIn && widget.machine != null))) {
         _hw.sendCameraStream('stream_stop', deviceId: _cameraDeviceId);
       }
     } catch (_) {

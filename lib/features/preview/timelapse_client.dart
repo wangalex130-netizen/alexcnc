@@ -35,16 +35,19 @@ class TimeLapseClient {
   static String get _device => _overrideDevice ?? AppConfig.cameraRelayDevice;
 
   /// 开始一次延时摄影。返回 jobId；失败返回 null。
+  /// [durationSec] 2026-09-03 起改为可选：纯人工启停（服务器不再按 duration 到点停）。
+  /// 调用方仍可传，作为 UI 行为提示（不决定端服务停止时机）。
   static Future<String?> start({
-    required double durationSec,
+    double? durationSec,
     int fps = 15,
   }) async {
-    final uri = Uri.parse('$_base/timelapse/start').replace(queryParameters: {
+    final qp = <String, String>{
       'device': _device,
       'token': _token,
-      'duration': durationSec.toStringAsFixed(1),
       'fps': fps.toString(),
-    });
+    };
+    if (durationSec != null) qp['duration'] = durationSec.toStringAsFixed(1);
+    final uri = Uri.parse('$_base/timelapse/start').replace(queryParameters: qp);
     try {
       final r = await http.post(uri).timeout(const Duration(seconds: 15));
       if (r.statusCode == 200) {
@@ -59,16 +62,46 @@ class TimeLapseClient {
   }
 
   /// 停止采样并触发拼接（服务器也会在时长到点后自动停止）。
-  static Future<void> stop(String jobId) async {
-    final uri = Uri.parse('$_base/timelapse/stop').replace(queryParameters: {
-      'device': _device,
+  static Future<bool> stop(String jobId, {String? device}) async {
+    final qp = <String, String>{
       'token': _token,
-      'job': jobId,
+      if (device != null) 'device': device else 'job': jobId,
+    };
+    final uri = Uri.parse('$_base/timelapse/stop').replace(queryParameters: qp);
+    try {
+      final r = await http.post(uri).timeout(const Duration(seconds: 15));
+      return r.statusCode == 200;
+    } catch (e) {
+      debugPrint('[TimeLapse] stop failed: $e');
+      return false;
+    }
+  }
+
+  /// 2026-09-03 新增：删除延时摄影任务（支持批量）。
+  /// [jobIds] 单个或逗号分隔的多个 jobId。
+  /// 返回是否成功。
+  static Future<bool> delete(String jobIds) async {
+    final uri = Uri.parse('$_base/timelapse/delete').replace(queryParameters: {
+      'token': _token,
+      'job': jobIds,
     });
+    try {
+      final r = await http.post(uri).timeout(const Duration(seconds: 15));
+      return r.statusCode == 200;
+    } catch (e) {
+      debugPrint('[TimeLapse] delete failed: ${e}');
+      return false;
+    }
+  }
+
+  /// 2026-09-03 新增：标记延时摄影任务为已下载，触发服务器 10 天清理计时。
+  static Future<void> markDownloaded(String jobId) async {
+    final uri = Uri.parse('$_base/timelapse/mark_downloaded')
+        .replace(queryParameters: {'token': _token, 'job': jobId});
     try {
       await http.post(uri).timeout(const Duration(seconds: 15));
     } catch (e) {
-      debugPrint('[TimeLapse] stop failed: $e');
+      debugPrint('[TimeLapse] markDownloaded failed: ${e}');
     }
   }
 
@@ -142,6 +175,8 @@ class TimeLapseClient {
           (res['isSuccess'] == true ||
               res['success'] == true ||
               res['filePath'] != null)) {
+        // 2026-09-03：保存成功即标记已下载，触发服务器 10 天清理计时
+        unawaited(markDownloaded(jobId));
         return (res['filePath'] as String?) ?? '已保存到相册';
       }
       debugPrint('[TimeLapse] saveToGallery result: $res');
