@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../models/broadcast_message.dart';
 import '../models/camera_stream_state.dart';
+import '../models/carve_session.dart';
 import '../models/machine_status.dart';
 import '../models/notify_event.dart';
 import '../models/position.dart';
@@ -273,6 +274,47 @@ class MockHardwareService implements HardwareService {
       selfCheckTotal: 8,
       eta: const Duration(minutes: 5),
     );
+    _emit();
+  }
+
+  // ---- 雕刻主链路 v2（Mock：模拟两阶段成功，便于无真机时调 UI）----
+  final _carveCtrl = StreamController<CarveSession>.broadcast();
+  CarveSession _carve = const CarveSession();
+
+  @override
+  Stream<CarveSession> get carveSession => _carveCtrl.stream;
+
+  @override
+  CarveSession get currentCarveSession => _carve;
+
+  @override
+  Future<void> prepareJob({
+    required String fileUrl,
+    String fileName = 'job.gc',
+    int sizeBytes = 0,
+    String sha256 = '',
+  }) async {
+    // 模拟"下载 → 就绪 → 自动确认 → 加工中"全流程
+    _carve = const CarveSession(stage: CarveStage.preparing, jobId: 'mock-job');
+    _carveCtrl.add(_carve);
+    for (final p in const [30, 70, 100]) {
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      _carve = _carve.copyWith(download: p);
+      _carveCtrl.add(_carve);
+    }
+    _carve = _carve.copyWith(stage: CarveStage.ready);
+    _carveCtrl.add(_carve);
+    await confirmJob();
+  }
+
+  @override
+  Future<void> confirmJob() async {
+    _carve = _carve.copyWith(stage: CarveStage.confirming);
+    _carveCtrl.add(_carve);
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    _carve = _carve.copyWith(stage: CarveStage.running);
+    _carveCtrl.add(_carve);
+    _current = _current.copyWith(state: MachineState.busy, progress: 0);
     _emit();
   }
 

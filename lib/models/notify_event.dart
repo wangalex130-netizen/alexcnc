@@ -21,6 +21,16 @@ class NotifyEvent {
   /// 事件时间戳（ts，epoch ms）；缺失为 null，UI 回退到 [at]。
   final int? ts;
 
+  // --- cmd_ack 字段（雕刻主链路 v2，闫安文档 §6.8/6.9/6.11）---
+  /// 被应答的命令 reqId（仅 `cmd_ack` 事件有）。用于把 ACK 关联回具体命令。
+  final String? reqId;
+
+  /// 命令是否成功（仅 `cmd_ack` 事件有）：true=成功，false=失败（看 [code]/[message]）。
+  final bool? ok;
+
+  /// 作业 ID（prepare_job / confirm / 状态帧携带），贯穿一次雕刻全程。
+  final String? jobId;
+
   const NotifyEvent({
     required this.type,
     required this.message,
@@ -29,6 +39,9 @@ class NotifyEvent {
     this.code,
     this.data,
     this.ts,
+    this.reqId,
+    this.ok,
+    this.jobId,
   }) : isAlarm = isAlarm ?? (type == 'alarm' || type == 'error');
 
   /// 由 notify 帧 JSON 解析（docs/03 §4 / §10.7）。
@@ -45,6 +58,10 @@ class NotifyEvent {
       code: j['code']?.toString(),
       data: data is Map<String, dynamic> ? data : null,
       ts: (j['ts'] is num) ? (j['ts'] as num).toInt() : null,
+      // cmd_ack：reqId / ok / jobId（雕刻主链路 v2）
+      reqId: j['reqId']?.toString(),
+      ok: j['ok'] is bool ? j['ok'] as bool : null,
+      jobId: j['jobId']?.toString(),
     );
   }
 }

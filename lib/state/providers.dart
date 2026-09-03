@@ -12,6 +12,7 @@ import '../state/auth_provider.dart';
 import '../services/auth_service.dart';
 import '../services/bit_config_service.dart';
 import '../models/broadcast_message.dart';
+import '../models/carve_session.dart';
 import '../models/job_progress.dart';
 import '../models/machine_status.dart';
 import '../models/notify_event.dart';
@@ -193,6 +194,14 @@ enum JobLaunchPhase {
   /// 重发耗尽仍未送达。
   failed,
 }
+
+/// 雕刻主链路 v2 的作业阶段（prepare_job / confirm 两阶段，2026-09-03）。
+///
+/// 与 [jobLaunchPhaseProvider]（旧「启动三态」，老固件 / 物理键流程）并存：
+/// 有进行中的新作业时 UI 优先展示本流，否则回退旧三态，保证老固件不退化。
+final carveSessionProvider = StreamProvider<CarveSession>((ref) {
+  return ref.watch(hardwareServiceProvider).carveSession;
+});
 
 /// 由「命令送达态 + 机器状态帧」推导当前启动阶段。
 ///

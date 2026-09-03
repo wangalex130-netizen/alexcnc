@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../models/broadcast_message.dart';
 import '../models/camera_stream_state.dart';
+import '../models/carve_session.dart';
 import '../models/job_progress.dart';
 import '../models/machine_status.dart';
 import '../models/notify_event.dart';
@@ -142,6 +143,34 @@ abstract class HardwareService {
   Future<void> pauseJob();
   Future<void> resumeJob();
   Future<void> stopJob(); // soft stop
+
+  // --- 雕刻主链路 v2（闫安文档 §6.8/6.9，2026-09-03）---
+  /// 第一阶段：下发 `prepare_job`，让小屏下载并校验 G-code。
+  ///
+  /// 🔴 **App 不持有/不上传 G-code**（D2）：只把模型库下发的
+  /// `roughingGcodeUrl`/`finishingGcodeUrl` 这个 **HTTPS URL** 传给小屏，
+  /// 由小屏自己下载。App 全程不接触 G-code 文件字节。
+  ///
+  /// [sizeBytes]/[sha256] 后台暂未提供，先传 0/空；按工程师确认的方案 A，
+  /// 小屏此时**跳过完整性校验**，只下载即可继续流程。
+  /// 后台接口补齐这两个字段后，App 传入真值即可（无需改结构）。
+  Future<void> prepareJob({
+    required String fileUrl,
+    String fileName = 'job.gc',
+    int sizeBytes = 0,
+    String sha256 = '',
+  });
+
+  /// 第二阶段：下发 `confirm`，让小屏开始向 GRBL 流式传输（真实动刀）。
+  ///
+  /// 必须在 [prepareJob] 的 ACK 成功（阶段 = ready）之后调用。
+  Future<void> confirmJob();
+
+  /// 雕刻作业阶段流（preparing / ready / confirming / running / failed）。
+  Stream<CarveSession> get carveSession;
+
+  /// 当前雕刻作业快照。
+  CarveSession get currentCarveSession;
 
   // --- ATC ---
   Future<void> updateToolMap(List<Tool> tools);

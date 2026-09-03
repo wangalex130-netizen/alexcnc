@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme.dart';
+import '../../models/carve_session.dart';
 import '../../services/hardware_service.dart';
 import '../../state/providers.dart';
 
@@ -25,11 +26,55 @@ class JobLaunchBanner extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // 雕刻主链路 v2（2026-09-03）：有进行中的两阶段作业时优先显示它；
+    // 否则回退到旧的「启动三态」（老固件 / 物理键流程）。
+    final carve = ref.watch(carveSessionProvider).valueOrNull;
+    if (carve != null && carve.isActive) {
+      return _buildCarveStage(carve);
+    }
     final phase = ref.watch(jobLaunchPhaseProvider);
     if (phase == JobLaunchPhase.idle || phase == JobLaunchPhase.running) {
       return const SizedBox.shrink();
     }
+    return _buildLegacyPhase(ref, phase);
+  }
 
+  /// 雕刻主链路 v2：准备中（下载 x%）→ 开始中 → 加工中 / 失败。
+  Widget _buildCarveStage(CarveSession carve) {
+    final String title;
+    final String detail;
+    final Color color;
+
+    switch (carve.stage) {
+      case CarveStage.preparing:
+        title = '准备中';
+        detail = carve.download > 0
+            ? '机器正在接收加工程序 ${carve.download}%'
+            : '机器正在准备加工程序…';
+        color = CncColors.textSub;
+      case CarveStage.ready:
+      case CarveStage.confirming:
+        title = '开始中';
+        detail = '程序已就绪，正在开始雕刻…';
+        color = CncColors.warning;
+      case CarveStage.failed:
+        title = '没能开始';
+        detail = carve.error ?? '请稍后重试';
+        color = CncColors.danger;
+      default:
+        return const SizedBox.shrink();
+    }
+
+    return _banner(
+      title: title,
+      detail: detail,
+      color: color,
+      spinning: carve.stage != CarveStage.failed,
+    );
+  }
+
+  /// 旧「启动三态」（老固件 / 物理键确认流程）。
+  Widget _buildLegacyPhase(WidgetRef ref, JobLaunchPhase phase) {
     final pending = ref.read(hardwareServiceProvider).pendingCommand;
     final String title;
     final String detail;
@@ -62,6 +107,22 @@ class JobLaunchBanner extends ConsumerWidget {
         return const SizedBox.shrink();
     }
 
+    return _banner(
+      title: title,
+      detail: detail,
+      color: color,
+      icon: icon,
+      spinning: phase == JobLaunchPhase.dispatched,
+    );
+  }
+
+  Widget _banner({
+    required String title,
+    required String detail,
+    required Color color,
+    IconData? icon,
+    bool spinning = false,
+  }) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
@@ -78,9 +139,9 @@ class JobLaunchBanner extends ConsumerWidget {
             child: SizedBox(
               width: 14,
               height: 14,
-              child: phase == JobLaunchPhase.dispatched
+              child: spinning
                   ? CircularProgressIndicator(strokeWidth: 2, color: color)
-                  : Icon(icon, size: 14, color: color),
+                  : Icon(icon ?? Icons.info_outline, size: 14, color: color),
             ),
           ),
           const SizedBox(width: 8),
@@ -90,7 +151,9 @@ class JobLaunchBanner extends ConsumerWidget {
               children: [
                 Text(title,
                     style: TextStyle(
-                        fontSize: 12, fontWeight: FontWeight.bold, color: color)),
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: color)),
                 const SizedBox(height: 2),
                 Text(detail,
                     style: TextStyle(fontSize: 11, color: color, height: 1.35)),

@@ -8,6 +8,7 @@ import 'package:mqtt_client/mqtt_server_client.dart';
 import '../app/config.dart';
 import '../models/broadcast_message.dart';
 import '../models/camera_stream_state.dart';
+import '../models/carve_session.dart';
 import '../models/job_progress.dart';
 import '../models/machine_status.dart';
 import '../models/notify_event.dart';
@@ -102,11 +103,11 @@ class RealHardwareService implements HardwareService {
   static const int _maxCmdRetries = 3;
 
   /// MQTT clientId：终局方案固定为 `android-<deviceId>`（设备维度，无随机后缀）。
-  /// 与屏幕 `screen-<deviceId>`、摄像头 `cam-<deviceId>`、云网关 `bridge-aliyun-api`
-  /// 互不相同，故多端可同时连同一 Broker 而不互踢。
+  /// **D3（2026-09-03）**：clientId = `android-<deviceId>-<随机后缀>`，
+  /// 保证全局唯一 —— 同一台机器被多台手机同时连接时不再互踢。
   ///
-  /// **已知限制**：同一台机器被多台手机同时连接时会因 ClientId 重复而互踢。
-  /// 工程师确认"暂不考虑此场景"；量产前若需支持，需重新约定命名规则（如补随机后缀）。
+  /// 与屏幕 `screen-<deviceId>`、摄像头 `cam-<deviceId>`、云网关 `bridge-aliyun-api`
+  /// 前缀互不相同，故多端可同时连同一 Broker。
   final String _mqttClientId;
 
   final Map<String, bool> _aux = {
@@ -126,7 +127,12 @@ class RealHardwareService implements HardwareService {
     this.tcpPort = AppConfig.deviceTcpPort,
     this.cloudEnabled = false,
   })  : _tcpHost = tcpHost,
-        _mqttClientId = 'android-$deviceId';
+        // D3（2026-09-03 拍板）：clientId **任意不重复即可**。
+        // 加随机后缀后，同一台机器被多台手机同时连接也**不会互踢**
+        // （此前同 deviceId 的两台手机 clientId 完全相同 → broker 侧互踢）。
+        // 前缀仍保留 `android-` 便于运维在 broker 侧按端识别。
+        _mqttClientId =
+            'android-$deviceId-${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}';
 
   /// MQTT 状态广播主题：cnc/<deviceId>/status（按实例 deviceId 推导，App 订阅）
   String get mqttStatusTopic => 'cnc/$deviceId/status';
@@ -655,14 +661,21 @@ class RealHardwareService implements HardwareService {
         // 先发一次性事件（toast/横幅），再发状态联动（保留原行为）
         if (!_notifyCtrl.isClosed) {
           final data = j['data'];
-          _notifyCtrl.add(NotifyEvent(
+          final ev = NotifyEvent(
             type: type,
             message: msg.isEmpty ? type : msg,
             at: DateTime.now(),
             code: j['code']?.toString(),
             data: data is Map<String, dynamic> ? data : null,
             ts: (j['ts'] is num) ? (j['ts'] as num).toInt() : null,
-          ));
+            // cmd_ack 字段（雕刻主链路 v2）：reqId / ok / jobId
+            reqId: j['reqId']?.toString(),
+            ok: j['ok'] is bool ? j['ok'] as bool : null,
+            jobId: j['jobId']?.toString(),
+          );
+          _notifyCtrl.add(ev);
+          // 按 reqId 推进雕刻阶段（prepare_job → confirm → running）
+          _handleCmdAck(ev);
         }
         _checkCmdAck(notifyStatus);
         _ctrl.add(notifyStatus);
@@ -671,6 +684,7 @@ class RealHardwareService implements HardwareService {
 
       final parsed = MachineStatus.fromJson(j);
       _checkCmdAck(parsed);
+      _syncCarveFromStatus(j);
       _ctrl.add(parsed);
     } catch (_) {
       // 非 JSON 行（如 Grbl 原始 <...>）可在此扩展解析
@@ -941,6 +955,178 @@ class RealHardwareService implements HardwareService {
   /// 断连期间缓存的摄像头流控动作（null = 无）。连接成功后补发一次即清空。
   String? _pendingCameraAction;
 
+  // ---- 雕刻主链路 v2（闫安文档 §6.8/6.9/6.11，2026-09-03）----
+  /// 雕刻作业阶段广播流（UI 订阅以显示"准备中 / 下载 x% / 加工中"）。
+  final _carveCtrl = StreamController<CarveSession>.broadcast();
+
+  /// 当前雕刻作业快照。
+  CarveSession _carve = const CarveSession();
+
+  /// 当前等待 ACK 的命令 reqId（prepare 或 confirm 二选一，不会同时等两个）。
+  String? _awaitingReqId;
+
+  /// 已处理过的 ACK reqId（文档 §6.11 规则 2：**重复 ACK 只处理一次**）。
+  final Set<String> _handledAcks = <String>{};
+
+  /// 生成本次作业的 ID（不引第三方依赖，够用即可）。
+  static String _newId() =>
+      '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}-'
+      '${(100000 + DateTime.now().microsecond % 900000).toRadixString(36)}';
+
+  @override
+  Stream<CarveSession> get carveSession => _carveCtrl.stream;
+
+  @override
+  CarveSession get currentCarveSession => _carve;
+
+  @override
+  Future<void> prepareJob({
+    required String fileUrl,
+    String fileName = 'job.gc',
+    int sizeBytes = 0,
+    String sha256 = '',
+  }) async {
+    final trimmed = fileUrl.trim();
+    if (trimmed.isEmpty) {
+      _failCarve('这个模型还没有可用的加工程序，请换一个试试');
+      return;
+    }
+    final jobId = _newId();
+    final reqId = _newId();
+    _handledAcks.clear();
+    _awaitingReqId = reqId;
+    _updateCarve(CarveSession(
+      stage: CarveStage.preparing,
+      jobId: jobId,
+      download: 0,
+    ));
+
+    final cmd = <String, dynamic>{
+      'cmd': 'prepare_job',
+      'type': 'gcode_ready',
+      'protocolVersion': 1,
+      'deviceId': deviceId,
+      'jobId': jobId,
+      'manifestId': jobId,
+      'createdAt': DateTime.now().toUtc().toIso8601String(),
+      'sourceFileId': 'mobile-model-library',
+      'files': [
+        {
+          'order': 1,
+          'kind': 'gcode',
+          'fileName': fileName,
+          'url': trimmed,
+          'sizeBytes': sizeBytes,
+          'sha256': sha256,
+        }
+      ],
+      'reqId': reqId,
+      'source': 'mobile',
+      'issuedAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    // 启动类命令：只发一次 + ACK 匹配，**绝不自动重发**（D8）
+    if (!_publish(cmd)) {
+      _awaitingReqId = null;
+      _failCarve('网络不稳，指令没发出去，请检查网络后重试');
+    }
+  }
+
+  @override
+  Future<void> confirmJob() async {
+    final jobId = _carve.jobId;
+    if (jobId == null || _carve.stage != CarveStage.ready) {
+      // 不在 ready 阶段（比如 prepare 还没好）→ 不盲发，避免打断机器
+      return;
+    }
+    final reqId = _newId();
+    _awaitingReqId = reqId;
+    _updateCarve(_carve.copyWith(stage: CarveStage.confirming));
+
+    final cmd = <String, dynamic>{
+      'cmd': 'confirm',
+      'jobId': jobId,
+      'reqId': reqId,
+      'source': 'mobile',
+      'issuedAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    if (!_publish(cmd)) {
+      _awaitingReqId = null;
+      _failCarve('网络不稳，指令没发出去，请检查网络后重试');
+    }
+  }
+
+  void _updateCarve(CarveSession s) {
+    _carve = s;
+    if (!_carveCtrl.isClosed) _carveCtrl.add(s);
+  }
+
+  void _failCarve(String message) {
+    _awaitingReqId = null;
+    _updateCarve(_carve.copyWith(stage: CarveStage.failed, error: message));
+  }
+
+  /// 处理 `cmd_ack`：按 reqId 关联回具体命令，推进或终止雕刻阶段。
+  ///
+  /// 文档 §6.11 规则：
+  /// 1. `ok=false` → 停止当前阶段，展示 code/message；
+  /// 2. 重复 ACK 只处理一次；
+  /// 3. 只认当前正在等待的 reqId，过期 ACK 忽略。
+  void _handleCmdAck(NotifyEvent ev) {
+    final reqId = ev.reqId;
+    if (reqId == null || reqId.isEmpty) return;
+    if (_awaitingReqId == null || reqId != _awaitingReqId) return;
+    if (_handledAcks.contains(reqId)) return; // 重复 ACK 只处理一次
+    _handledAcks.add(reqId);
+    _awaitingReqId = null;
+
+    final ok = ev.ok == true;
+    final jobId = ev.jobId ?? _carve.jobId;
+
+    if (!ok) {
+      final detail = (ev.message.isNotEmpty && ev.message != 'cmd_ack')
+          ? ev.message
+          : (ev.code ?? '机器拒绝了这条指令');
+      _failCarve('机器没能准备好：$detail');
+      return;
+    }
+
+    switch (_carve.stage) {
+      case CarveStage.preparing:
+        // prepare ACK 到 → G-code 就绪，自动接着发 confirm（D1 纯软件流程）
+        _updateCarve(_carve.copyWith(
+          stage: CarveStage.ready,
+          jobId: jobId,
+          download: 100,
+        ));
+        confirmJob();
+      case CarveStage.confirming:
+        // confirm ACK 到 → 已进入流式传输
+        _updateCarve(_carve.copyWith(stage: CarveStage.running, jobId: jobId));
+      default:
+        break;
+    }
+  }
+
+  /// 由 status 帧同步雕刻作业进度（闫安文档 §6.6：`download` 0-100、`jobState`）。
+  ///
+  /// 只更新"下载进度"与"running 判定"，阶段推进仍以 cmd_ack 为准
+  /// （文档 §6.11：ACK 超时先读 status 对账，不盲目重发）。
+  void _syncCarveFromStatus(Map<String, dynamic> j) {
+    if (!_carve.isActive) return;
+    final jobState = j['jobState']?.toString();
+    final dl = (j['download'] as num?)?.toInt();
+
+    // 下载进度：小屏下载 G-code 的百分比
+    if (dl != null && _carve.stage == CarveStage.preparing) {
+      _updateCarve(_carve.copyWith(download: dl.clamp(0, 100)));
+    }
+    // status 显示已进入流式传输 → 即便 ACK 丢了也认定为加工中（对账，不是重发）
+    if (jobState == 'running' && _carve.stage != CarveStage.running) {
+      _awaitingReqId = null;
+      _updateCarve(_carve.copyWith(stage: CarveStage.running));
+    }
+  }
+
   /// MQTT 连接成功后补发缓存的摄像头流控命令（黑屏修复改动 3 的 flush 半段）。
   void _flushPendingCameraAction() {
     final a = _pendingCameraAction;
@@ -1141,5 +1327,6 @@ class RealHardwareService implements HardwareService {
     _camCtrl.close();
     _connCtrl.close();
     _cmdCtrl.close();
+    _carveCtrl.close();
   }
 }
