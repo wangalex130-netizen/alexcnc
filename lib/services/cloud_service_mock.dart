@@ -226,14 +226,15 @@ class MockCloudService implements CloudService {
   }
 
   @override
-  Future<List<SysBit>> fetchSysBits() async {
-    // Mock 兜底：返回与本地官方刀库一致的子集，保证离线也能看。
+  Future<List<SysBit>> fetchSysBits({String? modelId}) async {
+    // Mock 兜底：返回与本地官方刀库一致的子集（id 用真实云端 id 1/2/3/5/74），
+    // 保证离线时 `isLocalSupported`（按 systemId 匹配）也能正确标记「本机适配」。
     return const [
       SysBit(id: 5, type: 'End Mills', name: '1/8 in Flat Cutter', bitType: 'Flat Cutter', diameter: '1/8 in'),
-      SysBit(id: 20, type: 'Ballnose', name: '1/8 in Ballnose', bitType: 'Ballnose', diameter: '1/8 in'),
-      SysBit(id: 1, type: 'V Bits', name: '30 Deg 1/8 V-Bit', bitType: 'V', diameter: '1/8 in', angle: '30'),
+      SysBit(id: 74, type: 'Ballnose', name: '1/8 in Ballnose', bitType: 'Ballnose', diameter: '1/8 in'),
+      SysBit(id: 3, type: 'V Bits', name: '30 Deg 1/8 V-Bit', bitType: 'V', diameter: '1/8 in', angle: '30'),
       SysBit(id: 2, type: 'V Bits', name: '60 Deg 1/8 V-Bit', bitType: 'V', diameter: '1/8 in', angle: '60'),
-      SysBit(id: 3, type: 'V Bits', name: '90 Deg 1/8 V-Bit', bitType: 'V', diameter: '1/8 in', angle: '90'),
+      SysBit(id: 1, type: 'V Bits', name: '90 Deg 1/8 V-Bit', bitType: 'V', diameter: '1/8 in', angle: '90'),
     ];
   }
 

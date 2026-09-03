@@ -59,10 +59,44 @@ class LibraryItem {
   /// 精加工 G-code 文件地址（OSS 公网 URL）。未配置精加工时为 null。
   final String? finishingGcodeUrl;
 
+  // ---- G-code 完整性元数据（2026-09-03 PC 后端新增，prepare_job 校验用）----
+  /// 粗加工 G-code 字节数（`roughingGcodeSizeBytes`）；未配置为 null。
+  final int? roughingGcodeSizeBytes;
+
+  /// 粗加工 G-code SHA-256（`roughingGcodeSha256`，小写 hex）；未配置为 null。
+  final String? roughingGcodeSha256;
+
+  /// 精加工 G-code 字节数（`finishingGcodeSizeBytes`）；未配置为 null。
+  final int? finishingGcodeSizeBytes;
+
+  /// 精加工 G-code SHA-256（`finishingGcodeSha256`）；未配置为 null。
+  final String? finishingGcodeSha256;
+
   /// 两个 G-code 均未配置（未切片）；只存在其一不算异常（后端明确约定）。
   bool get hasAnyGcode =>
       (roughingGcodeUrl != null && roughingGcodeUrl!.isNotEmpty) ||
       (finishingGcodeUrl != null && finishingGcodeUrl!.isNotEmpty);
+
+  /// 优先返回粗加工 G-code（url + 元数据），无粗加工则返回精加工。
+  /// 用于 prepare_job 的 files[0]（V1 只支持单文件）。
+  /// 返回 null 表示模型没有加工程序。
+  ({String url, int sizeBytes, String sha256})? get primaryGcode {
+    if (roughingGcodeUrl != null && roughingGcodeUrl!.isNotEmpty) {
+      return (
+        url: roughingGcodeUrl!,
+        sizeBytes: roughingGcodeSizeBytes ?? 0,
+        sha256: roughingGcodeSha256 ?? '',
+      );
+    }
+    if (finishingGcodeUrl != null && finishingGcodeUrl!.isNotEmpty) {
+      return (
+        url: finishingGcodeUrl!,
+        sizeBytes: finishingGcodeSizeBytes ?? 0,
+        sha256: finishingGcodeSha256 ?? '',
+      );
+    }
+    return null;
+  }
 
   const LibraryItem({
     required this.id,
@@ -98,6 +132,10 @@ class LibraryItem {
     this.depthPerPass,
     this.roughingGcodeUrl,
     this.finishingGcodeUrl,
+    this.roughingGcodeSizeBytes,
+    this.roughingGcodeSha256,
+    this.finishingGcodeSizeBytes,
+    this.finishingGcodeSha256,
   });
 
   /// 从云端 REST JSON 解析（字段对齐 docs/模型库数据格式与接口定义.md）。
@@ -150,6 +188,11 @@ class LibraryItem {
         depthPerPass: (j['depthPerPass'] as num?)?.toDouble(),
         roughingGcodeUrl: j['roughingGcodeUrl'] as String?,
         finishingGcodeUrl: j['finishingGcodeUrl'] as String?,
+        // G-code 完整性元数据（2026-09-03 新增）：可空，缺失即 null
+        roughingGcodeSizeBytes: (j['roughingGcodeSizeBytes'] as num?)?.toInt(),
+        roughingGcodeSha256: j['roughingGcodeSha256'] as String?,
+        finishingGcodeSizeBytes: (j['finishingGcodeSizeBytes'] as num?)?.toInt(),
+        finishingGcodeSha256: j['finishingGcodeSha256'] as String?,
       );
 
   /// 列表展示用图：优先 coverUrl，其次 imageUrls[0]，最后兼容旧 imageUrl。
@@ -259,6 +302,10 @@ class LibraryItem {
     double? depthPerPass,
     String? roughingGcodeUrl,
     String? finishingGcodeUrl,
+    int? roughingGcodeSizeBytes,
+    String? roughingGcodeSha256,
+    int? finishingGcodeSizeBytes,
+    String? finishingGcodeSha256,
   }) =>
       LibraryItem(
         id: id ?? this.id,
@@ -295,5 +342,12 @@ class LibraryItem {
         depthPerPass: depthPerPass ?? this.depthPerPass,
         roughingGcodeUrl: roughingGcodeUrl ?? this.roughingGcodeUrl,
         finishingGcodeUrl: finishingGcodeUrl ?? this.finishingGcodeUrl,
+        roughingGcodeSizeBytes:
+            roughingGcodeSizeBytes ?? this.roughingGcodeSizeBytes,
+        roughingGcodeSha256: roughingGcodeSha256 ?? this.roughingGcodeSha256,
+        finishingGcodeSizeBytes:
+            finishingGcodeSizeBytes ?? this.finishingGcodeSizeBytes,
+        finishingGcodeSha256:
+            finishingGcodeSha256 ?? this.finishingGcodeSha256,
       );
 }

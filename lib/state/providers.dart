@@ -298,10 +298,12 @@ final modelLibraryServiceProvider = Provider<CloudService>((ref) {
 /// 系统内置刀头列表（`GET /api/bit/sys/list`，公开接口）。
 ///
 /// 云端是官方刀头**全集**，本机可用是子集（见 `SysBit.isLocalSupported`）。
+/// 有当前机器时按 `modelId` 查询该机型指定适配的刀头；无机器则查全集。
 /// 失败/离线返回空列表，页面据此显示"暂无数据"。
 final sysBitsProvider = FutureProvider<List<SysBit>>((ref) async {
   final svc = ref.watch(cloudServiceProvider);
-  return svc.fetchSysBits();
+  final machine = ref.watch(currentMachineProvider);
+  return svc.fetchSysBits(modelId: machine?.modelId);
 });
 
 final networkProbeProvider = Provider<NetworkProbe>((ref) => NetworkProbe());
@@ -696,8 +698,13 @@ class ActiveJobNotifier extends StateNotifier<ActiveJob?> {
   final Future<void> Function() startJob;
 
   /// 雕刻主链路 v2 的第一阶段（prepare_job）。由 providers 注入。
-  /// App **不下载 G-code**，只传模型库的 OSS URL 给小屏让它自己下载（D2）。
-  final Future<void> Function({required String fileUrl})? prepareJob;
+  /// App **不下载 G-code**，只传模型库的 OSS URL + 完整性元数据给小屏
+  /// 让它自己下载并校验（D2）。sizeBytes/sha256 由后端 2026-09-03 补字段提供。
+  final Future<void> Function({
+    required String fileUrl,
+    int sizeBytes,
+    String sha256,
+  })? prepareJob;
 
   final void Function()? onCleared;
 
@@ -711,14 +718,23 @@ class ActiveJobNotifier extends StateNotifier<ActiveJob?> {
   ///
   /// [gcodeUrl] 非空 → 走**新主链路**（prepare_job → confirm 两阶段）；
   /// 为空 → 走**旧的一步式** `startJob()`（老固件 / 模型没有加工程序时回退）。
-  void start(ActiveJob job, {String? gcodeUrl}) {
+  void start(
+    ActiveJob job, {
+    String? gcodeUrl,
+    int gcodeSizeBytes = 0,
+    String gcodeSha256 = '',
+  }) {
     // 固件拥有自检流水线：App 仅下发启动指令，阶段推进由固件广播驱动
     // （见 docs/功能逻辑与分工梳理.md 决策②）。App 不再自己计时。
     state = job.copyWith(selfCheckIndex: -1, selfCheckTotal: 0);
 
     final url = gcodeUrl?.trim() ?? '';
     if (url.isNotEmpty && prepareJob != null) {
-      prepareJob!(fileUrl: url);
+      prepareJob!(
+        fileUrl: url,
+        sizeBytes: gcodeSizeBytes,
+        sha256: gcodeSha256,
+      );
     } else {
       startJob();
     }
@@ -760,9 +776,13 @@ final activeJobProvider = StateNotifierProvider<ActiveJobNotifier, ActiveJob?>(
   (ref) {
     final notifier = ActiveJobNotifier(
       startJob: () => ref.read(hardwareServiceProvider).startJob(),
-      // 雕刻主链路 v2：只把模型库的 G-code URL 传给小屏，App 不碰文件本身（D2）
-      prepareJob: ({required fileUrl}) =>
-          ref.read(hardwareServiceProvider).prepareJob(fileUrl: fileUrl),
+      // 雕刻主链路 v2：只把模型库的 G-code URL + 元数据传给小屏，App 不碰文件本身（D2）
+      prepareJob: ({required fileUrl, sizeBytes = 0, sha256 = ''}) =>
+          ref.read(hardwareServiceProvider).prepareJob(
+                fileUrl: fileUrl,
+                sizeBytes: sizeBytes,
+                sha256: sha256,
+              ),
       onCleared: () => ref.read(hardwareServiceProvider).stopJob(),
     );
     // 全局监听机器状态（固件广播的 SSOT）：

@@ -2101,9 +2101,9 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
 
     // 延时摄影：开启则让服务器从本刻起按雕刻时长抽样存图（与固件雕刻并行，
     // 手机/电脑/机器本身均不存照片，全部在服务器完成）。
-    // 2026-09-03 改造：启动前先补一次 stream_start（幂等），确保摄像头在推流。
     if (_timeLapse) {
-      // A1：先确保摄像头在推流（幂等：已推流自动忽略，不 reset ABR）
+      // A1（2026-09-03）：先确保摄像头在推流（幂等：已推流自动忽略，不 reset ABR）。
+      // 否则摄像头重启/插拔后 relay.on=0，App 点开始却录 0 帧失败。
       try {
         ref.read(hardwareServiceProvider).sendCameraStream('stream_start');
       } catch (_) {}
@@ -2131,12 +2131,11 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
       '主轴离心风压建立，移动至原点开切',
     ]);
     // 雕刻主链路 v2（2026-09-03）：模型带加工程序 URL 时走
-    // prepare_job → confirm 两阶段 —— **App 只把 URL 传给小屏，自己不下载、
-    // 不上传 G-code**（D2 守住铁律）。没有 URL 时回退旧的一步式 startJob()，
-    // 保证老固件 / 无加工程序的模型不退化。
-    final gcodeUrl = (widget.item.roughingGcodeUrl?.trim().isNotEmpty == true)
-        ? widget.item.roughingGcodeUrl!.trim()
-        : (widget.item.finishingGcodeUrl?.trim() ?? '');
+    // prepare_job → confirm 两阶段 —— **App 只把 URL + 元数据传给小屏，
+    // 自己不下载、不上传 G-code**（D2 守住铁律）。
+    // primaryGcode 优先粗加工、回退精加工；sizeBytes/sha256 由后端
+    // 2026-09-03 补字段提供（roughingGcodeSizeBytes / roughingGcodeSha256 等）。
+    final gcode = widget.item.primaryGcode;
 
     ref.read(activeJobProvider.notifier).start(
           ActiveJob(
@@ -2147,7 +2146,9 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
             startedAt: DateTime.now(),
             selfCheckPhases: phases,
           ),
-          gcodeUrl: gcodeUrl,
+          gcodeUrl: gcode?.url,
+          gcodeSizeBytes: gcode?.sizeBytes ?? 0,
+          gcodeSha256: gcode?.sha256 ?? '',
         );
     // 清空导航栈进入自检页，避免加工过程中返回雕刻向导
     Navigator.of(context).pushAndRemoveUntil(

@@ -247,10 +247,14 @@ class RealCloudService implements CloudService {
   }
 
   @override
-  Future<List<SysBit>> fetchSysBits() async {
+  Future<List<SysBit>> fetchSysBits({String? modelId}) async {
     try {
       // /api/bit/sys/list 返回 {code:200, message, data:[...]}
-      final raw = await _mlDataRaw('/api/bit/sys/list');
+      // modelId 非空 → 追加 query 参数，后端按机型过滤适配刀头。
+      final query = (modelId != null && modelId.isNotEmpty)
+          ? '?modelId=${Uri.encodeComponent(modelId)}'
+          : '';
+      final raw = await _mlDataRaw('/api/bit/sys/list', query);
       if (raw is List) {
         return raw
             .map((e) => SysBit.fromJson(e as Map<String, dynamic>))

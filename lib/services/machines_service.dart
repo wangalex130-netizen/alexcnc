@@ -19,6 +19,10 @@ class Machine {
   final bool isDefault;
   final String? boundAt;
 
+  /// 机型 ID（`/api/machine/list` 新增字段，2026-09-03）。
+  /// 用于 `/api/bit/sys/list?modelId=` 查询**该机型指定适配**的系统内置刀头。
+  final String? modelId;
+
   const Machine({
     this.id = '',
     required this.sn,
@@ -29,6 +33,7 @@ class Machine {
     this.online,
     this.isDefault = false,
     this.boundAt,
+    this.modelId,
   });
 
   factory Machine.fromJson(Map<String, dynamic> j) => Machine(
@@ -46,6 +51,7 @@ class Machine {
         online: j['online'] is bool ? j['online'] as bool : null,
         isDefault: j['isDefault'] == 1 || j['isDefault'] == true,
         boundAt: j['bound_at']?.toString() ?? j['createTime']?.toString(),
+        modelId: j['modelId']?.toString(),
       );
 
   /// 云中继拉流地址：固定中继（AppConfig.cameraRelayBaseUrl）+ 机器码（sn 即摄像头 ID）。
@@ -63,6 +69,7 @@ class Machine {
         'online': online,
         'isDefault': isDefault,
         'bound_at': boundAt,
+        'modelId': modelId,
       };
 
   String streamUrl(String relayToken, [String? userId]) {

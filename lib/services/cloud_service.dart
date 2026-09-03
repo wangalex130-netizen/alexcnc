@@ -73,8 +73,10 @@ abstract class CloudService {
 
   /// 系统内置刀头列表（GET /api/bit/sys/list，公开接口无需登录）。
   ///
-  /// 云端是官方刀头**全集**（V Bits / End Mills / Ballnose…）；
-  /// 本机可用的是子集（见 `SysBit.isLocalSupported`，与本地 5 把官方刀
-  /// 按系统表名称匹配）。失败返回空列表（调用方回退/提示）。
-  Future<List<SysBit>> fetchSysBits();
+  /// [modelId] 非空时作为 query 参数传入，后端按**该机型**返回指定适配的刀头
+  /// （不同机型适配不同的系统内置刀头，2026-09-03 PC 后端新增）。
+  ///
+  /// 云端是官方刀头**全集**；本机可用是子集（见 `SysBit.isLocalSupported`）。
+  /// 失败返回空列表（调用方回退/提示）。
+  Future<List<SysBit>> fetchSysBits({String? modelId});
 }
