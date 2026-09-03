@@ -217,29 +217,34 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     if (mounted) setState(() => _tlStatus = st);
   }
 
-  /// 右上角「延时摄影」图标（两级交互）：
-  /// - 第 1 级：未打开 → 点击图标 = 打开延时功能（arm），画面出现「开始录制」。
-  /// - 第 2 级：已打开且无任务 → 点画面「开始录制」= 真正开始采样。
-  /// - 采集中 → 图标变红「延时采集中」，点画面「停止」= 停止并自动拼接生成。
-  /// - 已生成 → 图标变绿「已生成」，点击直接打开视频观看（不销毁成果）。
-  /// - 已打开但想取消 → 再点一次图标 = 关闭延时功能（arm 复位）。
-  /// 与向导 Step6 共用同一 timeLapseJobProvider，故两端状态一致、可互看视频。
+  /// 右上角「延时摄影」图标（一键开关，按当前状态决定动作）：
+  /// - 关闭态 → 点 = 打开功能（armed=true），浮动按钮出现"开始录制"。
+  /// - 已 arm 但未开始 → 点 = 关闭功能（armed=false）。
+  /// - 采集中 → 点 = 停止并拼接生成。
+  /// - 已生成 → 点 = 查看视频（不销毁结果）。
+  /// - 失败 → 点 = 清除失败回到 idle（可以再录）。
   Future<void> _toggleTimeLapse() async {
     final jobId = _tlJobId;
     if (jobId == null) {
       // 无任务：切换「功能已打开」标记。开 → 出现「开始录制」；关 → 复位。
       setState(() => _tlArmed = !_tlArmed);
-    } else if (_isTlReady()) {
-      // 已生成：点击打开视频观看，不销毁成果（下载走状态卡入口）。
-      _openTimeLapseVideo(jobId);
-    } else {
-      // 采集中 / 处理中 / 失败：点击停止并拼接，或清除失败任务。
+    } else if (_isTlRunning()) {
+      // 采集中：点击停止并拼接生成。
       await TimeLapseClient.stop(jobId);
       ref.read(timeLapseJobProvider.notifier).clear();
       if (mounted) setState(() {
         _tlStatus = null;
         _tlArmed = false;
       });
+    } else if (_isTlReady()) {
+      // 已生成：点击打开视频观看，结果不销毁（下载走状态卡入口）。
+      _openTimeLapseVideo(jobId);
+    } else if (_isTlFailed()) {
+      // 失败：清除失败状态回到 idle。
+      _tlDismissReady();
+    } else {
+      // 罕见的"jobId 有但状态不明确"分支：清理一下回到 idle。
+      _tlDismissReady();
     }
   }
 
@@ -275,10 +280,26 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
   bool _isTlFailed() => _tlJobId != null && _tlStatus?['status'] == 'failed';
 
-  /// 画面内是否显示「开始录制/停止」浮动按钮：
-  /// - 已打开延时功能且无任务 → 显示「开始录制」
-  /// - 采集中 / 雕刻态自动开启中 → 显示「停止」
-  bool _tlShowRecordBtn() => _tlArmed || _isTlRunning() || _isTlReady() || _isTlFailed();
+/// 画面内是否显示「开始录制/停止」浮动按钮：
+/// - 已打开延时功能且无任务 → 显示「开始录制」
+/// - 采集中 → 显示「停止」
+/// - 已生成/失败 → **不显示**（让位给下方状态卡的「查看/下载/再录一次/重试」）。
+///   这避免"视频已生成但仍卡在画面里一个无法关闭的'开始录制'按钮"这种死循环。
+  bool _tlShowRecordBtn() => _tlArmed || _isTlRunning();
+
+  /// 清除已生成/失败的本地状态（清 status 与 jobId），回到 idle，
+  /// 客户可以从右上角图标重新点开始新一轮录制。
+  ///
+  /// ⚠️ 不删除云端 job —— 视频已经在云端保留，仍然可以从「延时摄影回顾」里查看。
+  void _tlDismissReady() {
+    ref.read(timeLapseJobProvider.notifier).clear();
+    if (mounted) {
+      setState(() {
+        _tlStatus = null;
+        _tlArmed = false;
+      });
+    }
+  }
 
   /// 画面浮动按钮文案。
   String _tlRecordLabel() {
@@ -436,9 +457,11 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
         status.aux.containsKey('laser') ? status.aux['laser']! : _laser;
     final fanOn = status.aux.containsKey('fan') ? status.aux['fan']! : _fan;
 
-    // 2026-09-03 改：视频框按屏幕宽度自适应 16:9（之前固定 180 太矮，
-    // 4:3 / 16:9 比例下都会有黑边）。
-    final videoBoxH = MediaQuery.of(context).size.width * 9 / 16;
+    // 2026-09-03 改：视频框按屏幕宽度自适应 **4:3**（实测摄像头是 4:3，
+    // 之前 16:9 会在 contain 渲染下留出大黑边）。
+    // 注：RtspPreviewWidget 内部 BoxFit.contain，外框比例必须接近视频原始比例，
+    // 否则 contain 渲染会有黑边。后续如果换成 16:9 摄像头，改这里即可。
+    final videoBoxH = MediaQuery.of(context).size.width * 3 / 4;
 
     return Scaffold(
       backgroundColor: CncColors.bg,
@@ -890,7 +913,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     status: _tlStatus,
                     onView: () => _openTimeLapseVideo(_tlJobId!),
                     onDownload: () => _downloadTimeLapse(_tlJobId!),
-                  ),
+                    // 再录一次/重试：清掉本地状态让客户可以开始新一轮。
+                    onRetry: _tlDismissReady,
+                  ),),
 
                 // 快捷开关：随内容滚动（原先固定在顶部，挤压了下方 Jog 区可用空间）
                 Container(
@@ -1987,11 +2012,16 @@ class _TimeLapseStatusCard extends StatelessWidget {
   final Map<String, dynamic>? status;
   final VoidCallback onView;
   final VoidCallback onDownload;
+
+  /// 已生成/失败时点击"再录一次"或"重试" → 清掉本地状态回到 idle。
+  final VoidCallback? onRetry;
+
   const _TimeLapseStatusCard({
     required this.jobId,
     this.status,
     required this.onView,
     required this.onDownload,
+    this.onRetry,
   });
 
   @override
@@ -2029,19 +2059,42 @@ class _TimeLapseStatusCard extends StatelessWidget {
             const Text('服务器正按雕刻时长自动抽样拍照，结束后自动拼接 15 秒回顾视频。',
                 style: TextStyle(fontSize: 11, color: CncColors.textSub))
           else if (ready)
-            Row(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Text('回顾视频已生成',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.primaryInk)),
+                Text('回顾视频已生成',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.primaryInk)),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    TextButton(onPressed: onView, child: const Text('查看', style: TextStyle(color: CncColors.primary))),
+                    TextButton(onPressed: onDownload, child: const Text('下载', style: TextStyle(color: CncColors.blue))),
+                    if (onRetry != null) ...[
+                      const Spacer(),
+                      TextButton(
+                        onPressed: onRetry,
+                        child: const Text('再录一次',
+                            style: TextStyle(color: CncColors.textSub)),
+                      ),
+                    ],
+                  ],
                 ),
-                TextButton(onPressed: onView, child: const Text('查看', style: TextStyle(color: CncColors.primary))),
-                TextButton(onPressed: onDownload, child: const Text('下载', style: TextStyle(color: CncColors.blue))),
               ],
             )
           else if (failed)
-            Text('生成失败：${status?['error'] ?? ''}',
-                style: const TextStyle(fontSize: 11, color: CncColors.danger))
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('生成失败：${status?['error'] ?? ''}',
+                    style: const TextStyle(fontSize: 11, color: CncColors.danger)),
+                const SizedBox(height: 6),
+                if (onRetry != null)
+                  TextButton(
+                    onPressed: onRetry,
+                    child: const Text('重试', style: TextStyle(color: CncColors.primary)),
+                  ),
+              ],
+            )
           else
             const Text('处理中…', style: TextStyle(fontSize: 11, color: CncColors.textSub)),
         ],

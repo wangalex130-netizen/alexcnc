@@ -264,8 +264,8 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
               _MenuItem(
                 icon: Icons.logout,
                 title: '退出登录',
-                trailing: const Icon(Icons.chevron_right,
-                    color: CncColors.textSub),
+                // 不传 trailing —— _MenuItem 在 onTap!=null 时会自动加 chevron，
+                // 这里不再重复，否则会出现两个右箭头。
                 onTap: () async {
                   final ok = await showDialog<bool>(
                     context: context,
