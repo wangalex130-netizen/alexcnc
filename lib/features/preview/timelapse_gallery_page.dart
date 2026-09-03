@@ -241,7 +241,7 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
                           Image.network(
                             TimeLapseClient.thumbUrl(jobId),
                             fit: BoxFit.cover,
-                            loadingBuilder: (_, child, prog) => prog == null ? child : : Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                            loadingBuilder: (_, child, prog) => prog == null ? child : Center(child: CircularProgressIndicator(strokeWidth: 2)),
                             errorBuilder: (_, __, ___) => _thumbFallback(jobId),
                           )
                         else
