@@ -1993,11 +1993,6 @@ class _TimeLapseStatusCard extends StatelessWidget {
     required this.onDownload,
     required this.onClose,
   });
-    required this.jobId,
-    this.status,
-    required this.onView,
-    required this.onDownload,
-  });
 
   @override
   Widget build(BuildContext context) {
