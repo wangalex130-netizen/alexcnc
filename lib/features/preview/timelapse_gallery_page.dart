@@ -44,7 +44,7 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
       return;
     }
     if (!mounted) return;
-    return Navigator.of(context).push(
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => TimeLapseVideoPage(
           url: TimeLapseClient.videoUrl(jobId),
@@ -140,7 +140,8 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
             : [
                 IconButton(
                   icon: Icon(Icons.delete_sweep_outlined, color: CncColors.icon),
-                  onPressed: _enterManageMode,
+                  // 进入管理模式（不预选任何卡片，由用户逐张勾选）
+                  onPressed: () => setState(() => _isManageMode = true),
                   tooltip: '管理',
                 ),
                 IconButton(
@@ -333,6 +334,7 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
             SizedBox(height: 6),
             Text(label, style: TextStyle(color: CncColors.textSub, fontSize: 11)),
           ],
+        ),
       ),
     );
   }
