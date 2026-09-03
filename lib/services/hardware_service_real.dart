@@ -698,10 +698,16 @@ class RealHardwareService implements HardwareService {
   /// cnc/<deviceId>/cmd。局域网 TCP 直连代码保留但暂不启用（"暂时停止"），
   /// 后续若要恢复低延迟本地控制，在此处加回 TCP 分支即可。
   ///
-  /// 2026-09-02：雕刻启动两段式 —— 关键命令（开始/暂停/继续/停止雕刻）走
-  /// [_dispatchCritical] 做送达跟踪与超时重发；其余命令（Jog/主轴/辅助等）
-  /// 保持"尽力而为"语义，**绝不重发**（重发运动指令会造成意外位移）。
+  /// 2026-09-02 起（2026-09-03 D8 定稿）：命令分三类处理 ——
+  /// - **启动类**（start / prepare_job+confirm）→ [_dispatchLaunch]：只发一次 +
+  ///   状态对账，**绝不自动重发**（见闫安文档 §6.11「禁止盲目重复启动」）；
+  /// - **幂等控制类**（pause / resume / stop）→ [_dispatchCritical]：可安全重发；
+  /// - **其余**（Jog / 主轴 / 辅助等）→ 尽力而为，**绝不重发**（运动指令重发 = 意外位移）。
   void _dispatch(Map<String, dynamic> cmd) {
+    if (_isLaunchCommand(cmd)) {
+      _dispatchLaunch(cmd);
+      return;
+    }
     final label = _criticalLabelOf(cmd);
     if (label != null) {
       _dispatchCritical(cmd, label);
@@ -710,15 +716,18 @@ class RealHardwareService implements HardwareService {
     _publish(cmd);
   }
 
-  /// 若 [cmd] 属于「关键命令」，返回其中文名；否则返回 null。
+  /// 启动类命令：`{"cmd":"job","action":"start"}`（未来扩展 prepare_job/confirm）。
+  bool _isLaunchCommand(Map<String, dynamic> cmd) =>
+      cmd['cmd'] == 'job' && cmd['action'] == 'start';
+
+  /// 若 [cmd] 属于「可重发的幂等控制命令」，返回其中文名；否则返回 null。
   ///
-  /// 🔴 只有**幂等且不涉及运动**的作业控制命令才纳入重发。Jog / 回零 /
-  /// 设原点等运动指令一律不重发 —— 一次误重发就是一次意外位移。
+  /// 🔴 只放 pause / resume / stop（幂等、终态明确）。start 不在其中 ——
+  /// 它是启动命令，重发可能重复启动，见 [_dispatchLaunch] 的 D8 说明。
+  /// Jog / 回零 / 设原点等运动指令一律不重发。
   String? _criticalLabelOf(Map<String, dynamic> cmd) {
     if (cmd['cmd'] != 'job') return null;
     switch (cmd['action']) {
-      case 'start':
-        return '开始雕刻';
       case 'pause':
         return '暂停雕刻';
       case 'resume':
@@ -728,6 +737,39 @@ class RealHardwareService implements HardwareService {
       default:
         return null;
     }
+  }
+
+  /// 下发「启动类」命令：只发一次 + 状态对账，**绝不自动重发**（D8）。
+  ///
+  /// 🔴 闫安文档 §6.11 line 1177 明令「禁止因为 confirm ACK 超时而盲目重复启动」。
+  /// 机器可能已收到并开始执行，只是状态帧 / ACK 丢了 —— 此时重发 = 重复启动，
+  /// 轻则报错，重则打断正在进行的加工。
+  ///
+  /// 因此：
+  /// - 链路未通时**入队**（等重连后**首次发出**——这不算重发，命令从未发出过）；
+  /// - 已发出后**不起重发定时器**，只靠 [_checkCmdAck] 做状态对账：
+  ///   收到 busy / awaitingConfirm / alarm 即判「已送达」；
+  ///   一直收不到就停在「已下发」，由 UI 提示，交给人工判断（不再自动补发）。
+  void _dispatchLaunch(Map<String, dynamic> cmd) {
+    // 同类旧命令作废（连点两次「开始」只跟踪最后一次）
+    _cmdQueue.removeWhere((p) => _sameCommandKind(p.cmd, cmd));
+
+    final sent = PendingCommand(
+      cmd: cmd,
+      label: '开始雕刻',
+      state: CommandDeliveryState.sent,
+    );
+    if (!_publish(cmd)) {
+      // 链路未通：入队，等重连后首次发出（补发，非重发）
+      _pending = sent.copyWith(state: CommandDeliveryState.queued);
+      _cmdQueue.add(_pending!);
+      _ackTimer?.cancel();
+      _emitCmd(CommandDeliveryState.queued);
+      return;
+    }
+    _pending = sent;
+    _emitCmd(CommandDeliveryState.sent);
+    // 不调 _startAckTimer() —— D8：启动命令不重发，靠状态对账收口
   }
 
   /// 两条命令是否同类（用于同类命令只保留最后一条，避免排队重发一串旧指令）。
@@ -796,7 +838,11 @@ class RealHardwareService implements HardwareService {
       if (_publish(p.cmd)) {
         _pending = p.copyWith(state: CommandDeliveryState.sent);
         _emitCmd(CommandDeliveryState.sent);
-        _startAckTimer();
+        // D8：启动类命令补发后**不起重发定时器**，只靠状态对账；
+        // 幂等控制类（pause/resume/stop）才起定时器（可安全重发）。
+        if (!_isLaunchCommand(p.cmd)) {
+          _startAckTimer();
+        }
       } else {
         _cmdQueue.add(p); // 仍未通，继续排
       }
