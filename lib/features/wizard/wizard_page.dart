@@ -44,7 +44,10 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   Offset _origin = const Offset(15, 15); // 工件零点 (mm, 底板 300x200)
   bool _originSet = false;
   bool _originOverflow = false; // Step4 图纸外包矩形是否超出机床行程
-  int _leveling = 1; // 0 不调平 / 1 标准 / 2 精细
+  // 0 不调平 / 1 标准 / 2 精细。
+  // 2026-09-03：默认改为「不调平」—— 屏幕端调平尚未开发完成，
+  // 若默认选调平，下发给机器的调平指令无人执行，客户会卡在这一步。
+  int _leveling = 0;
   // ---- 工序刀序 ↔ 物理刀兜 映射（解耦）----
   // _procSlot[工序index] = 物理刀兜号；_procConfirmed 存已实物确认的工序 index。
   Map<int, int> _procSlot = {};
@@ -1424,6 +1427,13 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     });
   }
 
+  /// 走边框（**暂未启用**：2026-09-03 起按钮置灰）。
+  ///
+  /// 当前实现只驱动本地动画，不产生任何机械动作，会误导客户以为机器在走边框。
+  /// 真接口两案待定（见按钮处注释）：① 挪到 prepare_job 之后由小屏执行 G-code
+  /// 末尾几行；② 新增 walk_frame 命令由小屏按长宽自绘矩形路径。
+  /// 方案确定后，把按钮 `onPressed` 改回 `widget.originSet && !widget.overflow ? _walkFrame : null`
+  /// 并去掉「（功能建设中）」后缀即可，本方法无需改动。
   void _walkFrame() {
     if (_walking || !widget.originSet || widget.overflow) return;
     setState(() => _walking = true);
@@ -1677,13 +1687,17 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: widget.originSet && !widget.overflow ? _walkFrame : null,
-                icon: Icon(_walking ? Icons.motion_photos_on : Icons.route,
-                    color: CncColors.primary),
-                label: Text(_walking ? '走边框中…' : '启动实物走边框',
-                    style: const TextStyle(color: CncColors.primaryInk)),
+                // 2026-09-03：走边框暂未接通真实机械动作 —— 当前实现只是本地
+                // 动画（_walkFrame 只跑 AnimationController），按长宽数据模拟，
+                // 与实际机械位置无关，会误导客户以为机器真的在走边框。
+                // 真接口待定：① 挪到 prepare_job 之后由小屏执行 G-code 末尾几行；
+                // ② 新增 walk_frame 命令由小屏按长宽自绘矩形路径。先禁用占位。
+                onPressed: null,
+                icon: const Icon(Icons.route, color: CncColors.textSub),
+                label: const Text('走边框（功能建设中）',
+                    style: TextStyle(color: CncColors.textSub)),
                 style: OutlinedButton.styleFrom(
-                  side: BorderSide(color: CncColors.primary),
+                  side: BorderSide(color: CncColors.border),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10)),
                 ),
@@ -1695,7 +1709,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
                 onPressed: _reset,
                 icon: const Icon(Icons.my_location,
                     color: CncColors.textSub),
-                label: const Text('激光归零',
+                // 2026-09-03 改名：这是激光准直标识（物理对准点），不是坐标归零
+                label: const Text('激光准直标识',
                     style: TextStyle(color: CncColors.textSub)),
                 style: OutlinedButton.styleFrom(
                   side: BorderSide(color: CncColors.border),
@@ -1994,37 +2009,68 @@ class _StepLeveling extends StatelessWidget {
         Text('Step 5 · 智能调平',
             style: t.titleMedium?.copyWith(color: CncColors.textMain)),
         const SizedBox(height: 8),
-        const Text('基于加工面积自动匹配探测点。选择调平模式以平衡精度与耗时：',
-            style: TextStyle(fontSize: 12, color: CncColors.textSub)),
+        // 2026-09-03：屏幕端调平功能尚未开发完成，暂时只允许「不调平」。
+        // （闫安文档 §「不包含：自动调平」，本次雕刻主链路也不含调平。）
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: CncColors.warning.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: CncColors.warning.withOpacity(0.45)),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.info_outline, size: 16, color: CncColors.warning),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '曲面调平功能暂未启用（待机器屏幕端开发完成），当前默认跳过调平。',
+                  style: TextStyle(fontSize: 11, color: CncColors.textMain),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          mode == 0
+              ? '本次雕刻将跳过调平，请手动确认台面平整、耗材已压紧。'
+              : '基于加工面积自动匹配探测点。选择调平模式以平衡精度与耗时：',
+          style: const TextStyle(fontSize: 12, color: CncColors.textSub)),
         const SizedBox(height: 12),
         Row(
           children: List.generate(modes.length, (i) {
+            // 只有「不调平」可用；标准/精细待屏幕端就绪后放开
+            final enabled = i == 0;
             final sel = mode == i;
             return Expanded(
               child: Padding(
                 padding: EdgeInsets.only(right: i < modes.length - 1 ? 8 : 0),
                 child: GestureDetector(
-                  onTap: () => onMode(i),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    decoration: BoxDecoration(
-                      color: sel
-                          ? CncColors.primary.withOpacity(0.12)
-                          : CncColors.bg,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                          color: sel
-                              ? CncColors.primary
-                              : CncColors.border),
-                    ),
-                    child: Center(
-                      child: Text(modes[i].$1,
-                          style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: sel
-                                  ? CncColors.primary
-                                  : CncColors.textMain)),
+                  onTap: enabled ? () => onMode(i) : null,
+                  child: Opacity(
+                    opacity: enabled ? 1.0 : 0.45,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: BoxDecoration(
+                        color: sel
+                            ? CncColors.primary.withOpacity(0.12)
+                            : CncColors.bg,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                            color: sel
+                                ? CncColors.primary
+                                : CncColors.border),
+                      ),
+                      child: Center(
+                        child: Text(modes[i].$1,
+                            style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: sel
+                                    ? CncColors.primary
+                                    : CncColors.textMain)),
+                      ),
                     ),
                   ),
                 ),

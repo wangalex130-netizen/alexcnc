@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/theme.dart';
 import '../../data/material_db.dart';
 import '../../data/tool_library.dart';
+import '../../models/carve_session.dart';
+import '../../models/machine_status.dart';
 import '../../models/task_metadata.dart';
 import '../../state/providers.dart';
 import '../shell/app_shell.dart';
@@ -32,24 +34,78 @@ class SelfCheckPage extends ConsumerStatefulWidget {
 }
 
 class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
-  List<String> get _checks {
-    final req = widget.requiredTools;
-    final out = <String>[
-      '防护罩电子门磁锁止',
-      '自动开启 ATC 刀仓防护盖',
-    ];
-    for (var p = 0; p < req.length; p++) {
-      final def = toolById(req[p].toolId);
-      final slot = widget.procSlot[p];
-      out.add('自动装载 T${slot ?? '?'} 号刀具 (${ringEmoji(def.ring)} ${def.name})');
+  /// 客户视角的一步状态（由机器状态帧 + 雕刻阶段推导，不展示固件内部自检项）。
+  ///
+  /// 2026-09-03 改造：原页面列出 8 项固件内部动作（门磁锁止 / ATC 刀仓 / 装刀 /
+  /// 对刀 / 调平扫描 / 风压建立…），客户看不懂也无从干预，且模拟态下永远推不动。
+  /// 改为只暴露 4 种客户能理解、且**有真实数据源**的状态。
+  _CarveView _viewOf(MachineStatus? st, CarveSession? carve) {
+    // ① 报警最优先
+    if (st?.state == MachineState.alarm) {
+      return const _CarveView(
+        icon: Icons.error_outline,
+        color: CncColors.danger,
+        spinning: false,
+        title: '出问题了，请检查机器状态',
+        detail: '机器报告了异常。请查看机器屏幕上的提示，处理后再继续。',
+      );
     }
-    out.addAll([
-      '移动至刀仓固定测头对刀 (Z-Offset)',
-      '关闭 ATC 刀仓防护盖',
-      '运行曲面网格调平扫描',
-      '主轴离心风压建立，移动至原点开切',
-    ]);
-    return out;
+    // ② 雕刻中
+    if (carve?.stage == CarveStage.running || st?.state == MachineState.busy) {
+      return const _CarveView(
+        icon: Icons.play_circle_filled,
+        color: CncColors.blue,
+        spinning: true,
+        title: '正在雕刻',
+        detail: '机器正在加工中，请勿打开仓盖或伸手进入工作区。',
+      );
+    }
+    // ③ 准备中（下载加工程序，进度来自 status 帧的 download 0-100）
+    if (carve?.stage == CarveStage.preparing) {
+      final pct = carve?.download ?? 0;
+      return _CarveView(
+        icon: Icons.downloading,
+        color: CncColors.blue,
+        spinning: true,
+        title: '正在准备机器',
+        detail: pct > 0
+            ? '正在接收加工程序 $pct%'
+            : '正在接收加工程序，请稍候…',
+      );
+    }
+    // ④ 等待客户在机器上确认（awaitingConfirm 或已就绪/确认中）
+    if (st?.awaitingConfirm == true ||
+        carve?.stage == CarveStage.ready ||
+        carve?.stage == CarveStage.confirming) {
+      return const _CarveView(
+        icon: Icons.front_hand_outlined,
+        color: CncColors.warning,
+        spinning: false,
+        title: '请关闭仓盖，然后在机器屏幕上按开始',
+        detail: '为了安全，真正的开刀必须由人在机器旁确认。'
+            '请确认仓盖已关好、耗材已压紧，再按机器屏幕上的开始键。',
+      );
+    }
+    // ⑤ 失败
+    if (carve?.stage == CarveStage.failed) {
+      return _CarveView(
+        icon: Icons.cloud_off_outlined,
+        color: CncColors.danger,
+        spinning: false,
+        title: '指令未送达',
+        detail: carve?.error?.isNotEmpty == true
+            ? carve!.error!
+            : '请检查机器是否联网在线，然后重试。',
+      );
+    }
+    // ⑥ 默认：等待机器响应
+    return const _CarveView(
+      icon: Icons.hourglass_empty,
+      color: CncColors.textSub,
+      spinning: true,
+      title: '正在连接机器',
+      detail: '已发送启动指令，正在等待机器响应…',
+    );
   }
 
   void _leaveToConsole() {
@@ -68,7 +124,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
         title: const Text('返回控制台？',
             style: TextStyle(color: CncColors.textMain)),
         content: const Text(
-          '自检将在后台继续进行，完成后可在控制台「当前加工中」查看实时雕刻过程。',
+          '加工不会中断。你可以随时从控制台「当前加工中」返回查看实时进度。',
           style: TextStyle(color: CncColors.textSub),
         ),
         actions: [
@@ -95,24 +151,20 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
   @override
   Widget build(BuildContext context) {
     final mat = materialByKey(widget.materialKey);
-    final job = ref.watch(activeJobProvider);
-    final phases = job?.selfCheckPhases ?? _checks;
-    final index = job?.selfCheckIndex ?? -1;
-    final done = job?.selfCheckDone ?? false;
+    final st = ref.watch(machineStatusProvider).valueOrNull;
+    final carve = ref.watch(carveSessionProvider).valueOrNull;
+    final view = _viewOf(st, carve);
+    final running = carve?.stage == CarveStage.running ||
+        (st?.state == MachineState.busy && st?.state != MachineState.alarm);
 
-    if (done && mounted) {
+    // 真正开始雕刻 → 自动切到监控页（关闭本页不会中断加工）
+    if (running && mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const JobMonitorPage()),
         );
       });
-    }
-
-    String statusFor(int i) {
-      if (index < i) return 'pending';
-      if (index == i) return 'running';
-      return 'done';
     }
 
     return Scaffold(
@@ -124,8 +176,8 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
           tooltip: '返回控制台',
           onPressed: _onClose,
         ),
-        title:
-            const Text('自检中', style: TextStyle(color: CncColors.textMain)),
+        title: Text(running ? '雕刻中' : '准备中',
+            style: const TextStyle(color: CncColors.textMain)),
         centerTitle: false,
       ),
       body: ListView(
@@ -166,52 +218,8 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
             ),
           ),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              Icon(Icons.bolt, size: 16, color: CncColors.primaryInk),
-              const SizedBox(width: 6),
-              const Text('全自动预检与自检流水线',
-                  style: TextStyle(fontSize: 13, color: CncColors.primaryInk)),
-            ],
-          ),
-          const SizedBox(height: 10),
-          ...List.generate(phases.length, (i) {
-            final s = statusFor(i);
-            final color = s == 'done'
-                ? CncColors.primary
-                : s == 'running'
-                    ? CncColors.blue
-                    : CncColors.textSub;
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                children: [
-                  if (s == 'running')
-                    SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: color),
-                    )
-                  else
-                    Icon(
-                      s == 'done' ? Icons.check_circle : Icons.circle_outlined,
-                      color: color,
-                      size: 16,
-                    ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(phases[i],
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: s == 'pending'
-                                ? CncColors.textSub
-                                : CncColors.textMain)),
-                  ),
-                ],
-              ),
-            );
-          }),
+          // ---- 客户视角的一步状态（替代原 8 项固件内部自检清单）----
+          _StatusCard(view: view),
           const SizedBox(height: 20),
           Container(
             padding: const EdgeInsets.all(10),
@@ -221,8 +229,78 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
               border: Border.all(color: CncColors.blue.withOpacity(0.3)),
             ),
             child: const Text(
-              '关闭本页不会停止自检。完成后请前往控制台「当前加工中」查看实时雕刻过程。',
+              '关闭本页不会停止加工。你可以随时从控制台「当前加工中」返回查看实时进度。',
               style: TextStyle(fontSize: 11, color: CncColors.textMain),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 客户视角的一步状态（纯数据，供 [_StatusCard] 渲染）。
+class _CarveView {
+  final IconData icon;
+  final Color color;
+  final bool spinning;
+  final String title;
+  final String detail;
+
+  const _CarveView({
+    required this.icon,
+    required this.color,
+    required this.spinning,
+    required this.title,
+    required this.detail,
+  });
+}
+
+/// 状态卡：图标 + 标题 + 说明（替代原 8 项固件内部自检清单）。
+class _StatusCard extends StatelessWidget {
+  final _CarveView view;
+  const _StatusCard({required this.view});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: view.color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: view.color.withOpacity(0.45)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: SizedBox(
+              width: 22,
+              height: 22,
+              child: view.spinning
+                  ? CircularProgressIndicator(
+                      strokeWidth: 2, color: view.color)
+                  : Icon(view.icon, size: 22, color: view.color),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(view.title,
+                    style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: view.color)),
+                const SizedBox(height: 6),
+                Text(view.detail,
+                    style: const TextStyle(
+                        fontSize: 12,
+                        color: CncColors.textMain,
+                        height: 1.45)),
+              ],
             ),
           ),
         ],
