@@ -700,10 +700,11 @@ class ActiveJobNotifier extends StateNotifier<ActiveJob?> {
   /// 雕刻主链路 v2 的第一阶段（prepare_job）。由 providers 注入。
   /// App **不下载 G-code**，只传模型库的 OSS URL + 完整性元数据给小屏
   /// 让它自己下载并校验（D2）。sizeBytes/sha256 由后端 2026-09-03 补字段提供。
+  /// （可空 = 可选命名参数，与注入闭包签名保持一致，避免函数类型不匹配）
   final Future<void> Function({
     required String fileUrl,
-    int sizeBytes,
-    String sha256,
+    int? sizeBytes,
+    String? sha256,
   })? prepareJob;
 
   final void Function()? onCleared;
@@ -777,11 +778,11 @@ final activeJobProvider = StateNotifierProvider<ActiveJobNotifier, ActiveJob?>(
     final notifier = ActiveJobNotifier(
       startJob: () => ref.read(hardwareServiceProvider).startJob(),
       // 雕刻主链路 v2：只把模型库的 G-code URL + 元数据传给小屏，App 不碰文件本身（D2）
-      prepareJob: ({required fileUrl, sizeBytes = 0, sha256 = ''}) =>
+      prepareJob: ({required fileUrl, int? sizeBytes, String? sha256}) =>
           ref.read(hardwareServiceProvider).prepareJob(
                 fileUrl: fileUrl,
-                sizeBytes: sizeBytes,
-                sha256: sha256,
+                sizeBytes: sizeBytes ?? 0,
+                sha256: sha256 ?? '',
               ),
       onCleared: () => ref.read(hardwareServiceProvider).stopJob(),
     );
