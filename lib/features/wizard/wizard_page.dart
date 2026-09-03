@@ -2125,14 +2125,25 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
       '运行曲面网格调平扫描',
       '主轴离心风压建立，移动至原点开切',
     ]);
-    ref.read(activeJobProvider.notifier).start(ActiveJob(
-          item: widget.item,
-          task: task,
-          materialKey: widget.materialKey,
-          procSlot: {...widget.procSlot},
-          startedAt: DateTime.now(),
-          selfCheckPhases: phases,
-        ));
+    // 雕刻主链路 v2（2026-09-03）：模型带加工程序 URL 时走
+    // prepare_job → confirm 两阶段 —— **App 只把 URL 传给小屏，自己不下载、
+    // 不上传 G-code**（D2 守住铁律）。没有 URL 时回退旧的一步式 startJob()，
+    // 保证老固件 / 无加工程序的模型不退化。
+    final gcodeUrl = (widget.item.roughingGcodeUrl?.trim().isNotEmpty == true)
+        ? widget.item.roughingGcodeUrl!.trim()
+        : (widget.item.finishingGcodeUrl?.trim() ?? '');
+
+    ref.read(activeJobProvider.notifier).start(
+          ActiveJob(
+            item: widget.item,
+            task: task,
+            materialKey: widget.materialKey,
+            procSlot: {...widget.procSlot},
+            startedAt: DateTime.now(),
+            selfCheckPhases: phases,
+          ),
+          gcodeUrl: gcodeUrl,
+        );
     // 清空导航栈进入自检页，避免加工过程中返回雕刻向导
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(

@@ -694,15 +694,34 @@ class ActiveJobNotifier extends StateNotifier<ActiveJob?> {
   /// 触发固件开始（自检 + 加工由固件在 startJob 后统一执行）。
   /// 由 providers 注入，解耦 StateNotifier 与 Provider 树。
   final Future<void> Function() startJob;
+
+  /// 雕刻主链路 v2 的第一阶段（prepare_job）。由 providers 注入。
+  /// App **不下载 G-code**，只传模型库的 OSS URL 给小屏让它自己下载（D2）。
+  final Future<void> Function({required String fileUrl})? prepareJob;
+
   final void Function()? onCleared;
 
-  ActiveJobNotifier({required this.startJob, this.onCleared}) : super(null);
+  ActiveJobNotifier({
+    required this.startJob,
+    this.prepareJob,
+    this.onCleared,
+  }) : super(null);
 
-  void start(ActiveJob job) {
-    // 固件拥有自检流水线：App 仅下发 startJob()，阶段推进由固件广播驱动
+  /// 启动一次雕刻。
+  ///
+  /// [gcodeUrl] 非空 → 走**新主链路**（prepare_job → confirm 两阶段）；
+  /// 为空 → 走**旧的一步式** `startJob()`（老固件 / 模型没有加工程序时回退）。
+  void start(ActiveJob job, {String? gcodeUrl}) {
+    // 固件拥有自检流水线：App 仅下发启动指令，阶段推进由固件广播驱动
     // （见 docs/功能逻辑与分工梳理.md 决策②）。App 不再自己计时。
     state = job.copyWith(selfCheckIndex: -1, selfCheckTotal: 0);
-    startJob();
+
+    final url = gcodeUrl?.trim() ?? '';
+    if (url.isNotEmpty && prepareJob != null) {
+      prepareJob!(fileUrl: url);
+    } else {
+      startJob();
+    }
   }
 
   /// 固件广播自检阶段进度时由 providers 调用，同步到 UI。
@@ -741,6 +760,9 @@ final activeJobProvider = StateNotifierProvider<ActiveJobNotifier, ActiveJob?>(
   (ref) {
     final notifier = ActiveJobNotifier(
       startJob: () => ref.read(hardwareServiceProvider).startJob(),
+      // 雕刻主链路 v2：只把模型库的 G-code URL 传给小屏，App 不碰文件本身（D2）
+      prepareJob: ({required fileUrl}) =>
+          ref.read(hardwareServiceProvider).prepareJob(fileUrl: fileUrl),
       onCleared: () => ref.read(hardwareServiceProvider).stopJob(),
     );
     // 全局监听机器状态（固件广播的 SSOT）：
