@@ -591,7 +591,7 @@ class ToolMagazine extends StateNotifier<Map<int, String?>> {
         if (device == null) break;
         int? sid(int i) {
           final id = state[i];
-          return id == null ? null : toolById(id).systemId;
+          return id == null ? null : toolById(id)?.systemId;
         }
 
         await _service.save(

@@ -458,9 +458,16 @@ class _StepParse extends StatelessWidget {
     final mat = materialByKey(task!.defaultMaterialKey);
     // 模型默认刀具：优先按工序列表 requiredTools 展示（1~3 把），
     // 无工序列表时 fallback 到单把 defaultToolId。
+    // 2026-09-03 改：toolById 现在返回 null（不再 fallback 到第一把），
+    // 这里过滤掉 null 项，避免渲染崩溃。
     final defaultTools = task!.requiredTools.isNotEmpty
-        ? task!.requiredTools.map((rt) => toolById(rt.toolId)).toList()
-        : (task!.defaultToolId != null ? [toolById(task!.defaultToolId!)] : <ToolDef>[]);
+        ? task!.requiredTools
+            .map((rt) => toolById(rt.toolId))
+            .whereType<ToolDef>()
+            .toList()
+        : (task!.defaultToolId != null
+            ? [toolById(task!.defaultToolId!)].whereType<ToolDef>().toList()
+            : <ToolDef>[]);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -633,8 +640,39 @@ class _StepMaterial extends StatelessWidget {
         Text('Step 2 · 材质确认',
             style: t.titleMedium?.copyWith(color: CncColors.textMain)),
         const SizedBox(height: 6),
-        Text('耗材材质（默认「${def.name}」来自模型；可切换，雕刻参数自动联动）',
+        Text('耗材材质（默认「${def.name}」来自模型）',
             style: const TextStyle(fontSize: 12, color: CncColors.textSub)),
+        const SizedBox(height: 12),
+
+        // 2026-09-03 加：选材功能暂未启用。
+        // 真实情况：模型库 G-code 是云端针对默认材质生成后写死的，
+        // 云端/小屏不会根据 App 选择的新材质重新生成 G-code。
+        // 客户选了也没用（参数不会变），反而误导。
+        // 当前默认材质 + 参数就是真实加工参数；选材是预留交互，等云端接入
+        // 驱动按材质重新生成 G-code 后再激活。
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: CncColors.warning.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: CncColors.warning.withOpacity(0.45)),
+          ),
+          child: const Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.info_outline, size: 16, color: CncColors.warning),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '材质选择暂未生效：当前云端 G-code 是针对默认材质写死的，'
+                  '切换不会改变雕刻参数。建议保持默认材质加工。'
+                  '待云端接入驱动按材质重新生成 G-code 后，本选择会真正生效。',
+                  style: TextStyle(fontSize: 11, color: CncColors.textMain, height: 1.4),
+                ),
+              ),
+            ],
+          ),
+        ),
         const SizedBox(height: 12),
 
         // 模型默认材料卡（标注「模型默认」，排第一）
@@ -767,7 +805,7 @@ class _StepMaterial extends StatelessWidget {
               _Param('下刀速度', '${mat.plunge} mm/min'),
               const SizedBox(height: 6),
               Text(
-                  '推荐刀具：${mat.toolIds.map((id) => toolById(id).name).join('、')}',
+                  '推荐刀具：${mat.toolIds.map((id) => toolById(id)?.name ?? '未知').join('、')}',
                   style: const TextStyle(
                       fontSize: 11, color: CncColors.blue)),
               const SizedBox(height: 4),
@@ -922,6 +960,12 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
     }
     final existing = toolById(existingId);
     final needed = toolById(neededId);
+    final existing = existingId == null ? null : toolById(existingId);
+    // 任一刀找不到（接口 / 本地刀库漂移）→ 跳过弹窗，直接映射，由后续同步校验兜底。
+    if (existing == null || needed == null) {
+      widget.onAssign(p, slot);
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1001,6 +1045,21 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
           final slot = widget.procSlot[p];
           final dup = slot != null &&
               usedSlots.where((s) => s == slot).length > 1;
+          // def == null（接口 / 本地刀库漂移）→ 退化为"未配置"展示，但仍允许分配兜号。
+          final defOrFallback = def ??
+              ToolDef(
+                  id: rt.toolId,
+                  systemId: 0,
+                  name: '未配置（${rt.toolId}）',
+                  type: '未知',
+                  bitType: 'unknown',
+                  diameterMm: 0,
+                  flutes: 0,
+                  material: '',
+                  ring: 'grey',
+                  colorHex: '#888888',
+                  desc: '本地刀库未收录，请检查接口 / 刀库一致性',
+                  materials: const []);
           return Container(
             margin: const EdgeInsets.only(bottom: 12),
             padding: const EdgeInsets.all(12),
@@ -1024,7 +1083,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          ringDot(def.ring, size: 12),
+                          ringDot(defOrFallback.ring, size: 12),
                           const SizedBox(width: 4),
                           Text('工序 ${p + 1}',
                               style: const TextStyle(
@@ -1045,19 +1104,19 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    ToolIcon(def: def, size: 40),
+                    ToolIcon(def: defOrFallback, size: 40),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(def.name,
+                          Text(defOrFallback.name,
                               style: const TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold,
                                   color: CncColors.textMain)),
                           Text(
-                              '${def.type} · ${def.diameterMm}mm · ${def.desc}',
+                              '${defOrFallback.type} · ${defOrFallback.diameterMm}mm · ${defOrFallback.desc}',
                               style: const TextStyle(
                                   fontSize: 10, color: CncColors.textSub)),
                         ],
@@ -1091,7 +1150,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                     value: widget.confirmed.contains(p),
                     onChanged: (_) => widget.onToggleConfirm(p),
                     label:
-                        '我已确认 T$slot 实物环色为 ${ringEmoji(def.ring)} ${def.name}',
+                        '我已确认 T$slot 实物环色为 ${ringEmoji(defOrFallback.ring)} ${defOrFallback.name}',
                   ),
                 ],
                 if (dup)
@@ -2179,7 +2238,10 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
     for (var p = 0; p < req.length; p++) {
       final def = toolById(req[p].toolId);
       final slot = widget.procSlot[p];
-      phases.add('自动装载 T${slot ?? '?'} 号刀具 (${ringEmoji(def.ring)} ${def.name})');
+      // null 兜底（之前 toolById 不会返回 null，现在可能）
+      final defName = def?.name ?? '未配置';
+      final defRing = def?.ring ?? 'grey';
+      phases.add('自动装载 T${slot ?? '?'} 号刀具 (${ringEmoji(defRing)} $defName)');
     }
     phases.addAll([
       '移动至刀仓固定测头对刀 (Z-Offset)',
@@ -2286,8 +2348,10 @@ class _ReadyPhase extends StatelessWidget {
                 final rt = e.value;
                 final def = toolById(rt.toolId);
                 final slot = procSlot[p];
+                final defName = def?.name ?? '未配置';
+                final defRing = def?.ring ?? 'grey';
                 return _Param('工序刀具 ${p + 1}',
-                    slot != null ? 'T$slot · ${ringEmoji(def.ring)} ${def.name}' : '未分配');
+                    slot != null ? 'T$slot · ${ringEmoji(defRing)} $defName' : '未分配');
               }),
               _Param('预估总耗时', '约 12 分 30 秒'),
             ],

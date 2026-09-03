@@ -5,6 +5,7 @@
 /// Within the private space, `isHistory` marks a completed-job record.
 
 import 'task_metadata.dart' show RequiredTool, TaskMetadata;
+import '../data/material_db.dart' show materialKeyFromPreset;
 
 class LibraryItem {
   final String id;
@@ -199,16 +200,12 @@ class LibraryItem {
   /// 把后端可能为空的 `materialKey` 映射到本地材质表 key。
   /// 优先用显式 materialKey；否则按 materialPreset / category 模糊匹配。
   String get effectiveMaterialKey {
+    // 优先用接口直接给出的 key（最准），否则用 preset/category 关键词推断。
+    // 2026-09-03 修：之前内嵌了一份简陋关键词表（漏了"胡桃""椴"等），
+    // "黑胡桃"被粗暴归到 pine（因为有"木"字）。直接复用 material_db.dart 已有的
+    // materialKeyFromPreset(完整关键词表)，避免两处维护漂移。
     if (materialKey != null && materialKey!.isNotEmpty) return materialKey!;
-    final clue = '${materialPreset ?? ''} ${category ?? ''}'.toLowerCase();
-    if (clue.contains('亚克力') || clue.contains('acrylic')) return 'acrylic';
-    if (clue.contains('皮革') || clue.contains('leather')) return 'leather';
-    if (clue.contains('pcb') || clue.contains('电路')) return 'pcb';
-    if (clue.contains('金属') || clue.contains('metal') ||
-        clue.contains('铝') || clue.contains('alu')) return 'alu';
-    if (clue.contains('铜') || clue.contains('brass')) return 'brass';
-    if (clue.contains('木') || clue.contains('wood')) return 'pine';
-    return 'pine';
+    return materialKeyFromPreset(materialPreset);
   }
 
   static List<RequiredTool> _parseRequiredTools(Map<String, dynamic> j) {

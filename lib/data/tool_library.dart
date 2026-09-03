@@ -121,8 +121,17 @@ const List<ToolDef> toolCatalog = [
   ),
 ];
 
-ToolDef toolById(String id) =>
-    toolCatalog.firstWhere((t) => t.id == id, orElse: () => toolCatalog.first);
+/// 按字符串 id 查找本地刀库定义。
+///
+/// 2026-09-03 修：找不到时不再 fallback 到 toolCatalog.first（之前会静默地把
+/// 1.5mm 球头显示成 1/8 in Flat Cutter，误导客户）。返回 null，调用方自行决定
+/// 如何渲染（建议显示「未知」而非默认第一把）。
+ToolDef? toolById(String id) {
+  for (final t in toolCatalog) {
+    if (t.id == id) return t;
+  }
+  return null;
+}
 
 /// 按**系统默认刀具表 id**（1/2/3/5/8）反查本地刀具。
 ///
