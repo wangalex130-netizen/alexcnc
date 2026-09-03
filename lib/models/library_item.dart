@@ -174,12 +174,9 @@ class LibraryItem {
         heightMm: (j['heightMm'] as num? ?? 0).toDouble(),
         depthMm: (j['depthMm'] as num? ?? 0).toDouble(),
         boardThicknessMm: (j['boardThicknessMm'] as num? ?? 0).toDouble(),
-        requiredTools: (j['requiredTools'] as List? ?? [])
-            .map((e) => RequiredTool(
-                  (e['toolId'] as String? ?? ''),
-                  (e['role'] as String? ?? ''),
-                ))
-            .toList(),
+        // 优先按数组解析（新接口未启用）；空时按 j['tools'] 字符串兜底
+        // （**真实接口 2026-09-03 实测**：只回 `tools`，不回 `requiredTools`）
+        requiredTools: _parseRequiredTools(j),
         previewUrl: j['previewUrl'] as String?,
         recommendedSpindleRpm: (j['recommendedSpindleRpm'] as num?)?.toInt(),
         recommendedFeedRate: (j['recommendedFeedRate'] as num?)?.toDouble(),
@@ -214,41 +211,93 @@ class LibraryItem {
     return 'pine';
   }
 
-  /// 把后端 `tools` 逗号字符串或 `requiredTools` 数组解析成本地工序刀具列表。
-  List<RequiredTool> get effectiveRequiredTools {
-    if (requiredTools.isNotEmpty) return requiredTools;
-    // 后端常用 comma-separated tool ids in `tools`
-    final raw = (tools?.isNotEmpty ?? false)
-        ? tools!
-        : ((toolId?.isNotEmpty ?? false) ? toolId! : '');
-    final ids = raw.isEmpty
-        ? <String>[]
-        : raw.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
-    if (ids.isEmpty) return const [];
-    return ids.asMap().entries.map((e) {
-      final role = e.key == 0 ? '粗雕' : (e.key == ids.length - 1 ? '精雕' : '半精加工');
-      return RequiredTool(_mapToolId(e.value), role);
-    }).toList();
+  static List<RequiredTool> _parseRequiredTools(Map<String, dynamic> j) {
+    final arr = (j['requiredTools'] as List?) ?? const [];
+    if (arr.isNotEmpty) {
+      return arr.map((e) {
+        if (e is Map) {
+          return RequiredTool(
+            (e['toolId'] as String? ?? ''),
+            (e['role'] as String? ?? ''),
+          );
+        }
+        return RequiredTool(e?.toString() ?? '', '');
+      }).toList();
+    }
+    // 后端常用逗号分隔字符串塞在 `tools`（2026-09-03 实测：5 个真实模型
+    // 全部只回 `tools`，不回 `requiredTools` 数组 —— 必须兜底）
+    final raw = (j['tools'] as String?) ?? '';
+    if (raw.trim().isEmpty) return const [];
+    final names = raw
+        .split(RegExp(r'[,，;]')) // 兼容中英文逗号 + 分号
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (names.isEmpty) return const [];
+    return List.generate(names.length, (i) {
+      final role = i == 0
+          ? '粗雕'
+          : (i == names.length - 1 ? '精雕' : '半精加工');
+      return RequiredTool(_mapToolName(names[i]), role);
+    });
   }
 
-  /// 把后端 toolId（如 ballnose-1.5mm / vbit-30）映射到本地刀库 id。
-  static String _mapToolId(String raw) {
-    final id = raw.toLowerCase().trim();
-    final Map<String, String> exact = {
+  /// 把后端 toolId / toolName 映射到本地刀库 id。
+  ///
+  /// **实测覆盖两种命名风格**（2026-09-03 5 个模型各采到不同风格）：
+  /// - 新命名（英文全名）：`1/8 in Flat Cutter` / `1/8 in Ballnose` / `1/16 in Flat Cutter`
+  /// - 老命名（id 简写）：`ballnose-1.5mm` / `vbit-15` / `vbit-30` / `endmill-2mm` / `flat-3.175mm`
+  static String _mapToolName(String raw) {
+    final s = raw.toLowerCase().trim();
+    if (s.isEmpty) return '';
+
+    // ---- 精确匹配（优先，处理空格与大小写差异）----
+    const exact = <String, String>{
+      // 新命名（英文全名 → 本地 1/8 系列）
+      '1/8 in flat cutter': 't_flat_3175',
+      '1/8 in ballnose': 't_ball_3175',
+      '1/16 in flat cutter': 't_flat_3175', // 1/16 装夹不上 3.175 主轴，降级到 1/8
+      // 老命名（id 简写）
       'ballnose-1.5mm': 't_ball_15',
-      'vbit-30': 't_v60',
+      'ballnose-1.5875mm': 't_ball_3175', // 1/16 英寸 ≈ 1.5875mm
       'flat-3.175mm': 't_flat_3175',
       'flat-3.175': 't_flat_3175',
+      // 角度 V 刀
+      'vbit-30': 't_v30_3175', // 修正：之前误映射为 60°（vbit-30 = 30°）
+      'vbit-60': 't_v60_3175',
+      'vbit-90': 't_v90_3175',
+      'vbit-15': 't_v90_3175', // 历史命名（vbit-15 实际是 90°×Φ0.5 尖锥，机器统一归为 V90）
+      'endmill-2mm': 't_flat_3175', // 系统暂无 2mm 平底 → 兜底到 1/8 平底
     };
-    if (exact.containsKey(id)) return exact[id]!;
-    if (id.contains('ball') || id.contains('球')) return 't_ball_15';
-    if (id.contains('vbit') || id.contains('v-') || id.contains('v型') || id.contains('v刀')) return 't_v60';
-    if (id.contains('flat') || id.contains('平底') || id.contains('平刀')) return 't_flat_3175';
-    if (id.contains('single') || id.contains('单刃')) return 't_o_single_3175';
-    if (id.contains('2flute') || id.contains('双刃')) return 't_2flute_3175';
-    if (id.contains('tip') || id.contains('尖')) return 't_vtip_08';
-    return id;
+    if (exact.containsKey(s)) return exact[s]!;
+
+    // ---- 子串匹配（兜底）----
+    if (s.contains('ballnose') || s.contains('球头') || s.contains('ball nose')) {
+      if (s.contains('1.5') || s.contains('1/16')) return 't_ball_15';
+      return 't_ball_3175'; // 默认本机支持的 1/8 球头
+    }
+    if (s.contains('flat') || s.contains('平底')) return 't_flat_3175';
+    if (s.contains('endmill') || s.contains('圆柱')) return 't_flat_3175';
+    if (s.contains('single') || s.contains('单刃')) return 't_flat_3175'; // 系统表同款平底
+    if (s.contains('vbit') || s.contains('v-') || s.contains('v刀') ||
+        s.contains('v型') || s.contains('vbit')) {
+      if (s.contains('15')) return 't_v90_3175';
+      if (s.contains('30')) return 't_v30_3175';
+      if (s.contains('60')) return 't_v60_3175';
+      if (s.contains('90')) return 't_v90_3175';
+      return 't_v60_3175'; // 默认中
+    }
+    // 完全未知：保留原串，让 UI 显示出来提示用户/工程师
+    return raw;
   }
+
+  /// 已合并到 fromJson / _parseRequiredTools，列表直接落到 `requiredTools` 字段。
+  /// 保留 getter 是为了兼容历史调用点（`toTaskMetadata` 等），2026-09-03 后无新调用。
+  List<RequiredTool> get effectiveRequiredTools => requiredTools;
+
+  /// 兼容性别名 —— 原 getter 调用处（toTaskMetadata 之外的旧调用点）。
+  @deprecated
+  static String _mapToolId(String raw) => _mapToolName(raw);
 
   /// 转成向导内部使用的 TaskMetadata（不再依赖 /api/v1/tasks/{id}）。
   TaskMetadata toTaskMetadata() => TaskMetadata(

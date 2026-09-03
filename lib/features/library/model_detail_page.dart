@@ -274,6 +274,12 @@ class _ToolCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 主展示：直接显示云端原文（如 "1/8 in Flat Cutter, 1/8 in Ballnose"）——
+    // 用户可读 + 自动兼容老/新两种命名风格，不再暴露本地刀库 id（"t_ball_3175"）。
+    // 派生映射保留在 item.requiredTools 里供向导用。
+    final display = (item.tools?.trim().isNotEmpty ?? false)
+        ? item.tools!.trim()
+        : ((item.toolId?.trim().isNotEmpty ?? false) ? item.toolId!.trim() : '—');
     final tools = item.requiredTools;
     return Container(
       padding: const EdgeInsets.all(14),
@@ -289,11 +295,13 @@ class _ToolCard extends StatelessWidget {
               style: TextStyle(fontSize: 10, color: CncColors.textSub)),
           const SizedBox(height: 4),
           Text(
-            tools.isNotEmpty ? tools.map((t) => t.toolId).join(' → ') : (item.toolId ?? '—'),
+            display,
             style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
                 color: CncColors.textMain),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
           ),
           if (tools.isNotEmpty) ...[
             const SizedBox(height: 8),
@@ -302,7 +310,7 @@ class _ToolCard extends StatelessWidget {
               runSpacing: 6,
               children: tools
                   .map((t) => _Badge(
-                        label: '${t.toolId} · ${t.role}',
+                        label: t.role,
                         fg: CncColors.blue,
                         bg: CncColors.blue.withOpacity(0.1),
                       ))
