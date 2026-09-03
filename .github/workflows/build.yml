@@ -319,11 +319,13 @@ jobs:
 
       - name: Fail if build failed
 
-        if: steps.build.outputs.code != '0'
+        # 2026-09-03 修：用内置 step outcome 判断（之前用 outputs.code 经常读不到，
+        # 导致实际构建成功但这个 step 误报失败 → release 不发布）。
+        if: steps.build.outcome == 'failure'
 
         run: |
 
-          echo "Build failed (exit ${{ steps.build.outputs.code }})."
+          echo "Build failed (outcome=${{ steps.build.outcome }})."
 
           echo "Full log committed to ci-log.txt on ${GITHUB_REF_NAME}."
 
