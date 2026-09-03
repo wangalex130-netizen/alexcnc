@@ -136,9 +136,17 @@ class AppTheme {
     textTheme: _textTheme(Brightness.dark),
   );
 
-  /// 字体回退链：优先系统默认，随后 Roboto / Noto Sans CJK SC / sans-serif。
+  /// 字体回退链：优先系统默认（sans-serif，鸿蒙/多数 Android 自带中文渲染），
+  /// 随后 Roboto / Noto Sans CJK SC / sans-serif。
+  ///
   /// 解决鸿蒙 AOSP 兼容层（及个别 Android ROM）在页面切换时自定义字体加载失败、
-  /// 中文/图标glyph显示为方块的乱码问题。
+  /// 中文 / 图标 glyph 显示为方块的乱码问题。
+  ///
+  /// 2026-09-03 根治：之前只设了 fontFamilyFallback 但没设 fontFamily，
+  /// Flutter 默认会去 Roboto（部分 ROM 没中文 fallback → 乱码）。
+  /// 现在显式指定 `sans-serif`（系统默认字体，鸿蒙/小米自带中文 fallback），
+  /// 并把 fontFamilyFallback 留作多层保险。
+  static const String _fontFamily = 'sans-serif';
   static const List<String> _fontFallback = [
     'Roboto',
     'Noto Sans CJK SC',
@@ -157,25 +165,35 @@ class AppTheme {
           fontWeight: FontWeight.w700,
           color: base,
           letterSpacing: -0.5,
+          fontFamily: _fontFamily,
           fontFamilyFallback: _fontFallback),
       titleLarge: TextStyle(
           fontSize: 20,
           fontWeight: FontWeight.w700,
           color: base,
+          fontFamily: _fontFamily,
           fontFamilyFallback: _fontFallback),
       titleMedium: TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.w600,
           color: base,
+          fontFamily: _fontFamily,
           fontFamilyFallback: _fontFallback),
       bodyLarge: TextStyle(
-          fontSize: 15, color: base, fontFamilyFallback: _fontFallback),
+          fontSize: 15,
+          color: base,
+          fontFamily: _fontFamily,
+          fontFamilyFallback: _fontFallback),
       bodyMedium: TextStyle(
-          fontSize: 14, color: muted, fontFamilyFallback: _fontFallback),
+          fontSize: 14,
+          color: muted,
+          fontFamily: _fontFamily,
+          fontFamilyFallback: _fontFallback),
       labelLarge: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w600,
           color: base,
+          fontFamily: _fontFamily,
           fontFamilyFallback: _fontFallback),
     );
   }

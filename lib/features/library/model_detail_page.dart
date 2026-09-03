@@ -103,17 +103,8 @@ class ModelDetailPage extends ConsumerWidget {
                                 fontSize: 11, color: CncColors.warning)),
                       ],
                       const SizedBox(height: 16),
-                      // 刀路预览入口：仅对带 G-code 的模型显示（云端从 G-code 现算渲染矢量）
-                      if (canPreview && previewUrl != null) ...[
-                        const Text('刀路预览',
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: CncColors.textMain)),
-                        const SizedBox(height: 8),
-                        ToolpathPreview(url: previewUrl),
-                        const SizedBox(height: 14),
-                      ],
+                      // 2026-09-03 删：刀路预览入口。当前模型都是占位"暂无刀路预览"，
+                      // 客户视觉重复且无功能价值。模型参数（转速/进给/刀路）已在加工参数卡里展示。
                       _ParamsGrid(item: item),
                       const SizedBox(height: 14),
                       _ToolCard(item: item),
@@ -350,8 +341,10 @@ class _BottomBar extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12)),
             ),
             onPressed: () {
+              // 2026-09-03：详情页已展示模型信息（材料/刀具/尺寸），跳过 Step1 解析任务
+              // 直接进 Step2 材质确认（不再让客户看重复内容）。
               Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => WizardPage(item: item)));
+                  builder: (_) => WizardPage(item: item, initialStep: 1)));
             },
             child: Text(
               sliced ? '开始雕刻' : '查看并开始雕刻',

@@ -358,8 +358,11 @@ class _LibSegmented extends StatelessWidget {
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: const Color(0xFF222222),
+        // 浅色背景：与详情页 / 控制台统一用 panelAlt（次级面板），
+        // 之前 Color(0xFF222222) 是深色 UI 时代残留 → 与"先不要黑色界面"冲突。
+        color: CncColors.panelAlt,
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: CncColors.border),
       ),
       child: Stack(
         children: [
@@ -484,17 +487,21 @@ class _InspirationSliver extends StatelessWidget {
           ),
           child: Row(
             children: [
-              const Icon(Icons.search, size: 16, color: CncColors.textSub),
+              Icon(Icons.search, size: 16,
+                  color: CncColors.textSub),
               const SizedBox(width: 10),
               Expanded(
                 child: TextField(
                   onChanged: onKeyword,
-                  style: const TextStyle(fontSize: 13, color: Colors.white),
+                  style: const TextStyle(fontSize: 13, color: CncColors.textMain),
                   decoration: InputDecoration(
-                    hintText: '搜索模型名称或标签...',
+                    hintText: '搜索模型名称或标签',
                     hintStyle: const TextStyle(
                         fontSize: 13, color: CncColors.textSub),
                     isDense: true,
+                    // 2026-09-03 修：明确 contentPadding 让 hint 上下/左右居中，
+                    // 之前用默认 padding → hint 偏左不居中。
+                    contentPadding: const EdgeInsets.symmetric(vertical: 8),
                     border: InputBorder.none,
                     suffixIcon: keyword.isEmpty
                         ? null
@@ -643,8 +650,10 @@ class _HeroCard extends StatelessWidget {
                       const SizedBox(height: 6),
                       Text(item.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
                       const SizedBox(height: 4),
-                      Text('时长 ${item.duration ?? ''}  ·  ${item.materialPreset ?? ''}',
-                          style: const TextStyle(fontSize: 10, color: Color(0xFFbbbbbb))),
+                      // 焦点大图底部信息：只保留时长。材质已删 —— 详情页有"默认材质"槽位，
+                      // 卡片上材质字小、位置易出格，对客户无增量价值（重复展示反而混淆）。
+                      Text('时长 ${item.duration ?? ''}',
+                          style: const TextStyle(fontSize: 10, color: Color(0xFFdddddd))),
                     ],
                   ),
                 ),
@@ -684,8 +693,8 @@ class _ModelCard extends StatelessWidget {
                     Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
                     const SizedBox(height: 4),
-                    Text(item.materialPreset ?? '',
-                        maxLines: 1, style: const TextStyle(fontSize: 10, color: CncColors.blue)),
+                    // 2026-09-03 删材质字：与"时长 · 材质"同理 —— 详情页已展示"默认材质"，
+                    // 列表卡片空间有限，材质位置易出格，删除后卡片更整洁。
                     if (item.tags.isNotEmpty) ...[
                       const SizedBox(height: 6),
                       Wrap(

@@ -25,14 +25,24 @@ import 'job_monitor_page.dart';
 /// Visual language strictly aligned to step1-6.html (荧光绿 #00ff7f / 黑底).
 class WizardPage extends ConsumerStatefulWidget {
   final LibraryItem item;
-  const WizardPage({super.key, required this.item});
+
+  /// 起始步骤（0=解析任务 / 1=材质确认 / 2=刀仓映射 / 3=定原点防撞 / 4=智能调平 / 5=开始雕刻）。
+  ///
+  /// 2026-09-03 加：详情页已经展示了模型信息（材料/刀具/尺寸），再走 Step1 解析任务
+  /// 是重复展示。所以从详情页进入向导时直接跳到 Step2 材质确认。
+  final int initialStep;
+  const WizardPage({
+    super.key,
+    required this.item,
+    this.initialStep = 0,
+  });
 
   @override
   ConsumerState<WizardPage> createState() => _WizardPageState();
 }
 
 class _WizardPageState extends ConsumerState<WizardPage> {
-  int _step = 0;
+  late int _step;
   TaskMetadata? _task;
   bool _loading = true;
 
@@ -69,6 +79,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   @override
   void initState() {
     super.initState();
+    _step = widget.initialStep;
     _thicknessFocus = FocusNode();
     _thicknessFocus.addListener(() {
       if (!_thicknessFocus.hasFocus) {
