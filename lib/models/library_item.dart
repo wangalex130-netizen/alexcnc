@@ -43,6 +43,27 @@ class LibraryItem {
   final int? recommendedSpindleRpm; // 推荐主轴转速 (RPM)
   final double? recommendedFeedRate; // 推荐进给速度 (mm/min)
 
+  // ---- 详情接口新增字段（《API-Model-Library-Detail.md》2026-09-03 对齐）----
+  /// 推荐 Z 轴进给速度（mm/min）。可空；客户端不得按非空处理。
+  final double? zFeedRate;
+
+  /// 单次下刀深度（mm），向导 Step 加工参数预填用。
+  final double? depthPerPass;
+
+  /// 粗加工 G-code 文件地址（OSS 公网 URL）。未配置粗加工时为 null。
+  ///
+  /// 注意：按「App 绝不持有 G-code」铁律，App 当前只**记录地址**（供
+  /// gcodeStatus 推导与后续新架构使用），不下载、不缓存文件本身。
+  final String? roughingGcodeUrl;
+
+  /// 精加工 G-code 文件地址（OSS 公网 URL）。未配置精加工时为 null。
+  final String? finishingGcodeUrl;
+
+  /// 两个 G-code 均未配置（未切片）；只存在其一不算异常（后端明确约定）。
+  bool get hasAnyGcode =>
+      (roughingGcodeUrl != null && roughingGcodeUrl!.isNotEmpty) ||
+      (finishingGcodeUrl != null && finishingGcodeUrl!.isNotEmpty);
+
   const LibraryItem({
     required this.id,
     required this.title,
@@ -73,6 +94,10 @@ class LibraryItem {
     this.previewUrl,
     this.recommendedSpindleRpm,
     this.recommendedFeedRate,
+    this.zFeedRate,
+    this.depthPerPass,
+    this.roughingGcodeUrl,
+    this.finishingGcodeUrl,
   });
 
   /// 从云端 REST JSON 解析（字段对齐 docs/模型库数据格式与接口定义.md）。
@@ -120,6 +145,11 @@ class LibraryItem {
         previewUrl: j['previewUrl'] as String?,
         recommendedSpindleRpm: (j['recommendedSpindleRpm'] as num?)?.toInt(),
         recommendedFeedRate: (j['recommendedFeedRate'] as num?)?.toDouble(),
+        // 详情接口新增（2026-09-03）：全部可空，缺失即 null，不设默认值
+        zFeedRate: (j['zFeedRate'] as num?)?.toDouble(),
+        depthPerPass: (j['depthPerPass'] as num?)?.toDouble(),
+        roughingGcodeUrl: j['roughingGcodeUrl'] as String?,
+        finishingGcodeUrl: j['finishingGcodeUrl'] as String?,
       );
 
   /// 列表展示用图：优先 coverUrl，其次 imageUrls[0]，最后兼容旧 imageUrl。
@@ -187,6 +217,8 @@ class LibraryItem {
         boardThicknessMm: boardThicknessMm,
         recommendedSpindleRpm: recommendedSpindleRpm?.toDouble(),
         recommendedFeedRate: recommendedFeedRate,
+        zFeedRate: zFeedRate,
+        depthPerPass: depthPerPass,
         thumbnailUrl: displayImageUrl,
         defaultMaterialKey: effectiveMaterialKey,
         defaultToolId: effectiveRequiredTools.isNotEmpty ? effectiveRequiredTools.first.toolId : toolId,
@@ -223,6 +255,10 @@ class LibraryItem {
     String? previewUrl,
     int? recommendedSpindleRpm,
     double? recommendedFeedRate,
+    double? zFeedRate,
+    double? depthPerPass,
+    String? roughingGcodeUrl,
+    String? finishingGcodeUrl,
   }) =>
       LibraryItem(
         id: id ?? this.id,
@@ -255,5 +291,9 @@ class LibraryItem {
         recommendedSpindleRpm:
             recommendedSpindleRpm ?? this.recommendedSpindleRpm,
         recommendedFeedRate: recommendedFeedRate ?? this.recommendedFeedRate,
+        zFeedRate: zFeedRate ?? this.zFeedRate,
+        depthPerPass: depthPerPass ?? this.depthPerPass,
+        roughingGcodeUrl: roughingGcodeUrl ?? this.roughingGcodeUrl,
+        finishingGcodeUrl: finishingGcodeUrl ?? this.finishingGcodeUrl,
       );
 }

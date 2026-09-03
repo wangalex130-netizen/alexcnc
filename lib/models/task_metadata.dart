@@ -20,6 +20,13 @@ class TaskMetadata {
   final double boardThicknessMm; // material thickness
   final double? recommendedSpindleRpm;
   final double? recommendedFeedRate;
+
+  /// 推荐 Z 轴进给速度（mm/min）—— 详情接口新增（2026-09-03），可空。
+  final double? zFeedRate;
+
+  /// 单次下刀深度（mm）—— 详情接口新增（2026-09-03），可空；向导预填用。
+  final double? depthPerPass;
+
   final String? thumbnailUrl;
 
   /// 模型默认雕刻材质 key（见 material_db.dart）—— Step1 展示 & Step2 预选。
@@ -38,6 +45,8 @@ class TaskMetadata {
     this.boardThicknessMm = 0,
     this.recommendedSpindleRpm,
     this.recommendedFeedRate,
+    this.zFeedRate,
+    this.depthPerPass,
     this.thumbnailUrl,
     this.defaultMaterialKey = 'pine',
     this.defaultToolId,
@@ -54,6 +63,8 @@ class TaskMetadata {
         boardThicknessMm: (j['boardThicknessMm'] as num? ?? 0).toDouble(),
         recommendedSpindleRpm: (j['recommendedSpindleRpm'] as num?)?.toDouble(),
         recommendedFeedRate: (j['recommendedFeedRate'] as num?)?.toDouble(),
+        zFeedRate: (j['zFeedRate'] as num?)?.toDouble(),
+        depthPerPass: (j['depthPerPass'] as num?)?.toDouble(),
         thumbnailUrl: j['thumbnailUrl'] as String?,
         defaultMaterialKey: j['defaultMaterialKey'] as String? ?? 'pine',
         defaultToolId: j['defaultToolId'] as String?,

@@ -214,6 +214,10 @@ class _ParamsGrid extends StatelessWidget {
       ('板材厚度', item.boardThicknessMm > 0 ? '${_fmt(item.boardThicknessMm)} mm' : '—'),
       ('雕刻时长', item.duration ?? (item.durationSec != null ? '${item.durationSec! ~/ 60} 分钟' : '—')),
       ('默认材质', item.materialPreset ?? item.materialKey ?? '—'),
+      // 详情接口新增加工参数（2026-09-03）：云端下发的推荐值，可空则显示 —
+      ('主轴转速', item.recommendedSpindleRpm != null ? '${item.recommendedSpindleRpm}' : '—'),
+      ('进给速度', item.recommendedFeedRate != null ? '${_fmt(item.recommendedFeedRate!)} mm/min' : '—'),
+      ('下刀深度', item.depthPerPass != null ? '${_fmt(item.depthPerPass!)} mm' : '—'),
     ];
     return Container(
       padding: const EdgeInsets.all(14),
