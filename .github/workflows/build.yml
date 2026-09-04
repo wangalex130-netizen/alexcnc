@@ -272,7 +272,9 @@ jobs:
 
       - name: Upload APK artifact
 
-        if: steps.build.outputs.code == '0'
+        # 2026-09-04 修：用 step outcome 替代 outputs.code（之前永远空字符串 → skipped，
+        # APK 实际构建成功 147.3MB 但从未上传到 release，客户下载链接 404）。
+        if: steps.build.outcome == 'success'
 
         uses: actions/upload-artifact@v4
 
@@ -286,7 +288,7 @@ jobs:
 
       - name: Publish APK release
 
-        if: steps.build.outputs.code == '0'
+        if: steps.build.outcome == 'success'
 
         run: |
 
