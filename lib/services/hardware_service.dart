@@ -118,7 +118,8 @@ abstract class HardwareService {
   // --- Motion（终局方案：只由机器状态决定可否执行，不再看内外网）---
   Future<void> jog(String axis, double distanceMm); // axis: x | y | z
   Future<void> home(); // homing cycle ($H)
-  Future<void> setWorkZero({double x = 0, double y = 0, double z = 0}); // G54
+  Future<void> setWorkZero(
+      {List<String> axes = const ['x', 'y', 'z']}); // G92，清单 §4.6-4.8 axes 数组
 
   /// 软复位（Grbl `Ctrl-X` = 0x18）。立即中止当前运动、清空规划器缓冲。
   ///

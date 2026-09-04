@@ -690,6 +690,14 @@ class RealHardwareService implements HardwareService {
           // 按 reqId 推进雕刻阶段（prepare_job → confirm → running）
           _handleCmdAck(ev);
         }
+        if (type == 'cmd_ack') {
+          // 2026-09-04 修：cmd_ack 是命令回执，不是机器状态。此前落入
+          // default 分支后把 MachineStatus(state: idle) 塞进状态流 ——
+          // 会把真实状态（含 alarm/busy）短暂覆盖成 idle，报警态下 Jog
+          // 被瞬间解锁（安全隐患）；UI 也会把原文 "cmd_ack" 当提示弹出。
+          // 回执只走 notifyStream（_handleCmdAck 消费），不进状态流。
+          return;
+        }
         _checkCmdAck(notifyStatus);
         _ctrl.add(notifyStatus);
         return;
@@ -720,8 +728,16 @@ class RealHardwareService implements HardwareService {
     if (_mqtt?.connectionStatus?.state != MqttConnectionState.connected) {
       return false;
     }
+    // 2026-09-04 对齐清单 §2/§10：所有命令必须带 reqId —— 小屏据此把
+    // cmd_ack 关联回具体命令，并用「10s 内相同非空 reqId 丢弃」防 QoS1 重投。
+    // 每次发布注入新 UUID：重试/补发也换新，否则会被小屏去重规则丢弃。
+    // prepare_job/confirm 已自带 reqId（与 _awaitingReqId 精确匹配），不覆盖。
+    final existing = cmd['reqId'];
+    final out = (existing is String && existing.isNotEmpty)
+        ? cmd
+        : {...cmd, 'reqId': _newId()};
     final builder = MqttClientPayloadBuilder();
-    builder.addString(jsonEncode(cmd));
+    builder.addString(jsonEncode(out));
     _mqtt!.publishMessage(mqttCmdTopic, MqttQos.atLeastOnce, builder.payload!);
     return true;
   }
@@ -1111,6 +1127,28 @@ class RealHardwareService implements HardwareService {
     _updateCarve(_carve.copyWith(stage: CarveStage.failed, error: message));
   }
 
+  /// 小屏 cmd_ack 错误码 → 客户能看懂的通俗话术（清单 §3 错误码表）。
+  /// 联调诊断信息（GRBL 原始码）保留在括号里，便于远程定位问题。
+  static String _ackCodeText(String? code) {
+    if (code == null || code.isEmpty || code == 'OK') {
+      return '机器没能完成这条指令，请重试';
+    }
+    const map = {
+      'E400': '机器不认识这条指令，请更新 App 后重试',
+      'E403': '这份加工程序不属于这台机器',
+      'E409': '机器正忙，当前状态不能执行这个操作',
+      'E500': '机器内部执行失败，请重试',
+      'E501': '机器暂不支持这个功能',
+      'ETIMEOUT': '机器等待控制板回复超时，请重试',
+      'ENETDOWN': '机器的 Wi-Fi 已离线，请检查机器网络',
+      'EVERIFY': '加工程序下载或校验失败，请重新开始',
+    };
+    if (map.containsKey(code)) return map[code]!;
+    if (code.startsWith('GRBL_error')) return '控制板拒绝了这条指令（$code）';
+    if (code.startsWith('GRBL_ALARM')) return '控制板报警（$code）';
+    return '机器没能完成这条指令（$code）';
+  }
+
   /// 处理 `cmd_ack`：按 reqId 关联回具体命令，推进或终止雕刻阶段。
   ///
   /// 文档 §6.11 规则：
@@ -1129,9 +1167,11 @@ class RealHardwareService implements HardwareService {
     final jobId = ev.jobId ?? _carve.jobId;
 
     if (!ok) {
+      // 2026-09-04：小屏 cmd_ack 只有 code 没有 message（清单 §3），
+      // 直接显示 "E409" 这类错误码客户看不懂 → 映射通俗中文。
       final detail = (ev.message.isNotEmpty && ev.message != 'cmd_ack')
           ? ev.message
-          : (ev.code ?? '机器拒绝了这条指令');
+          : _ackCodeText(ev.code);
       _failCarve('机器没能准备好：$detail');
       return;
     }
@@ -1254,22 +1294,34 @@ class RealHardwareService implements HardwareService {
 
   @override
   Future<void> softReset() async {
-    // {"cmd":"reset"} —— 固件侧等价 Grbl Ctrl-X(0x18)：中止运动 + 清空规划器缓冲。
-    final cmd = {'cmd': 'reset'};
+    // 软复位 = Grbl 实时字符 Ctrl-X(0x18)：中止运动 + 清空规划器缓冲。
+    // 2026-09-04 对齐清单 §4.2：小屏 `reset` 的实际语义是 $X 解锁（非软复位），
+    // 软复位必须发 `softReset`；此前发 `reset` 实际执行的是解锁（注释有误已纠正）。
+    final cmd = {'cmd': 'softReset'};
     _dispatch(cmd);
   }
 
   @override
   Future<void> unlock() async {
-    // {"cmd":"unlock"} —— 固件侧等价 Grbl `$X`：只清 Alarm/Lock 位。
-    // 不回零、不移动；解锁后坐标不可信，必须重新定原点。
-    final cmd = {'cmd': 'unlock'};
+    // 解锁 = Grbl `$X`：只清 Alarm/Lock 位，不回零、不移动；
+    // 解锁后坐标不可信，必须重新定原点。
+    // 2026-09-04 对齐《小屏幕支持命令完整清单》§4.1/§10：
+    // 当前小屏固件只认 `reset`（实际执行 $X），`unlock` 会回 E400 unknown cmd。
+    final cmd = {'cmd': 'reset'};
     _dispatch(cmd);
   }
 
   @override
-  Future<void> setWorkZero({double x = 0, double y = 0, double z = 0}) async {
-    final cmd = {'cmd': 'setWorkZero', 'x': x, 'y': y, 'z': z};
+  Future<void> setWorkZero({List<String> axes = const ['x', 'y', 'z']}) async {
+    // 2026-09-04 对齐清单 §4.6–4.8：小屏只认 `axes` 数组（或省略 = XYZ 全设），
+    // 此前发送的 x/y/z 数值字段会被忽略 → 退化为 G92 X0 Y0 Z0 全轴置零。
+    // 全轴时省略 axes 字段；部分轴时显式传数组。
+    final all = axes.length == 3 &&
+        axes.contains('x') &&
+        axes.contains('y') &&
+        axes.contains('z');
+    final cmd = <String, dynamic>{'cmd': 'setWorkZero'};
+    if (!all) cmd['axes'] = axes;
     _dispatch(cmd);
   }
 

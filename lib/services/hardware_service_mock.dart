@@ -240,8 +240,15 @@ class MockHardwareService implements HardwareService {
   }
 
   @override
-  Future<void> setWorkZero({double x = 0, double y = 0, double z = 0}) async {
-    _current = _current.copyWith(position: Position(x: x, y: y, z: z));
+  Future<void> setWorkZero({List<String> axes = const ['x', 'y', 'z']}) async {
+    final has = (String a) => axes.contains(a);
+    _current = _current.copyWith(
+      position: Position(
+        x: has('x') ? 0 : _current.position.x,
+        y: has('y') ? 0 : _current.position.y,
+        z: has('z') ? 0 : _current.position.z,
+      ),
+    );
     _emit();
   }
 

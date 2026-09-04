@@ -120,8 +120,11 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   }
 
   /// notify 事件 → 一次性提示（报警用红色强调）。
+  /// 2026-09-04 修：cmd_ack 是命令回执（每条命令一条），此前原文弹 toast
+  /// —— 客户会看到黑底 "cmd_ack" 提示条。回执不该打扰客户，跳过。
   void _onNotify(NotifyEvent e) {
     if (!mounted) return;
+    if (e.type == 'cmd_ack') return;
     _showHint(e.message, alarm: e.isAlarm);
   }
 

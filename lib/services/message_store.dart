@@ -144,7 +144,12 @@ class MessageStore {
     _broadcastSub = null;
   }
 
-  void _onNotify(NotifyEvent e) => _push(StoredMessage.fromNotify(e));
+  void _onNotify(NotifyEvent e) {
+    // 2026-09-04 修：cmd_ack 每条命令都有一条，落盘会把消息抽屉（上限 100 条）
+    // 刷满"命令已执行"，挤掉真正的报警/完成事件 —— 不存。
+    if (e.type == 'cmd_ack') return;
+    _push(StoredMessage.fromNotify(e));
+  }
 
   void _onBroadcast(BroadcastMessage b) {
     if (b.isGcodeUrl) return; // 刀路下发不当作系统消息
