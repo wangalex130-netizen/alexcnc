@@ -26,10 +26,10 @@ import 'job_monitor_page.dart';
 class WizardPage extends ConsumerStatefulWidget {
   final LibraryItem item;
 
-  /// 起始步骤（0=解析任务 / 1=材质确认 / 2=刀仓映射 / 3=定原点防撞 / 4=智能调平 / 5=开始雕刻）。
+  /// 起始步骤（0=材质确认 / 1=刀仓映射 / 2=定原点防撞 / 3=智能调平 / 4=开始雕刻）。
   ///
-  /// 2026-09-03 加：详情页已经展示了模型信息（材料/刀具/尺寸），再走 Step1 解析任务
-  /// 是重复展示。所以从详情页进入向导时直接跳到 Step2 材质确认。
+  /// 2026-09-04 改：详情页已展示模型信息（材料/刀具/尺寸），"解析任务"步骤整段
+  /// 移除（顶部步骤条不再出现该栏目），进入向导即为材质确认。
   final int initialStep;
   const WizardPage({
     super.key,
@@ -68,7 +68,6 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   bool _safetyChecked = false; // Step4 轨迹落在耗材内且避开压板
 
   static const _titles = [
-    '解析任务',
     '材质确认',
     '刀仓映射',
     '定原点防撞',
@@ -173,27 +172,27 @@ class _WizardPageState extends ConsumerState<WizardPage> {
 
   bool get _canProceed {
     switch (_step) {
-      case 1:
+      case 0:
         return _thicknessVal >= _minThickness &&
             _thicknessVal > 0 &&
             _chkThick &&
             _chkMatch;
-      case 2:
+      case 1:
         return _atcReady;
-      case 3:
+      case 2:
         return _originSet && !_originOverflow && _safetyChecked;
-      case 4:
-        return true; // Step5 只需选择是否调平即可进入下一步
+      case 3:
+        return true; // 只需选择是否调平即可进入下一步
       default:
         return true;
     }
   }
 
-  /// 离开「智能调平」步（step==4）时，把点数方案下发给机器。
+  /// 离开「智能调平」步（step==3）时，把点数方案下发给机器。
   /// 机器收到 mode+cols+rows 后执行真实网格探测；App 不写死点数，
   /// 以固件广播结果为准。
   void _next() {
-    if (_step == 4) {
+    if (_step == 3) {
       final wCm = (_task?.widthMm ?? 0) / 10;
       final hCm = (_task?.heightMm ?? 0) / 10;
       final plan = _computeLeveling(_leveling, wCm, hCm);
@@ -233,7 +232,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
             padding: const EdgeInsets.only(right: 16),
             child: Center(
               child: Text(
-                'Step ${_step + 1}/6',
+                'Step ${_step + 1}/5',
                 style: t.bodyMedium?.copyWith(color: CncColors.primaryInk),
               ),
             ),
@@ -257,7 +256,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
             ),
           ),
           const SizedBox(height: 16),
-          if (_step < 5)
+          if (_step < 4)
             Row(
               children: [
                 if (_step > 0)
@@ -281,7 +280,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
               ],
             )
           else
-            // Step6 的「开始自检并雕刻」按钮已内嵌在 _StepTakeoff 卡片中，
+            // Step5 的「开始自检并雕刻」按钮已内嵌在 _StepTakeoff 卡片中，
             // 底部不再显示「上一步 / 一键开切」。
             const SizedBox.shrink(),
           const SizedBox(height: 8),
@@ -293,11 +292,11 @@ class _WizardPageState extends ConsumerState<WizardPage> {
 
   Widget _guardHint(TextTheme t) {
     String msg;
-    if (_step == 1) {
+    if (_step == 0) {
       msg = _thicknessVal < _minThickness
           ? '板材厚度需 ≥ ${_minThickness.toStringAsFixed(1)}mm（模型默认板厚），防止穿底伤床。'
           : '请完成实物核验勾选项。';
-    } else if (_step == 2) {
+    } else if (_step == 1) {
       final req = _task?.requiredTools ?? [];
       final dup = _procSlot.values.length != _procSlot.values.toSet().length;
       if (dup) {
@@ -311,7 +310,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       } else {
         msg = '请点击「确认映射并同步到机器」。';
       }
-    } else if (_step == 3) {
+    } else if (_step == 2) {
       if (!_originSet) {
         msg = '请先用红点激光「设雕刻原点」。';
       } else if (_originOverflow) {
@@ -321,7 +320,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       } else {
         msg = '原点与行程核验无误，可进入下一步。';
       }
-    } else if (_step == 4) {
+    } else if (_step == 3) {
       msg = '请选择是否进行曲面调平。';
     } else {
       msg = '当前步骤未完成。';
@@ -336,8 +335,6 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   Widget _stepContent() {
     switch (_step) {
       case 0:
-        return _StepParse(task: _task, item: widget.item);
-      case 1:
         return _StepMaterial(
           materialKey: _materialKey,
           thickness: _thickness,
@@ -352,7 +349,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           onChkThick: (v) => setState(() => _chkThick = v),
           onChkMatch: (v) => setState(() => _chkMatch = v),
         );
-      case 2:
+      case 1:
         return _StepAtc(
           requiredTools: _task?.requiredTools ?? [],
           procSlot: _procSlot,
@@ -372,7 +369,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
             );
           },
         );
-      case 3:
+      case 2:
         return _StepOrigin(
           task: _task,
           origin: _origin,
@@ -384,13 +381,13 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           onOverflow: (v) => setState(() => _originOverflow = v),
           onSafety: (v) => setState(() => _safetyChecked = v),
         );
-      case 4:
+      case 3:
         return _StepLeveling(
           mode: _leveling,
           task: _task,
           onMode: (m) => setState(() => _leveling = m),
         );
-      case 5:
+      case 4:
         return _StepTakeoff(
           item: widget.item,
           task: _task,
@@ -441,156 +438,7 @@ class _Progress extends StatelessWidget {
   }
 }
 
-// ===================== Step 1 · 解析任务（模型默认材料/刀具）=====================
-
-class _StepParse extends StatelessWidget {
-  final TaskMetadata? task;
-  final LibraryItem item;
-  const _StepParse({this.task, required this.item});
-
-  @override
-  Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
-    if (task == null) {
-      return const Text('暂无云端任务，请在 PC 端 (Smart CNC Studio) 上传。',
-          style: TextStyle(color: CncColors.textSub));
-    }
-    final mat = materialByKey(task!.defaultMaterialKey);
-    // 模型默认刀具：优先按工序列表 requiredTools 展示（1~3 把），
-    // 无工序列表时 fallback 到单把 defaultToolId。
-    // 2026-09-03 改：toolById 现在返回 null（不再 fallback 到第一把），
-    // 这里过滤掉 null 项，避免渲染崩溃。
-    final defaultTools = task!.requiredTools.isNotEmpty
-        ? task!.requiredTools
-            .map((rt) => toolById(rt.toolId))
-            .whereType<ToolDef>()
-            .toList()
-        : (task!.defaultToolId != null
-            ? [toolById(task!.defaultToolId!)].whereType<ToolDef>().toList()
-            : <ToolDef>[]);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Step 1 · 解析任务',
-            style: t.titleMedium?.copyWith(color: CncColors.textMain)),
-        const SizedBox(height: 10),
-        _Row('模型', item.title),
-        _Row('任务', task!.name),
-        _Row('尺寸', '${task!.widthMm} × ${task!.heightMm} mm'),
-        _Row('切深', '${task!.depthMm} mm'),
-        _Row('默认板厚', '${task!.boardThicknessMm} mm'),
-        const SizedBox(height: 12),
-        // 模型默认雕刻材料 + 默认刀具（重点）
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: CncColors.primary.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: CncColors.primary.withOpacity(0.3)),
-          ),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  MaterialIcon(visual: mat.visual, swatch: mat.swatch, size: 26),
-                  const SizedBox(width: 10),
-                  const Text('模型默认雕刻材料',
-                      style: TextStyle(fontSize: 12, color: CncColors.textSub)),
-                  const Spacer(),
-                  Text(mat.name,
-                      style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                          color: CncColors.primary)),
-                ],
-              ),
-              if (defaultTools.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                const Divider(color: CncColors.border),
-                const SizedBox(height: 10),
-                const Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text('模型默认刀具',
-                      style: TextStyle(fontSize: 12, color: CncColors.textSub)),
-                ),
-                const SizedBox(height: 8),
-                ...defaultTools.asMap().entries.map((e) {
-                  final i = e.key;
-                  final tool = e.value;
-                  final isLast = i == defaultTools.length - 1;
-                  return Padding(
-                    padding: EdgeInsets.only(bottom: isLast ? 0 : 8),
-                    child: Row(
-                      children: [
-                        ringDot(tool.ring, size: 22),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(tool.name,
-                                  style: const TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.bold,
-                                      color: CncColors.textMain)),
-                              Text(
-                                  '${tool.type} · ${tool.diameterMm}mm · ${tool.desc}',
-                                  style: const TextStyle(
-                                      fontSize: 11,
-                                      color: CncColors.textSub)),
-                            ],
-                          ),
-                        ),
-                        if (defaultTools.length > 1)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: CncColors.primary.withOpacity(0.15),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text('工序 ${i + 1}',
-                                style: const TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    color: CncColors.primary)),
-                          ),
-                      ],
-                    ),
-                  );
-                }).toList(),
-              ],
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-        const Text('下一步将进入「材质确认」，默认已选上述材料，可改为其它材质（雕刻参数自动联动）。',
-            style: TextStyle(fontSize: 11, color: CncColors.textSub)),
-      ],
-    );
-  }
-}
-
-class _Row extends StatelessWidget {
-  final String k;
-  final String v;
-  const _Row(this.k, this.v);
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 3),
-        child: Row(
-          children: [
-            Text('$k：',
-                style: const TextStyle(fontSize: 13, color: CncColors.textSub)),
-            Text(v,
-                style: const TextStyle(fontSize: 13, color: CncColors.textMain)),
-          ],
-        ),
-      );
-}
-
-// ===================== Step 2 · 材质确认（默认松木 + 参数联动 + 厚度校验）=====================
-
+// ===================== Step 1 · 材质确认（默认松木 + 参数联动 + 厚度校验）=====================
 class _StepMaterial extends StatelessWidget {
   final String materialKey;
   final String defaultKey; // 模型默认材质 key（排在第一位、标注「模型默认」）
@@ -637,7 +485,7 @@ class _StepMaterial extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Step 2 · 材质确认',
+        Text('Step 1 · 材质确认',
             style: t.titleMedium?.copyWith(color: CncColors.textMain)),
         const SizedBox(height: 6),
         Text('耗材材质（默认「${def.name}」来自模型）',
@@ -922,7 +770,7 @@ class _CheckTile extends StatelessWidget {
       );
 }
 
-// ===================== Step 3 · 刀仓映射（与控制台刀库同步）=====================
+// ===================== Step 2 · 刀仓映射（与控制台刀库同步）=====================
 
 class _StepAtc extends ConsumerStatefulWidget {
   final List<RequiredTool> requiredTools;
@@ -1029,7 +877,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Step 3 · 刀仓映射',
+        Text('Step 2 · 刀仓映射',
             style: t.titleMedium?.copyWith(color: CncColors.textMain)),
         const SizedBox(height: 6),
         const Text('模型需按工序顺序使用以下刀具。已自动沿用控制台刀仓中已配置的刀位；'
@@ -1387,7 +1235,7 @@ class _Slot extends StatelessWidget {
   }
 }
 
-// ===================== Step 4 · 定原点防撞（按 step4.html 重做）=====================
+// ===================== Step 3 · 定原点防撞（按 step4.html 重做）=====================
 
 class _StepOrigin extends ConsumerStatefulWidget {
   final TaskMetadata? task;
@@ -1538,7 +1386,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Step 4 · 定原点防撞',
+        Text('Step 3 · 定原点防撞',
             style: t.titleMedium?.copyWith(color: CncColors.textMain)),
         const SizedBox(height: 8),
         // 继承 Step 1 的任务信息卡
@@ -2044,7 +1892,7 @@ class _BedPainter extends CustomPainter {
   return (cols: cols, rows: rows, pts: pts, sec: sec);
 }
 
-// ===================== Step 5 · 智能调平（不调平 / 标准 / 精细）=====================
+// ===================== Step 4 · 智能调平（不调平 / 标准 / 精细）=====================
 
 class _StepLeveling extends StatelessWidget {
   final int mode;
@@ -2075,7 +1923,7 @@ class _StepLeveling extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Step 5 · 智能调平',
+        Text('Step 4 · 智能调平',
             style: t.titleMedium?.copyWith(color: CncColors.textMain)),
         const SizedBox(height: 8),
         // 2026-09-03：屏幕端调平功能尚未开发完成，暂时只允许「不调平」。
@@ -2174,7 +2022,7 @@ class _StepLeveling extends StatelessWidget {
   }
 }
 
-// ===================== Step 6 · 开始雕刻（自检 + 实时监控入口）=====================
+// ===================== Step 5 · 开始雕刻（自检 + 实时监控入口）=====================
 
 class _StepTakeoff extends ConsumerStatefulWidget {
   final LibraryItem item;
@@ -2326,7 +2174,7 @@ class _ReadyPhase extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Step 6 · 作业参数与安全预检汇总',
+        Text('Step 5 · 作业参数与安全预检汇总',
             style: t.titleMedium?.copyWith(color: CncColors.textMain)),
         const SizedBox(height: 10),
         Container(

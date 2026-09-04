@@ -172,6 +172,9 @@ abstract class HardwareService {
   /// 当前雕刻作业快照。
   CarveSession get currentCarveSession;
 
+  /// 清除当前雕刻会话（回到 idle）。用于客户主动放弃 / 关闭失败提示面板。
+  void clearCarve();
+
   // --- ATC ---
   Future<void> updateToolMap(List<Tool> tools);
 

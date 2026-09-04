@@ -341,10 +341,10 @@ class _BottomBar extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12)),
             ),
             onPressed: () {
-              // 2026-09-03：详情页已展示模型信息（材料/刀具/尺寸），跳过 Step1 解析任务
-              // 直接进 Step2 材质确认（不再让客户看重复内容）。
+              // 2026-09-04：详情页已展示模型信息（材料/刀具/尺寸），"解析任务"步骤
+              // 整段移除，进入向导即为材质确认（步骤 1）。
               Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => WizardPage(item: item, initialStep: 1)));
+                  builder: (_) => WizardPage(item: item)));
             },
             child: Text(
               sliced ? '开始雕刻' : '查看并开始雕刻',

@@ -288,6 +288,12 @@ class MockHardwareService implements HardwareService {
   CarveSession get currentCarveSession => _carve;
 
   @override
+  void clearCarve() {
+    _carve = const CarveSession();
+    _carveCtrl.add(_carve);
+  }
+
+  @override
   Future<void> prepareJob({
     required String fileUrl,
     String fileName = 'job.gc',
@@ -336,6 +342,8 @@ class MockHardwareService implements HardwareService {
 
   @override
   Future<void> stopJob() async {
+    _carve = const CarveSession();
+    _carveCtrl.add(_carve);
     _current = _current.copyWith(
       state: MachineState.idle, progress: 0, eta: null,
     );

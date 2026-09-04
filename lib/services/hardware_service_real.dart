@@ -381,6 +381,10 @@ class RealHardwareService implements HardwareService {
     if (!_tcpConnected && !_ctrl.isClosed) {
       _ctrl.add(const MachineStatus(state: MachineState.disconnected));
     }
+    // 掉线即终结进行中的雕刻会话：命令不自动补发（D8），横幅不能无限转圈。
+    if (_carve.isActive) {
+      _failCarve('网络连接已断开，请检查网络后重新开始');
+    }
     _lastConnError = 'MQTT 连接被断开$reason';
     _setConn(LinkState.disconnected);
     _scheduleReconnect();
@@ -639,6 +643,11 @@ class RealHardwareService implements HardwareService {
               state: MachineState.alarm,
               message: msg.isEmpty ? type : msg,
             );
+            // 报警 = 本次作业终止：进行中的雕刻会话必须立即结束，
+            // 否则「准备中」横幅会无限转圈（2026-09-04 客户实测 bug）。
+            if (_carve.isActive) {
+              _failCarve('机器报警，本次作业已中止，请处理报警后重试');
+            }
           case 'confirm_required':
             notifyStatus = const MachineStatus(
               state: MachineState.busy,
@@ -655,6 +664,10 @@ class RealHardwareService implements HardwareService {
               message: msg.isEmpty ? '确认超时已取消' : msg,
             );
             _settlePendingAcked();
+            // 机器已取消本次启动 → 雕刻会话一并结束，横幅不能继续转圈。
+            if (_carve.isActive) {
+              _cancelCarve();
+            }
           default:
             notifyStatus = MachineStatus(message: msg.isEmpty ? type : msg);
         }
@@ -683,6 +696,11 @@ class RealHardwareService implements HardwareService {
       }
 
       final parsed = MachineStatus.fromJson(j);
+      // 状态帧直接报 alarm（未经 notify 的静默报警）同样要终结雕刻会话。
+      // isActive 守卫保证只触发一次：fail 后会话不再 active。
+      if (parsed.state == MachineState.alarm && _carve.isActive) {
+        _failCarve('机器报警，本次作业已中止，请处理报警后重试');
+      }
       _checkCmdAck(parsed);
       _syncCarveFromStatus(j);
       _ctrl.add(parsed);
@@ -962,6 +980,10 @@ class RealHardwareService implements HardwareService {
   /// 当前雕刻作业快照。
   CarveSession _carve = const CarveSession();
 
+  /// 雕刻会话看门狗：preparing/confirming 阶段 90s 内既无 ACK 也无下载进度
+  /// → 判定失败（只终结会话，**绝不重发**，D8）。防止「准备中」无限转圈。
+  Timer? _carveWatchdog;
+
   /// 当前等待 ACK 的命令 reqId（prepare 或 confirm 二选一，不会同时等两个）。
   String? _awaitingReqId;
 
@@ -1057,7 +1079,26 @@ class RealHardwareService implements HardwareService {
 
   void _updateCarve(CarveSession s) {
     _carve = s;
+    if (s.stage == CarveStage.preparing ||
+        s.stage == CarveStage.confirming) {
+      // （重新）武装看门狗：下载进度刷新会反复走到这里，等于自动续期。
+      _carveWatchdog?.cancel();
+      _carveWatchdog = Timer(const Duration(seconds: 90), () {
+        if (_carve.stage == CarveStage.preparing ||
+            _carve.stage == CarveStage.confirming) {
+          _failCarve('等待机器响应超时，请检查机器屏幕后重试');
+        }
+      });
+    } else {
+      _carveWatchdog?.cancel();
+    }
     if (!_carveCtrl.isClosed) _carveCtrl.add(s);
+  }
+
+  /// 客户/机器主动取消：会话直接回 idle（横幅立即消失，不显示失败面板）。
+  void _cancelCarve() {
+    _awaitingReqId = null;
+    _updateCarve(const CarveSession());
   }
 
   void _failCarve(String message) {
@@ -1266,6 +1307,11 @@ class RealHardwareService implements HardwareService {
 
   @override
   Future<void> stopJob() async {
+    // 客户点「停止」= 放弃本次作业：先终结雕刻会话（横幅立即消失），
+    // 再下发停机命令。否则报警/无响应时「准备中」会永远转圈。
+    if (_carve.isActive) {
+      _cancelCarve();
+    }
     final cmd = {'cmd': 'job', 'action': 'stop'};
     _dispatch(cmd);
   }
@@ -1327,6 +1373,7 @@ class RealHardwareService implements HardwareService {
     _camCtrl.close();
     _connCtrl.close();
     _cmdCtrl.close();
+    _carveWatchdog?.cancel();
     _carveCtrl.close();
   }
 }

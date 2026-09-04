@@ -29,8 +29,9 @@ class JobLaunchBanner extends ConsumerWidget {
     // 雕刻主链路 v2（2026-09-03）：有进行中的两阶段作业时优先显示它；
     // 否则回退到旧的「启动三态」（老固件 / 物理键流程）。
     final carve = ref.watch(carveSessionProvider).valueOrNull;
-    if (carve != null && carve.isActive) {
-      return _buildCarveStage(carve);
+    if (carve != null &&
+        (carve.isActive || carve.stage == CarveStage.failed)) {
+      return _buildCarveStage(ref, carve);
     }
     final phase = ref.watch(jobLaunchPhaseProvider);
     if (phase == JobLaunchPhase.idle || phase == JobLaunchPhase.running) {
@@ -40,7 +41,9 @@ class JobLaunchBanner extends ConsumerWidget {
   }
 
   /// 雕刻主链路 v2：准备中（下载 x%）→ 开始中 → 加工中 / 失败。
-  Widget _buildCarveStage(CarveSession carve) {
+  /// 2026-09-04 修：失败态此前不可达（isActive 不含 failed）——
+  /// 客户只见「准备中」凭空消失；现在失败面板带原因文案 + 可关闭。
+  Widget _buildCarveStage(WidgetRef ref, CarveSession carve) {
     final String title;
     final String detail;
     final Color color;
@@ -70,6 +73,9 @@ class JobLaunchBanner extends ConsumerWidget {
       detail: detail,
       color: color,
       spinning: carve.stage != CarveStage.failed,
+      onClose: carve.stage == CarveStage.failed
+          ? () => ref.read(hardwareServiceProvider).clearCarve()
+          : null,
     );
   }
 
@@ -122,6 +128,7 @@ class JobLaunchBanner extends ConsumerWidget {
     required Color color,
     IconData? icon,
     bool spinning = false,
+    VoidCallback? onClose,
   }) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -160,6 +167,14 @@ class JobLaunchBanner extends ConsumerWidget {
               ],
             ),
           ),
+          if (onClose != null)
+            GestureDetector(
+              onTap: onClose,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: Icon(Icons.close, size: 16, color: color),
+              ),
+            ),
         ],
       ),
     );

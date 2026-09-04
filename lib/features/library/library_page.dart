@@ -482,8 +482,11 @@ class _InspirationSliver extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14),
           decoration: BoxDecoration(
-            color: const Color(0xFF222222),
+            // 2026-09-04 修：搜索栏黑底是深色 UI 残留 —— 浅色界面下输入的
+            // 深色文字看不见。统一改为浅色面板 + 描边（与顶部分段控件一致）。
+            color: CncColors.panelAlt,
             borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: CncColors.border),
           ),
           child: Row(
             children: [
@@ -695,17 +698,8 @@ class _ModelCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     // 2026-09-03 删材质字：与"时长 · 材质"同理 —— 详情页已展示"默认材质"，
                     // 列表卡片空间有限，材质位置易出格，删除后卡片更整洁。
-                    if (item.tags.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Wrap(
-                        spacing: 4,
-                        runSpacing: 4,
-                        children: item.tags
-                            .take(2)
-                            .map((t) => _chip(t, CncColors.card, CncColors.textSub))
-                            .toList(),
-                      ),
-                    ],
+                    // 2026-09-04 删：卡片下方分类/属性小标签（如"宠物 纪念"），
+                    // 客户视角无增量价值且拥挤；分类信息保留在详情页。
                   ],
                 ),
               ),
@@ -714,15 +708,6 @@ class _ModelCard extends StatelessWidget {
         ),
       );
 
-  Widget _chip(String label, Color bg, Color fg) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Text(label,
-            style: TextStyle(fontSize: 9, color: fg, fontWeight: FontWeight.w500)),
-      );
 }
 
 // ===================== 视图 B：我的云端空间 =====================
