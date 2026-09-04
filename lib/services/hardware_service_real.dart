@@ -624,7 +624,9 @@ class RealHardwareService implements HardwareService {
       //  - statusStream → 维持既有状态联动（awaitingConfirm / job_done / alarm）。
       if (j.containsKey('type')) {
         final type = j['type']?.toString() ?? '';
-        final msg = j['msg']?.toString() ?? '';
+        // 2026-09-04：小屏回执的失败文案可能在 `msg` 或 `message` 字段
+        // （工程师对照表用的是英文原文），两个键都读，避免漏接。
+        final msg = (j['msg'] ?? j['message'])?.toString() ?? '';
         MachineStatus notifyStatus;
         switch (type) {
           // 双名兼容（2026-09-02）：App 沿用 `job_done`，闫安小屏文档用
@@ -1127,6 +1129,24 @@ class RealHardwareService implements HardwareService {
     _updateCarve(_carve.copyWith(stage: CarveStage.failed, error: message));
   }
 
+  /// cmd_ack 失败信息 → 客户能看懂的中文（工程师对照表 2026-09-04）。
+  /// - message 已是中文（含 CJK）→ 原样展示（小屏以后补中文 message 时直接生效）；
+  /// - 英文技术文案（GRBL reply timeout / unknown cmd / machine busy…）→ 查表转译；
+  /// - 无 message / 未命中 → 按 code（E400/E409/EVERIFY…）映射（[_ackCodeText]）。
+  static String _friendlyAckText(String message, String? code) {
+    if (message.isNotEmpty && message != 'cmd_ack') {
+      if (message.contains(RegExp(r'[\u4e00-\u9fff]'))) return message;
+      const msgMap = {
+        'grbl reply timeout': '控制板没有响应，请检查控制板电源和连接',
+        'unknown cmd': '当前设备版本不支持这个操作',
+        'machine busy': '机器正在运行，暂时不能执行',
+      };
+      final hit = msgMap[message.trim().toLowerCase()];
+      if (hit != null) return hit;
+    }
+    return _ackCodeText(code);
+  }
+
   /// 小屏 cmd_ack 错误码 → 客户能看懂的通俗话术（清单 §3 错误码表）。
   /// 联调诊断信息（GRBL 原始码）保留在括号里，便于远程定位问题。
   static String _ackCodeText(String? code) {
@@ -1169,9 +1189,7 @@ class RealHardwareService implements HardwareService {
     if (!ok) {
       // 2026-09-04：小屏 cmd_ack 只有 code 没有 message（清单 §3），
       // 直接显示 "E409" 这类错误码客户看不懂 → 映射通俗中文。
-      final detail = (ev.message.isNotEmpty && ev.message != 'cmd_ack')
-          ? ev.message
-          : _ackCodeText(ev.code);
+      final detail = _friendlyAckText(ev.message, ev.code);
       _failCarve('机器没能准备好：$detail');
       return;
     }
