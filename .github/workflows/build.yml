@@ -272,9 +272,10 @@ jobs:
 
       - name: Upload APK artifact
 
-        # 2026-09-04 修：用 step outcome 替代 outputs.code（之前永远空字符串 → skipped，
-        # APK 实际构建成功 147.3MB 但从未上传到 release，客户下载链接 404）。
-        if: steps.build.outcome == 'success'
+        # 2026-09-04 二次修：outcome 会被 build 步骤的 set +e 骗成 success
+        # （失败被吞、步骤仍 exit 0）。真正可信的是 build 步骤写出的
+        # outputs.code（echo "code=$BUILD" >> $GITHUB_OUTPUT）。
+        if: steps.build.outputs.code == '0'
 
         uses: actions/upload-artifact@v4
 
@@ -288,7 +289,7 @@ jobs:
 
       - name: Publish APK release
 
-        if: steps.build.outcome == 'success'
+        if: steps.build.outputs.code == '0'
 
         run: |
 
@@ -321,13 +322,13 @@ jobs:
 
       - name: Fail if build failed
 
-        # 2026-09-03 修：用内置 step outcome 判断（之前用 outputs.code 经常读不到，
-        # 导致实际构建成功但这个 step 误报失败 → release 不发布）。
-        if: steps.build.outcome == 'failure'
+        # 2026-09-04 修：outcome 被 set +e 永远骗成 success → 守卫从未生效。
+        # 改读 build 步骤真实写出的 outputs.code。
+        if: steps.build.outputs.code != '0'
 
         run: |
 
-          echo "Build failed (outcome=${{ steps.build.outcome }})."
+          echo "Build failed (code=${{ steps.build.outputs.code }})."
 
           echo "Full log committed to ci-log.txt on ${GITHUB_REF_NAME}."
 

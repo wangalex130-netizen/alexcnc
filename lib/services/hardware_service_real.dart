@@ -1002,6 +1002,11 @@ class RealHardwareService implements HardwareService {
   CarveSession get currentCarveSession => _carve;
 
   @override
+  void clearCarve() {
+    _cancelCarve();
+  }
+
+  @override
   Future<void> prepareJob({
     required String fileUrl,
     String fileName = 'job.gc',
