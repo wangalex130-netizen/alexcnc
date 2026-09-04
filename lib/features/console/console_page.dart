@@ -922,7 +922,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     // 「完成」/「知道了」：这次延时摄影任务结束，清掉本地状态回到干净状态。
                     // 下次雕刻时可以从零开始新一轮（功能的"可循环"体现在这里）。
                     onDone: _tlDismissReady,
-                  ),),
+                  ),
 
                 // 快捷开关：随内容滚动（原先固定在顶部，挤压了下方 Jog 区可用空间）
                 Container(

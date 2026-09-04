@@ -958,7 +958,6 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
       widget.onAssign(p, slot);
       return;
     }
-    final existing = toolById(existingId);
     final needed = toolById(neededId);
     final existing = existingId == null ? null : toolById(existingId);
     // 任一刀找不到（接口 / 本地刀库漂移）→ 跳过弹窗，直接映射，由后续同步校验兜底。
