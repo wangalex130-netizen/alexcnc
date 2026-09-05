@@ -3,6 +3,7 @@ import 'dart:async';
 
 
 import 'package:flutter/material.dart';
+import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -1350,7 +1351,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                             Icon(
 
-                              _isTlRunning() ? Icons.stop_rounded : Icons.fiber_manual_record,
+                              _isTlRunning() ? Symbols.stop : Symbols.fiber_manual_record,
 
                               size: 16,
 
@@ -1450,7 +1451,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                             ],
 
-                            Icon(Icons.schedule, size: 13, color: _tlColor()),
+                            Icon(Symbols.schedule, size: 13, color: _tlColor()),
 
                             const SizedBox(width: 4),
 
@@ -1650,7 +1651,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                           children: const [
 
-                            Icon(Icons.science_outlined, size: 16, color: CncColors.warning),
+                            Icon(Symbols.science, size: 16, color: CncColors.warning),
 
                             SizedBox(width: 6),
 
@@ -1698,7 +1699,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                             ),
 
-                            icon: const Icon(Icons.tune, size: 16),
+                            icon: const Icon(Symbols.tune, size: 16),
 
                             label: const Text('开启真实设备连接',
 
@@ -1764,7 +1765,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                           children: [
 
-                            const Icon(Icons.sensors_outlined, size: 16, color: CncColors.blue),
+                            const Icon(Symbols.sensors, size: 16, color: CncColors.blue),
 
                             const SizedBox(width: 6),
 
@@ -1806,7 +1807,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                             ),
 
-                            icon: const Icon(Icons.sensors_outlined, size: 16),
+                            icon: const Icon(Symbols.sensors, size: 16),
 
                             label: const Text('选择机器',
 
@@ -1868,7 +1869,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                       children: [
 
-                        const Icon(Icons.priority_high, size: 16, color: CncColors.warning),
+                        const Icon(Symbols.priority_high, size: 16, color: CncColors.warning),
 
                         const SizedBox(width: 6),
 
@@ -1912,7 +1913,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                       children: [
 
-                        const Icon(Icons.wifi_off, size: 16, color: CncColors.danger),
+                        const Icon(Symbols.wifi_off, size: 16, color: CncColors.danger),
 
                         const SizedBox(width: 6),
 
@@ -2038,7 +2039,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                               child: Icon(
 
-                                  completed ? Icons.check_circle_outline : Icons.play_circle_outline,
+                                  completed ? Symbols.check_circle : Symbols.play_circle,
 
                                   color: completed
 
@@ -2100,7 +2101,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                             ),
 
-                            const Icon(Icons.chevron_right,
+                            const Icon(Symbols.chevron_right,
 
                                 color: CncColors.textSub),
 
@@ -2164,7 +2165,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                         _ToggleBtn(
 
-                            icon: Icons.lightbulb_outline,
+                            icon: Symbols.lightbulb,
 
                             label: '机箱照明',
 
@@ -2180,7 +2181,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                         _ToggleBtn(
 
-                            icon: Icons.gps_fixed,
+                            icon: Symbols.gps_fixed,
 
                             label: '红点激光',
 
@@ -2196,7 +2197,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                         _ToggleBtn(
 
-                            icon: Icons.air,
+                            icon: Symbols.air,
 
                             label: '冷却风扇',
 
@@ -2311,7 +2312,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                   child: _ActionBtn(
 
-                    icon: Icons.stop_rounded,
+                    icon: Symbols.stop,
 
                     label: '停止',
 
@@ -2387,7 +2388,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                   child: _ActionBtn(
 
-                    icon: isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                    icon: isPaused ? Symbols.play_arrow : Symbols.pause,
 
                     label: isPaused ? '继续' : '暂停',
 
@@ -2709,7 +2710,7 @@ class _ConnStatusChip extends ConsumerWidget {
 
             Icon(
 
-              isCloud ? Icons.cloud_outlined : Icons.wifi,
+              isCloud ? Symbols.cloud : Symbols.wifi,
 
               size: 14,
 
@@ -2773,7 +2774,7 @@ class _ConnStatusChip extends ConsumerWidget {
 
               Icon(
 
-                Icons.refresh,
+                Symbols.refresh,
 
                 size: 16,
 
@@ -3000,7 +3001,7 @@ class _JogEntry extends StatelessWidget {
                     children: [
                       Text('打开', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: CncColors.blue)),
                       SizedBox(width: 4),
-                      Icon(Icons.chevron_right, size: 14, color: CncColors.blue),
+                      Icon(Symbols.chevron_right, size: 14, color: CncColors.blue),
                     ],
                   ),
                 ),
@@ -3081,7 +3082,7 @@ class _SpindleCard extends StatelessWidget {
 
                         children: [
 
-                          Icon(spindleOn && enabled ? Icons.stop_circle : Icons.play_arrow,
+                          Icon(spindleOn && enabled ? Symbols.stop_circle : Symbols.play_arrow,
 
                               size: 14, color: spindleOn && enabled ? CncColors.danger : CncColors.textMain),
 
@@ -3243,7 +3244,7 @@ class _AtcEntry extends ConsumerWidget {
 
                     SizedBox(width: 4),
 
-                    Icon(Icons.chevron_right, size: 14, color: CncColors.blue),
+                    Icon(Symbols.chevron_right, size: 14, color: CncColors.blue),
 
                   ],
 
@@ -3663,7 +3664,7 @@ class _AtcSheetState extends ConsumerState<_AtcSheet> {
 
                   children: [
 
-                    Icon(Icons.sync, size: 18, color: Colors.black),
+                    Icon(Symbols.sync, size: 18, color: Colors.black),
 
                     SizedBox(width: 8),
 
@@ -3859,7 +3860,7 @@ class _TimeLapseStatusCard extends StatelessWidget {
 
             children: [
 
-              Icon(Icons.schedule, size: 16, color: CncColors.blue),
+              Icon(Symbols.schedule, size: 16, color: CncColors.blue),
 
               const SizedBox(width: 6),
 

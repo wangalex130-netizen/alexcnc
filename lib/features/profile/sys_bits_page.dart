@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_symbols_icons/material_symbols_icons.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme.dart';
@@ -132,12 +133,12 @@ class _BitCard extends StatelessWidget {
     switch (bitType?.toLowerCase()) {
       case 'v':
       case 'v bits':
-        return Icons.construction_outlined; // V 型刻刀
+        return Symbols.construction; // V 型刻刀
       case 'ballnose':
       case 'ball':
-        return Icons.circle_outlined; // 球头
+        return Symbols.circle; // 球头
       default:
-        return Icons.view_stream_outlined; // 平底/直刀
+        return Symbols.view_stream; // 平底/直刀
     }
   }
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_symbols_icons/material_symbols_icons.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme.dart';
@@ -92,12 +93,12 @@ class JobLaunchBanner extends ConsumerWidget {
         title = '待确认';
         detail = '请在机器上按开始键确认，确认后才会动刀。';
         color = CncColors.warning;
-        icon = Icons.front_hand_outlined;
+        icon = Symbols.front_hand;
       case JobLaunchPhase.failed:
         title = '指令未送达';
         detail = '已重试 ${pending?.retries ?? 0} 次仍无响应，请检查机器是否联网在线。';
         color = CncColors.danger;
-        icon = Icons.cloud_off_outlined;
+        icon = Symbols.cloud_off;
       case JobLaunchPhase.dispatched:
         final retrying = pending?.state == CommandDeliveryState.retrying;
         final queued = pending?.state == CommandDeliveryState.queued;
@@ -108,7 +109,7 @@ class JobLaunchBanner extends ConsumerWidget {
                 ? '指令未送达，正在重试（第 ${pending?.retries ?? 0} 次）…'
                 : '${pending?.label ?? '指令'}已下发，等待机器响应…';
         color = CncColors.textSub;
-        icon = Icons.send_outlined;
+        icon = Symbols.send;
       default:
         return const SizedBox.shrink();
     }
@@ -148,7 +149,7 @@ class JobLaunchBanner extends ConsumerWidget {
               height: 14,
               child: spinning
                   ? CircularProgressIndicator(strokeWidth: 2, color: color)
-                  : Icon(icon ?? Icons.info_outline, size: 14, color: color),
+                  : Icon(icon ?? Symbols.info, size: 14, color: color),
             ),
           ),
           const SizedBox(width: 8),
@@ -172,7 +173,7 @@ class JobLaunchBanner extends ConsumerWidget {
               onTap: onClose,
               child: Padding(
                 padding: const EdgeInsets.only(left: 4),
-                child: Icon(Icons.close, size: 16, color: color),
+                child: Icon(Symbols.close, size: 16, color: color),
               ),
             ),
         ],
