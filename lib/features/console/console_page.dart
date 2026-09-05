@@ -2211,13 +2211,17 @@ class _TimeLapseStatusCard extends StatelessWidget {
                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: CncColors.textMain)),
               const Spacer(),
               if (st == 'running')
-                Text('采集中 $count/$target',
+                // 2026-09-05：frames_target 语义已改为「成片满 20 秒所需帧数」，
+                // 采样不再被它封顶，count 会继续增长 → 超过时不再显示 N/M 的比例，
+                // 改为「已采 N 帧」，避免出现「采集中 450/300」这种失真显示。
+                Text(count > target && target > 0 ? '采集中 · 已采 $count 帧'
+                        : '采集中 $count/$target',
                     style: const TextStyle(fontSize: 11, color: CncColors.blue)),
             ],
           ),
           const SizedBox(height: 8),
           if (st == 'running')
-            const Text('服务器正按雕刻时长自动抽样拍照，结束后自动拼接 15 秒回顾视频。',
+            const Text('服务器正自动抽样拍照，结束后拼接成最长 20 秒的回顾视频。',
                 style: TextStyle(fontSize: 11, color: CncColors.textSub))
           else if (ready)
             Column(

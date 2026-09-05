@@ -270,7 +270,16 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
                       children: [
                         Text(_formatTime(createdAt), style: TextStyle(color: CncColors.textSub, fontSize: 11)),
                         SizedBox(height: 2),
-                        Text(videoReady ? '已生成视频（$count 帧）' : status == 'running' ? '录制中 $count/$target' : '未生成视频',
+                        // 2026-09-05：frames_target 语义变为「成片满 20 秒所需帧数」，
+                        // 采样不再被封顶，count 会继续增长 → 超过时不再显示 N/M 比例，
+                        // 避免出现「录制中 450/300」这类失真显示。
+                        Text(videoReady
+                            ? '已生成视频（$count 帧）'
+                            : status == 'running'
+                                ? (count > target && target > 0
+                                    ? '录制中 · 已采 $count 帧'
+                                    : '录制中 $count/$target')
+                                : '未生成视频',
                             style: TextStyle(color: CncColors.textMain, fontSize: 12, fontWeight: FontWeight.w500),
                             maxLines: 1, overflow: TextOverflow.ellipsis),
                       ],
