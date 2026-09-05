@@ -40,12 +40,20 @@ class RtspPreviewWidget extends StatefulWidget {
   /// 点击后由外层页面接管全屏（避免内层全屏与外框冲突）。
   final VoidCallback? onFullscreen;
 
+  /// 2026-09-05：点「开始预览」前的钩子，供外层补发一次 stream_start。
+  ///
+  /// 摄像头是**按需推流**（上电默认 on=0 不推流），必须先收到 stream_start
+  /// 才往中继推帧。若用户点播放时推流尚未起来，拉到的就是空流，只能干等
+  /// 12s 超时后失败。外层在此刻补发一次即可（start 命令幂等，无副作用）。
+  final VoidCallback? onBeforePlay;
+
   const RtspPreviewWidget({
     super.key,
     this.rtspUrl,
     this.relayUrl,
     this.autoDiscover = true,
     this.onFullscreen,
+    this.onBeforePlay,
   });
 
   @override
@@ -103,6 +111,8 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
   /// 用户点击「实时预览」后启动。
   void startPreview() {
     if (_state == _CamState.connecting || _state == _CamState.ready) return;
+    // 2026-09-05：先让外层补发 stream_start（按需推流，不先下令只会拉到空流）。
+    widget.onBeforePlay?.call();
     _connectTimeoutTimer?.cancel();
     _resetAttempts();
     // 用户主动点播放，必定可见：强制 _pageVisible=true，

@@ -77,6 +77,10 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   /// 周期 30s 远小于 45s 窗口，留足冗余（与全屏页一致）。
   Timer? _camRenewTimer;
 
+  /// 当前机器变化的订阅（2026-09-05）：一选中机器就立即补发推流命令。
+  /// 详见 initState 里的注册说明——这是「首次登录必须先进全屏预览」的根治点。
+  ProviderSubscription<Machine?>? _machineSub;
+
   /// 乐观 UI：暂停/继续按钮立即切换，等机器状态回传后校准。
   /// null = 跟随机器状态，true = 用户刚刚点了暂停，false = 用户刚刚点了继续。
   bool? _pausedLocal;
@@ -121,6 +125,26 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
       if (ref.read(timeLapseJobProvider) != null) return;
       _sendCameraStart();
     });
+
+    // 2026-09-05（根治「首次登录必须先进全屏预览才有画面」）：
+    // 监听当前机器，一选中就补发 stream_start。
+    //
+    // 用户实测的现象：首次安装/登录后选机器，控制台怎么点都出不来画面，
+    // 必须先从「我的机器」进一次全屏预览；关掉 App 重开后，控制台直接就有画面。
+    //
+    // 因果链：本页 initState 那一次 stream_start 发生在**选机器之前**
+    // （此刻 currentMachine 为 null → 设备码为空 → 命令被跳过）；
+    // 用户在机器列表选完机器后，hardwareServiceProvider 会随之重建，
+    // 但**本页早已初始化完毕、不会再发第二次**，于是推流命令永远缺席。
+    // 重启 App 时机器已从 SharedPreferences 恢复，initState 就能取到设备码，
+    // 所以「第二次就好了」——并非玄学。
+    _machineSub = ref.listenManual<Machine?>(
+      currentMachineProvider,
+      (prev, next) {
+        if (!mounted || next == null) return;
+        _sendCameraStart();
+      },
+    );
   }
 
   /// 与预览同源的摄像头设备码：当前机器 sn → camDevice → runtime_config 配置值。
@@ -162,6 +186,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
             .sendCameraStream('stream_stop', deviceId: dev);
       } catch (_) {/* 停推失败忽略 */}
     }
+    _machineSub?.close();
     _camRenewTimer?.cancel();
     _tlTimer?.cancel();
     _netTimer?.cancel();
@@ -598,6 +623,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   rtspUrl: null,
                   relayUrl:
                       (!realMode || loggedIn) ? _resolvedRelayUrl(cfg) : null,
+                  // 2026-09-05：点「开始预览」前先补发 stream_start（按需推流，
+                  // 不先下令就会拉到空流、干等 12s 超时后失败）。
+                  onBeforePlay: _sendCameraStart,
                   onFullscreen: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
