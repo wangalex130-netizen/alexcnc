@@ -2065,15 +2065,54 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
     // 延时摄影：开启则让服务器从本刻起按雕刻时长抽样存图（与固件雕刻并行，
     // 手机/电脑/机器本身均不存照片，全部在服务器完成）。
     if (_timeLapse) {
-      // A1（2026-09-03）：先确保摄像头在推流（幂等：已推流自动忽略，不 reset ABR）。
-      // 否则摄像头重启/插拔后 relay.on=0，App 点开始却录 0 帧失败。
-      try {
-        ref.read(hardwareServiceProvider).sendCameraStream('stream_start');
-      } catch (_) {}
+      // 2026-09-05 修（P0）：与控制台同源注入设备码，并给 stream_start 带 deviceId。
+      //
+      // 原实现两处都没带设备码：
+      //   ① sendCameraStream 不传 deviceId → 回退实例 deviceId；
+      //   ② TimeLapseClient 用静态变量（仅在「我的机器」点选时注入），
+      //      App 冷启动后归零 → 回退编译期默认空串（docs/38 A-1 已置空）。
+      // 结果 POST /timelapse/start 的 device 为空，被中继以 400 拒绝；
+      // 而 start() 失败仅 debugPrint 并返回 null → 雕刻流程里开延时**点了没反应**。
+      final cfg = ref.read(runtimeConfigProvider);
+      final m = ref.read(currentMachineProvider);
+      String dev = '';
+      if (m != null) {
+        if (m.sn.isNotEmpty) {
+          dev = m.sn;
+        } else if (m.camDevice.isNotEmpty) {
+          dev = m.camDevice;
+        }
+      }
+      if (dev.isEmpty) dev = cfg.resolvedCameraRelayDevice;
+
+      if (dev.isNotEmpty) {
+        TimeLapseClient.configure(
+          base: cfg.resolvedCameraRelayBaseUrl,
+          token: cfg.resolvedCameraRelayToken,
+          device: dev,
+        );
+        // A1（2026-09-03）：先确保摄像头在推流（幂等：已推流自动忽略，不 reset ABR）。
+        // 否则摄像头重启/插拔后 relay.on=0，App 点开始却录 0 帧失败。
+        try {
+          ref.read(hardwareServiceProvider)
+              .sendCameraStream('stream_start', deviceId: dev);
+        } catch (_) {}
+      }
       final dur = double.tryParse(_durCtrl.text) ?? 120.0;
       final tlJobId = await TimeLapseClient.start(durationSec: dur);
       if (tlJobId != null) {
         ref.read(timeLapseJobProvider.notifier).setJob(tlJobId);
+      } else if (mounted) {
+        // 2026-09-05：失败必须让用户看见，禁止静默（此前点了毫无反应）。
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              '延时摄影启动失败，请检查网络后重试',
+              style: TextStyle(fontSize: 13),
+            ),
+            duration: Duration(seconds: 3),
+          ),
+        );
       }
     }
 

@@ -67,8 +67,15 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   bool _tlArmed = false;
 
   /// 取流路径探测周期器：每 10s 探测一次控制器 TCP 8899，写回 isLocalLANProvider
-  /// （仅用于决定摄像头走局域网直连还是云中继，与控制权限无关）。
+  /// （2026-09-05 起仅用于诊断展示，不再决定摄像头取流路径）。
   Timer? _netTimer;
+
+  /// 摄像头推流续租定时器（2026-09-05 新增）。
+  ///
+  /// 摄像头固件的 idle-stop 在「45s 无续租」后会自行停止推流，控制台停留
+  /// 超过 45s 画面就会断。全屏预览页早有 30s 续租，控制台此前没有 —— 补齐。
+  /// 周期 30s 远小于 45s 窗口，留足冗余（与全屏页一致）。
+  Timer? _camRenewTimer;
 
   /// 乐观 UI：暂停/继续按钮立即切换，等机器状态回传后校准。
   /// null = 跟随机器状态，true = 用户刚刚点了暂停，false = 用户刚刚点了继续。
@@ -99,10 +106,44 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     // 命令仅入队，flush 后还要等摄像头真正开始推流 → 表现就是"画面出不来，
     // 必须先进一次全屏预览才能显示"。这里主动发一次兜底：
     // 已有的 sendCameraStream 会在未连时缓存、连上时 flush（见 hardware_service_real.dart）。
+    //
+    // 2026-09-05 修：必须显式带上设备码。此前不传 deviceId，会回退到实例的
+    // deviceId；而断点缓存补发又会再丢一次（已修），任一条链路出问题都会
+    // 导致命令发不到摄像头 → 仍是"必须先进全屏预览"的老现象。
     Future<void>.delayed(const Duration(milliseconds: 200), () {
       if (!mounted) return;
-      ref.read(hardwareServiceProvider).sendCameraStream('stream_start');
+      _sendCameraStart();
     });
+    // 2026-09-05：续租。摄像头 idle-stop 45s 无续租即自停，控制台久留会断流。
+    _camRenewTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!mounted) return;
+      // 延时录制期间不需要：服务器判定"有 running 延时任务"时本就会持续续租。
+      if (ref.read(timeLapseJobProvider) != null) return;
+      _sendCameraStart();
+    });
+  }
+
+  /// 与预览同源的摄像头设备码：当前机器 sn → camDevice → runtime_config 配置值。
+  ///
+  /// 所有摄像头流控/延时的触发点都必须用它，避免各自回退到编译期默认的空值
+  /// （docs/38 A-1 已把兜底设备码置空）——那是本轮多个"点了没反应"的共同病根。
+  String _cameraDeviceId() {
+    final m = ref.read(currentMachineProvider);
+    if (m != null) {
+      if (m.sn.isNotEmpty) return m.sn;
+      if (m.camDevice.isNotEmpty) return m.camDevice;
+    }
+    return ref.read(runtimeConfigProvider).resolvedCameraRelayDevice;
+  }
+
+  /// 下发 stream_start（带同源设备码）。设备码为空时不发，避免脏命令。
+  void _sendCameraStart() {
+    final dev = _cameraDeviceId();
+    if (dev.isEmpty) return;
+    try {
+      ref.read(hardwareServiceProvider)
+          .sendCameraStream('stream_start', deviceId: dev);
+    } catch (_) {/* sendCameraStream 内部已 try/catch */}
   }
 
   @override
@@ -110,7 +151,18 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     // 离开控制台发 stream_stop（仅在没人在雕、没延时录制时）—— 否则画面会持续推流。
     // RtspPreviewWidget 内部 dispose 也会发 stream_stop，这里属于二次保险，
     // 终态语义（只保留最后一次）保证多次调用无害。
-    ref.read(hardwareServiceProvider).sendCameraStream('stream_stop');
+    // 2026-09-05：①同样显式带设备码（此前不传会回退实例默认值）；
+    // ②延时录制中跳过（与全屏预览页 dispose 一致）——延时靠服务器从推流抽帧，
+    // 中途停推会录成 0 帧。摄像头侧虽有硬保险兜底，但这里不发更干净。
+    final tlJobId = ref.read(timeLapseJobProvider);
+    final dev = _cameraDeviceId();
+    if (tlJobId == null && dev.isNotEmpty) {
+      try {
+        ref.read(hardwareServiceProvider)
+            .sendCameraStream('stream_stop', deviceId: dev);
+      } catch (_) {/* 停推失败忽略 */}
+    }
+    _camRenewTimer?.cancel();
     _tlTimer?.cancel();
     _netTimer?.cancel();
     _notifySub?.cancel();
@@ -155,7 +207,11 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   ///    （缓存 → UDP 信标 → mDNS → 兜底固定地址），拿到真机地址再探测，
   ///    避免配置的固定 IP（默认 192.168.1.50）写错导致误判不可达；
   /// 2) 再用 resolved 配置地址做兜底探测，兼容「配置固定 IP + DHCP 绑定」场景；
-  /// 3) 任一可达 → isLocal=true（摄像头走局域网直连）。
+  /// 3) 任一可达 → isLocal=true。
+  ///
+  /// ⚠️ 2026-09-05 起 isLocal **不再决定摄像头取流路径**：按 8-29 决策
+  /// 「App 移除 LAN/WAN 双模，仅走服务器中继」，取流统一走云中继。
+  /// 探测结果仅保留用于诊断展示，以及 PC Web 版将来评估是否补回 LAN。
   Future<void> _autoDetectNetwork() async {
     if (!mounted) return;
     final cfg = ref.read(runtimeConfigProvider);
@@ -423,7 +479,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   @override
   Widget build(BuildContext context) {
     final status = ref.watch(machineStatusProvider).value ?? const MachineStatus();
-    final isLocal = ref.watch(isLocalLANProvider);
+    // 2026-09-05：isLocal 不再参与取流选路（8-29 决策：App 仅走服务器中继）。
+    // 局域网探测（isLocalLANProvider）仍保留，供诊断/将来 PC Web 版评估使用，
+    // 故此处不再 watch，避免留下未使用的局部变量。
     final cfg = ref.watch(runtimeConfigProvider);
     final realMode = cfg.resolvedUseRealBackend;
     final loggedIn = ref.watch(authProvider).isLoggedIn;
@@ -526,13 +584,20 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 height: videoBoxH,
                 child: RtspPreviewWidget(
                   // 真实后端模式下须登录才允许拉流（杜绝「不登录也能看」）。
-                  // isLocal 现在只决定取流路径（局域网直连 / 云中继），与控制权限无关。
-                  rtspUrl: (isLocal && (!realMode || loggedIn))
-                      ? cfg.resolvedCameraRtsp
-                      : null,
-                  relayUrl: (!isLocal && (!realMode || loggedIn))
-                      ? _resolvedRelayUrl(cfg)
-                      : null,
+                  //
+                  // 2026-09-05：按 8-29 决策「App 移除 LAN/WAN 双模，仅走服务器中继」，
+                  // 取流**不再**按 isLocal 切换局域网 RTSP。
+                  //
+                  // 原实现的坑：CAMERA_RTSP 默认为空串，一旦探测到局域网可达就走
+                  // rtspUrl（空）且 relayUrl 被置 null，只能靠局域网扫描碰运气，
+                  // 表现为「控制台点播放没画面，必须先从我的机器进一次全屏预览」。
+                  // 统一走云中继后取流路径唯一确定，与该决策一致。
+                  //
+                  // RTSP / CameraDiscovery 组件**保留不删**：PC Web 版是否补回 LAN
+                  // 尚未拍板（仅记「可能补回」），底层留着不影响 App 行为。
+                  rtspUrl: null,
+                  relayUrl:
+                      (!realMode || loggedIn) ? _resolvedRelayUrl(cfg) : null,
                   onFullscreen: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
@@ -588,9 +653,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   ),
                 ),
               // 右上角只保留延时摄影入口。
-              // 摄像头取流路径（局域网直连 / 云中继）由 isLocalLANProvider 自动探测决定，
-              // 探测在启动 300ms / 每 10s / 切回前台时跑；界面不再暴露「远程 / 局域网」概念，
-              // 因为终局方案下命令一律走云端 MQTT，内外网权限已无区别。
+              // 2026-09-05：摄像头取流路径**固定走云中继**（8-29 决策：App 仅走服务器中继），
+              // 不再由 isLocalLANProvider 探测结果切换；界面也早已不暴露「远程 / 局域网」概念。
+              // 探测仍在跑（启动 300ms / 每 10s / 切回前台），但结果只用于诊断。
               Positioned(
                 top: 40,
                 right: 15,

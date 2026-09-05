@@ -976,6 +976,7 @@ class RealHardwareService implements HardwareService {
     final id = deviceId ?? this.deviceId;
     if (_mqtt?.connectionStatus?.state != MqttConnectionState.connected) {
       _pendingCameraAction = action; // 终态命令：覆盖旧的，只留最终意图
+      _pendingCameraDeviceId = id; // 2026-09-05：设备码一并缓存，补发时要用
       return;
     }
     _publishCameraCmd(id, action);
@@ -990,6 +991,13 @@ class RealHardwareService implements HardwareService {
 
   /// 断连期间缓存的摄像头流控动作（null = 无）。连接成功后补发一次即清空。
   String? _pendingCameraAction;
+
+  /// 与 [_pendingCameraAction] 配套缓存的设备码（2026-09-05 修）。
+  ///
+  /// 原实现只缓存 action，补发时改用实例默认的 `deviceId`，会**丢弃调用方
+  /// 显式传入的设备码**（全屏预览、延时启动传入的 machine.sn / camDevice），
+  /// 在「进页面时 MQTT 尚未连上」这一常见时序下，命令会被发到错误的设备。
+  String? _pendingCameraDeviceId;
 
   // ---- 雕刻主链路 v2（闫安文档 §6.8/6.9/6.11，2026-09-03）----
   /// 雕刻作业阶段广播流（UI 订阅以显示"准备中 / 下载 x% / 加工中"）。
@@ -1235,9 +1243,13 @@ class RealHardwareService implements HardwareService {
   void _flushPendingCameraAction() {
     final a = _pendingCameraAction;
     if (a == null) return;
+    // 2026-09-05：补发必须用「发起时的设备码」，不能用实例默认 deviceId，
+    // 否则调用方显式传入的设备码会在断连重连这一趟里丢失。
+    final id = _pendingCameraDeviceId ?? deviceId;
     _pendingCameraAction = null;
+    _pendingCameraDeviceId = null;
     if (_mqtt?.connectionStatus?.state == MqttConnectionState.connected) {
-      _publishCameraCmd(deviceId, a);
+      _publishCameraCmd(id, a);
     }
   }
 
@@ -1436,6 +1448,7 @@ class RealHardwareService implements HardwareService {
     _cmdQueue.clear();
     _pending = null;
     _pendingCameraAction = null; // 摄像头流控缓存随实例销毁（黑屏修复）
+    _pendingCameraDeviceId = null;
     _stopHeartbeat();
     _tcp?.destroy();
     _mqtt?.disconnect();
