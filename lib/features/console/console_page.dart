@@ -77,9 +77,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   /// 周期 30s 远小于 45s 窗口，留足冗余（与全屏页一致）。
   Timer? _camRenewTimer;
 
-  /// 当前机器变化的订阅（2026-09-05）：一选中机器就立即补发推流命令。
-  /// 详见 initState 里的注册说明——这是「首次登录必须先进全屏预览」的根治点。
-  ProviderSubscription<Machine?>? _machineSub;
+  /// 当前机器变化的监听（2026-09-05）：一选中机器就立即补发推流命令。
+  /// 实际注册在 build() 中通过 ref.listen 完成（由 riverpod 自动管理生命周期），
+  /// 详见 build() 内注释——这是「首次登录必须先进全屏预览」的根治点。
 
   /// 乐观 UI：暂停/继续按钮立即切换，等机器状态回传后校准。
   /// null = 跟随机器状态，true = 用户刚刚点了暂停，false = 用户刚刚点了继续。
@@ -138,13 +138,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     // 但**本页早已初始化完毕、不会再发第二次**，于是推流命令永远缺席。
     // 重启 App 时机器已从 SharedPreferences 恢复，initState 就能取到设备码，
     // 所以「第二次就好了」——并非玄学。
-    _machineSub = ref.listenManual<Machine?>(
-      currentMachineProvider,
-      (prev, next) {
-        if (!mounted || next == null) return;
-        _sendCameraStart();
-      },
-    );
   }
 
   /// 与预览同源的摄像头设备码：当前机器 sn → camDevice → runtime_config 配置值。
@@ -186,7 +179,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
             .sendCameraStream('stream_stop', deviceId: dev);
       } catch (_) {/* 停推失败忽略 */}
     }
-    _machineSub?.close();
     _camRenewTimer?.cancel();
     _tlTimer?.cancel();
     _netTimer?.cancel();
@@ -515,6 +507,27 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     final conn = ref.watch(connectionStateProvider).value;
     // 当前选中的机器：未选择时不显示任何机器状态（修复「没选机器却有 Smart 3020 待机」）。
     final currentMachine = ref.watch(currentMachineProvider);
+
+    // 2026-09-05（根治「首次登录必须先进全屏预览才有画面」）：
+    // 监听当前机器，一选中就补发 stream_start。
+    //
+    // 用户实测：首次安装/登录后选机器，控制台怎么点都出不来画面，必须先从
+    // 「我的机器」进一次全屏预览；关掉 App 重开后，控制台直接就有画面。
+    //
+    // 因果链（不是玄学）：
+    // 1) initState 那次 stream_start 发生在**选机器之前**，此时 currentMachine
+    //    为 null → 设备码为空 → 命令被跳过；
+    // 2) 用户在机器列表选完机器后，hardwareServiceProvider 会随之重建，
+    //    但**本页早已初始化完毕、不会再发第二次**，推流命令就此永久缺席；
+    // 3) 重启 App 时机器已从 SharedPreferences 恢复，initState 就能取到设备码，
+    //    所以「第二次就好了」。
+    //
+    // 用 ref.listen 而非 listenManual：生命周期由 riverpod 自动管理，
+    // 无需手工 close，也不会因页面重建而漏掉监听。
+    ref.listen(currentMachineProvider, (prev, next) {
+      if (next != null) _sendCameraStart();
+    });
+
     final hasMachine = currentMachine != null &&
         (currentMachine.name.isNotEmpty || currentMachine.sn.isNotEmpty);
     final machineTitle = hasMachine
