@@ -252,11 +252,48 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   }
 
   /// 画面内「开始录制」按钮：非雕刻态真正开始采样。
+  ///
+  /// 2026-09-05 修复（P1）：启动前用「与预览同源」的中继配置注入 TimeLapseClient。
+  ///   TimeLapseClient 的 device 原为静态变量，只在「我的机器」页点选机器时注入
+  ///   （machines_page _selectMachine），App 冷启动后归零 → 回退
+  ///   AppConfig.cameraRelayDevice（docs/38 A-1 已置空）→ POST /timelapse/start
+  ///   的 device 为空，中继返回 400 device required；而 start() 失败仅 debugPrint
+  ///   并返回 null，界面零提示 → 用户感知「点了没用」。
+  ///   现改为每次点击前按与 _resolvedRelayUrl 相同的优先级取设备码并注入，
+  ///   同时补发 stream_start（延时靠服务器从推流抽帧）并对失败给出明确提示。
   Future<void> _tlStartRecording() async {
+    final cfg = ref.read(runtimeConfigProvider);
+    // 与预览同源：当前机器 sn / camDevice → runtime_config 配置值。
+    final m = ref.read(currentMachineProvider);
+    String dev = '';
+    if (m != null) {
+      if (m.sn.isNotEmpty) {
+        dev = m.sn;
+      } else if (m.camDevice.isNotEmpty) {
+        dev = m.camDevice;
+      }
+    }
+    if (dev.isEmpty) dev = cfg.resolvedCameraRelayDevice;
+    if (dev.isEmpty) {
+      _showHint('未识别到机器，请先选择机器再开启延时摄影', warn: true);
+      return;
+    }
+    TimeLapseClient.configure(
+      base: cfg.resolvedCameraRelayBaseUrl,
+      token: cfg.resolvedCameraRelayToken,
+      device: dev,
+    );
+    // 延时依赖摄像头持续推流，启动前补一次（幂等，已有 sendCameraStream 缓存机制）。
+    try {
+      ref.read(hardwareServiceProvider)
+          .sendCameraStream('stream_start', deviceId: dev);
+    } catch (_) {/* sendCameraStream 内部已 try/catch */}
     final id = await TimeLapseClient.start(durationSec: 120);
     if (id != null) {
       ref.read(timeLapseJobProvider.notifier).setJob(id);
       if (mounted) setState(() => _tlArmed = true);
+    } else {
+      _showHint('延时摄影启动失败，请检查网络后重试', warn: true);
     }
   }
 
@@ -264,12 +301,14 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   Future<void> _tlStopRecording() async {
     final jobId = _tlJobId;
     if (jobId == null) return;
-    await TimeLapseClient.stop(jobId);
+    final ok = await TimeLapseClient.stop(jobId);
     ref.read(timeLapseJobProvider.notifier).clear();
     if (mounted) setState(() {
       _tlStatus = null;
       _tlArmed = false;
     });
+    // 2026-09-05：停止失败同样要让用户看见，避免「点了没反应」。
+    if (!ok) _showHint('停止失败，请重试', warn: true);
   }
 
   // ---------- 延时摄影图标状态（右上角） ----------
