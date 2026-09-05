@@ -568,16 +568,66 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
 
   /// 轮询服务器，更新当前延时摄影 job 的状态（采集中 / 视频已生成 / 失败）。
-
+  ///
+  /// 2026-09-06：本地 jobId 为空时，主动查询服务器上本设备的 running 任务并恢复。
+  /// 解决 App 卸载重装、多设备切换或状态丢失后，控制台看不到「停止录制」开关、
+  /// 用户只能再开新任务导致同一设备多个 running job 的问题。
   Future<void> _pollTimeLapse() async {
 
-    final jobId = ref.read(timeLapseJobProvider);
+    var jobId = ref.read(timeLapseJobProvider);
 
     if (jobId == null) {
 
-      if (_tlStatus != null && mounted) setState(() => _tlStatus = null);
+      // 本地无记忆，但服务器上可能还有 running 任务（如卸载重装）。
+      final dev = _cameraDeviceId();
 
-      return;
+      if (dev.isNotEmpty) {
+
+        final cfg = ref.read(runtimeConfigProvider);
+
+        TimeLapseClient.configure(
+
+          base: cfg.resolvedCameraRelayBaseUrl,
+
+          token: cfg.resolvedCameraRelayToken,
+
+          device: dev,
+
+        );
+
+        final list = await TimeLapseClient.list();
+
+        final running = list.where((j) => j['status'] == 'running').toList();
+
+        if (running.isNotEmpty) {
+
+          // list 按 created_at 倒序，第一个即最新任务。
+
+          final latest = running.first;
+
+          final recoveredId = latest['job_id'] as String?;
+
+          if (recoveredId != null && recoveredId.isNotEmpty) {
+
+            ref.read(timeLapseJobProvider.notifier).setJob(recoveredId);
+
+            jobId = recoveredId;
+
+            if (mounted) setState(() => _tlArmed = true);
+
+          }
+
+        }
+
+      }
+
+      if (jobId == null) {
+
+        if (_tlStatus != null && mounted) setState(() => _tlStatus = null);
+
+        return;
+
+      }
 
     }
 
@@ -725,11 +775,19 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
     } catch (_) {/* sendCameraStream 内部已 try/catch */}
 
-    final id = await TimeLapseClient.start(durationSec: 120);
+    final res = await TimeLapseClient.start(durationSec: 120);
 
-    if (id != null) {
+    if (res.conflict) {
 
-      ref.read(timeLapseJobProvider.notifier).setJob(id);
+      _showHint('该机器已有进行中的延时摄影，请先到「延时摄影回顾」停止后再录制', warn: true);
+
+      return;
+
+    }
+
+    if (res.jobId != null) {
+
+      ref.read(timeLapseJobProvider.notifier).setJob(res.jobId!);
 
       if (mounted) setState(() => _tlArmed = true);
 

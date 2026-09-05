@@ -75,6 +75,20 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
 
 
+  Future<void> _stopRecording(String jobId) async {
+
+    final ok = await TimeLapseClient.stop(jobId);
+
+    if (!mounted) return;
+
+    _snack(ok ? '已停止录制，正在生成视频…' : '停止失败，请重试');
+
+    if (ok) await _load();
+
+  }
+
+
+
   Future<void> _open(String jobId, {bool download = false}) async {
 
     if (download) {
@@ -587,13 +601,27 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
                             child: OutlinedButton.icon(
 
-                              onPressed: videoReady ? () => _open(jobId) : null,
+                              onPressed: status == 'running'
 
-                              icon: Icon(Symbols.play_arrow, size: 16),
+                                  ? () => _stopRecording(jobId)
 
-                              label: Text('查看', style: TextStyle(fontSize: 12)),
+                                  : videoReady
 
-                              style: OutlinedButton.styleFrom(foregroundColor: CncColors.blue, side: BorderSide(color: CncColors.border), padding: EdgeInsets.symmetric(vertical: 6)),
+                                      ? () => _open(jobId)
+
+                                      : null,
+
+                              icon: Icon(status == 'running' ? Symbols.stop : Symbols.play_arrow, size: 16),
+
+                              label: Text(status == 'running' ? '停止录制' : '查看', style: TextStyle(fontSize: 12)),
+
+                              style: OutlinedButton.styleFrom(
+
+                                  foregroundColor: status == 'running' ? CncColors.danger : CncColors.blue,
+
+                                  side: BorderSide(color: CncColors.border),
+
+                                  padding: EdgeInsets.symmetric(vertical: 6)),
 
                             ),
 

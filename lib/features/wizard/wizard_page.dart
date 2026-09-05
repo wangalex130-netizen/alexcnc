@@ -2106,9 +2106,19 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
         } catch (_) {}
       }
       final dur = double.tryParse(_durCtrl.text) ?? 120.0;
-      final tlJobId = await TimeLapseClient.start(durationSec: dur);
-      if (tlJobId != null) {
-        ref.read(timeLapseJobProvider.notifier).setJob(tlJobId);
+      final tlRes = await TimeLapseClient.start(durationSec: dur);
+      if (tlRes.conflict && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              '该机器已有进行中的延时摄影，请先到「延时摄影回顾」停止后再录制',
+              style: TextStyle(fontSize: 13),
+            ),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      } else if (tlRes.jobId != null) {
+        ref.read(timeLapseJobProvider.notifier).setJob(tlRes.jobId!);
       } else if (mounted) {
         // 2026-09-05：失败必须让用户看见，禁止静默（此前点了毫无反应）。
         ScaffoldMessenger.of(context).showSnackBar(

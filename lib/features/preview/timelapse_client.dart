@@ -9,6 +9,13 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../app/config.dart';
 
+/// 开始延时摄影的结果。
+class TimeLapseStartResult {
+  final String? jobId;
+  final bool conflict;
+  TimeLapseStartResult({this.jobId, this.conflict = false});
+}
+
 /// 云端延时摄影客户端。
 ///
 /// 服务器（cnc-relay）负责：按雕刻时长自动计算采样间隔、从摄像头实时帧中
@@ -35,10 +42,13 @@ class TimeLapseClient {
   static String get _token => _overrideToken ?? AppConfig.cameraRelayToken;
   static String get _device => _overrideDevice ?? AppConfig.cameraRelayDevice;
 
-  /// 开始一次延时摄影。返回 jobId；失败返回 null。
+  /// 开始一次延时摄影。返回 [TimeLapseStartResult]；失败/冲突见结果字段。
   /// [durationSec] 2026-09-03 起改为可选：纯人工启停（服务器不再按 duration 到点停）。
   /// 调用方仍可传，作为 UI 行为提示（不决定端服务停止时机）。
-  static Future<String?> start({
+  ///
+  /// 2026-09-06：服务端新增设备级互斥（409），同一设备已有 running 任务时返回
+  /// conflict=true，调用方应提示用户先停止旧任务。
+  static Future<TimeLapseStartResult> start({
     double? durationSec,
     int fps = 15,
   }) async {
@@ -53,13 +63,16 @@ class TimeLapseClient {
       final r = await http.post(uri).timeout(const Duration(seconds: 15));
       if (r.statusCode == 200) {
         final j = jsonDecode(r.body) as Map<String, dynamic>;
-        return j['job_id'] as String?;
+        return TimeLapseStartResult(jobId: j['job_id'] as String?);
+      }
+      if (r.statusCode == 409) {
+        return TimeLapseStartResult(conflict: true);
       }
       debugPrint('[TimeLapse] start HTTP ${r.statusCode}');
     } catch (e) {
       debugPrint('[TimeLapse] start failed: $e');
     }
-    return null;
+    return TimeLapseStartResult();
   }
 
   /// 停止采样并触发拼接（服务器也会在时长到点后自动停止）。
