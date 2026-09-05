@@ -1717,7 +1717,7 @@ class _J extends StatelessWidget {
                 ? Icon(icon,
                     size: 20,
                     color: primary ? CncColors.primary : CncColors.textMain)
-                : Text(label,
+                : Text(label ?? '',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                     fontSize: 11,
