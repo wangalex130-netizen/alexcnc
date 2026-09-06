@@ -1081,8 +1081,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     // 离线设备不会回传状态帧，machineStatusProvider 会停在默认 idle，
     // 故必须交叉核对 presence，否则选了离线的机器也显示「待机 / 已连接」。
     final presenceMap = ref.watch(presenceMapProvider).valueOrNull;
-    final DevicePresence? _curPresence =
-        currentMachine != null ? presenceMap?[currentMachine.sn] : null;
+    final DevicePresence? _curPresence = (currentMachine != null && presenceMap != null)
+        ? presenceMap[currentMachine.sn]
+        : null;
     final bool isDeviceOffline =
         _curPresence != null && _curPresence.online == false;
 
@@ -2667,7 +2668,9 @@ class _ConnStatusChip extends ConsumerWidget {
 
     // 在线态真相：离线设备即使 broker 链路已连，也不应显示「已连接」。
     final presenceMap = ref.watch(presenceMapProvider).valueOrNull;
-    final info = currentMachine != null ? presenceMap?[currentMachine.sn] : null;
+    final DevicePresence? info = (currentMachine != null && presenceMap != null)
+        ? presenceMap[currentMachine.sn]
+        : null;
     final deviceOffline = info != null && info.online == false;
 
     // 演示模式识别：CI 包默认 USE_REAL_BACKEND=false，此时用的是 Mock 服务，
