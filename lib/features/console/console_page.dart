@@ -35,6 +35,8 @@ import '../../services/hardware_service.dart';
 
 import '../../services/device_discovery.dart';
 
+import '../../services/device_presence_service.dart';
+
 import '../preview/rtsp_preview_widget.dart';
 
 import '../preview/timelapse_client.dart';
@@ -1075,7 +1077,14 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
     final currentMachine = ref.watch(currentMachineProvider);
 
-
+    // 在线态真相来自常驻 presence 服务（与「我的机器」列表同源）。
+    // 离线设备不会回传状态帧，machineStatusProvider 会停在默认 idle，
+    // 故必须交叉核对 presence，否则选了离线的机器也显示「待机 / 已连接」。
+    final presenceMap = ref.watch(presenceMapProvider).valueOrNull;
+    final DevicePresence? _curPresence =
+        currentMachine != null ? presenceMap?[currentMachine.sn] : null;
+    final bool isDeviceOffline =
+        _curPresence != null && _curPresence.online == false;
 
     // 2026-09-05（根治「首次登录必须先进全屏预览才有画面」）：
 
@@ -1147,7 +1156,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
     // 联调 / Mock 模式（!realMode）保持放开，不影响工程师调试。
 
-    final canControl = idle && (hasMachine || !realMode);
+    final canControl = idle && (hasMachine || !realMode) && !isDeviceOffline;
 
 
 
@@ -1159,7 +1168,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
     // 用户只能跑到机器旁按实体键。故这两项只要「已连上机器」即可用。
 
-    final connected = status.state != MachineState.disconnected;
+    final connected = !isDeviceOffline && status.state != MachineState.disconnected;
 
     final canReset = connected && (hasMachine || !realMode);
 
@@ -1175,7 +1184,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
         ? CncColors.textSub
 
-        : status.state == MachineState.disconnected
+        : isDeviceOffline
+            ? CncColors.danger
+            : status.state == MachineState.disconnected
 
             ? CncColors.danger
 
@@ -1201,7 +1212,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
         ? '待选择'
 
-        : status.state == MachineState.disconnected
+        : isDeviceOffline
+            ? '不在线'
+            : status.state == MachineState.disconnected
 
             ? '未连接'
 
@@ -2652,15 +2665,20 @@ class _ConnStatusChip extends ConsumerWidget {
 
         : (currentMachine?.sn.isNotEmpty == true ? currentMachine!.sn : '未选择机器');
 
+    // 在线态真相：离线设备即使 broker 链路已连，也不应显示「已连接」。
+    final presenceMap = ref.watch(presenceMapProvider).valueOrNull;
+    final info = currentMachine != null ? presenceMap?[currentMachine.sn] : null;
+    final deviceOffline = info != null && info.online == false;
+
     // 演示模式识别：CI 包默认 USE_REAL_BACKEND=false，此时用的是 Mock 服务，
 
     // 界面一切正常但命令根本不会下发。必须显式提示，否则用户/客户会被静默误导。
 
     final realMode = ref.watch(runtimeConfigProvider).resolvedUseRealBackend;
 
-    final Color color;
+    Color color;
 
-    final String label;
+    String label;
 
     if (!realMode) {
 
@@ -2706,6 +2724,13 @@ class _ConnStatusChip extends ConsumerWidget {
 
       }
 
+    }
+
+    // 离线设备：即便 broker 链路显示已连接，也应明确「设备离线」，
+    // 与「我的机器」列表同源（presence），避免选了离线机却显示「已连接 / 待机」。
+    if (deviceOffline) {
+      color = CncColors.danger;
+      label = '设备离线';
     }
 
     // 演示模式下不显示「最近错误」与重连入口（Mock 服务没有真实链路可重连）。

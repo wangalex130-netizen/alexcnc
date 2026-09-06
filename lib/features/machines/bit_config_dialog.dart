@@ -6,6 +6,8 @@ import '../../app/theme.dart';
 
 import '../../services/bit_config_service.dart';
 
+import '../../data/tool_library.dart';
+
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 
@@ -48,6 +50,9 @@ class _BitConfigDialogState extends State<BitConfigDialog> {
   String? _error;
 
   String? _mqttStatus;
+
+  /// 刀仓槽位当前刀头系统 ID（用于把编号映射回刀具名），由 [_load] 填充。
+  List<int?>? _slots;
 
 
 
@@ -96,6 +101,7 @@ class _BitConfigDialogState extends State<BitConfigDialog> {
       if (!mounted) return;
 
       final slots = cfg?.slots ?? const [null, null, null, null];
+      _slots = slots;
 
       for (var i = 0; i < 4; i++) {
 
@@ -344,6 +350,8 @@ class _BitConfigDialogState extends State<BitConfigDialog> {
 
 
   Widget _slotField(int index) {
+    final id = _slots?[index];
+    final tool = id == null ? null : toolBySystemId(id);
 
     return Row(
 
@@ -385,19 +393,26 @@ class _BitConfigDialogState extends State<BitConfigDialog> {
 
             style: const TextStyle(color: CncColors.textMain),
 
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
 
               hintText: '刀头 ID（留空表示未配置）',
 
-              hintStyle: TextStyle(color: CncColors.textSub),
+              hintStyle: const TextStyle(color: CncColors.textSub),
 
               isDense: true,
 
-              border: OutlineInputBorder(),
+              border: const OutlineInputBorder(),
 
               contentPadding:
 
-                  EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+
+              helperText: tool != null
+                  ? '当前刀具：${tool.name}'
+                  : (id != null ? '未识别的刀头 ID：$id' : null),
+
+              helperStyle:
+                  const TextStyle(fontSize: 12, color: CncColors.primaryInk),
 
             ),
 

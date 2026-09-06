@@ -52,7 +52,14 @@ class DevicePresenceService {
 
   final Map<String, DevicePresence> _map = {};
   final _ctrl = StreamController<Map<String, DevicePresence>>.broadcast();
-  Stream<Map<String, DevicePresence>> get presenceStream => _ctrl.stream;
+  Stream<Map<String, DevicePresence>>? _presenceStreamView;
+
+  /// 新订阅者立即收到当前快照（见 [_replayLatest]），修复首屏机器列表全离线的时序问题：
+  /// 普通 broadcast 流不向晚订阅者回放，导致冷启动时先 build 的首屏 tab 错过首次 emit，
+  /// 长期显示"全设备离线 + 同步已断开"，切走再回来才正常（那时流已在持续 emit）。
+  Stream<Map<String, DevicePresence>> get presenceStream =>
+      _presenceStreamView ??= _replayLatest(
+          _ctrl.stream, () => Map.unmodifiable(_map));
   Map<String, DevicePresence> get presence => Map.unmodifiable(_map);
 
   /// 连接态广播流。
@@ -243,4 +250,31 @@ class DevicePresenceService {
     _client = null;
     _connCtrl.close();
   }
+}
+
+/// 把内部 broadcast 流包装成"新订阅者立即收到最新值"的语义。
+///
+/// `inner` 为内部 broadcast 流；`latest` 返回当前快照。每当有新订阅者接入，
+/// 先通过 microtask 把当前快照补发给它，再持续转发 `inner` 的后续事件。
+/// 这样无论订阅早晚，订阅者总能立刻看到当前状态（machines 页首屏冷启动即如此）。
+Stream<T> _replayLatest<T>(Stream<T> inner, T Function() latest) {
+  final c = StreamController<T>.broadcast();
+  c.onListen = () {
+    Future.microtask(() {
+      if (!c.isClosed) c.add(latest());
+    });
+    final sub = inner.listen(
+      (e) {
+        if (!c.isClosed) c.add(e);
+      },
+      onError: (Object e, StackTrace st) {
+        if (!c.isClosed) c.addError(e, st);
+      },
+      onDone: () {
+        if (!c.isClosed) c.close();
+      },
+    );
+    c.onCancel = () => sub.cancel();
+  };
+  return c.stream;
 }

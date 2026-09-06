@@ -70,7 +70,7 @@ class AuthService {
       http.Response res, String email) async {
     Map<String, dynamic> body;
     try {
-      body = jsonDecode(res.body) as Map<String, dynamic>;
+      body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
     } catch (_) {
       throw Exception('服务器响应异常（${res.statusCode}）');
     }

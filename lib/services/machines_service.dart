@@ -133,7 +133,7 @@ class MachinesService {
         .timeout(const Duration(seconds: 10));
     if (res.statusCode != 200) return const [];
     try {
-      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      final body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
       final code = body['code'];
       if (code is num && code != 200) throw Exception('机器列表获取失败');
       final list = body['data'] as List? ?? [];
@@ -215,7 +215,7 @@ class MachinesService {
     // 5) 按业务码给客户能看懂的反馈
     String? message;
     try {
-      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      final body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
       message = body['message']?.toString();
     } catch (_) {
       // 非 JSON 响应，落到下面按 HTTP 状态兜底

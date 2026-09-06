@@ -88,7 +88,7 @@ class BitConfigService {
       throw Exception('查询刀仓配置失败（${res.statusCode}）');
     }
     try {
-      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      final body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
       final data = body['data'];
       if (data == null) return null; // 未配置
       return BitConfig.fromJson(data as Map<String, dynamic>);
@@ -120,7 +120,7 @@ class BitConfigService {
       throw Exception('保存刀仓配置失败（${res.statusCode}）');
     }
     try {
-      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      final body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
       final data = (body['data'] as Map<String, dynamic>?) ?? {};
       return BitConfigSaveResult(
         mqttStatus: data['mqttStatus']?.toString() ?? 'UNKNOWN',

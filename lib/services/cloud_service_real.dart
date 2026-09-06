@@ -120,7 +120,7 @@ class RealCloudService implements CloudService {
 
       if (res.statusCode == 200) {
 
-        final list = (jsonDecode(res.body) as List)
+        final list = (jsonDecode(utf8.decode(res.bodyBytes)) as List)
 
             .map((e) => MaterialSpec.fromJson(e as Map<String, dynamic>))
 
@@ -128,7 +128,7 @@ class RealCloudService implements CloudService {
 
         final prefs = await SharedPreferences.getInstance();
 
-        await prefs.setString(_kMatCache, res.body);
+        await prefs.setString(_kMatCache, utf8.decode(res.bodyBytes));
 
         return list;
 
@@ -174,7 +174,7 @@ class RealCloudService implements CloudService {
 
       if (res.statusCode == 200) {
 
-        return TaskMetadata.fromJson(jsonDecode(res.body));
+        return TaskMetadata.fromJson(jsonDecode(utf8.decode(res.bodyBytes)));
 
       }
 
@@ -204,9 +204,9 @@ class RealCloudService implements CloudService {
 
         final prefs = await SharedPreferences.getInstance();
 
-        await prefs.setString('$_kTaskCachePrefix$id', res.body);
+        await prefs.setString('$_kTaskCachePrefix$id', utf8.decode(res.bodyBytes));
 
-        return TaskMetadata.fromJson(jsonDecode(res.body));
+        return TaskMetadata.fromJson(jsonDecode(utf8.decode(res.bodyBytes)));
 
       }
 
@@ -240,7 +240,7 @@ class RealCloudService implements CloudService {
 
       if (res.statusCode == 200) {
 
-        return (jsonDecode(res.body) as List)
+        return (jsonDecode(utf8.decode(res.bodyBytes)) as List)
 
             .map((e) => LibraryItem.fromJson(e as Map<String, dynamic>))
 
@@ -592,7 +592,7 @@ class RealCloudService implements CloudService {
 
       if (res.statusCode == 200) {
 
-        final body = jsonDecode(res.body);
+        final body = jsonDecode(utf8.decode(res.bodyBytes));
 
         if (body is Map && body['code'] == 200 && body['data'] is Map) {
 
@@ -628,7 +628,7 @@ class RealCloudService implements CloudService {
 
       if (res.statusCode == 200) {
 
-        final body = jsonDecode(res.body);
+        final body = jsonDecode(utf8.decode(res.bodyBytes));
 
         if (body is Map && body['code'] == 200) return body['data'];
 
