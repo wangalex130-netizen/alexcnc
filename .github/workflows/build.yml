@@ -240,33 +240,13 @@ jobs:
 
       # ------------------------------------------------------------------
 
-      - name: Freeze android/ + publish build log back to repo
-
+      - name: Upload build log artifact
         if: always()
-
-        run: |
-
-          git config user.name "alexcnc-ci"
-
-          git config user.email "ci@alexcnc.local"
-
-          git add ci-log.txt
-
-          if [ -d android ]; then git add android; fi
-
-          if git diff --cached --quiet; then
-
-            echo "nothing to commit"
-
-          else
-
-            git commit -m "chore(ci): freeze android project + publish build log [skip ci]"
-
-            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
-
-            git push origin "HEAD:${GITHUB_REF_NAME}"
-
-          fi
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-build-log
+          path: ci-log.txt
+          if-no-files-found: warn
 
 
 
@@ -330,7 +310,7 @@ jobs:
 
           echo "Build failed (code=${{ steps.build.outputs.code }})."
 
-          echo "Full log committed to ci-log.txt on ${GITHUB_REF_NAME}."
+          echo "Full build log available in the 'ci-build-log' artifact."
 
           exit 1
 
