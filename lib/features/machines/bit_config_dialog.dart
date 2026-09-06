@@ -7,6 +7,7 @@ import '../../app/theme.dart';
 import '../../services/bit_config_service.dart';
 
 import '../../data/tool_library.dart';
+import '../../widgets/tool_icon.dart';
 
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
@@ -352,81 +353,98 @@ class _BitConfigDialogState extends State<BitConfigDialog> {
   Widget _slotField(int index) {
     final id = _slots?[index];
     final tool = id == null ? null : toolBySystemId(id);
+    final hasTool = tool != null;
 
-    return Row(
-
-      children: [
-
-        Container(
-
-          width: 36,
-
-          height: 36,
-
-          alignment: Alignment.center,
-
-          decoration: BoxDecoration(
-
-            color: CncColors.primary.withOpacity(0.12),
-
-            borderRadius: BorderRadius.circular(8),
-
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: CncColors.primary.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: CncColors.border.withOpacity(0.5)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 左侧：槽位号 + 刀具模型图标（彩色定位环）
+          Column(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: CncColors.primary.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text('${index + 1}号',
+                    style: const TextStyle(
+                        fontSize: 12, color: CncColors.primaryInk)),
+              ),
+              const SizedBox(height: 8),
+              ToolIcon(
+                def: tool ?? toolCatalog.first,
+                size: 40,
+                showRing: hasTool,
+              ),
+            ],
           ),
-
-          child: Text('${index + 1}号',
-
-              style: const TextStyle(
-
-                  fontSize: 12, color: CncColors.primaryInk)),
-
-        ),
-
-        const SizedBox(width: 10),
-
-        Expanded(
-
-          child: TextField(
-
-            controller: _controllers[index],
-
-            keyboardType: TextInputType.number,
-
-            style: const TextStyle(color: CncColors.textMain),
-
-            decoration: InputDecoration(
-
-              hintText: '刀头 ID（留空表示未配置）',
-
-              hintStyle: const TextStyle(color: CncColors.textSub),
-
-              isDense: true,
-
-              border: const OutlineInputBorder(),
-
-              contentPadding:
-
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-
-              helperText: tool != null
-                  ? '当前刀具：${tool.name}'
-                  : (id != null ? '未识别的刀头 ID：$id' : null),
-
-              helperStyle:
-                  const TextStyle(fontSize: 12, color: CncColors.primaryInk),
-
+          const SizedBox(width: 12),
+          // 右侧：刀具名称/规格 + 系统 ID 编辑框
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  hasTool ? tool.name : '未配置刀头',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: hasTool ? CncColors.textMain : CncColors.textSub,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  hasTool
+                      ? '${tool.type} · ⌀${tool.diameterMm}mm · ${ringEmoji(tool.ring)}环 · ${tool.material}'
+                      : '该刀位未挂载刀具，留空即可',
+                  style: const TextStyle(
+                      fontSize: 11, color: CncColors.textSub),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _controllers[index],
+                  keyboardType: TextInputType.number,
+                  style: const TextStyle(
+                      fontSize: 13, color: CncColors.textMain),
+                  decoration: InputDecoration(
+                    labelText: '刀头系统 ID',
+                    hintText: '留空表示未配置',
+                    hintStyle: const TextStyle(color: CncColors.textSub),
+                    labelStyle:
+                        const TextStyle(fontSize: 12, color: CncColors.textSub),
+                    isDense: true,
+                    border: const OutlineInputBorder(),
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    helperText: hasTool
+                        ? '已映射为：${tool.name}'
+                        : (id != null ? '未识别 ID：$id' : null),
+                    helperStyle: const TextStyle(
+                        fontSize: 11, color: CncColors.primaryInk),
+                  ),
+                ),
+              ],
             ),
-
           ),
-
-        ),
-
-      ],
-
+        ],
+      ),
     );
-
   }
-
 }
+
+
 
 
 
