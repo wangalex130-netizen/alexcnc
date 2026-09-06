@@ -34,7 +34,7 @@ class BitConfigDialog extends ConsumerStatefulWidget {
 
   @override
 
-  State<BitConfigDialog> createState() => _BitConfigDialogState();
+  ConsumerState<BitConfigDialog> createState() => _BitConfigDialogState();
 
 }
 
