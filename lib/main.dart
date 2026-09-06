@@ -15,28 +15,12 @@ Future<void> main() async {
     statusBarIconBrightness: Brightness.dark,
     systemNavigationBarIconBrightness: Brightness.dark,
   ));
-  // 预加载图标 + 中文字体，根治：
-  // ① 切换 Tab 时图标因字体未就绪显示为方块；
-  // ② 中文 / icon glyph 在鸿蒙 AOSP 兼容层（及个别 Android ROM）渲染失败变乱码。
-  // 失败不阻塞启动 —— 系统字体仍可作 fallback。
-  await _preloadFonts();
+  // 字体策略：完全依赖系统默认字体，不预加载、不指定具名字体族。
+  // 之前显式指定 `fontFamily: 'sans-serif'` 并在启动时用 FontLoader 预加载字体，
+  // 会在「切到别的 App 再切回」（应用生命周期 resume）时触发 Flutter 字体解析失败：
+  // 图标（material_symbols_icons 内置 bundled 字体）正常，但中文文本 glyph 整片丢失 / 变乱码。
+  // 根因：具名 'sans-serif' 族在生命周期恢复时被引擎重新解析为不含中文回退的拉丁字面。
+  // 改为 fontFamily = null（见 theme.dart）：引擎用平台默认字体，自带完整中文回退链
+  // （Android / 鸿蒙 → Roboto + Noto Sans CJK 自动回退），resume 时稳健重新解析，不丢字。
   runApp(const ProviderScope(child: AlexCncApp()));
-}
-
-/// 同步预加载所有关键字体，避免页面切换 / 路由 push 时临时出现方块 / 乱码。
-Future<void> _preloadFonts() async {
-  // 图标字体（Material Symbols Rounded —— ThemeData.iconTheme 用）
-  await _tryLoad('MaterialSymbolsRounded');
-  // 中文字体回退链（与 theme.dart _fontFallback 保持一致）
-  await _tryLoad('Roboto');
-  await _tryLoad('Noto Sans CJK SC');
-  await _tryLoad('NotoSansCJKsc');
-}
-
-Future<void> _tryLoad(String family) async {
-  try {
-    await FontLoader(family).load();
-  } catch (_) {
-    // 系统字体或下一级 fallback 接管。
-  }
 }
