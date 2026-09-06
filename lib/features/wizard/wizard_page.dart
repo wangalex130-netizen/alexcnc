@@ -99,6 +99,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     // 模型库 5 接口返回的 LibraryItem 已含加工参数、材质、刀具等全部字段，
     // 直接转 TaskMetadata，不再依赖旧的 /api/v1/tasks/{id} 接口（该接口后端未实现）。
     final task = widget.item.toTaskMetadata();
+    // 进入向导即强制拉取服务器最新刀仓（用户要求：打开即真实最新状态，Step2 同步）。
+    await ref.read(toolMagazineProvider.notifier).refresh(force: true);
     if (!mounted) return;
     setState(() {
       _task = task;
@@ -797,6 +799,18 @@ class _StepAtc extends ConsumerStatefulWidget {
 }
 
 class _StepAtcState extends ConsumerState<_StepAtc> {
+  bool _refreshing = false;
+
+  Future<void> _refresh() async {
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
+    try {
+      await ref.read(toolMagazineProvider.notifier).refresh(force: true);
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
   /// 选择物理刀兜前的占用检测。
   /// 若目标刀兜已在控制台配置其他刀具，且与当前工序所需刀具不一致，
   /// 必须弹窗要求用户实物确认，否则不能分配。
@@ -879,8 +893,21 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Step 2 · 刀仓映射',
-            style: t.titleMedium?.copyWith(color: CncColors.textMain)),
+        Row(
+          children: [
+            Expanded(
+              child: Text('Step 2 · 刀仓映射',
+                  style: t.titleMedium?.copyWith(color: CncColors.textMain)),
+            ),
+            IconButton(
+              icon: _refreshing
+                  ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: CncColors.primaryInk))
+                  : const Icon(Symbols.refresh, size: 18, color: CncColors.primaryInk),
+              tooltip: '刷新服务器最新刀仓',
+              onPressed: _refreshing ? null : _refresh,
+            ),
+          ],
+        ),
         const SizedBox(height: 6),
         const Text('模型需按工序顺序使用以下刀具。已自动沿用控制台刀仓中已配置的刀位；'
             '未配置的工序刀请手动选择物理刀兜。机器按工序顺序自动换刀，而非固定 T1→T2。',

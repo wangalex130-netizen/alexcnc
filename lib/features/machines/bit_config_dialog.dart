@@ -8,6 +8,7 @@ import '../../services/bit_config_service.dart';
 
 import '../../data/tool_library.dart';
 import '../../widgets/tool_icon.dart';
+import '../../state/providers.dart';
 
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
@@ -22,7 +23,7 @@ import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 /// - POST /api/device/bit-config/insertOrUpdate    整体增改（任一 slot 可 null）
 
-class BitConfigDialog extends StatefulWidget {
+class BitConfigDialog extends ConsumerStatefulWidget {
 
   final String deviceCode;
 
@@ -38,7 +39,7 @@ class BitConfigDialog extends StatefulWidget {
 
 
 
-class _BitConfigDialogState extends State<BitConfigDialog> {
+class _BitConfigDialogState extends ConsumerState<BitConfigDialog> {
 
   final _service = BitConfigService();
 
@@ -191,6 +192,10 @@ class _BitConfigDialogState extends State<BitConfigDialog> {
         _mqttStatus = r.mqttStatus == 'PUBLISHED' ? '已下发到设备' : '已保存';
 
       });
+
+      // 保存成功 → 强制刷新共享刀仓 provider，让控制台/向导立即同步服务器最新状态。
+      // （本弹窗自身在 initState 已拉取最新；此处仅用于跨入口同步。）
+      ref.read(toolMagazineProvider.notifier).refresh(force: true);
 
     } catch (e) {
 

@@ -3374,6 +3374,25 @@ class _AtcSheetState extends ConsumerState<_AtcSheet> {
 
   int? _pickerSlot; // 正在选择刀具的卡槽
 
+  bool _refreshing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // 打开即强制拉取服务器最新刀仓（用户要求：打开即保持真实最新状态）。
+    ref.read(toolMagazineProvider.notifier).refresh(force: true);
+  }
+
+  Future<void> _refresh() async {
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
+    try {
+      await ref.read(toolMagazineProvider.notifier).refresh(force: true);
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
 
 
   @override
@@ -3598,11 +3617,27 @@ class _AtcSheetState extends ConsumerState<_AtcSheet> {
 
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
 
-              children: const [
+              children: [
 
-                Text('配置 ATC 刀具映射表', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                Expanded(
+                  child: Row(
+                    children: [
+                      const Text('配置 ATC 刀具映射表', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: _refreshing
+                            ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: CncColors.primaryInk))
+                            : const Icon(Symbols.refresh, size: 18, color: CncColors.primaryInk),
+                        tooltip: '刷新服务器最新刀仓',
+                        onPressed: _refreshing ? null : _refresh,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                    ],
+                  ),
+                ),
 
-                Text('×', style: TextStyle(fontSize: 22, color: Color(0xFF666666))),
+                const Text('×', style: TextStyle(fontSize: 22, color: Color(0xFF666666))),
 
               ],
 
