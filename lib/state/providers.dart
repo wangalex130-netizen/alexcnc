@@ -684,6 +684,7 @@ class ActiveJob {
     this.selfCheckTotal = 0,
     this.selfCheckDone = false,
     this.completed = false,
+    this.completedAcknowledged = false,
   });
 
   ActiveJob copyWith({
