@@ -553,6 +553,10 @@ class _PushDebugCardState extends State<_PushDebugCard> {
   bool? _privacy;
   String _cid = '';
   bool _busy = false;
+  /// initGetui 完成那一刻的 lastPollDiagnostic 快照；
+  /// 之后每 15s 的 pollEvents 会覆盖 lastPollDiagnostic，
+  /// 不快照就永远看不到 initGetui 的真实成败。
+  String _initDiag = '';
 
   @override
   void initState() {
@@ -570,11 +574,19 @@ class _PushDebugCardState extends State<_PushDebugCard> {
     });
   }
 
-  /// 同意隐私政策 → 初始化个推 → 轮询等待 CID 回填（最多 30s）。
+  /// 同意隐私政策 → 初始化个推 → 快照 init 诊断 → 轮询等待 CID 回填（最多 30s）。
   Future<void> _agreeAndInit() async {
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _initDiag = ''; // 清空上一次的快照
+    });
     await PushService.instance.setPrivacyAccepted();
+    // ⚠️ 立即快照 initGetui 的诊断：之后每 15s 的 pollEvents 会覆盖
+    // lastPollDiagnostic，没有快照就永远看不到 initGetui 的真实成败。
     await PushService.instance.initGetui(onCidReady: (_) {});
+    if (!mounted) return;
+    final snap = PushService.instance.lastPollDiagnostic;
+    setState(() => _initDiag = snap);
     for (var i = 0; i < 15; i++) {
       await Future<void>.delayed(const Duration(seconds: 2));
       if (!mounted) return;
@@ -624,7 +636,13 @@ class _PushDebugCardState extends State<_PushDebugCard> {
               accepted ? CncColors.primaryInk : CncColors.danger),
           _row('CID', real ? _cid : (_cid.isEmpty ? '—' : '$_cid（占位）'),
               real ? CncColors.primaryInk : CncColors.textSub),
-          _row('诊断', PushService.instance.lastPollDiagnostic,
+          _row('诊断(init)', _initDiag.isEmpty ? '—' : _initDiag,
+              _initDiag == 'getui-init-ok'
+                  ? CncColors.primaryInk
+                  : _initDiag.startsWith('getui-init-fail')
+                      ? CncColors.danger
+                      : CncColors.textSub),
+          _row('诊断(poll)', PushService.instance.lastPollDiagnostic,
               CncColors.textSub),
           const SizedBox(height: 10),
           SizedBox(
