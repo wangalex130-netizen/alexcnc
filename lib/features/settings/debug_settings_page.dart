@@ -295,6 +295,10 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
 
         children: [
 
+          const _PushDebugCard(),
+
+          const SizedBox(height: 14),
+
           Container(
 
             padding: const EdgeInsets.all(14),
@@ -532,6 +536,134 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
 
 
 /// MQTT/TCP 连接诊断卡片：实时显示当前链路状态、最近一次错误，并支持一键重连。
+
+/// 推送联调卡片（B 阶段：个推真实通道）。
+///
+/// 个推合规红线：**必须用户同意隐私政策后**才能 `initGetui` 注册 CID，
+/// 未同意绝不初始化（门控见 PushService.initGetui）。
+/// 联调阶段在此提供显式「同意并初始化」入口；正式版改为首次启动隐私政策弹窗。
+class _PushDebugCard extends StatefulWidget {
+  const _PushDebugCard();
+
+  @override
+  State<_PushDebugCard> createState() => _PushDebugCardState();
+}
+
+class _PushDebugCardState extends State<_PushDebugCard> {
+  bool? _privacy;
+  String _cid = '';
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    final accepted = await PushService.instance.isPrivacyAccepted();
+    final cid = await PushService.instance.ensureToken();
+    if (!mounted) return;
+    setState(() {
+      _privacy = accepted;
+      _cid = cid;
+    });
+  }
+
+  /// 同意隐私政策 → 初始化个推 → 轮询等待 CID 回填（最多 30s）。
+  Future<void> _agreeAndInit() async {
+    setState(() => _busy = true);
+    await PushService.instance.setPrivacyAccepted();
+    await PushService.instance.initGetui(onCidReady: (_) {});
+    for (var i = 0; i < 15; i++) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      if (!mounted) return;
+      await _refresh();
+      if (_cid.isNotEmpty && !_cid.startsWith('pt_')) break;
+    }
+    if (!mounted) return;
+    setState(() => _busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final accepted = _privacy == true;
+    final real = _cid.isNotEmpty && !_cid.startsWith('pt_');
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: CncColors.card,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: CncColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Symbols.notifications_active,
+                  color: CncColors.primaryInk, size: 20),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text('推送联调（个推）',
+                    style: TextStyle(
+                        color: CncColors.textMain,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600)),
+              ),
+              IconButton(
+                icon: const Icon(Symbols.refresh,
+                    color: CncColors.textSub, size: 20),
+                onPressed: _busy ? null : _refresh,
+                tooltip: '刷新',
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _row('隐私政策', accepted ? '已同意' : '未同意（不会初始化）',
+              accepted ? CncColors.primaryInk : CncColors.danger),
+          _row('CID', real ? _cid : (_cid.isEmpty ? '—' : '$_cid（占位）'),
+              real ? CncColors.primaryInk : CncColors.textSub),
+          _row('诊断', PushService.instance.lastPollDiagnostic,
+              CncColors.textSub),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _busy ? null : _agreeAndInit,
+              icon: _busy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Symbols.notifications_active, size: 18),
+              label: Text(_busy ? '初始化中…' : '同意隐私政策并初始化个推'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _row(String k, String v, Color c) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 62,
+              child: Text(k,
+                  style: const TextStyle(
+                      color: CncColors.textSub, fontSize: 12)),
+            ),
+            Expanded(
+              child: Text(v, style: TextStyle(color: c, fontSize: 12)),
+            ),
+          ],
+        ),
+      );
+}
 
 class _DiagnosticCard extends ConsumerWidget {
 

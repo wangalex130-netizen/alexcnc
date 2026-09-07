@@ -382,6 +382,26 @@ final pushBootstrapProvider = Provider<void>((ref) async {
   final cloud = cfg.resolvedUseRealBackend
       ? RealCloudService(cfg.resolvedCloudBaseUrl, cfg.resolvedDeviceId)
       : MockCloudService();
+  // 4) 个推初始化（B 阶段）。合规门控在 PushService.initGetui 内部：
+  //    未同意隐私政策则直接跳过，绝不注册 CID（个推合规红线）。
+  //    CID 由 SDK 异步回调返回，拿到后重新上报，把占位 token 替换为真实 CID。
+  await PushService.instance.initGetui(
+    onCidReady: (cid) async {
+      final uid = ref.read(authProvider).userId;
+      await PushService.instance.setUser(uid);
+      await PushService.instance.bootstrap(
+        cloud,
+        deviceId: cfg.resolvedDeviceId,
+      );
+    },
+  );
+  // SDK 已就绪时（如热重启）立刻补绑 alias，避免漏绑。
+  final uid0 = ref.read(authProvider).userId;
+  if (uid0 != null && uid0.isNotEmpty) {
+    await PushService.instance.setUser(uid0);
+  }
+
+  // 5) 按最终生效的配置上报（幂等，可重复调用）
   await PushService.instance.bootstrap(
     cloud,
     deviceId: cfg.resolvedDeviceId,
