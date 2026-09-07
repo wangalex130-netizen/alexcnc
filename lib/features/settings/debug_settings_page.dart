@@ -553,10 +553,7 @@ class _PushDebugCardState extends State<_PushDebugCard> {
   bool? _privacy;
   String _cid = '';
   bool _busy = false;
-  /// initGetui 完成那一刻的 lastPollDiagnostic 快照；
-  /// 之后每 15s 的 pollEvents 会覆盖 lastPollDiagnostic，
-  /// 不快照就永远看不到 initGetui 的真实成败。
-  String _initDiag = '';
+
 
   @override
   void initState() {
@@ -574,19 +571,13 @@ class _PushDebugCardState extends State<_PushDebugCard> {
     });
   }
 
-  /// 同意隐私政策 → 初始化个推 → 快照 init 诊断 → 轮询等待 CID 回填（最多 30s）。
+  /// 同意隐私政策 → 初始化个推 → 轮询等待 CID 回填（最多 30s）。
+  /// init 诊断直接读 PushService.instance.lastInitDiagnostic（独立字段，
+  /// 不被 pollEvents 覆盖），不需本地快照。
   Future<void> _agreeAndInit() async {
-    setState(() {
-      _busy = true;
-      _initDiag = ''; // 清空上一次的快照
-    });
+    setState(() => _busy = true);
     await PushService.instance.setPrivacyAccepted();
-    // ⚠️ 立即快照 initGetui 的诊断：之后每 15s 的 pollEvents 会覆盖
-    // lastPollDiagnostic，没有快照就永远看不到 initGetui 的真实成败。
     await PushService.instance.initGetui(onCidReady: (_) {});
-    if (!mounted) return;
-    final snap = PushService.instance.lastPollDiagnostic;
-    setState(() => _initDiag = snap);
     for (var i = 0; i < 15; i++) {
       await Future<void>.delayed(const Duration(seconds: 2));
       if (!mounted) return;
@@ -636,10 +627,12 @@ class _PushDebugCardState extends State<_PushDebugCard> {
               accepted ? CncColors.primaryInk : CncColors.danger),
           _row('CID', real ? _cid : (_cid.isEmpty ? '—' : '$_cid（占位）'),
               real ? CncColors.primaryInk : CncColors.textSub),
-          _row('诊断(init)', _initDiag.isEmpty ? '—' : _initDiag,
-              _initDiag == 'getui-init-ok'
+          _row('诊断(init)', PushService.instance.lastInitDiagnostic,
+              PushService.instance.lastInitDiagnostic == 'getui-init-ok' ||
+                      PushService.instance.lastInitDiagnostic == 'cid-ready'
                   ? CncColors.primaryInk
-                  : _initDiag.startsWith('getui-init-fail')
+                  : PushService.instance.lastInitDiagnostic
+                          .startsWith('getui-init-fail')
                       ? CncColors.danger
                       : CncColors.textSub),
           _row('诊断(poll)', PushService.instance.lastPollDiagnostic,

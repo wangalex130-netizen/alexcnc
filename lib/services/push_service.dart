@@ -38,8 +38,12 @@ class PushService {
   String? _userId; // 当前登录用户（用于 alias 绑定）
   bool _getuiReady = false;
 
-  /// 最近一次轮询的诊断摘要（联调上报用）。
+  /// 最近一次轮询的诊断摘要（联调上报用，每 15s 被 pollEvents 覆盖）。
   String lastPollDiagnostic = 'idle';
+
+  /// 最近一次 initGetui 的诊断摘要：initGetui 单独写，pollEvents 不动；
+  /// 这样卡片可以同时看到「init 真实成败」与「轮询最新状态」。
+  String lastInitDiagnostic = 'idle';
 
   /// 全局推送总开关（预留；当前 UI 未暴露，恒为 true）。
   bool get _enabledDefault => true;
@@ -67,7 +71,7 @@ class PushService {
     if (_getuiReady) return;
     final accepted = await isPrivacyAccepted();
     if (!accepted) {
-      lastPollDiagnostic = 'getui-skip-no-privacy';
+      lastInitDiagnostic = 'getui-skip-no-privacy';
       return; // 合规：未同意不初始化
     }
     try {
@@ -75,6 +79,7 @@ class PushService {
         onReceiveClientId: (String cid) async {
           _cachedToken = cid;
           await _persistCid(cid);
+          lastInitDiagnostic = 'cid-ready';
           onCidReady?.call(cid);
         },
         onNotificationMessageArrived: (_) async {},
@@ -101,9 +106,9 @@ class PushService {
       // 若真机 CID 始终不来，可尝试改为 Getuiflut().initGetuiSdk();
       Getuiflut().initGetuiSdk;
       _getuiReady = true;
-      lastPollDiagnostic = 'getui-init-ok';
+      lastInitDiagnostic = 'getui-init-ok';
     } catch (e) {
-      lastPollDiagnostic = 'getui-init-fail $e';
+      lastInitDiagnostic = 'getui-init-fail $e';
     }
   }
 
