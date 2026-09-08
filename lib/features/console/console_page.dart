@@ -58,6 +58,8 @@ import '../wizard/self_check_page.dart';
 import '../workbench/jog_sheet.dart';
 
 import '../machines/machines_page.dart';
+import '../machines/bind_page.dart';
+import '../auth/login_page.dart';
 
 import '../settings/debug_settings_page.dart';
 
@@ -1289,6 +1291,34 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
 
 
+    // 三态门控：未登录 / 未绑定机器 时只展示引导，不渲染视频与控制区
+    if (!loggedIn) {
+      return Scaffold(
+        backgroundColor: CncColors.bg,
+        body: _ConsoleGate(
+          icon: Symbols.account_circle,
+          title: '登录后查看机器',
+          subtitle: '登录账号即可在这里实时查看加工画面，并远程控制你的雕刻机。',
+          actionLabel: '去登录',
+          onAction: () => Navigator.of(context)
+              .push(MaterialPageRoute(builder: (_) => const LoginPage())),
+        ),
+      );
+    }
+    if (currentMachine == null) {
+      return Scaffold(
+        backgroundColor: CncColors.bg,
+        body: _ConsoleGate(
+          icon: Symbols.add_to_queue,
+          title: '还没有绑定机器',
+          subtitle: '先在「我的机器」里扫码绑定你的雕刻机，就能在这里实时查看与控制。',
+          actionLabel: '去绑定机器',
+          onAction: () => Navigator.of(context)
+              .push(MaterialPageRoute(builder: (_) => const BindPage())),
+        ),
+      );
+    }
+
     return Scaffold(
 
       backgroundColor: CncColors.bg,
@@ -2344,7 +2374,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   ),
                   const SizedBox(height: 12),
 
-                  const _SectionTitle('主轴调试 (Spindle)'),
+                  const _SectionTitle('主轴调试'),
 
                   _SpindleCard(
 
@@ -2743,19 +2773,19 @@ class _ConnStatusChip extends ConsumerWidget {
 
         color = CncColors.primary;
 
-        label = '云端 MQTT · 已连接';
+        label = '云端连接 · 已连接';
 
       } else if (connecting) {
 
         color = CncColors.warning;
 
-        label = '云端 MQTT · 连接中…';
+        label = '云端连接 · 连接中…';
 
       } else {
 
         color = CncColors.danger;
 
-        label = '云端 MQTT · 未连接';
+        label = '云端连接 · 未连接';
 
       }
 
@@ -3116,7 +3146,7 @@ class _JogEntry extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: const [
-                    Text('手动移动 (Jog)',
+                    Text('手动移动',
                         style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
                     SizedBox(height: 2),
                     Text('X / Y / Z 轴步进移动 · 设原点 · 回零',
@@ -4156,6 +4186,51 @@ class _TimeLapseStatusCard extends StatelessWidget {
     );
 
   }
+
+// ===================== 三态门控引导 =====================
+
+class _ConsoleGate extends StatelessWidget {
+  const _ConsoleGate({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 48, color: CncColors.textSub),
+          const SizedBox(height: 14),
+          Text(title,
+              style: const TextStyle(fontSize: 15, color: CncColors.textMain)),
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 40),
+            child: Text(subtitle,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12, color: CncColors.textSub)),
+          ),
+          const SizedBox(height: 20),
+          FilledButton(
+            onPressed: onAction,
+            child: Text(actionLabel),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 }
 

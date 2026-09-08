@@ -285,7 +285,7 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
 
         ),
 
-        title: const Text('联调设置',
+        title: const Text('连接调试',
 
             style: TextStyle(color: CncColors.textMain, fontSize: 17)),
 
@@ -846,7 +846,7 @@ class _DiagnosticCard extends ConsumerWidget {
 
           const SizedBox(height: 10),
 
-          Text('模式：${hw.isCloudMode ? '云端 MQTT' : '局域网 TCP'}',
+          Text('模式：${hw.isCloudMode ? '云端连接' : '局域网直连'}',
 
               style: const TextStyle(color: CncColors.textSub, fontSize: 12)),
 

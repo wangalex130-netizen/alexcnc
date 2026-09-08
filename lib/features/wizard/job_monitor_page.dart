@@ -475,7 +475,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                                         ? '暂无刀路预览'
 
-                                        : '刀路预览待驱动支持',
+                                        : '刀路预览将于后续版本支持',
 
                                     style: const TextStyle(
 

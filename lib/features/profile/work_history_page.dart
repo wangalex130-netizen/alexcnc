@@ -153,7 +153,7 @@ class _WorkHistoryPageState extends ConsumerState<WorkHistoryPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content:
-            Text(done ? '已删除' : '删除暂未开放，服务端接口补齐后即可使用'),
+            Text(done ? '已删除' : '暂时还不能删除'),
       ),
     );
     if (done) _load(reset: true);

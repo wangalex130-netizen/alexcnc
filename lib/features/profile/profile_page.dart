@@ -480,7 +480,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
               icon: Symbols.tune,
 
-              title: '联调设置（云端 / MQTT / 设备）',
+              title: '连接调试（高级）',
 
               onTap: () => Navigator.push(
 

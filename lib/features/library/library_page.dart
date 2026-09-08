@@ -1769,7 +1769,7 @@ class _ProjectItem extends StatelessWidget {
 
                   ),
 
-                  child: Text(dimmed ? '再切一个' : '云端开切',
+                  child: Text(dimmed ? '再切一个' : '开始雕刻',
 
                       style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold,
 

@@ -516,9 +516,7 @@ class _StepMaterial extends StatelessWidget {
               SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  '材质选择暂未生效：当前云端 G-code 是针对默认材质写死的，'
-                  '切换不会改变雕刻参数。建议保持默认材质加工。'
-                  '待云端接入驱动按材质重新生成 G-code 后，本选择会真正生效。',
+                  '当前材质暂未生效：雕刻参数由模型预设，切换材质不会改变实际加工效果，建议保持默认材质加工。',
                   style: TextStyle(fontSize: 11, color: CncColors.textMain, height: 1.4),
                 ),
               ),
@@ -934,7 +932,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                   material: '',
                   ring: 'grey',
                   colorHex: '#888888',
-                  desc: '本地刀库未收录，请检查接口 / 刀库一致性',
+                  desc: '刀具库里没有这把刀的信息，请重新选择',
                   materials: const []);
           return Container(
             margin: const EdgeInsets.only(bottom: 12),
@@ -1640,7 +1638,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
                 // ② 新增 walk_frame 命令由小屏按长宽自绘矩形路径。先禁用占位。
                 onPressed: null,
                 icon: const Icon(Symbols.route, color: CncColors.textSub),
-                label: const Text('走边框（功能建设中）',
+                label: const Text('走边框（即将支持）',
                     style: TextStyle(color: CncColors.textSub)),
                 style: OutlinedButton.styleFrom(
                   side: BorderSide(color: CncColors.border),
@@ -2302,7 +2300,7 @@ class _ReadyPhase extends StatelessWidget {
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                    '云端数据闭环保护中：加工代码由云端直接发送给 CNC 硬件，手机端不保存任何原始文件。'
+                    '加工文件由云端直接发送到机器，手机不会留存任何文件，更安全。'
                     '点击后设备将先执行自检流水线，完成后自动进入实时加工监控页。',
                     style: const TextStyle(fontSize: 11, color: CncColors.textMain)),
               ),
