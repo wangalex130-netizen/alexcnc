@@ -25,6 +25,7 @@ import '../machines/machines_page.dart';
 import '../preview/timelapse_gallery_page.dart';
 
 import 'sys_bits_page.dart';
+import 'work_history_page.dart';
 
 import '../settings/debug_settings_page.dart';
 
@@ -524,6 +525,22 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
           _MenuGroup(
 
             children: [
+
+              _MenuItem(
+
+                icon: Symbols.history,
+
+                title: '雕刻历史',
+
+                onTap: () => Navigator.push(
+
+                  context,
+
+                  MaterialPageRoute(builder: (_) => const WorkHistoryPage()),
+
+                ),
+
+              ),
 
               _MenuItem(
 
