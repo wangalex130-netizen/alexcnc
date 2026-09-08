@@ -12,6 +12,8 @@ import '../../app/theme.dart';
 
 import '../../services/hardware_service.dart';
 
+import '../../services/local_notify_service.dart';
+
 import '../../services/push_service.dart';
 
 import '../../state/providers.dart';
@@ -554,6 +556,7 @@ class _PushDebugCardState extends State<_PushDebugCard> {
   String _cid = '';
   String _nativeInitLog = '';
   String _sdkLog = '';
+  String _notifySummary = '';
   bool _busy = false;
 
 
@@ -574,12 +577,17 @@ class _PushDebugCardState extends State<_PushDebugCard> {
       final cid = await PushService.instance.ensureToken();
       final nlog = await PushService.instance.getNativeInitLog();
       final slog = await PushService.instance.getSdkLog();
+      // 本地通知链路状态（初始化 / 权限 / 弹窗成功失败计数）。
+      // 个推在前台不自动弹通知栏，靠本地通知展示，所以这行是排查
+      // 「推送已送达但看不到通知」的关键。
+      final notify = LocalNotifyService.instance.debugSummary();
       if (!mounted) return;
       setState(() {
         _privacy = accepted;
         _cid = cid;
         _nativeInitLog = nlog;
         _sdkLog = slog;
+        _notifySummary = notify;
       });
     } catch (e) {
       if (!mounted) return;
@@ -665,6 +673,18 @@ class _PushDebugCardState extends State<_PushDebugCard> {
           _row('诊断(poll)', PushService.instance.lastPollDiagnostic,
               CncColors.textSub),
           _row('原生(init)', _nativeInitLog, nativeColor),
+          // 本地通知链路：个推在前台不自动弹通知栏，靠本地通知展示。
+          // 「推送已送达但看不到通知」时先看这行（perm / init / showOk）。
+          _row(
+              '本地通知',
+              _notifySummary.isEmpty ? '—' : _notifySummary,
+              _notifySummary.contains('perm=false') ||
+                      _notifySummary.contains('init=false')
+                  ? CncColors.danger
+                  : (_notifySummary.contains('showOk=0') &&
+                          _notifySummary.contains('showFail=0')
+                      ? CncColors.textSub
+                      : CncColors.primaryInk)),
           if (_sdkLog.isNotEmpty && !_sdkLog.startsWith('(暂无'))
             Padding(
               padding: const EdgeInsets.only(top: 6),

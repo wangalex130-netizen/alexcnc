@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:getuiflut/getuiflut.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -82,7 +83,12 @@ class PushService {
           lastInitDiagnostic = 'cid-ready';
           onCidReady?.call(cid);
         },
-        onNotificationMessageArrived: (_) async {},
+        // 关键：App 在前台时，个推 SDK **不会**自动弹系统通知栏，而是把消息
+        // 交给本回调由 App 自行展示。之前这里是空实现，导致「个推已送达
+        // (successed_online) 但用户完全看不到通知」。这里改为弹本地通知。
+        onNotificationMessageArrived: (Map<String, dynamic> msg) async {
+          await _showGetuiNotification(msg);
+        },
         onNotificationMessageClicked: (_) async {},
         onTransmitUserMessageReceive: (_) async {},
         onReceiveOnlineState: (_) async {},
@@ -102,6 +108,11 @@ class PushService {
         onLiveActivityResult: (_) async {},
         onRegisterPushToStartTokenResult: (_) async {},
       );
+      // 提前建好本地通知通道并申请通知运行时权限（Android 13+/API 33+ 必需）。
+      // 个推在 App 前台不自动弹通知栏，靠本地通知兜底展示。两者都幂等。
+      await LocalNotifyService.instance.ensureInitialized();
+      await LocalNotifyService.instance.ensurePermission();
+
       // 个推 Flutter 插件约定用 getter 触发初始化（无参）。
       // 若真机 CID 始终不来，可尝试改为 Getuiflut().initGetuiSdk();
       Getuiflut().initGetuiSdk;
@@ -109,6 +120,40 @@ class PushService {
       lastInitDiagnostic = 'getui-init-ok';
     } catch (e) {
       lastInitDiagnostic = 'getui-init-fail $e';
+    }
+  }
+
+  /// 把个推送达的消息以本地通知形式展示出来。
+  ///
+  /// 消息体由插件反射 `GTNotificationMessage` 的所有 getter 生成，键名即
+  /// getter 名（title / content 等）。不同 SDK 版本字段可能略有差异，
+  /// 这里对常见键名都做兜底，取不到就放弃展示（不打扰用户）。
+  Future<void> _showGetuiNotification(Map<String, dynamic> msg) async {
+    try {
+      final title = (msg['title'] ?? msg['Title'] ?? '').toString().trim();
+      final content = (msg['content'] ??
+              msg['Content'] ??
+              msg['body'] ??
+              msg['text'] ??
+              '')
+          .toString()
+          .trim();
+      if (title.isEmpty && content.isEmpty) {
+        debugPrint('[push] 个推消息无标题无内容，跳过展示: $msg');
+        return;
+      }
+      // 通知通道 + 运行时权限（Android 13+/API 33+ 必须）。两者都幂等。
+      await LocalNotifyService.instance.ensureInitialized();
+      await LocalNotifyService.instance.ensurePermission();
+      await LocalNotifyService.instance.show(
+        // 注意用 % 而非 .remainder()：int.remainder() 返回 num，
+        // 而 show(id:) 要求 int，用 remainder 会编译报错。
+        id: DateTime.now().millisecondsSinceEpoch % 100000,
+        title: title.isEmpty ? '新通知' : title,
+        body: content,
+      );
+    } catch (e) {
+      debugPrint('[push] 展示个推通知失败: $e');
     }
   }
 
