@@ -68,7 +68,15 @@ class MainApplication : Application() {
     private fun writeSp(key: String, value: String) {
         try {
             val sp = getSharedPreferences(SP_NAME, Context.MODE_PRIVATE)
-            sp.edit().putString(key, value).apply()
+            val e = sp.edit()
+            // 关键坑：shared_preferences ^2.x 的 Android 实现读 key 时会自动加
+            // "flutter." 前缀（SP 文件名就是 FlutterSharedPreferences），所以
+            // 原生必须写带前缀的 key，否则 Dart 侧 SharedPreferences.getInstance()
+            // .getString("push_native_init_log") 永远读不到，会显示"原生未写入"。
+            // 同时也写一份不带前缀的作为兜底（万一日后插件前缀行为变化）。
+            e.putString("flutter.$key", value)
+            e.putString(key, value)
+            e.apply()
         } catch (e: Throwable) {
             Log.e(TAG, "writeSp($key) failed", e)
         }
