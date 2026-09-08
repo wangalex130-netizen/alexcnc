@@ -89,6 +89,19 @@ flutter {
 }
 
 dependencies {
+    // ===================================================================
+    // 个推（GeTui）SDK aar：getuiflut 0.2.41 插件不传递 gtsdk aar（只把
+    // com.igexin.sdk.PushManager 当字符串引用），主 App 不显式 implementation 会
+    // 运行时 ClassNotFoundException——所有反射路径（隐私同意 / preInit / register
+    // IntentService / 双参数 initialize）全部 ClassNotFoundException 静默失败，
+    // try-catch 只把异常吞成 "fatal:ClassNotFoundException:..."，根本看不到。
+    //
+    // 测试包（alexcnc_push_test，Run 15 真机全链路验证通过）就是靠下面这两行
+    // 才把 gtsdk aar 真正打进了 dex。版本与 getuiflut 0.2.41 官方 README 严格对齐。
+    // ===================================================================
+    implementation("com.getui:gtsdk:3.3.12.0")
+    implementation("com.getui:gtc:3.2.18.0")
+
     // 配合 compileOptions.isCoreLibraryDesugaringEnabled 使用，
     // 为 flutter_local_notifications 提供 Java 8+ API 脱糖支持。
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
