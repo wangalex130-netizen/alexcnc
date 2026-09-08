@@ -1289,8 +1289,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
     final videoBoxH = MediaQuery.of(context).size.width * 3 / 4;
 
-
-
     // 三态门控：未登录 / 未绑定机器 时只展示引导，不渲染视频与控制区
     if (!loggedIn) {
       return Scaffold(
@@ -1318,6 +1316,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
         ),
       );
     }
+
+
+
 
     return Scaffold(
 
@@ -2374,7 +2375,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   ),
                   const SizedBox(height: 12),
 
-                  const _SectionTitle('主轴调试'),
+                  const _SectionTitle('主轴调试 (Spindle)'),
 
                   _SpindleCard(
 
@@ -2773,19 +2774,19 @@ class _ConnStatusChip extends ConsumerWidget {
 
         color = CncColors.primary;
 
-        label = '云端连接 · 已连接';
+        label = '云端 MQTT · 已连接';
 
       } else if (connecting) {
 
         color = CncColors.warning;
 
-        label = '云端连接 · 连接中…';
+        label = '云端 MQTT · 连接中…';
 
       } else {
 
         color = CncColors.danger;
 
-        label = '云端连接 · 未连接';
+        label = '云端 MQTT · 未连接';
 
       }
 
@@ -3146,7 +3147,7 @@ class _JogEntry extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: const [
-                    Text('手动移动',
+                    Text('手动移动 (Jog)',
                         style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
                     SizedBox(height: 2),
                     Text('X / Y / Z 轴步进移动 · 设原点 · 回零',
@@ -4187,6 +4188,8 @@ class _TimeLapseStatusCard extends StatelessWidget {
 
   }
 
+}
+
 // ===================== 三态门控引导 =====================
 
 class _ConsoleGate extends StatelessWidget {
@@ -4231,8 +4234,3 @@ class _ConsoleGate extends StatelessWidget {
     );
   }
 }
-
-}
-
-
-
