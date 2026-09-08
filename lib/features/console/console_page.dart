@@ -2375,7 +2375,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                   ),
                   const SizedBox(height: 12),
 
-                  const _SectionTitle('主轴调试 (Spindle)'),
+                  const _SectionTitle('主轴调试'),
 
                   _SpindleCard(
 
@@ -2774,19 +2774,19 @@ class _ConnStatusChip extends ConsumerWidget {
 
         color = CncColors.primary;
 
-        label = '云端 MQTT · 已连接';
+        label = '云端连接 · 已连接';
 
       } else if (connecting) {
 
         color = CncColors.warning;
 
-        label = '云端 MQTT · 连接中…';
+        label = '云端连接 · 连接中…';
 
       } else {
 
         color = CncColors.danger;
 
-        label = '云端 MQTT · 未连接';
+        label = '云端连接 · 未连接';
 
       }
 
@@ -3147,7 +3147,7 @@ class _JogEntry extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: const [
-                    Text('手动移动 (Jog)',
+                    Text('手动移动',
                         style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
                     SizedBox(height: 2),
                     Text('X / Y / Z 轴步进移动 · 设原点 · 回零',
