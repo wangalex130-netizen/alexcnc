@@ -132,7 +132,15 @@ class PushService {
     return t;
   }
 
-  /// 主动从原生 SDK 查询真实 CID（无需重装/重启），用于调试页「刷新」按钮。
+  /// ⚠️ 危险：主动从原生 SDK 查询真实 CID。
+  ///
+  /// **不要在页面打开/初始化路径上调用本方法。** 实测（2026-09-08，commit 12d94d78）
+  /// 把它放进调试页 initState 后，「一进联调设置 App 就被关闭」——底层
+  /// `PushManager.getInstance().getClientid()` 在个推 SDK 未就绪时会触发原生层崩溃，
+  /// 不是 Dart 异常，try/catch 拦不住，整个进程直接没了。
+  ///
+  /// 正常情况下**不需要**它：真实 CID 由 `onReceiveClientId` 回调写入
+  /// SharedPreferences 并同步更新 `_cachedToken`，`ensureToken()` 即可读到。
   /// 返回真实 CID；若原生尚未就绪或仍为空返回 null。
   Future<String?> refreshClientId() async {
     try {

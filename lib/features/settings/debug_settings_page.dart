@@ -564,19 +564,27 @@ class _PushDebugCardState extends State<_PushDebugCard> {
   }
 
   Future<void> _refresh() async {
-    final accepted = await PushService.instance.isPrivacyAccepted();
-    // 优先从原生 SDK 拿真实 CID（修复后主进程即注册），拿不到再退回 ensureToken 占位。
-    final real = await PushService.instance.refreshClientId();
-    final cid = real ?? await PushService.instance.ensureToken();
-    final nlog = await PushService.instance.getNativeInitLog();
-    final slog = await PushService.instance.getSdkLog();
-    if (!mounted) return;
-    setState(() {
-      _privacy = accepted;
-      _cid = cid;
-      _nativeInitLog = nlog;
-      _sdkLog = slog;
-    });
+    try {
+      final accepted = await PushService.instance.isPrivacyAccepted();
+      // 重要：这里**不要**主动调原生 PushManager.getClientid()
+      // （即 PushService.refreshClientId）。实测该原生调用在 SDK 未就绪时会直接
+      // 把进程带崩，表现为「一进联调设置 App 就关闭」。
+      // 真实 CID 由个推 onReceiveClientId 回调写入 SharedPreferences 并同步更新
+      // 内存缓存，所以 ensureToken() 读到的即为真实 CID，无需打原生。
+      final cid = await PushService.instance.ensureToken();
+      final nlog = await PushService.instance.getNativeInitLog();
+      final slog = await PushService.instance.getSdkLog();
+      if (!mounted) return;
+      setState(() {
+        _privacy = accepted;
+        _cid = cid;
+        _nativeInitLog = nlog;
+        _sdkLog = slog;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _nativeInitLog = '读取失败: $e');
+    }
   }
 
   /// 同意隐私政策 → 初始化个推 → 轮询等待 CID 回填（最多 30s）。
