@@ -385,8 +385,6 @@ class _FilterBar extends StatelessWidget {
             children: [
               _Chip(label: '全部', selected: result == null,
                   onTap: () => onResult(null)),
-              _Chip(label: '进行中', selected: result == 2,
-                  onTap: () => onResult(2)),
               _Chip(label: '已完成', selected: result == 0,
                   onTap: () => onResult(0)),
               _Chip(label: '未完成', selected: result == 1,
@@ -450,25 +448,17 @@ class _RecordCard extends StatelessWidget {
   final WorkRecord record;
   final VoidCallback onDelete;
 
-  String get _statusLabel {
-    switch (record.result) {
-      case 0:
-        return '已完成';
-      case 1:
-        return '未完成';
-      default:
-        return '进行中';
-    }
-  }
+  /// 「历史」只记载**已结束**的任务，没有「进行中」这一态
+  /// （正在雕刻的去工作台/监控页看，不进历史）。
+  String get _statusLabel => record.result == 0 ? '已完成' : '未完成';
 
   Color get _statusColor {
     switch (record.result) {
       case 0:
         return CncColors.primaryInk;
-      case 1:
-        return CncColors.textSub; // 中性，不用红色，避免放大负面
       default:
-        return CncColors.blue;
+        // 中性灰，不用红色，避免放大「未完成」的负面观感
+        return CncColors.textSub;
     }
   }
 
