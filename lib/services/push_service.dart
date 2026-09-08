@@ -118,6 +118,9 @@ class PushService {
       Getuiflut().initGetuiSdk;
       _getuiReady = true;
       lastInitDiagnostic = 'getui-init-ok';
+      // 关键：就绪后立刻补绑。覆盖「先登录、后同意隐私政策」「重装后重新初始化」
+      // 等时序——否则 setUser 早已因 !_getuiReady 静默跳过，alias 永远绑不上。
+      await _bindPendingUserIfReady();
     } catch (e) {
       lastInitDiagnostic = 'getui-init-fail $e';
     }
@@ -210,10 +213,28 @@ class PushService {
     final old = _userId;
     _userId = userId;
     if (userId == null || userId.isEmpty) return;
+    // 个推尚未就绪（典型：用户还没同意隐私政策，或重装后首次启动）：
+    // 这里只记下「待绑定」用户，等 initGetui 就绪后由
+    // [_bindPendingUserIfReady] 自动补绑。
+    // 若此刻直接调 bindAlias，它内部会因 !_getuiReady 静默 return，
+    // 且之后再无时机重试 → alias 永远绑不上 → 按 alias 寻址的推送全丢。
+    if (!_getuiReady) return;
     if (old != null && old != userId) {
       await unbindAlias(old); // 切换账号：先解绑旧
     }
     await bindAlias(userId);
+  }
+
+  /// 个推就绪后补绑 alias。
+  ///
+  /// 覆盖三类时序漏洞：
+  ///   1. 先登录、后同意隐私政策（setUser 当时因未就绪被跳过）；
+  ///   2. 重装 App（CID 变了，需按当前登录用户重建 alias→CID 绑定）；
+  ///   3. CID 回调晚于登录完成。
+  Future<void> _bindPendingUserIfReady() async {
+    final uid = _userId;
+    if (!_getuiReady || uid == null || uid.isEmpty) return;
+    await bindAlias(uid);
   }
 
   /// 退出登录：解绑当前 alias（防串号）。

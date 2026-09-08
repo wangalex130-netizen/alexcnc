@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/runtime_config.dart';
 import '../services/auth_service.dart';
+import '../services/push_service.dart';
 
 /// 登录态。
 class AuthState {
@@ -38,11 +39,26 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   final AuthService _service;
 
+  /// 账号变化时同步个推 alias（登录 / 注册 / 会话恢复 / 登出）。
+  ///
+  /// **没有这一步，用户登录后 alias 永远不会绑定**。个推按 alias=userId 寻址
+  /// （docs/53：寻址主键是 accountId，不是 CID），绑定缺失 = 该用户收不到
+  /// 任何推送。之前 setUser 只在启动 bootstrap 里调过一次，用户「登录」
+  /// 这个动作本身完全没有触发绑定，是最大的一个缺口。
+  Future<void> _syncPushAlias(String? userId) async {
+    try {
+      await PushService.instance.setUser(userId);
+    } catch (_) {
+      // 绑定失败不阻塞登录流程
+    }
+  }
+
   Future<void> _restore() async {
     try {
       final s = await _service.loadSession();
       if (s != null && mounted) {
         state = AuthState(userId: s.$1, token: s.$2, username: s.$3);
+        await _syncPushAlias(s.$1);
       }
     } catch (_) {
       // 恢复失败保持未登录
@@ -56,6 +72,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       if (mounted) {
         state = AuthState(userId: userId, token: token, username: username);
       }
+      await _syncPushAlias(userId);
       return userId;
     } finally {
       if (mounted) state = state.copyWith(busy: false);
@@ -69,6 +86,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       if (mounted) {
         state = AuthState(userId: userId, token: token, username: username);
       }
+      await _syncPushAlias(userId);
       return userId;
     } finally {
       if (mounted) state = state.copyWith(busy: false);
@@ -76,6 +94,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> logout() async {
+    // 关键：解绑个推 alias，否则下一个人在这台手机登录后仍会收到
+    // 上一个账号的机器通知（串号，隐私红线）。见 docs/53 第 5 节。
+    try {
+      await PushService.instance.clearUser();
+    } catch (_) {
+      // 解绑失败不阻塞登出流程
+    }
     await _service.logout();
     if (mounted) state = const AuthState.loggedOut();
   }
