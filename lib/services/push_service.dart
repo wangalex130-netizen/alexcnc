@@ -132,6 +132,24 @@ class PushService {
     return t;
   }
 
+  /// 主动从原生 SDK 查询真实 CID（无需重装/重启），用于调试页「刷新」按钮。
+  /// 返回真实 CID；若原生尚未就绪或仍为空返回 null。
+  Future<String?> refreshClientId() async {
+    try {
+      final cid = await Getuiflut().getClientId;
+      if (cid != null && cid.isNotEmpty && !cid.startsWith('pt_')) {
+        _cachedToken = cid;
+        await _persistCid(cid);
+        lastInitDiagnostic = 'cid-refreshed';
+        return cid;
+      }
+      lastInitDiagnostic = 'cid-empty(native 未就绪)';
+    } catch (e) {
+      lastInitDiagnostic = 'cid-refresh-fail $e';
+    }
+    return null;
+  }
+
   // ---------------------------------------------------------------- 账号↔alias
   /// 登录成功后设置当前用户，并绑定 alias（CID 就绪后生效）。
   /// 切换账号时先解绑旧 alias，避免串号。
@@ -218,6 +236,18 @@ class PushService {
       notifyComplete: p.getBool(kNotifyCompleteKey) ?? true,
       notifyAlert: p.getBool(kNotifyAlertKey) ?? true,
     );
+  }
+
+  /// 读取原生层写回的初始化步骤日志（MainApplication 写入 FlutterSharedPreferences）。
+  Future<String> getNativeInitLog() async {
+    final p = await SharedPreferences.getInstance();
+    return p.getString('push_native_init_log') ?? '(原生未写入，可能 App 刚装)';
+  }
+
+  /// 读取个推 SDK 内部日志（setDebugLogger 捕获，定位 CID 失败根因）。
+  Future<String> getSdkLog() async {
+    final p = await SharedPreferences.getInstance();
+    return p.getString('push_sdk_log') ?? '(暂无 SDK 日志)';
   }
 
   Future<void> setNotifyComplete(bool v) async {

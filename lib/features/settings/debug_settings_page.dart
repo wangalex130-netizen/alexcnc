@@ -552,6 +552,8 @@ class _PushDebugCard extends StatefulWidget {
 class _PushDebugCardState extends State<_PushDebugCard> {
   bool? _privacy;
   String _cid = '';
+  String _nativeInitLog = '';
+  String _sdkLog = '';
   bool _busy = false;
 
 
@@ -563,11 +565,17 @@ class _PushDebugCardState extends State<_PushDebugCard> {
 
   Future<void> _refresh() async {
     final accepted = await PushService.instance.isPrivacyAccepted();
-    final cid = await PushService.instance.ensureToken();
+    // 优先从原生 SDK 拿真实 CID（修复后主进程即注册），拿不到再退回 ensureToken 占位。
+    final real = await PushService.instance.refreshClientId();
+    final cid = real ?? await PushService.instance.ensureToken();
+    final nlog = await PushService.instance.getNativeInitLog();
+    final slog = await PushService.instance.getSdkLog();
     if (!mounted) return;
     setState(() {
       _privacy = accepted;
       _cid = cid;
+      _nativeInitLog = nlog;
+      _sdkLog = slog;
     });
   }
 
@@ -592,6 +600,17 @@ class _PushDebugCardState extends State<_PushDebugCard> {
   Widget build(BuildContext context) {
     final accepted = _privacy == true;
     final real = _cid.isNotEmpty && !_cid.startsWith('pt_');
+    final nativeOk = _nativeInitLog.contains('initialize(Context,FlutterPushService)=OK');
+    final nativeBad = _nativeInitLog.contains('=ERR') ||
+        _nativeInitLog.contains('=not found') ||
+        _nativeInitLog.contains('fatal:');
+    final nativeColor = nativeOk
+        ? CncColors.primaryInk
+        : (nativeBad
+            ? CncColors.danger
+            : (_nativeInitLog.startsWith('(未')
+                ? CncColors.textSub
+                : CncColors.warning));
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -637,6 +656,23 @@ class _PushDebugCardState extends State<_PushDebugCard> {
                       : CncColors.textSub),
           _row('诊断(poll)', PushService.instance.lastPollDiagnostic,
               CncColors.textSub),
+          _row('原生(init)', _nativeInitLog, nativeColor),
+          if (_sdkLog.isNotEmpty && !_sdkLog.startsWith('(暂无'))
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: CncColors.bg,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: CncColors.border),
+                ),
+                child: Text('个推 SDK 原生日志：\n$_sdkLog',
+                    style: TextStyle(
+                        color: CncColors.textSub, fontSize: 10, height: 1.4)),
+              ),
+            ),
           const SizedBox(height: 10),
           SizedBox(
             width: double.infinity,

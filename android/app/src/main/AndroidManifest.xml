@@ -1,14 +1,35 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- ===== 基础 ===== -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
     <!-- 本地推送通知（Android 13+ / API 33+ 需运行时申请） -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
-    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <!-- 外网 MJPEG 截图保存到系统相册 -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+
+    <!-- ===== 个推 SDK 必选/推荐权限（对照验证通过的测试包补齐） ===== -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.GET_TASKS"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <!-- Android 12+ 注册 CID 需要精确 alarm 权限 -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+    <uses-permission android:name="android.permission.READ_PHONE_STATE"/>
+    <!-- vivo 角标（个推 SDK 声明为必选） -->
+    <uses-permission android:name="com.vivo.notification.permission.BADGE_ICON"/>
+
+    <!-- 个推内部广播/服务通信自定义权限 -->
+    <permission
+        android:name="getui.permission.GetuiService.${applicationId}"
+        android:protectionLevel="signature"/>
+    <uses-permission android:name="getui.permission.GetuiService.${applicationId}"/>
+
     <application android:usesCleartextTraffic="true"
         android:requestLegacyExternalStorage="true"
         android:label="alexcnc"
@@ -44,9 +65,10 @@
 
         <!-- 个推（GeTui）推送凭据：值来自 app/build.gradle.kts 的
              manifestPlaceholders（GETUI_APPID / GETUI_APPKEY / GETUI_APPSECRET）。
-             三件套为 Run 15 验证通过的「测试应用 com.alexcnc.pushtest」REAL 凭据，
-             复用于主 App 即可立即注册+收推送；量产时为 com.alexcnc.alexcnc 建独立应用后替换。
-             注意：未同意隐私政策前 App 只 preInit，不 initialize，满足合规红线。 -->
+             注意：未同意隐私政策前 App 只 preInit，不 initialize，满足合规红线。
+             两对 key 都写，确保 SDK 一定能读到真实 AppID：
+               - PUSH_APPID/KEY/SECRET：个推 SDK 真正读取的主 key
+               - GETUI_APPID/KEY/SECRET：多产品/版本兜底 key（Run 10 起要求补充） -->
         <meta-data
             android:name="PUSH_APPID"
             android:value="${GETUI_APPID}" />
@@ -55,6 +77,15 @@
             android:value="${GETUI_APPKEY}" />
         <meta-data
             android:name="PUSH_APPSECRET"
+            android:value="${GETUI_APPSECRET}" />
+        <meta-data
+            android:name="GETUI_APPID"
+            android:value="${GETUI_APPID}" />
+        <meta-data
+            android:name="GETUI_APPKEY"
+            android:value="${GETUI_APPKEY}" />
+        <meta-data
+            android:name="GETUI_APPSECRET"
             android:value="${GETUI_APPSECRET}" />
 
         <!-- flutter_local_notifications：调度通知的接收器（17.x 官方要求，

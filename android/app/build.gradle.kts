@@ -37,14 +37,17 @@ android {
         }
 
         // ===================================================================
-        // 个推（GeTui）推送：manifest 占位符（三件套，经验证可用）。
-        // 以下为「推送验证专用测试应用 com.alexcnc.pushtest」的 REAL 凭据
-        // （Run 15 已真机验证：设备注册 CID + 控制台推送 + 手机通知全链路打通）。
-        // 直接复用到主 App 即可让 com.alexcnc.alexcnc 立即注册并接收推送。
-        // ⚠️ 量产/上架前：请在个推控制台为包名 com.alexcnc.alexcnc 新建独立应用，
-        //   拿到其 AppID/AppKey/AppSecret 后只替换这三行即可（其余代码不动）。
+        // 个推（GeTui）推送：manifest 占位符（三件套）。
+        // 这是主 App 自己的「AlexCNC」应用凭据（AppID 2BrsBCR7hU9a1COnJw8P87），
+        // 面向包名 com.alexcnc.alexcnc —— 与推送验证用的测试包
+        // com.alexcnc.pushtest（其凭据为 ffOcDMIMVq6m6BgRrHkXZ6，Run 15 真机验证
+        // 通过）是**两个不同应用**，请勿混淆。
+        // ⚠️ 请在个推控制台确认：AppID 2BrsBCR7hU9a1COnJw8P87 已绑定包名
+        //    com.alexcnc.alexcnc。若未绑定，CID 注册会失败，调试页「推送联调」卡片的
+        //   原生日志会打印「包名不匹配 / appid 错误」等精确原因。
+        // ⚠️ 量产/上架前：如尚未为 com.alexcnc.alexcnc 建独立应用，请新建并替换这三行。
         // 占位符名称 GETUI_APPID / GETUI_APPKEY / GETUI_APPSECRET 与
-        // AndroidManifest.xml 的 ${GETUI_APPID} 等严格对应（来自验证通过的配置）。
+        // AndroidManifest.xml 的 ${GETUI_APPID} 等严格对应。
         // ===================================================================
         manifestPlaceholders["GETUI_APPID"] = "2BrsBCR7hU9a1COnJw8P87"
         manifestPlaceholders["GETUI_APPKEY"] = "jhbuwBzhei7EkKVoN5BVP5"
