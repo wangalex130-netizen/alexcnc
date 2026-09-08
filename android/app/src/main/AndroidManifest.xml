@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- ===== 基础 ===== -->
     <uses-permission android:name="android.permission.INTERNET"/>
@@ -30,11 +31,18 @@
         android:protectionLevel="signature"/>
     <uses-permission android:name="getui.permission.GetuiService.${applicationId}"/>
 
+    <!-- tools:replace 是必须的：gtsdk 3.3.12.0 的 aar 自带 AndroidManifest，
+         其 <application> 也声明了 label/icon 等属性，与我们声明的值冲突时
+         Gradle 的 manifest merger 会直接构建失败（"Manifest merger failed"）。
+         这里显式声明"以 App 自己的值为准"，覆盖所有可能与 gtsdk 撞车的属性，
+         避免逐个属性报一轮再打一轮包（每次构建约 5 分钟）。
+         测试包 alexcnc_push_test（Run 15 跑通）用的就是同样的处理。 -->
     <application android:usesCleartextTraffic="true"
         android:requestLegacyExternalStorage="true"
         android:label="alexcnc"
         android:name=".MainApplication"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        tools:replace="android:label,android:icon,android:theme,android:name,android:allowBackup,android:supportsRtl,android:usesCleartextTraffic,android:networkSecurityConfig,android:hardwareAccelerated,android:requestLegacyExternalStorage">
         <activity
             android:name=".MainActivity"
             android:exported="true"
