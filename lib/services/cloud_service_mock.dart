@@ -2,6 +2,7 @@ import '../data/material_db.dart';
 import '../models/library_item.dart';
 import '../models/model_library.dart';
 import '../models/push_log_entry.dart';
+import '../models/work_record.dart';
 import '../models/sys_bit.dart';
 import '../models/task_metadata.dart';
 import 'cloud_service.dart';
@@ -327,5 +328,75 @@ class MockCloudService implements CloudService {
   Future<List<String>> getModelLibraryTags() async {
     await Future.delayed(const Duration(milliseconds: 150));
     return const ['复古', '几何', '发光', 'PCB', '杯垫', '铭牌'];
+  }
+
+  // ===================== 工作记录（雕刻历史）· Mock =====================
+
+  @override
+  Future<bool> addWorkRecord(WorkRecord record, {String deviceId = ''}) async {
+    await Future.delayed(const Duration(milliseconds: 150));
+    return true;
+  }
+
+  @override
+  Future<WorkRecordPage> fetchWorkRecords({
+    int pageNo = 1,
+    int pageSize = 20,
+    int? type,
+    int? result,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 200));
+    // 联调用假数据，便于在没有后端时验证列表/筛选/分页 UI。
+    final seed = [
+      WorkRecord(
+        id: 1003,
+        userId: 42,
+        type: 3,
+        materialId: 12,
+        bitId: 8,
+        fileName: 'flower.nc',
+        fileSize: '128KB',
+        filePath: '/work/flower.nc',
+        lineNum: 2450,
+        executionTime: '00:12:35',
+        extInfo: '{"deviceId":"cnc-demo-01"}',
+        result: 0,
+        createTime: DateTime(2026, 9, 8, 10, 30),
+      ),
+      WorkRecord(
+        id: 1002,
+        userId: 42,
+        type: 2,
+        materialId: 7,
+        bitId: 3,
+        fileName: 'sign_plate.nc',
+        fileSize: '64KB',
+        filePath: '/work/sign_plate.nc',
+        lineNum: 1180,
+        executionTime: '00:05:12',
+        extInfo: '{"deviceId":"cnc-demo-01"}',
+        result: 1,
+        createTime: DateTime(2026, 9, 7, 16, 2),
+      ),
+    ];
+    final filtered = seed.where((r) {
+      if (type != null && r.type != type) return false;
+      if (result != null && r.result != result) return false;
+      return true;
+    }).toList();
+    return WorkRecordPage(
+      list: filtered,
+      total: filtered.length,
+      pageNo: pageNo,
+      pageSize: pageSize,
+      pages: 1,
+    );
+  }
+
+  @override
+  Future<bool> deleteWorkRecord(int id) async {
+    // 与真实实现保持一致：后端未暴露删除接口时返回 false。
+    await Future.delayed(const Duration(milliseconds: 120));
+    return false;
   }
 }

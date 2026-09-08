@@ -2,6 +2,7 @@ import '../data/material_db.dart';
 import '../models/library_item.dart';
 import '../models/model_library.dart';
 import '../models/push_log_entry.dart';
+import '../models/work_record.dart';
 import '../models/sys_bit.dart';
 import '../models/task_metadata.dart';
 
@@ -79,4 +80,33 @@ abstract class CloudService {
   /// 云端是官方刀头**全集**；本机可用是子集（见 `SysBit.isLocalSupported`）。
   /// 失败返回空列表（调用方回退/提示）。
   Future<List<SysBit>> fetchSysBits({String? modelId});
+
+  // ===================== 工作记录（雕刻历史）=====================
+  // 接口来源：PC 工程师《Work Records API》。
+  // 注意：该接口体系为 `/api/work/records`，与既有 `/api/v1/...` 并存。
+
+  /// 新增工作记录（POST /api/work/records/add）。
+  ///
+  /// `userId` 由服务端按登录态写入，客户端不传。
+  /// [deviceId] 过渡期写入 `extInfo`（后端补正式字段后改为直传字段）。
+  /// 返回 true = 云端已接受。
+  Future<bool> addWorkRecord(WorkRecord record, {String deviceId = ''});
+
+  /// 分页查询当前用户工作记录（POST /api/work/records/page-list）。
+  ///
+  /// 服务端强制按登录用户过滤，即使传 userId 也会被覆盖。
+  /// [type] / [result] 为可选筛选。失败返回空页（调用方提示重试）。
+  Future<WorkRecordPage> fetchWorkRecords({
+    int pageNo = 1,
+    int pageSize = 20,
+    int? type,
+    int? result,
+  });
+
+  /// 删除工作记录（软删除，flag=0）。
+  ///
+  /// ⚠️ 后端当前**未暴露**删除接口（仅有 flag 字段），实现会返回 false。
+  /// 已同步 PC 工程师补 `POST /api/work/records/delete`。
+  /// UI 需按返回值决定是否展示删除入口。
+  Future<bool> deleteWorkRecord(int id);
 }

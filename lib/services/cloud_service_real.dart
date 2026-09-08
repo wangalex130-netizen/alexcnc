@@ -16,6 +16,8 @@ import '../models/model_library.dart';
 
 import '../models/push_log_entry.dart';
 
+import '../models/work_record.dart';
+
 import '../models/sys_bit.dart';
 
 import '../models/task_metadata.dart';
@@ -795,6 +797,138 @@ class RealCloudService implements CloudService {
     }
 
     return const <String>[]; // 不再回退假数据
+
+  }
+
+  // ===================== 工作记录（雕刻历史）=====================
+  // 接口来源：PC 工程师《Work Records API》
+  //   POST /api/work/records/add
+  //   POST /api/work/records/page-list
+  // userId 由服务端按登录态写入，客户端不传。
+
+  @override
+
+  Future<bool> addWorkRecord(WorkRecord record, {String deviceId = ''}) async {
+
+    try {
+
+      final res = await http
+
+          .post(
+
+            Uri.parse('$baseUrl/api/work/records/add'),
+
+            headers: await _headers,
+
+            body: jsonEncode(record.toAddJson(deviceId: deviceId)),
+
+          )
+
+          .timeout(const Duration(seconds: 8));
+
+      if (res.statusCode == 200) {
+
+        final body = jsonDecode(utf8.decode(res.bodyBytes));
+
+        if (body is Map) return body['code'] == 200;
+
+      }
+
+    } catch (_) {
+
+      // 云端不可达：静默失败，不打断雕刻主流程
+
+    }
+
+    return false;
+
+  }
+
+  @override
+
+  Future<WorkRecordPage> fetchWorkRecords({
+
+    int pageNo = 1,
+
+    int pageSize = 20,
+
+    int? type,
+
+    int? result,
+
+  }) async {
+
+    try {
+
+      final payload = <String, dynamic>{
+
+        'pageNo': pageNo,
+
+        'pageSize': pageSize,
+
+        if (type != null) 'type': type,
+
+        if (result != null) 'result': result,
+
+      };
+
+      final res = await http
+
+          .post(
+
+            Uri.parse('$baseUrl/api/work/records/page-list'),
+
+            headers: await _headers,
+
+            body: jsonEncode(payload),
+
+          )
+
+          .timeout(const Duration(seconds: 8));
+
+      if (res.statusCode == 200) {
+
+        final body = jsonDecode(utf8.decode(res.bodyBytes));
+
+        if (body is Map && body['code'] == 200 && body['data'] is Map) {
+
+          return WorkRecordPage.fromJson(
+
+            Map<String, dynamic>.from(body['data'] as Map),
+
+          );
+
+        }
+
+      }
+
+    } catch (_) {
+
+      // 云端不可达：返回空页，UI 提示重试
+
+    }
+
+    return const WorkRecordPage(list: []);
+
+  }
+
+  @override
+
+  Future<bool> deleteWorkRecord(int id) async {
+
+    // ⚠️ 后端当前未暴露删除接口（《Work Records API》只有 add / page-list）。
+    // 已同步 PC 工程师补充；接口就绪后改为下面的实现：
+    //
+    // final res = await http.post(
+    //   Uri.parse('$baseUrl/api/work/records/delete'),
+    //   headers: await _headers,
+    //   body: jsonEncode({'id': id}),
+    // ).timeout(const Duration(seconds: 8));
+    // if (res.statusCode == 200) {
+    //   final body = jsonDecode(utf8.decode(res.bodyBytes));
+    //   if (body is Map) return body['code'] == 200;
+    // }
+    return false;
 
   }
 
