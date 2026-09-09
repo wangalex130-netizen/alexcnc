@@ -13,6 +13,7 @@ import '../../app/theme.dart';
 import '../../services/machines_service.dart';
 
 import '../../state/providers.dart';
+import '../../state/firmware_update_provider.dart';
 
 import 'firmware_models.dart';
 
@@ -272,6 +273,10 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
       }
 
     });
+
+    // 回写「我的」页入口绿点：把本页查到的「可升级」态同步到全局状态；
+    // 升级完成/失败或云端无更新时，绿点也随之消失。
+    ref.read(fwUpdateAvailableProvider.notifier).state = _hasUpdate;
 
   }
 
@@ -1168,4 +1173,5 @@ class _StatusCard extends StatelessWidget {
       );
 
 }
+
 

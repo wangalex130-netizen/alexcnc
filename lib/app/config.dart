@@ -136,6 +136,19 @@ class AppConfig {
 
   );
 
+  // ---- 固件升级「可升级」拉取式检查（docs/56 §3.8，2026-09-08 决策）----
+  // 与 fwBaseUrl 不同：这是「App 打开时静默检查是否有新固件」的聚合接口，
+  // 由 PC 工程师提供（返回 {available,latest[]} 或 {available:false}）。
+  // 接口就绪前留空 → App 不显示绿点（服务端不主动推送，符合产品决策）。
+  // 联调时用 --dart-define=FIRMWARE_CHECK_URL=https://... 覆盖。
+  static const String firmwareCheckUrl = String.fromEnvironment(
+
+    'FIRMWARE_CHECK_URL',
+
+    defaultValue: '',
+
+  );
+
 
 
   // ---- 云端（材质主表 / 任务元数据 / G-code 推送）----
@@ -273,4 +286,5 @@ class AppConfig {
   static String get mqttCmdTopic => 'cnc/$deviceId/cmd';
 
 }
+
 

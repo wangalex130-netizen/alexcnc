@@ -59,6 +59,39 @@ class FirmwareService {
     }
   }
 
+  /// 应用打开时一次性静默检查云端是否有可升级固件（**拉取式**：服务端不主动推送）。
+  ///
+  /// 命中 [AppConfig.firmwareCheckUrl]（PC 工程师提供的「升级清单」聚合接口）。
+  /// 该接口尚未提供时 [AppConfig.firmwareCheckUrl] 为空，安全返回 false（不提示绿点）。
+  ///
+  /// 约定响应（PC 工程师对齐）：
+  /// ```json
+  /// { "available": true,
+  ///   "latest": [ {"type":"camera","version":"1.2.0","changelog":"..."} ] }
+  /// ```
+  /// 或 `{ "available": false }`。任一类型 available 即视为有更新。
+  Future<bool> checkCloudUpdate() async {
+    final url = AppConfig.firmwareCheckUrl;
+    if (url.isEmpty) return false; // 接口未提供：默认不提示
+    try {
+      final res = await _client
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 8));
+      if (res.statusCode != 200) return false;
+      final j = jsonDecode(res.body) as Map<String, dynamic>;
+      if (j['available'] == true) return true;
+      final latest = j['latest'];
+      if (latest is List) {
+        for (final item in latest) {
+          if (item is Map && item['available'] == true) return true;
+        }
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// 通过 RTSP 发现解析摄像头局域网 IP；找不到返回 null（外网，提示连同一 WiFi）。
   Future<String?> discoverCameraIp() async {
     try {
@@ -116,3 +149,4 @@ class FirmwareService {
   static String? parseFwVer(Map<String, String> status) =>
       status['fw_ver'];
 }
+

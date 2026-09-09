@@ -5,6 +5,7 @@ import 'theme.dart';
 import 'theme_mode_controller.dart';
 import '../features/shell/app_shell.dart';
 import '../state/providers.dart';
+import '../state/firmware_update_provider.dart';
 
 /// Root application widget.
 class AlexCncApp extends ConsumerWidget {
@@ -20,6 +21,8 @@ class AlexCncApp extends ConsumerWidget {
     ref.watch(pushBootstrapProvider);
     // 本地通知消费端：轮询云端 push/log，把本机新事件弹成系统通知（15s 周期）。
     ref.watch(pushPollProvider);
+    // 固件升级「可升级」绿点：App 打开时静默检查云端一次（拉取式，非推送，docs/56 §3.8）。
+    ref.watch(fwUpdateAvailableProvider);
     return MaterialApp(
       title: 'Smart CNC Pro',
       debugShowCheckedModeBanner: false,
@@ -30,3 +33,4 @@ class AlexCncApp extends ConsumerWidget {
     );
   }
 }
+

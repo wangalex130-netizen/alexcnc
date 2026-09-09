@@ -13,6 +13,7 @@ import '../../services/message_store.dart';
 import '../../state/auth_provider.dart';
 
 import '../../state/providers.dart';
+import '../../state/firmware_update_provider.dart';
 
 import '../auth/login_page.dart';
 
@@ -297,6 +298,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
               icon: Symbols.system_update,
 
               title: '固件升级',
+              badge: const _FwUpdateDot(),
 
               trailing: const Text('摄像头/控制屏幕/主板',
 
@@ -680,6 +682,26 @@ class _MenuGroup extends StatelessWidget {
 
 
 
+/// 固件升级「可升级」绿点（拉取式，非推送）。
+/// 监听 [fwUpdateAvailableProvider]：云端有可升级固件时显示绿色小点，否则不显示。
+class _FwUpdateDot extends ConsumerWidget {
+  const _FwUpdateDot();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final hasUpdate = ref.watch(fwUpdateAvailableProvider);
+    if (!hasUpdate) return const SizedBox.shrink();
+    return Container(
+      width: 8,
+      height: 8,
+      decoration: const BoxDecoration(
+        color: CncColors.primary,
+        shape: BoxShape.circle,
+      ),
+    );
+  }
+}
+
 class _MenuItem extends StatelessWidget {
 
   final IconData icon;
@@ -687,6 +709,8 @@ class _MenuItem extends StatelessWidget {
   final String title;
 
   final Widget? trailing;
+
+  final Widget? badge;
 
   final VoidCallback? onTap;
 
@@ -697,6 +721,8 @@ class _MenuItem extends StatelessWidget {
       required this.title,
 
       this.trailing,
+
+      this.badge,
 
       this.onTap});
 
@@ -746,6 +772,10 @@ class _MenuItem extends StatelessWidget {
 
                           color: CncColors.textMain))),
 
+              if (badge != null) ...[
+                const SizedBox(width: 6),
+                badge!,
+              ],
               if (trailing != null)
 
                 ...[
@@ -1391,4 +1421,5 @@ class _DiagProgressButtonState extends State<_DiagProgressButton> {
       );
 
 }
+
 

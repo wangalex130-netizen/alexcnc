@@ -177,7 +177,7 @@
 - **App 发起**：手机是发起界面，客户点完"确认雕刻"需走到机器按确认 → 此时 App 弹**横幅**提醒（非推送），雕刻中也只推结果/危险。
 - 通用：**控制类事件（下载完成/开始/确认/进度）永不推送**——客户正盯着发起界面。
 
-### 3.2 事件总表（15 类，后端只差接线）
+### 3.2 事件总表（14 类，后端只差接线）
 
 | # | `extras.event` | 含义 | 数据来源 | 推送？ | 开关档 | 强制 |
 |---|---|---|---|---|---|---|
@@ -194,8 +194,7 @@
 | 11 | `bind_success` | 绑定成功 | `machine_owner` 插入 | ✅ | 运营类 | 否 |
 | 12 | `unbind` | 解绑/转让 | `machine_owner` 删除（清历史） | ✅ | 运营类 | 否 |
 | 13 | `new_login` | 新设备登录(账号安全) | `user_push_device` 新 cid 行 | ✅ | 运营类 | 否(建议默认开) |
-| 14 | `firmware_update` | 固件可升级 | 版本比对 | ✅ | 运营类 | 否 |
-| 15 | `announcement` | 系统公告 | 运营后台 | ✅ | 运营类 | 否 |
+| 14 | `announcement` | 系统公告 | 运营后台 | ✅ | 运营类 | 否 |
 
 ### 3.3 PC 发起 vs App 发起 推送矩阵
 
@@ -276,7 +275,7 @@
 | 告警类 | `failed`、`alert` | 可关 |
 | 安全类 | `safety`（急停/门/限位） | **强制不可关** |
 | 设备类 | `device_offline`(防抖2min)、`device_online`(稳30s) | 可关 |
-| 运营类 | `bind_success`、`unbind`、`new_login`(建议默认开)、`firmware_update`、`announcement` | 可关 |
+| 运营类 | `bind_success`、`unbind`、`new_login`(建议默认开)、`announcement` | 可关 |
 
 > `awaitingConfirm` **不进开关**（App 内横幅，非推送）。开关字段名云端表与 App 上报须一致。
 
@@ -287,6 +286,26 @@
 - 离线消息**24h 有效期**，过期不补推。
 
 ---
+
+## 3.8 固件升级通知：拉取式（非推送）· 2026-09-08 决策
+
+> **重要更正**：固件可升级**不再走推送事件**（已从 §3.2 事件总表、§3.6 开关、§4.1 网关、`extras.event` 解析中移除 `firmware_update`）。
+
+**产品决策（与工程师确认）**：
+1. 阿里云已有固件升级接口（PC 工程师提供），新固件放在阿里云；**服务端不主动推送**「有新固件」给 App。
+2. App 打开后**静默检查云端一次**（命中 `AppConfig.firmwareCheckUrl`，聚合接口返回 `{available,latest[]}`）。
+3. 若有可升级固件，在「我的」页 **固件升级** 入口后显示**绿色小点**提示（见 App `fwUpdateAvailableProvider`）。
+4. 用户点进固件升级页后，页面内 `_checkAll` 再次核对云端并回写绿点状态；可手动选择升级机器/摄像头固件。
+5. **全程无推送弹窗**：App 离线或刚打开都不会弹出固件升级通知。
+
+**App 端实现（已完成）**：
+- `lib/state/firmware_update_provider.dart`：`FwUpdateNotifier` + `fwUpdateAvailableProvider`（bool），`build()` 时静默 `checkCloudUpdate()`。
+- `lib/features/firmware/firmware_service.dart`：`checkCloudUpdate()` 命中 `FIRMWARE_CHECK_URL`（接口未提供时安全返回 false）。
+- `lib/features/profile/profile_page.dart`：固件升级入口接 `_FwUpdateDot`（绿点），监听 `fwUpdateAvailableProvider`。
+- `lib/features/firmware/firmware_page.dart`：`_checkAll` 完成后回写 `fwUpdateAvailableProvider`。
+- `lib/app/app.dart`：挂载 `fwUpdateAvailableProvider` 触发 App 打开时一次性检查。
+
+**待 PC 工程师提供**：`FIRMWARE_CHECK_URL` 指向的聚合接口（响应形如 `{available:true, latest:[{type,version,changelog}]}`）。接口就绪前绿点不显示，不影响现有功能。
 
 ## 4. 各端实施指南（给工程师的 TODO + 伪代码）
 
@@ -378,7 +397,7 @@ def emit_push(device_id, event, title, body, extras=None):
     # 设备/运营类：查开关
     if event in ("device_offline", "device_online") and not switch_on(user_id, "notify_device"):
         return
-    if event in ("bind_success", "unbind", "new_login", "firmware_update", "announcement") \
+    if event in ("bind_success", "unbind", "new_login", "announcement") \
        and not switch_on(user_id, "notify_ops"):
         return
     if event in ("complete",) and not switch_on(user_id, "notify_complete"):
@@ -417,7 +436,6 @@ APP_ID = "2BrsBCR7hU9a1COnJw8P87"   # 主 App 独立应用
 
 - **绑定成功/解绑**：`machine_owner` 表变更时触发 `bind_success` / `unbind`（解绑同步清该账号在此机 `jobs` 的 `deletedAt`）。
 - **新设备登录**：`user_push_device` 出现该 `user_id` 的新 `cid` 行 → `new_login`。
-- **固件可升级**：定时比对设备上报固件版 vs 最新版 → `firmware_update`。
 - **系统公告**：运营后台 → `announcement`（全量或按账号）。
 
 #### 4.1.7 在线/离线检测（防抖实现）
@@ -449,7 +467,7 @@ APP_ID = "2BrsBCR7hU9a1COnJw8P87"   # 主 App 独立应用
 **已有（真机验证 `f49bbc66`）**：个推 init/CID/隐私合规 + `alias=userId` 三处修复（登录补绑/登出解绑/重装自愈）+ 前台本地通知(`flutter_local_notifications`) + `POST_NOTIFICATIONS` 权限 + `push/log` 兜底 + `awaitingConfirm` 横幅。
 **必须做**：
 1. 偏好开关 UI：从 2 档扩 **5 档**（完成/告警/安全/设备/运营），上报字段名与云端 `user_push_device` 一致。
-2. 解析新 `extras.event` 类型（`complete`/`failed`/`alert`/`safety`/`device_*`/`bind_*`/`new_login`/`firmware_update`/`announcement`）路由到对应本地通知样式。
+2. 解析新 `extras.event` 类型（`complete`/`failed`/`alert`/`safety`/`device_*`/`bind_*`/`new_login`/`announcement`）路由到对应本地通知样式。
 3. **`safety` 类即使开关关也展示**（强制）。
 4. 点击通知跳对应页（历史详情 / 机器页 / 设置）。
 5. `awaitingConfirm`：App 发起时弹横幅"请到机器按下确认键"（已是横幅，确认不推送）。
@@ -497,3 +515,4 @@ APP_ID = "2BrsBCR7hU9a1COnJw8P87"   # 主 App 独立应用
 **参考契约（细节权威源）**：`docs/43`(屏幕/固件) · `docs/50`(雕刻历史) · `docs/52`(G-code) · `docs/53`(推送寻址) · `docs/B阶段-推送后端接口契约.md`(个推通道) · `PROTOCOL.md`(线协议，§10.7 notify / §2.3 状态帧)
 
 > 本文档自包含，但字段级细节（状态帧枚举、notify 精确 schema、个推 REST 字段）以以上契约/协议文档为最终准。
+
