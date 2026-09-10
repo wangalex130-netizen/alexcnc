@@ -650,6 +650,14 @@ class RealHardwareService implements HardwareService {
         // （工程师对照表用的是英文原文），两个键都读，避免漏接。
         final msg = (j['msg'] ?? j['message'])?.toString() ?? '';
         MachineStatus notifyStatus;
+        // 🔴 W-02 同族修复（2026-09-10）：未知 notify 类型**不得进状态流**。
+        // 原因：MachineStatus 构造函数默认 `state = MachineState.idle`，用默认值构造后
+        // `_ctrl.add(...)` 会把真实状态（busy / paused / alarm）覆盖成 idle，并把
+        // awaitingConfirm 横幅抹掉 → Jog 闸门（canControl == state == idle）被误开。
+        // 2026-09-04 已为 `cmd_ack` 做过同类修复（见下方 early return），但其它未知
+        // 类型仍会穿透；此处统一收口：未知类型只发一次性事件，不改状态。
+        var pushStatusToStream = true;
+
         switch (type) {
           // 双名兼容（2026-09-02）：App 沿用 `job_done`，闫安小屏文档用
           // `job_completed`。两者必须都识别，否则完成事件会落进 default 分支，
@@ -694,6 +702,7 @@ class RealHardwareService implements HardwareService {
             }
           default:
             notifyStatus = MachineStatus(message: msg.isEmpty ? type : msg);
+            pushStatusToStream = false; // 未知类型：只提示，不改状态
         }
         // 先发一次性事件（toast/横幅），再发状态联动（保留原行为）
         if (!_notifyCtrl.isClosed) {
@@ -722,8 +731,10 @@ class RealHardwareService implements HardwareService {
           // 回执只走 notifyStream（_handleCmdAck 消费），不进状态流。
           return;
         }
-        _checkCmdAck(notifyStatus);
-        _ctrl.add(notifyStatus);
+        if (pushStatusToStream) {
+          _checkCmdAck(notifyStatus);
+          _ctrl.add(notifyStatus);
+        }
         return;
       }
 
