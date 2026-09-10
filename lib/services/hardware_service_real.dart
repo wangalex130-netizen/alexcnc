@@ -1546,7 +1546,11 @@ class RealHardwareService implements HardwareService {
   }
 
   @override
-  Future<void> updateToolMap(List<Tool> tools) async {
+  Future<bool> updateToolMap(List<Tool> tools) async {
+    // P0-04 扩展（2026-09-10，昊总裁定）：契约 `wan_whitelist` **未列出**本命令。
+    // 按「只放行 allowed 的 7 项、其余一律同网限定」的口径处理 —— 刀仓映射错误
+    // 会让下一次加工用错刀（撞刀 / 废件），与 setWorkZero 属同类风险。
+    if (!await _allowLocalOnly()) return false;
     final cmd = {
       'cmd': 'toolMap',
       'tools': tools
@@ -1557,11 +1561,15 @@ class RealHardwareService implements HardwareService {
           .toList(),
     };
     _dispatch(cmd);
+    return true;
   }
 
   @override
-  Future<void> setLevelingPlan(
+  Future<bool> setLevelingPlan(
       {required int mode, required int cols, required int rows}) async {
+    // P0-04 扩展（2026-09-10，昊总裁定）：契约未列出 → 同网限定。
+    // 调平点阵错误会让机器按错误网格探测/补偿，直接影响加工质量与安全间距。
+    if (!await _allowLocalOnly()) return false;
     final cmd = {
       'cmd': 'leveling',
       'mode': mode,
@@ -1569,6 +1577,7 @@ class RealHardwareService implements HardwareService {
       'rows': rows,
     };
     _dispatch(cmd);
+    return true;
   }
 
   bool getAux(String key) => _aux[key] ?? false;

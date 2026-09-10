@@ -176,18 +176,31 @@ class AppConfig {
 
   );
 
-  // ---- 固件升级「可升级」拉取式检查（docs/56 §3.8，2026-09-08 决策）----
-  // 与 fwBaseUrl 不同：这是「App 打开时静默检查是否有新固件」的聚合接口，
-  // 由 PC 工程师提供（返回 {available,latest[]} 或 {available:false}）。
-  // 接口就绪前留空 → App 不显示绿点（服务端不主动推送，符合产品决策）。
-  // 联调时用 --dart-define=FIRMWARE_CHECK_URL=https://... 覆盖。
-  static const String firmwareCheckUrl = String.fromEnvironment(
+  // ---- 更新检查（PC 工程师《APP 手动检查更新接口》，2026-09-10）----
+  // POST {cloudBaseUrl}/api/app/updates/check
+  // 同一接口服务三类目标：android（本 App）/ camera（摄像头）/ screen（屏幕）。
+  // 请求 {app_key, version, build_number}；响应含 update_available / download_url。
+  // 文档未要求鉴权，故不携带 token；换地址用 --dart-define=APP_UPDATE_CHECK_URL=...
+  static const String appUpdateCheckUrl =
 
-    'FIRMWARE_CHECK_URL',
+      String.fromEnvironment('APP_UPDATE_CHECK_URL', defaultValue: '');
 
-    defaultValue: '',
+  static String get resolvedAppUpdateCheckUrl => appUpdateCheckUrl.isNotEmpty
 
-  );
+      ? appUpdateCheckUrl
+
+      : '$cloudBaseUrl/api/app/updates/check';
+
+  // ---- 本 App 版本号（更新检查用）----
+  // CI 从 pubspec.yaml 的 `version: x.y.z+n` 读取并注入（见 .github/workflows/build.yml），
+  // 保证上报版本与安装包一致；本地直接运行用下列默认值兜底（与 pubspec 同步维护）。
+  static const String appVersion =
+
+      String.fromEnvironment('APP_VERSION', defaultValue: '0.1.0');
+
+  static const int appBuildNumber =
+
+      int.fromEnvironment('APP_BUILD_NUMBER', defaultValue: 1);
 
 
 

@@ -88,9 +88,17 @@ abstract class CloudService {
   /// 新增工作记录（POST /api/work/records/add）。
   ///
   /// `userId` 由服务端按登录态写入，客户端不传。
-  /// [deviceId] 过渡期写入 `extInfo`（后端补正式字段后改为直传字段）。
+  ///
+  /// [machineId] 后端 2026-09-10 新增的**正式字段**（数字机器 ID，对应表列
+  /// `machine_id`；取值 = `/api/machine/list` 的 `id`）。**优先传它**，
+  /// 用于多机器用户区分/筛选「是哪台机器雕的」。
+  /// [deviceId] 过渡期字符串设备码（写入 `extInfo`），保留兼容；两者可同时传。
   /// 返回 true = 云端已接受。
-  Future<bool> addWorkRecord(WorkRecord record, {String deviceId = ''});
+  Future<bool> addWorkRecord(
+    WorkRecord record, {
+    String deviceId = '',
+    int? machineId,
+  });
 
   /// 分页查询当前用户工作记录（POST /api/work/records/page-list）。
   ///

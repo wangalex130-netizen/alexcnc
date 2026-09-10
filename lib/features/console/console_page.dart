@@ -2697,7 +2697,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
       builder: (_) => _AtcSheet(
 
-        onSync: () {
+        onSync: () async {
 
           final magazine = ref.read(toolMagazineProvider);
 
@@ -2723,15 +2723,31 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
           }).toList();
 
-          hw.updateToolMap(tools);
+          // P0-04 扩展（2026-09-10，昊总裁定）：刀仓映射在契约
+
+          // `wan_whitelist` 中未列出 → 同网限定。失败必须明确提示，
+
+          // 不能"面板关了却不知道没生效"。
+
+          final ok = await hw.updateToolMap(tools);
+
+          if (!context.mounted) return;
 
           Navigator.pop(context);
 
-          ScaffoldMessenger.of(context).showSnackBar(
+          if (!ok) {
 
-            const SnackBar(content: Text('同步到机器')),
+            _toastWanBlocked('刀仓映射同步');
 
-          );
+          } else {
+
+            ScaffoldMessenger.of(context).showSnackBar(
+
+              const SnackBar(content: Text('同步到机器')),
+
+            );
+
+          }
 
         },
 

@@ -8,17 +8,23 @@ import 'dart:convert';
 ///
 /// `userId` 由服务端按登录态写入，客户端不传。
 ///
-/// ⚠️ 已知待补字段（已同步 PC 工程师）：
-///   1. **`deviceId`（正式字段）**：当前接口只有 `userId`，没有机器维度，
-///      导致多机器用户无法区分/筛选「是哪台机器雕的」。
-///      **过渡方案**：App 上报时把 deviceId 塞进 `extInfo`（JSON 字符串），
-///      本模型用 [deviceId] getter 解析出来。待后端补正式字段后改直读。
+/// ✅ 机器维度已补齐（2026-09-10）：后端在 `add`/`page-list` 新增**正式字段
+///    `machineId`（Long）**（对应表列 `machine_id`），不再依赖 `extInfo` 里的字符串码。
+///    上报时**优先传 [machineId]**（取值 = `/api/machine/list` 的 `id`）；
+///    [deviceId]（塞进 `extInfo` 的字符串设备码）保留兼容，两者可同时传。
+///
+/// ⚠️ 仍待补字段（已同步 PC 工程师）：
 ///   2. **删除接口**：后端有 `flag`（0 删除 / 1 有效）但没暴露删除接口，
 ///      而产品已拍板「客户可删」。见 CloudService.deleteWorkRecord。
 ///   3. **材料/刀头名称**：当前只有 ID，列表页暂显示 ID，待字典接口。
 class WorkRecord {
   final int id;
   final int userId;
+
+  /// 正式字段：数字机器 ID（后端 2026-09-10 新增，对应表列 `machine_id`）。
+  /// 来源 `/api/machine/list` 的 `id`（见 [Machine.id]）。
+  final int? machineId;
+
   final int type; // 1 脱机屏 / 2 web / 3 Android
   final int? materialId;
   final int? bitId;
@@ -36,6 +42,7 @@ class WorkRecord {
   const WorkRecord({
     required this.id,
     this.userId = 0,
+    this.machineId,
     this.type = 3,
     this.materialId,
     this.bitId,
@@ -51,18 +58,22 @@ class WorkRecord {
     this.flag = 1,
   });
 
-  /// 过渡期：从 `extInfo` 里解析 deviceId（后端补正式字段后改为直读字段）。
+  /// 机器标识（展示用）。优先 `extInfo` 里的字符串设备码（过渡字段，信息更全，
+  /// 如 `CNC-AB12CD`）；其缺失时回退到正式数字字段 [machineId]。
   String get deviceId {
-    if (extInfo.isEmpty) return '';
-    try {
-      final decoded = jsonDecode(extInfo);
-      if (decoded is Map) {
-        return (decoded['deviceId'] ?? '').toString();
+    if (extInfo.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(extInfo);
+        if (decoded is Map) {
+          final v = (decoded['deviceId'] ?? '').toString();
+          if (v.isNotEmpty) return v;
+        }
+      } catch (_) {
+        // extInfo 不是合法 JSON 时静默降级
       }
-    } catch (_) {
-      // extInfo 不是合法 JSON 时静默降级
     }
-    return '';
+    final mid = machineId;
+    return mid == null ? '' : '#$mid';
   }
 
   bool get isSuccess => result == 0;
@@ -100,6 +111,7 @@ class WorkRecord {
     return WorkRecord(
       id: asInt(json['id']) ?? 0,
       userId: asInt(json['userId']) ?? 0,
+      machineId: asInt(json['machineId']),
       type: asInt(json['type']) ?? 3,
       materialId: asInt(json['materialId']),
       bitId: asInt(json['bitId']),
@@ -116,7 +128,8 @@ class WorkRecord {
     );
   }
 
-  Map<String, dynamic> toAddJson({String deviceId = ''}) {
+  Map<String, dynamic> toAddJson({String deviceId = '', int? machineId}) {
+    final mid = machineId ?? this.machineId;
     final ext = <String, dynamic>{};
     if (extInfo.isNotEmpty) {
       try {
@@ -130,6 +143,8 @@ class WorkRecord {
 
     return {
       'type': type,
+      // 正式机器维度（2026-09-10 新增）：优先用它；deviceId 仅作 extInfo 兼容。
+      if (mid != null) 'machineId': mid,
       if (materialId != null) 'materialId': materialId,
       if (bitId != null) 'bitId': bitId,
       'fileName': fileName,

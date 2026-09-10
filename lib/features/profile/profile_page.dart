@@ -7,7 +7,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 
 
+import '../../app/config.dart';
 import '../../app/theme.dart';
+import '../../models/app_update_info.dart';
+import '../../services/app_update_service.dart';
 
 import '../../services/message_store.dart';
 
@@ -54,6 +57,126 @@ class ProfilePage extends ConsumerStatefulWidget {
 
 
 class _ProfilePageState extends ConsumerState<ProfilePage> {
+
+  /// 检查本 App 是否有新版本（PC 工程师《APP 手动检查更新接口》，2026-09-10）。
+
+  /// 只做「检查 + 展示」：App 内自动下载安装需要 REQUEST_INSTALL_PACKAGES 权限与
+
+  /// 安装器集成（另需 url_launcher 打开外链），属后续产品决策；当前把下载地址
+
+  /// 以可选中文本呈现，客户可复制到浏览器/下载器。
+
+  Future<void> _checkAppUpdate() async {
+
+    final messenger = ScaffoldMessenger.maybeOf(context);
+
+    messenger?.showSnackBar(
+
+      const SnackBar(
+
+          content: Text('正在检查更新…'), duration: Duration(seconds: 2)),
+
+    );
+
+    final info = await AppUpdateService().check(
+
+      target: AppUpdateTarget.android,
+
+      version: AppConfig.appVersion,
+
+      buildNumber: AppConfig.appBuildNumber,
+
+    );
+
+    if (!mounted) return;
+
+    if (info == null) {
+
+      messenger?.showSnackBar(
+
+        const SnackBar(content: Text('检查失败，请稍后重试')),
+
+      );
+
+      return;
+
+    }
+
+    if (!info.updateAvailable) {
+
+      messenger?.showSnackBar(
+
+        SnackBar(content: Text('已是最新版本（v${AppConfig.appVersion}）')),
+
+      );
+
+      return;
+
+    }
+
+    await showDialog<void>(
+
+      context: context,
+
+      builder: (ctx) => AlertDialog(
+
+        title: Text('发现新版本 ${info.latestVersion}'),
+
+        content: SingleChildScrollView(
+
+          child: Column(
+
+            crossAxisAlignment: CrossAxisAlignment.start,
+
+            mainAxisSize: MainAxisSize.min,
+
+            children: [
+
+              if (info.releaseNotes.isNotEmpty) ...[
+
+                Text(info.releaseNotes),
+
+                const SizedBox(height: 12),
+
+              ],
+
+              if (info.downloadUrl.isNotEmpty) ...[
+
+                const Text('下载地址（长按可复制）:',
+
+                    style: TextStyle(fontSize: 12, color: CncColors.textSub)),
+
+                const SizedBox(height: 4),
+
+                SelectableText(info.downloadUrl,
+
+                    style: const TextStyle(fontSize: 12)),
+
+              ],
+
+            ],
+
+          ),
+
+        ),
+
+        actions: [
+
+          TextButton(
+
+            onPressed: () => Navigator.pop(ctx),
+
+            child: const Text('知道了'),
+
+          ),
+
+        ],
+
+      ),
+
+    );
+
+  }
 
   void _openSheet(Widget content) {
 
@@ -504,6 +627,22 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                 ),
 
               ),
+
+            _MenuItem(
+
+              icon: Symbols.sync,
+
+              title: '检查更新',
+
+              trailing: Text('v${AppConfig.appVersion}',
+
+                  style: const TextStyle(
+
+                      fontSize: 12, color: CncColors.textSub)),
+
+              onTap: _checkAppUpdate,
+
+            ),
 
             _MenuItem(
 

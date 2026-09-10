@@ -831,7 +831,8 @@ class RealCloudService implements CloudService {
 
   @override
 
-  Future<bool> addWorkRecord(WorkRecord record, {String deviceId = ''}) async {
+  Future<bool> addWorkRecord(WorkRecord record,
+      {String deviceId = '', int? machineId}) async {
 
     try {
 
@@ -843,7 +844,8 @@ class RealCloudService implements CloudService {
 
             headers: await _headers,
 
-            body: jsonEncode(record.toAddJson(deviceId: deviceId)),
+            body: jsonEncode(
+                record.toAddJson(deviceId: deviceId, machineId: machineId)),
 
           )
 

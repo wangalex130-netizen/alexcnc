@@ -364,16 +364,18 @@ class MockHardwareService implements HardwareService {
   }
 
   @override
-  Future<void> updateToolMap(List<Tool> tools) async {
+  Future<bool> updateToolMap(List<Tool> tools) async {
     // mock: accept mapping from UI
     _emit();
+    return true;
   }
 
   @override
-  Future<void> setLevelingPlan(
+  Future<bool> setLevelingPlan(
       {required int mode, required int cols, required int rows}) async {
     // mock: 仅接收记录，不执行真实扫描
     _emit();
+    return true;
   }
 
   @override

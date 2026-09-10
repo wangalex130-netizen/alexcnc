@@ -2,94 +2,126 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../app/config.dart';
+import '../../models/app_update_info.dart';
+import '../../services/app_update_service.dart';
 import '../preview/camera_discovery.dart';
 import 'firmware_models.dart';
 
 /// 固件升级服务：查版本 / 触发升级 / 轮询状态。
 ///
-/// 契约见 docs/31（OTA 固件升级任务单）：
-/// - 查询：`GET {fwBaseUrl}/fw/<type>/latest?cur=<当前版本>`（type=camera|screen|board）
+/// 契约（2026-09-10 更新）：
+/// - **查询是否有新版本**：`POST {cloudBaseUrl}/api/app/updates/check`
+///   （PC 工程师《APP 手动检查更新接口》；旧的 `GET {fwBaseUrl}/fw/<type>/latest` 已弃用）
 /// - 触发（同网直连摄像头）：`GET http://<摄像头IP>/ota/check|do|status`
 ///
-/// 本轮只接 camera（服务已就绪）；screen/board 服务未上线，页面预留卡片。
+/// 摄像头走局域网直连触发升级；`screen` 的版本比对走云端接口（见 [checkCloudUpdate]）。
+/// `board` 在更新接口中没有对应 `app_key`，保持占位（无更新）。
 class FirmwareService {
-  FirmwareService({http.Client? client, String? baseUrl})
+  FirmwareService({http.Client? client, String? baseUrl, AppUpdateService? updates})
       : _client = client ?? http.Client(),
-        baseUrl = baseUrl ?? AppConfig.fwBaseUrl;
+        baseUrl = baseUrl ?? AppConfig.fwBaseUrl,
+        _updates = updates ?? AppUpdateService();
 
   final http.Client _client;
+
+  /// 仅遗留：旧固件服务地址（云端查询已改走 [AppUpdateService]）。
   final String baseUrl;
 
-  /// 查询某类设备是否有新版本。
-  /// [curVer] 为当前版本（拿不到时传 '0.0.0'，会显示可升级，升级前再校验）。
-  /// 返回更新后的设备状态（含 latest/changelog）；网络失败返回 null。
+  /// 云端更新检查（PC 工程师《APP 手动检查更新接口》，2026-09-10）。
+  final AppUpdateService _updates;
+
+  /// 查询某类设备是否有新版本（走云端更新检查接口，PC 工程师 2026-09-10）。
+  ///
+  /// [curVer] 为当前版本（拿不到时传 '0.0.0'，服务端视为有新版；升级前再校验）。
+  /// [buildNumber] 固件侧无构建号概念，传 0（接口允许 >= 0）。
+  /// 返回更新后的设备状态（含 latest/changelog/url）；**检查失败返回 null**
+  /// （不谎报「已是最新」，避免把网络故障显示成结论）。
   Future<FwDeviceStatus?> checkLatest(
     FwDeviceType type,
-    String curVer,
-  ) async {
-    final uri = Uri.parse('$baseUrl/fw/${type.api}/latest')
-        .replace(queryParameters: {'cur': curVer});
-    try {
-      final res = await _client.get(uri).timeout(const Duration(seconds: 8));
-      if (res.statusCode != 200) return null;
-      final j = jsonDecode(res.body) as Map<String, dynamic>;
-      final available = j['available'] == true;
-      if (!available) {
-        return FwDeviceStatus(
-          type: type,
-          curVer: j['current']?.toString() ?? curVer,
-          available: false,
-        );
-      }
-      final fw = j['firmware'] as Map<String, dynamic>? ?? const {};
-      return FwDeviceStatus(
-        type: type,
-        curVer: curVer,
-        latestVer: fw['version']?.toString(),
-        available: true,
-        changelog: fw['changelog']?.toString(),
-        url: fw['url']?.toString(),
-        md5: fw['md5']?.toString(),
-        size: (fw['size'] as num?)?.toInt(),
+    String curVer, {
+    int buildNumber = 0,
+  }) async {
+    final target = _targetOf(type);
+    if (target == null) {
+      // `board` 在更新接口中没有对应 app_key（只有 android / camera / screen）。
+      return FwDeviceStatus(type: type, curVer: curVer, available: false);
+    }
+    final info = await _updates.check(
+      target: target,
+      version: curVer,
+      buildNumber: buildNumber,
+    );
+    if (info == null) return null;
+    return FwDeviceStatus(
+      type: type,
+      curVer: curVer,
+      latestVer: info.updateAvailable ? info.latestVersion : null,
+      available: info.updateAvailable,
+      changelog: info.releaseNotes.isEmpty ? null : info.releaseNotes,
+      url: info.downloadUrl.isEmpty ? null : info.downloadUrl,
+    );
+  }
+
+  /// App 打开时一次性静默检查「是否有可升级固件」（**拉取式**：服务端不主动推送）。
+  ///
+  /// 走更新检查接口（`POST /api/app/updates/check`），对摄像头 / 屏幕各查一次。
+  ///
+  /// ⚠️ 关键取舍：**只有已知该设备的当前版本时才提示**。当前版本来自上次在局域网内
+  /// 通过 `/ota/status` 读到的真实值（由 [saveKnownVersion] 落盘）。从未读到过 → 不提示。
+  /// 理由：接口按「客户端上报的当前版本」比对；若在未知情况下上报 0.0.0，服务端必然
+  /// 判为「有新版本」→ 绿点常亮，属假提示。宁可少提示，也不谎报。
+  Future<bool> checkCloudUpdate() async {
+    for (final type in const [FwDeviceType.camera, FwDeviceType.screen]) {
+      final target = _targetOf(type);
+      if (target == null) continue;
+      final cur = await knownVersion(type);
+      if (cur == null) continue; // 当前版本未知：不猜、不提示
+      final info = await _updates.check(
+        target: target,
+        version: cur,
+        buildNumber: 0,
       );
+      if (info != null && info.updateAvailable) return true;
+    }
+    return false;
+  }
+
+  static AppUpdateTarget? _targetOf(FwDeviceType type) {
+    switch (type) {
+      case FwDeviceType.camera:
+        return AppUpdateTarget.camera;
+      case FwDeviceType.screen:
+        return AppUpdateTarget.screen;
+      case FwDeviceType.board:
+        return null;
+    }
+  }
+
+  static const String _knownVerPrefix = 'fw_known_ver_';
+
+  /// 读取上次在局域网内读到的设备当前版本（外网静默检查的比较基准）。
+  /// 返回 null 表示「从未读到过」→ 调用方不提示。
+  static Future<String?> knownVersion(FwDeviceType type) async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      final v = p.getString('$_knownVerPrefix${type.api}');
+      if (v == null || v.isEmpty || v == '0.0.0') return null;
+      return v;
     } catch (_) {
       return null;
     }
   }
 
-  /// 应用打开时一次性静默检查云端是否有可升级固件（**拉取式**：服务端不主动推送）。
-  ///
-  /// 命中 [AppConfig.firmwareCheckUrl]（PC 工程师提供的「升级清单」聚合接口）。
-  /// 该接口尚未提供时 [AppConfig.firmwareCheckUrl] 为空，安全返回 false（不提示绿点）。
-  ///
-  /// 约定响应（PC 工程师对齐）：
-  /// ```json
-  /// { "available": true,
-  ///   "latest": [ {"type":"camera","version":"1.2.0","changelog":"..."} ] }
-  /// ```
-  /// 或 `{ "available": false }`。任一类型 available 即视为有更新。
-  Future<bool> checkCloudUpdate() async {
-    final url = AppConfig.firmwareCheckUrl;
-    if (url.isEmpty) return false; // 接口未提供：默认不提示
+  /// 记录在局域网内读到的设备当前版本（供后续外网静默检查比较）。
+  static Future<void> saveKnownVersion(FwDeviceType type, String ver) async {
+    if (ver.isEmpty || ver == '0.0.0') return;
     try {
-      final res = await _client
-          .get(Uri.parse(url))
-          .timeout(const Duration(seconds: 8));
-      if (res.statusCode != 200) return false;
-      final j = jsonDecode(res.body) as Map<String, dynamic>;
-      if (j['available'] == true) return true;
-      final latest = j['latest'];
-      if (latest is List) {
-        for (final item in latest) {
-          if (item is Map && item['available'] == true) return true;
-        }
-      }
-      return false;
-    } catch (_) {
-      return false;
-    }
+      final p = await SharedPreferences.getInstance();
+      await p.setString('$_knownVerPrefix${type.api}', ver);
+    } catch (_) {}
   }
 
   /// 通过 RTSP 发现解析摄像头局域网 IP；找不到返回 null（外网，提示连同一 WiFi）。

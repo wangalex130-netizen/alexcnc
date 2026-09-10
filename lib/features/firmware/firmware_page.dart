@@ -252,7 +252,17 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
       final v = st == null ? null : FirmwareService.parseFwVer(st);
 
-      if (v != null && v.isNotEmpty) curVer = v;
+      if (v != null && v.isNotEmpty) {
+
+        curVer = v;
+
+        // 记录本次在局域网内读到的真实版本：外网静默检查（绿点）用它做比较基准。
+
+        // 没有这一步，绿点会因「当前版本未知」而永不提示（见 checkCloudUpdate）。
+
+        unawaited(FirmwareService.saveKnownVersion(FwDeviceType.camera, v));
+
+      }
 
     }
 

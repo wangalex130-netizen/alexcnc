@@ -333,7 +333,8 @@ class MockCloudService implements CloudService {
   // ===================== 工作记录（雕刻历史）· Mock =====================
 
   @override
-  Future<bool> addWorkRecord(WorkRecord record, {String deviceId = ''}) async {
+  Future<bool> addWorkRecord(WorkRecord record,
+      {String deviceId = '', int? machineId}) async {
     await Future.delayed(const Duration(milliseconds: 150));
     return true;
   }

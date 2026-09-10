@@ -200,13 +200,31 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       final wCm = (_task?.widthMm ?? 0) / 10;
       final hCm = (_task?.heightMm ?? 0) / 10;
       final plan = _computeLeveling(_leveling, wCm, hCm);
-      ref.read(hardwareServiceProvider).setLevelingPlan(
-            mode: _leveling,
-            cols: plan.cols,
-            rows: plan.rows,
-          );
+      // P0-04 扩展（2026-09-10，昊总裁定）：调平方案下发在契约 `wan_whitelist`
+      // 中是"未列命令"，按「只放行 allowed 的 7 项、其余一律同网限定」处理。
+      // 失败不阻塞向导步骤（尺寸/模式本地已就绪），但必须明确告知，不许静默。
+      unawaited(
+        ref
+            .read(hardwareServiceProvider)
+            .setLevelingPlan(mode: _leveling, cols: plan.cols, rows: plan.rows)
+            .then((ok) {
+          if (!ok) _toastWanBlocked('调平方案下发');
+        }),
+      );
     }
     setState(() => _step++);
+  }
+
+  /// P0-04 扩展（2026-09-10）：动作被「必须与机器同网」门禁拦下时的统一提示。
+  /// 说清原因，避免客户以为"点了没反应"。
+  void _toastWanBlocked(String what) {
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(
+        content: Text('$what 只能在机器同一局域网内执行（外网仅监视 / 可停机）'),
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   @override
@@ -1068,7 +1086,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
           width: double.infinity,
           child: FilledButton.icon(
             onPressed: ready
-                ? () {
+                ? () async {
                     final tools = [1, 2, 3, 4].map((slot) {
                       final id = magazine[slot];
                       final def = id != null ? toolById(id) : null;
@@ -1081,7 +1099,21 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                         defId: id,
                       );
                     }).toList();
-                    hw.updateToolMap(tools);
+                    // P0-04 扩展（2026-09-10，昊总裁定）：刀仓映射在契约
+                    // `wan_whitelist` 中未列出 → 同网限定。失败不静默：
+                    // 明确提示原因，且**不标记为已同步**（避免界面说谎）。
+                    final ok = await hw.updateToolMap(tools);
+                    if (!context.mounted) return;
+                    if (!ok) {
+                      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                        const SnackBar(
+                          content:
+                              Text('刀仓映射只能在机器同一局域网内同步（外网仅监视 / 可停机）'),
+                          duration: Duration(seconds: 3),
+                        ),
+                      );
+                      return;
+                    }
                     widget.onSync();
                   }
                 : null,

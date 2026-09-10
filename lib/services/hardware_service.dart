@@ -199,13 +199,13 @@ abstract class HardwareService {
   void clearCarve();
 
   // --- ATC ---
-  Future<void> updateToolMap(List<Tool> tools);
+  Future<bool> updateToolMap(List<Tool> tools);
 
   // --- Leveling plan ---
   /// 向导 Step5：App 根据云端下发的模型尺寸 + 用户所选模式算好探测点阵，
   /// 下发给 MCU。固件收到后执行真实网格探测并以广播结果为准。
   /// [mode] 0=不调平 / 1=标准 / 2=精细；[cols]/[rows] 为探测点数阵。
-  Future<void> setLevelingPlan(
+  Future<bool> setLevelingPlan(
       {required int mode, required int cols, required int rows});
 
   // --- Camera on-demand streaming (see docs/03 §camera-on-demand) ---

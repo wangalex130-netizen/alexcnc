@@ -245,6 +245,23 @@ jobs:
               echo "### LAB BUILD: dart-define injected (values hidden)" >> "$LOG"
             fi
 
+            # 版本号（2026-09-10）：从 pubspec.yaml 读取并注入，供更新检查接口
+            # (POST /api/app/updates/check) 上报当前版本。**固定注入（非联调专属）**，
+            # 保证 App 自查更新时上报的版本与安装包一致，无需手工维护两份。
+            APP_LINE="$(grep -E '^version:' pubspec.yaml | head -1 | sed 's/^version:[[:space:]]*//')"
+            APP_VER="${APP_LINE%%+*}"
+            APP_BUILD="0"
+            case "$APP_LINE" in
+              *+*) APP_BUILD="${APP_LINE##*+}" ;;
+            esac
+            case "$APP_BUILD" in
+              ''|*[!0-9]*) APP_BUILD=0 ;;
+            esac
+            if [ -n "$APP_VER" ]; then
+              DEFINE_ARGS="$DEFINE_ARGS --dart-define=APP_VERSION=${APP_VER} --dart-define=APP_BUILD_NUMBER=${APP_BUILD}"
+            fi
+            echo "### APP_VER_DIAG version='${APP_VER}' build='${APP_BUILD}'"
+
             # 诊断（2026-09-10）：把「联调包到底有没有注入凭据」变成可观测事实。
             # 只打印开关状态与长度，绝不打印值 —— Actions 日志是公开可见的。
             echo "### LAB_DIAG lab_build='${LAB_BUILD}' mqttUserLen=${#LAB_MQTT_USER} mqttPassLen=${#LAB_MQTT_PASS} camUserLen=${#LAB_CAMERA_USER} camPassLen=${#LAB_CAMERA_PASS} relayLen=${#LAB_RELAY_TOKEN}"
