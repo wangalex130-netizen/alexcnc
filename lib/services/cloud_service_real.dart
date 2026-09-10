@@ -66,6 +66,20 @@ class RealCloudService implements CloudService {
 
   final AuthService _auth;
 
+  /// W-07（2026-09-10）：401 统一拦截回调，由上层（providers）注入。
+  /// 收到 HTTP 401 时通知 UI 引导重新登录，避免「token 已过期、界面仍显示假数据」。
+  void Function()? onUnauthorized;
+
+  /// 仅在**真正的 HTTP 401** 时触发 [onUnauthorized]。
+  ///
+  /// 若后端用 200 + 业务错误码表示未授权，本方法不会触发（不误伤现有逻辑）；
+  /// 待后端统一 401 语义（工单 C-05）后自动生效。
+  bool _checkUnauthorized(http.Response res) {
+    if (res.statusCode != 401) return false;
+    onUnauthorized?.call();
+    return true;
+  }
+
 
 
   /// 已登录时附带 `Authorization: Bearer <token>`（与 `machines_service` 同源）。
@@ -120,6 +134,7 @@ class RealCloudService implements CloudService {
 
           .timeout(const Duration(seconds: 8));
 
+      _checkUnauthorized(res);
       if (res.statusCode == 200) {
 
         final list = (jsonDecode(utf8.decode(res.bodyBytes)) as List)
@@ -174,6 +189,7 @@ class RealCloudService implements CloudService {
 
           .timeout(const Duration(seconds: 8));
 
+      _checkUnauthorized(res);
       if (res.statusCode == 200) {
 
         return TaskMetadata.fromJson(jsonDecode(utf8.decode(res.bodyBytes)));
@@ -202,6 +218,7 @@ class RealCloudService implements CloudService {
 
           .timeout(const Duration(seconds: 8));
 
+      _checkUnauthorized(res);
       if (res.statusCode == 200) {
 
         final prefs = await SharedPreferences.getInstance();
@@ -240,6 +257,7 @@ class RealCloudService implements CloudService {
 
           .timeout(const Duration(seconds: 8));
 
+      _checkUnauthorized(res);
       if (res.statusCode == 200) {
 
         return (jsonDecode(utf8.decode(res.bodyBytes)) as List)
@@ -298,6 +316,7 @@ class RealCloudService implements CloudService {
 
           .timeout(const Duration(seconds: 5));
 
+      _checkUnauthorized(resp);
       return resp.statusCode == 200;
 
     } catch (_) {
@@ -428,6 +447,7 @@ class RealCloudService implements CloudService {
 
           .timeout(const Duration(seconds: 5));
 
+      _checkUnauthorized(res);
       return res.statusCode == 200;
 
     } catch (_) {
@@ -456,6 +476,7 @@ class RealCloudService implements CloudService {
 
           .timeout(const Duration(seconds: 8));
 
+      _checkUnauthorized(res);
       if (res.statusCode == 200) {
 
         final body = jsonDecode(utf8.decode(res.bodyBytes));
@@ -592,6 +613,7 @@ class RealCloudService implements CloudService {
 
           .timeout(const Duration(seconds: 8));
 
+      _checkUnauthorized(res);
       if (res.statusCode == 200) {
 
         final body = jsonDecode(utf8.decode(res.bodyBytes));
@@ -628,6 +650,7 @@ class RealCloudService implements CloudService {
 
           .timeout(const Duration(seconds: 8));
 
+      _checkUnauthorized(res);
       if (res.statusCode == 200) {
 
         final body = jsonDecode(utf8.decode(res.bodyBytes));
@@ -826,6 +849,7 @@ class RealCloudService implements CloudService {
 
           .timeout(const Duration(seconds: 8));
 
+      _checkUnauthorized(res);
       if (res.statusCode == 200) {
 
         final body = jsonDecode(utf8.decode(res.bodyBytes));
@@ -886,6 +910,7 @@ class RealCloudService implements CloudService {
 
           .timeout(const Duration(seconds: 8));
 
+      _checkUnauthorized(res);
       if (res.statusCode == 200) {
 
         final body = jsonDecode(utf8.decode(res.bodyBytes));

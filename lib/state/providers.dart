@@ -271,10 +271,19 @@ final cloudServiceProvider = Provider<CloudService>((ref) {
   final deviceId = currentMachine?.sn.isNotEmpty == true
       ? currentMachine!.sn
       : cfg.resolvedDeviceId;
-  return cfg.resolvedUseRealBackend
-      ? RealCloudService(cfg.resolvedCloudBaseUrl, deviceId)
-      : MockCloudService();
+  if (!cfg.resolvedUseRealBackend) return MockCloudService();
+  final svc = RealCloudService(cfg.resolvedCloudBaseUrl, deviceId);
+  // W-07（2026-09-10）：token 过期（HTTP 401）→ 广播会话过期，由 UI 引导重新登录。
+  // 此前 401 被各处的 catch(_) 吞掉，界面显示陈旧缓存 / 空数据（"假在线"）。
+  svc.onUnauthorized = () {
+    ref.read(sessionExpiredProvider.notifier).state++;
+  };
+  return svc;
 });
+
+/// W-07：会话过期计数器。任一云端接口返回 401 时 +1，
+/// App 根监听它并弹出"登录已过期"引导（用计数器而非 bool，保证连续过期也能再次触发）。
+final sessionExpiredProvider = StateProvider<int>((ref) => 0);
 
 /// **共享模型库服务：始终走真实云端。**
 ///
