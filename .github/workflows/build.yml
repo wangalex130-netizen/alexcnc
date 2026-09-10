@@ -245,6 +245,11 @@ jobs:
               echo "### LAB BUILD: dart-define injected (values hidden)" >> "$LOG"
             fi
 
+            # 诊断（2026-09-10）：把「联调包到底有没有注入凭据」变成可观测事实。
+            # 只打印开关状态与长度，绝不打印值 —— Actions 日志是公开可见的。
+            echo "### LAB_DIAG lab_build='${LAB_BUILD}' mqttUserLen=${#LAB_MQTT_USER} mqttPassLen=${#LAB_MQTT_PASS} camUserLen=${#LAB_CAMERA_USER} camPassLen=${#LAB_CAMERA_PASS} relayLen=${#LAB_RELAY_TOKEN}"
+            echo "### LAB_DIAG define_keys: $(printf '%s' "$DEFINE_ARGS" | tr ' ' '\n' | sed 's/=.*//' | tr '\n' ' ')"
+
             echo "=== flutter build apk --release ===" >> "$LOG"
 
             flutter build apk --release --verbose $DEFINE_ARGS >> "$LOG" 2>&1
@@ -255,6 +260,14 @@ jobs:
 
           echo "### build exit=$BUILD" >> "$LOG"
 
+          # APK 指纹（2026-09-10）：判断「联调包 vs 正式包」是否真的不同，
+          # 免得为了确认差异去下载 130MB。只打印大小与前 16 位哈希。
+          if [ "$BUILD" = "0" ]; then
+            APKP=build/app/outputs/flutter-apk/app-release.apk
+            if [ -f "$APKP" ]; then
+              echo "### APK_DIAG size=$(stat -c %s "$APKP") sha16=$(sha256sum "$APKP" | cut -c1-16)"
+            fi
+          fi
 
 
           # 只保留尾部 200KB，避免超出 GitHub 单文件展示限制
