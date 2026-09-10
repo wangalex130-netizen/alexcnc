@@ -1456,7 +1456,7 @@ class RealHardwareService implements HardwareService {
   }
 
   @override
-  Future<void> setWorkZero({List<String> axes = const ['x', 'y', 'z']}) async {
+  Future<bool> setWorkZero({List<String> axes = const ['x', 'y', 'z']}) async {
     // 2026-09-04 对齐清单 §4.6–4.8：小屏只认 `axes` 数组（或省略 = XYZ 全设），
     // 此前发送的 x/y/z 数值字段会被忽略 → 退化为 G92 X0 Y0 Z0 全轴置零。
     // 全轴时省略 axes 字段；部分轴时显式传数组。
