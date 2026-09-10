@@ -93,7 +93,12 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
         final cur = ref.read(currentMachineProvider);
 
-        if (cur != null && !list.any((m) => m.sn == cur.sn)) {
+        // ⚠️ 2026-09-10 修正：必须要求 list 非空才清空。
+        // 空列表可能来自「未登录 / 拉取失败 / 后端暂不可用」，此时清空属于误伤 ——
+        // 会把用户已选好的机器清掉，导致取流地址为空（摄像头「连不上」），
+        // 且 hardwareService 失去 deviceId 不再连机器。只有列表非空，才说明
+        // 确实拿到了本账号的机器集合，这时「不在其中」才是真的归属变化。
+        if (list.isNotEmpty && cur != null && !list.any((m) => m.sn == cur.sn)) {
 
           await ref.read(currentMachineProvider.notifier).select(null);
 
