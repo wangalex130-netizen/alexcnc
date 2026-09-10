@@ -1411,7 +1411,11 @@ class RealHardwareService implements HardwareService {
     };
     // 直接 _publish（jog 属"尽力而为、绝不重发"类，与 _dispatch 的该分支等价），
     // 并返回值供 UI 提示"指令未送达"（W-09-c）。
-    return _publish(cmd);
+    //
+    // W-05（2026-09-10）：连发改 **QoS0**。权衡——丢一帧只是"少走一步"（手感），
+    // 而 QoS1 重传产生的**迟到帧**会让松手后机器继续移动（撞刀风险）。
+    // 与固件侧 F-01（按 ts 丢弃 >500ms 超龄帧）是同一目标的两道防线。
+    return _publish(cmd, qos: MqttQos.atMostOnce);
   }
 
   @override

@@ -6,6 +6,8 @@ import 'dart:typed_data';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../app/config.dart';
+
 /// 摄像头自动发现（TCP 端口扫描 + RTSP 路径探测 + ONVIF WS-Discovery 兜底）+ 本地缓存。
 ///
 /// 解决摄像头每次上电 IP 可能变化的问题：App 打开实时视频时自动在局域网
@@ -18,21 +20,28 @@ class CameraDiscovery {
   static const String _kMulticastAddr = '239.255.255.250';
   static const String _kWsDiscoveryPort = '3702';
 
-  /// 默认凭据（雄迈/国产摄像头通用；RTSP URL 缺账号时自动补上）。
-  static const String _defaultUser = 'admin';
-  static const String _defaultPassword = 'abc123456';
-  static final String _basicAuth =
-      base64Encode(utf8.encode('$_defaultUser:$_defaultPassword'));
+  /// W-11（2026-09-10）：摄像头凭据**不再内置**，改从构建参数读取
+  ///（[AppConfig.cameraUser] / [AppConfig.cameraPassword]）。
+  /// 为空 = 不注入凭据（匿名探测 / 摄像头已改密时仍可用）。
+  static String get _camUser => AppConfig.cameraUser;
+  static String get _camPass => AppConfig.cameraPassword;
+  static bool get _hasCreds => _camUser.isNotEmpty && _camPass.isNotEmpty;
+
+  /// Basic 认证头值；未配置凭据时返回空串（调用方据此省略 Authorization 头）。
+  static String get _basicAuth =>
+      _hasCreds ? base64Encode(utf8.encode('$_camUser:$_camPass')) : '';
 
   /// 常见 RTSP 路径，按优先级探测。雄迈主码流 /11 优先，子码流 /12 兜底。
   static const List<String> _rtspPaths = ['/11', '/12'];
 
-  /// 给不带账号的 rtsp URL 补默认凭据（ONVIF GetStreamUri 返回的地址通常没账号）。
+  /// 给不带账号的 rtsp URL 补凭据（ONVIF GetStreamUri 返回的地址通常没账号）。
+  /// W-11：未配置凭据时**原样返回**，不再注入任何内置口令。
   static String _withDefaultCreds(String url) {
     if (!url.startsWith('rtsp://')) return url;
     final rest = url.substring('rtsp://'.length);
     if (rest.contains('@')) return url; // 已带凭据
-    return 'rtsp://$_defaultUser:$_defaultPassword@$rest';
+    if (!_hasCreds) return url; // 未配置 → 匿名
+    return 'rtsp://$_camUser:$_camPass@$rest';
   }
 
   /// 返回可用的 RTSP 地址；找不到返回 null。
@@ -210,10 +219,13 @@ class CameraDiscovery {
         port,
         timeout: const Duration(milliseconds: 800),
       );
+      // W-11：未配置凭据时不发 Authorization 头（匿名探测）。
+      final authHeader =
+          _basicAuth.isEmpty ? '' : 'Authorization: Basic $_basicAuth\r\n';
       final req =
           'DESCRIBE rtsp://$host:$port$path RTSP/1.0\r\n'
           'CSeq: 1\r\n'
-          'Authorization: Basic $_basicAuth\r\n'
+          '$authHeader'
           'Accept: application/sdp\r\n'
           '\r\n';
       socket.add(utf8.encode(req));
@@ -239,14 +251,16 @@ class CameraDiscovery {
     if (port == 81) {
       return _probeMjpegUrl(host, port);
     }
+    // W-11：凭据来自构建注入；未配置则不写入 URL（匿名）。
+    final cred = _hasCreds ? '$_camUser:$_camPass@' : '';
     for (final path in _rtspPaths) {
       final found = await _rtspProbePath(host, port, path);
       if (found != null) {
-        return 'rtsp://$_defaultUser:$_defaultPassword@$host:$port$found';
+        return 'rtsp://$cred$host:$port$found';
       }
     }
     // 路径探测全部失败，但端口确实开着——仍用默认 /11 让播放器自己试
-    return 'rtsp://$_defaultUser:$_defaultPassword@$host:$port/11';
+    return 'rtsp://$cred$host:$port/11';
   }
 
   /// ESP32 CameraWebServer MJPEG 流探测：

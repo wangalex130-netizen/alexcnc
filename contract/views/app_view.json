@@ -89,7 +89,7 @@
   },
   "rtsp": {
     "port": 554,
-    "example": "rtsp://admin:abc123456@<ip>:554/11"
+    "example": "rtsp://admin:********@<ip>:554/11"
   },
   "registration": {
     "deviceId_equals_serial": true,

@@ -144,6 +144,8 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   /// （2026-09-05 起仅用于诊断展示，不再决定摄像头取流路径）。
 
   Timer? _netTimer;
+  /// W-09-k：上次网络探测时间，用于 30s 结果缓存（避免重复扫描）。
+  DateTime? _lastNetProbeAt;
 
 
 
@@ -187,21 +189,25 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
     // 每 2s 轮询一次服务器，刷新延时摄影进度（有 job 时才有意义）。
 
-    _tlTimer = Timer.periodic(const Duration(seconds: 2), (_) => _pollTimeLapse());
+    // W-09-k（2026-09-10）：原为固定 2s 轮询，且 _pollTimeLapse 在无 job 时
+    // 仍会打服务端（等于每 2s 一次无效请求）。改为自适应调度：有录像任务 5s，
+    // 空闲 30s；进页立即跑一次（见 _scheduleTlPoll）。
+    _scheduleTlPoll();
 
 
 
     // 订阅机器异步事件（job_done / alarm / confirm_required 等）→ toast 提示
-
-    _notifySub = ref.read(hardwareServiceProvider).notifyStream.listen(_onNotify);
-
-
-
     // 订阅系统级广播（docs/03 §6 全局消息 / §7 设备上下线等系统事件）→ toast 提示
-
-    _broadcastSub =
-
-        ref.read(hardwareServiceProvider).broadcastStream.listen(_onBroadcast);
+    //
+    // W-09-j（2026-09-10）：这两个订阅**必须能跟随机器切换重挂**。
+    // hardwareServiceProvider 依赖 currentMachineProvider —— 切机后 Provider 会新建
+    // RealHardwareService 并 dispose 旧实例，原先在这里一次性 listen 的旧流随之关闭，
+    // 新机器的 notify / broadcast 事件 toast 会全部丢失（真 bug）。
+    // 现收敛到 [_subscribeStreams]：initState 挂一次，并在服务实例变化时自动重挂。
+    _subscribeStreams(ref.read(hardwareServiceProvider));
+    ref.listen(hardwareServiceProvider, (prev, next) {
+      if (prev != next) _subscribeStreams(next);
+    });
 
 
 
@@ -209,11 +215,15 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
     WidgetsBinding.instance.addObserver(this);
 
-    Future.delayed(const Duration(milliseconds: 300), _autoDetectNetwork);
+    // W-09-k：探测结果自 2026-09-05 起**只用于诊断展示**（不再决定取流路径），
+    // 10s 常驻扫描纯属浪费。改为：进页一次 + 每 60s 一次 + 切回前台强制一次，
+    // 并加 30s 结果缓存（见 _autoDetectNetwork 的 force 参数）。
+    Future.delayed(
+        const Duration(milliseconds: 300), () => _autoDetectNetwork());
 
     _netTimer = Timer.periodic(
 
-        const Duration(seconds: 10), (_) => _autoDetectNetwork());
+        const Duration(seconds: 60), (_) => _autoDetectNetwork());
 
 
 
@@ -427,7 +437,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
     // 切回前台立即重探一次，避免后台期间网络切换回来后状态还停在旧值。
 
-    if (state == AppLifecycleState.resumed) _autoDetectNetwork();
+    if (state == AppLifecycleState.resumed) _autoDetectNetwork(force: true);
 
   }
 
@@ -465,7 +475,16 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
   /// 探测结果仅保留用于诊断展示，以及 PC Web 版将来评估是否补回 LAN。
 
-  Future<void> _autoDetectNetwork() async {
+  /// [force] = true 时忽略缓存立即探测（切回前台用）。
+  Future<void> _autoDetectNetwork({bool force = false}) async {
+    // W-09-k：30s 内不重复扫描（定时器与生命周期回调都会触发本方法）。
+    final lastProbe = _lastNetProbeAt;
+    if (!force &&
+        lastProbe != null &&
+        DateTime.now().difference(lastProbe) < const Duration(seconds: 30)) {
+      return;
+    }
+    _lastNetProbeAt = DateTime.now();
 
     if (!mounted) return;
 
@@ -576,6 +595,28 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   /// 2026-09-06：本地 jobId 为空时，主动查询服务器上本设备的 running 任务并恢复。
   /// 解决 App 卸载重装、多设备切换或状态丢失后，控制台看不到「停止录制」开关、
   /// 用户只能再开新任务导致同一设备多个 running job 的问题。
+  /// W-09-j：挂 / 重挂机器事件订阅（切机后服务实例会换，必须能重挂）。
+  ///
+  /// [hw] 为当前生效的 [HardwareService]；重挂前先取消旧订阅，避免重复 toast。
+  void _subscribeStreams(HardwareService hw) {
+    _notifySub?.cancel();
+    _broadcastSub?.cancel();
+    _notifySub = hw.notifyStream.listen(_onNotify);
+    _broadcastSub = hw.broadcastStream.listen(_onBroadcast);
+  }
+
+  /// W-09-k：自适应调度延时摄影轮询 —— 有录像任务 5s，空闲 30s。
+  /// 用一次性 Timer 而非 periodic，便于每轮按「当前是否有 job」重新选间隔。
+  void _scheduleTlPoll() {
+    _tlTimer?.cancel();
+    final hasJob = ref.read(timeLapseJobProvider) != null;
+    _tlTimer = Timer(Duration(seconds: hasJob ? 5 : 30), () async {
+      if (!mounted) return;
+      await _pollTimeLapse();
+      if (mounted) _scheduleTlPoll();
+    });
+  }
+
   Future<void> _pollTimeLapse() async {
 
     var jobId = ref.read(timeLapseJobProvider);

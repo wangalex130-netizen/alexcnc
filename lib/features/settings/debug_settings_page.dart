@@ -433,7 +433,7 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
 
                     sub: '192.168.1.205 :554/11',
 
-                    url: 'rtsp://admin:abc123456@192.168.1.205:554/11',
+                    url: _presetRtsp('192.168.1.205:554', '/11'),
 
                     c: _rtsp,
 
@@ -939,6 +939,16 @@ class _DiagnosticCard extends ConsumerWidget {
 
 
 /// 已知摄像头一键填入预设。
+
+/// W-11（2026-09-10）：调试页预置地址**不再硬编码摄像头口令**。
+/// 凭据取自构建注入（[AppConfig.cameraUser] / [AppConfig.cameraPassword]）；
+/// 未配置时退回匿名地址（已改密的摄像头仍可手动填完整 URL）。
+String _presetRtsp(String hostPort, String path) {
+  final u = AppConfig.cameraUser;
+  final p = AppConfig.cameraPassword;
+  final cred = (u.isNotEmpty && p.isNotEmpty) ? '$u:$p@' : '';
+  return 'rtsp://$cred$hostPort$path';
+}
 
 class _CameraPreset extends StatelessWidget {
 

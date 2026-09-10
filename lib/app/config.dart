@@ -46,6 +46,40 @@ class AppConfig {
 
   );
 
+  /// W-11（2026-09-10）：摄像头 RTSP 账号 / 口令 **不再硬编码进仓库**。
+
+  ///
+
+  /// 原先在 `camera_discovery.dart` 内置了出厂默认账号口令（公开仓库可读，且会自动
+
+  /// 补进 RTSP URL 与 Basic 认证头）。现改为构建注入：
+
+  ///   --dart-define=CAMERA_USER=xxx --dart-define=CAMERA_PASS=yyy
+
+  /// **量产方向**：每台摄像头随机口令（NVS 烧录，随绑定关系下发），
+
+  /// App 从后端取凭据而非内置（工单 W-11 ②③，需后端 / 固件配合）。
+
+  /// 未配置（空串）时：不注入账号、不补凭据、不发 Basic 头 —— 匿名探测与已改密的
+
+  /// 摄像头仍可用（RTSP 地址本身若已带 @ 凭据则原样保留）。
+
+  static const String cameraUser = String.fromEnvironment(
+
+    'CAMERA_USER',
+
+    defaultValue: '',
+
+  );
+
+  static const String cameraPassword = String.fromEnvironment(
+
+    'CAMERA_PASS',
+
+    defaultValue: '',
+
+  );
+
 
 
   // ---- 摄像头云中继（App 侧唯一取流通道，内外网同一套）----
