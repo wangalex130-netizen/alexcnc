@@ -317,7 +317,14 @@ jobs:
           # 把整个 job 标红 —— 而构建和产物其实都是好的。
           # 这里改为：已存在则只覆盖上传 asset，且失败不阻断 job。
 
-          TAG="apk-${{ github.sha }}"
+          # 内部联调包用独立 tag（apk-lab-<sha>）：同一 commit 上普通构建与联调构建
+          # 会撞 tag，导致联调包被普通包覆盖（或反过来），无法区分下载。
+          if [ "${LAB_BUILD}" = "true" ]; then
+            TAG="apk-lab-${{ github.sha }}"
+          else
+            TAG="apk-${{ github.sha }}"
+          fi
+          echo "RELEASE_TAG=$TAG"
 
           APK=build/app/outputs/flutter-apk/app-release.apk
 
@@ -336,6 +343,8 @@ jobs:
         env:
 
           GH_TOKEN: ${{ github.token }}
+
+          LAB_BUILD: ${{ github.event.inputs.lab_build }}
 
 
 
