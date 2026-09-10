@@ -293,19 +293,59 @@
 
 **产品决策（与工程师确认）**：
 1. 阿里云已有固件升级接口（PC 工程师提供），新固件放在阿里云；**服务端不主动推送**「有新固件」给 App。
-2. App 打开后**静默检查云端一次**（命中 `AppConfig.firmwareCheckUrl`，聚合接口返回 `{available,latest[]}`）。
+2. App 打开后**静默检查云端一次**（`POST {cloudBaseUrl}/api/app/updates/check`，真实契约见 §3.8.1）。
 3. 若有可升级固件，在「我的」页 **固件升级** 入口后显示**绿色小点**提示（见 App `fwUpdateAvailableProvider`）。
 4. 用户点进固件升级页后，页面内 `_checkAll` 再次核对云端并回写绿点状态；可手动选择升级机器/摄像头固件。
 5. **全程无推送弹窗**：App 离线或刚打开都不会弹出固件升级通知。
 
-**App 端实现（已完成）**：
-- `lib/state/firmware_update_provider.dart`：`FwUpdateNotifier` + `fwUpdateAvailableProvider`（bool），`build()` 时静默 `checkCloudUpdate()`。
-- `lib/features/firmware/firmware_service.dart`：`checkCloudUpdate()` 命中 `FIRMWARE_CHECK_URL`（接口未提供时安全返回 false）。
-- `lib/features/profile/profile_page.dart`：固件升级入口接 `_FwUpdateDot`（绿点），监听 `fwUpdateAvailableProvider`。
-- `lib/features/firmware/firmware_page.dart`：`_checkAll` 完成后回写 `fwUpdateAvailableProvider`。
+**App 端实现（已完成；2026-09-10 接入 PC 工程师的真实接口）**：
+- `lib/state/firmware_update_provider.dart`：`FwUpdateNotifier` + `fwUpdateAvailableProvider`（bool），`build()` 时静默检查。
+- `lib/models/app_update_info.dart` + `lib/services/app_update_service.dart`：封装 `POST /api/app/updates/check`（服务 android / camera / screen 三类目标）。**失败一律返回 null、绝不弹错** —— 检查更新不得影响任何主流程。
+- `lib/features/firmware/firmware_service.dart`：`checkCloudUpdate()` 对 camera / screen 各查一次；`checkLatest()` 供固件页使用（旧的 `GET {fwBaseUrl}/fw/<type>/latest` 已弃用）。
+- `lib/features/firmware/firmware_page.dart`：`_checkAll` 完成后回写 `fwUpdateAvailableProvider`；同网读到摄像头真实版本后落盘（`FirmwareService.saveKnownVersion`）。
+- `lib/features/profile/profile_page.dart`：「固件升级」入口接 `_FwUpdateDot`（绿点）；**并新增「检查更新」入口**（App 自身更新：显示当前版本 → 检查 → 弹窗给出新版本号 + 更新说明 + 下载地址，可长按复制）。
 - `lib/app/app.dart`：挂载 `fwUpdateAvailableProvider` 触发 App 打开时一次性检查。
 
-**待 PC 工程师提供**：`FIRMWARE_CHECK_URL` 指向的聚合接口（响应形如 `{available:true, latest:[{type,version,changelog}]}`）。接口就绪前绿点不显示，不影响现有功能。
+### 3.8.1 更新检查接口（PC 工程师 2026-09-10 已提供，App 已接入）
+
+```
+POST {cloudBaseUrl}/api/app/updates/check      Content-Type: application/json
+请求：{ "app_key": "android"|"camera"|"screen", "version": "1.0.0", "build_number": 100 }
+     （app_key 与 name 二选一；两者都传时服务端优先 app_key）
+200 ：{ "schema_version": 1, "update_available": bool, "latest_version": str,
+        "latest_build_number": int, "release_notes": str, "download_url": str }
+400 ：{ "schema_version": 1, "code": "INVALID_REQUEST", "message": str }
+```
+
+- 判定规则：后台 `version` 更高，或 `version` 相同但 `build_number` 更大；**且**后台已填非空下载地址，才 `update_available=true`。
+- App 上报的 `version` / `build_number` 由 CI 从 `pubspec.yaml` 的 `version: x.y.z+n` 注入
+  （`--dart-define=APP_VERSION / APP_BUILD_NUMBER`），保证与安装包一致，不靠手工维护两份。
+- 接口文档未要求鉴权头，App 按公开接口实现（不携带 token）。
+
+### 3.8.2 绿点的关键取舍：**宁可少提示，也不谎报**
+
+绿点**只在已知该设备当前版本时才可能点亮**：
+
+| 目标 | 当前版本来源 | 未读到时的行为 |
+|---|---|---|
+| 摄像头 | 同网局域网 `/ota/status` 的 `fw_ver`（落盘缓存） | **不提示** |
+| 屏幕 | **暂无来源**（见 §3.8.3） | 该目标不参与检查 |
+| 本 App | `pubspec.yaml`（CI 注入） | 始终可用（「我的 → 检查更新」） |
+
+理由：接口按「客户端上报的当前版本」比对。若在未知时上报 `0.0.0`，服务端必然判为
+「有新版本」→ **绿点常亮，属假提示**，比不提示更伤信任。
+
+### 3.8.3 跨端待办（绿点完整可用所需）
+
+| # | 归属 | 事项 |
+|---|---|---|
+| 1 | 固件 / 后端 | **屏幕当前固件版本的来源**：建议 `/api/machine/list` 增加固件版本字段，或状态帧带 `fw_ver`。否则屏幕永远无法参与更新检查 |
+| 2 | 后端 | 确认该接口**是否需要鉴权**（文档未写；App 现按公开接口实现） |
+| 3 | 后端 | 确认 `base_url` 与 `AppConfig.cloudBaseUrl` 同源（App 默认 `{cloudBaseUrl}/api/app/updates/check`，与 `/api/work/records/*` 同源） |
+| 4 | 后端 / 固件 | 明确 `download_url` 对 camera / screen 的预期流程（摄像头当前走局域网 `/ota/do`，由 App 触发） |
+| 5 | 后端 | 旧接口 `GET {fwBaseUrl}/fw/<type>/latest` 已弃用，确认可下线 |
+| 6 | 产品（昊总） | App 内**自动下载安装**需 `REQUEST_INSTALL_PACKAGES` + 安装器集成（并需 `url_launcher` 打开外链）；当前只做「检查 + 展示下载地址」，是否升级为自动安装待定 |
+
 
 ## 4. 各端实施指南（给工程师的 TODO + 伪代码）
 

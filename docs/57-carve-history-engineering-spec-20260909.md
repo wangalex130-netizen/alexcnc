@@ -1,6 +1,6 @@
 # alexcnc · 雕刻历史 · 跨端工程实施方案（新手工程师版）
 
-> 文档编号：57 ｜ 起草：2026-09-09 ｜ 状态：**待各端认领**
+> 文档编号：57 ｜ 起草：2026-09-09 ｜ 修订：2026-09-10（后端已提供 `machineId` 正式字段，App 已接入；「谁上报记录」触发点仍待云端确认，见 §5.7）｜ 状态：**待各端认领**
 > 关联文档：`50-雕刻历史契约`（理想版，未采用）、`54-跨端工作清单`、`47-机器绑定契约`、`43-状态帧与陷阱`、`53-推送寻址与通知权限契约`
 > 面向读者：刚接手本项目的**云端 / PC / 屏幕（固件）/ App** 工程师。本文假设你**不了解**此前任何讨论，所有背景、接口、协议、字段、各端具体任务都写在这里，照着做即可。
 
@@ -10,7 +10,7 @@
 
 App 已经有一个「我的 → 雕刻历史」页面（`lib/features/profile/work_history_page.dart`），但它的数据源来自 PC 工程师提供的一套接口（`/api/work/records/*`）。目前这套接口**功能不全**，导致：
 
-- 多台机器的记录分不清（没有 `deviceId` 维度）
+- 多台机器的记录分不清（没有机器维度）—— **2026-09-10 已补**：后端新增正式字段 `machineId`，见 §5.1-1
 - 客户想删记录但**后端没删除接口**
 - 列表里材料/刀头只显示数字 ID，不显示名称
 - PC 端"自己生成刀路直驱机器"的雕刻**不会进历史**（绕过云端）
@@ -213,7 +213,7 @@ CREATE TABLE work_records (
 
 | # | 任务 | 具体做法 |
 |---|---|---|
-| 1 | **`deviceId` 正式字段** | `add` 请求体新增 `deviceId`；落库时写入列，不再从 `extInfo` 解析。App 过渡期仍会塞 `extInfo`，后端两者都读、优先用正式字段。 |
+| 1 | ~~`deviceId` 正式字段~~ ✅ **已完成（2026-09-10）** | 后端**已提供**正式字段 **`machineId`（Long，表列 `machine_id`）**，机器维度不再依赖 `extInfo`。App 侧已接入（`WorkRecord.machineId` / `addWorkRecord(machineId:)`），取值 = `/api/machine/list` 的 `id`；`extInfo` 里的字符串 `deviceId` 保留兼容。⚠️ **字段名是 `machineId`，不是原计划的 `deviceId`**。 |
 | 2 | **`source` 字段** | `add` 请求体新增 `source`（`app`/`pc`/`screen`）。PC 自生成刀路上报时置 `pc`；PC 调云端 G-code 也置 `pc` 但 `gcodeUrl` 有值；App 置 `app`；屏置 `screen`。 |
 | 3 | **材料 / 刀头名称** | `add` 时若带 `materialId`/`bitId`，云端 join `material_db` / `tool_library` 取名称存入 `material_name`/`bit_name`（或要求上报方直接带名称）。App 列表不再只显示 ID。 |
 | 4 | **删除接口** 🔴 | 新增 `POST /api/work/records/delete`，请求 `{ "id": <int> }`；`Bearer` 推导 `accountId` → 校验该记录 `user_id == accountId` 且 `device_id` 绑定当前账号，否则 `403`；置 `deleted_at`（软删）。`page-list` 默认过滤 `deleted_at IS NOT NULL`（应为 `IS NULL`）。 |
@@ -245,7 +245,7 @@ def on_notify(device_id, payload):
 
 | # | 任务 | 优先级 | 具体做法 |
 |---|---|---|---|
-| 1 | 上报带 `deviceId` | 🔴 | `add` 时把绑定机器的 `deviceId` 放进请求体（不再只塞 `extInfo`）。 |
+| 1 | 上报带 `machineId` | 🔴 | `add` 时把绑定机器的 **`machineId`**（数字 ID，取自 `/api/machine/list` 的 `id`）放进请求体（不再只塞 `extInfo`）。⚠️ 后端字段名为 `machineId`。 |
 | 2 | **自生成刀路必须上报** | 🔴 | PC 有两条路径：① 调云端 G-code（云端自然落库，无需动作）；② **本地生成 G-code 直驱机器**（绕开云端，历史会丢）。路径②必须在发起时 `POST /api/work/records/add`（`source=pc`，`gcodeUrl` 可空），状态流转由机器 `notify` 回写云端。 |
 | 3 | 调删除接口 | 🔴 | 后端 §5.1-4 就绪后，PC 侧删除走 `POST /api/work/records/delete`（若 PC 也有历史管理 UI）。 |
 | 4 | 材料 / 刀头名称 | 🟡 | 上报时带名称，或提供字典接口供云端 join。 |
@@ -280,7 +280,7 @@ def on_notify(device_id, payload):
 | 4 | 时间筛选后端化 | 后端 §5.1-5 就绪后，`fetchWorkRecords` 传 `from`/`to`，把客户端按 `createTime` 的分组逻辑改为后端参数（近期记录先加载，v1 可接受现状）。 |
 | 5 | 重跑入口（产品待定） | 若后端返回 `gcodeUrl`，历史项加「再加工」按钮 → 调 `pushTaskToMachine`。**需产品拍板是否做**。 |
 | 6 | 缩略图（产品待定） | 若后端返回 `thumbUrl`，卡片加图片位。**受 §4 第 6 条约束，当前不做**，等产品拍板。 |
-| 7 | **谁上报记录（决策点 ⚠️）** | 确认云端是否在 `pushTaskToMachine` 接受时**自动落库**：若是，App 无需调 `addWorkRecord`（当前 `addWorkRecord` 已接但未在流程里调用，保留即可）；若否，需在雕刻完成时调 `addWorkRecord` 上报自身发起的记录。需云端明确答复。 |
+| 7 | **谁上报记录（决策点 ⚠️ · 2026-09-10 仍未定，阻塞 App 侧 `machineId` 真正生效）** | 确认云端是否在 `pushTaskToMachine` 接受时**自动落库**：若是，App 无需调 `addWorkRecord`（当前 `addWorkRecord` 已接但未在流程里调用，保留即可）；若否，需在雕刻完成时调 `addWorkRecord` 上报自身发起的记录。需云端明确答复。 |
 
 > **App 端铁律**：不展示来源（§4-2）、不显示"失败"（§4-3）、不在卡片加图片（§4-6）。这些已写死在 UI，新工程师不要"优化"掉。
 
