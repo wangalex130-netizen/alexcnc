@@ -31,6 +31,11 @@ on:
       - '.github/workflows/**'
 
   workflow_dispatch:
+    inputs:
+      lab_build:
+        description: '内部联调包：注入实验室凭据（放行自签 Broker 证书等）。正式包/客户包不要勾。'
+        type: boolean
+        default: false
 
 
 
@@ -156,6 +161,16 @@ jobs:
 
         id: build
 
+        env:
+          # 内部联调包开关与实验室凭据（全部来自 Secrets，不进仓库）。
+          # 不勾 lab_build 时这些值为空 → 不注入任何 dart-define → 与正式包一致。
+          LAB_BUILD: ${{ github.event.inputs.lab_build }}
+          LAB_MQTT_USER: ${{ secrets.LAB_MQTT_USER }}
+          LAB_MQTT_PASS: ${{ secrets.LAB_MQTT_PASS }}
+          LAB_CAMERA_USER: ${{ secrets.LAB_CAMERA_USER }}
+          LAB_CAMERA_PASS: ${{ secrets.LAB_CAMERA_PASS }}
+          LAB_RELAY_TOKEN: ${{ secrets.LAB_RELAY_TOKEN }}
+
         run: |
 
           set +e
@@ -206,9 +221,33 @@ jobs:
 
             echo "" >> "$LOG"
 
+            # 内部联调包：按需注入实验室凭据（默认不注入）。
+            # 只在对应 Secret 非空时才注入该 dart-define —— 传空串会覆盖 AppConfig
+            # 的 defaultValue（String.fromEnvironment 只在"未提供"时才回默认值）。
+            DEFINE_ARGS=""
+            if [ "${LAB_BUILD}" = "true" ]; then
+              DEFINE_ARGS="--dart-define=MQTT_ALLOW_SELF_SIGNED=true"
+              if [ -n "${LAB_MQTT_USER}" ]; then
+                DEFINE_ARGS="$DEFINE_ARGS --dart-define=MQTT_USER=${LAB_MQTT_USER}"
+              fi
+              if [ -n "${LAB_MQTT_PASS}" ]; then
+                DEFINE_ARGS="$DEFINE_ARGS --dart-define=MQTT_PASS=${LAB_MQTT_PASS}"
+              fi
+              if [ -n "${LAB_CAMERA_USER}" ]; then
+                DEFINE_ARGS="$DEFINE_ARGS --dart-define=CAMERA_USER=${LAB_CAMERA_USER}"
+              fi
+              if [ -n "${LAB_CAMERA_PASS}" ]; then
+                DEFINE_ARGS="$DEFINE_ARGS --dart-define=CAMERA_PASS=${LAB_CAMERA_PASS}"
+              fi
+              if [ -n "${LAB_RELAY_TOKEN}" ]; then
+                DEFINE_ARGS="$DEFINE_ARGS --dart-define=CAMERA_RELAY_TOKEN=${LAB_RELAY_TOKEN}"
+              fi
+              echo "### LAB BUILD: dart-define injected (values hidden)" >> "$LOG"
+            fi
+
             echo "=== flutter build apk --release ===" >> "$LOG"
 
-            flutter build apk --release --verbose >> "$LOG" 2>&1
+            flutter build apk --release --verbose $DEFINE_ARGS >> "$LOG" 2>&1
 
             BUILD=$?
 
