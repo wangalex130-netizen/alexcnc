@@ -248,7 +248,9 @@ jobs:
             # 版本号（2026-09-10）：从 pubspec.yaml 读取并注入，供更新检查接口
             # (POST /api/app/updates/check) 上报当前版本。**固定注入（非联调专属）**，
             # 保证 App 自查更新时上报的版本与安装包一致，无需手工维护两份。
-            APP_LINE="$(grep -E '^version:' pubspec.yaml | head -1 | sed 's/^version:[[:space:]]*//')"
+            # ⚠️ 必须 tr -d '\r'：pubspec.yaml 是 CRLF，而 CI 是 Linux ——
+            # GNU grep 会把行尾的 \r 一起带出来，导致构建号的数字校验失败被兜底成 0。
+            APP_LINE="$(grep -E '^version:' pubspec.yaml | head -1 | sed 's/^version:[[:space:]]*//' | tr -d '\r')"
             APP_VER="${APP_LINE%%+*}"
             APP_BUILD="0"
             case "$APP_LINE" in
@@ -265,7 +267,7 @@ jobs:
             # 诊断（2026-09-10）：把「联调包到底有没有注入凭据」变成可观测事实。
             # 只打印开关状态与长度，绝不打印值 —— Actions 日志是公开可见的。
             echo "### LAB_DIAG lab_build='${LAB_BUILD}' mqttUserLen=${#LAB_MQTT_USER} mqttPassLen=${#LAB_MQTT_PASS} camUserLen=${#LAB_CAMERA_USER} camPassLen=${#LAB_CAMERA_PASS} relayLen=${#LAB_RELAY_TOKEN}"
-            echo "### LAB_DIAG define_keys: $(printf '%s' "$DEFINE_ARGS" | tr ' ' '\n' | sed 's/=.*//' | tr '\n' ' ')"
+            echo "### LAB_DIAG define_keys: $(printf '%s' "$DEFINE_ARGS" | tr ' ' '\n' | sed 's/^--dart-define=//' | sed 's/=.*//' | tr '\n' ' ')"
 
             echo "=== flutter build apk --release ===" >> "$LOG"
 
