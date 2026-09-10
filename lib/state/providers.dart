@@ -421,6 +421,10 @@ class PushPoller {
   Timer? _timer;
   bool _started = false;
   bool _permissionRequested = false;
+  /// W-06（2026-09-10）：诊断上报节流时间戳。原每 15s 一条，
+  /// 多设备下会形成稳定的心跳风暴；降为 60s 一条。
+  DateTime? _lastDiagAt;
+  static const Duration _diagInterval = Duration(seconds: 60);
 
   /// 启动轮询。config 加载完成前先不构造 cloud，加载后立刻首次轮询，
   /// 再挂 15s 周期任务（复用同一 cloud 实例）。
@@ -440,10 +444,17 @@ class PushPoller {
       }
       // 联调诊断：把“是否拉到事件 / 通知初始化 / 权限 / 弹窗结果”上报 server，
       // 便于定位“轮询到了却没弹”的问题（走既有 /api/v1/diagnostics 通道）。
-      cloud.pushDiagnostics(
-        'push shown=$shown; ${PushService.instance.lastPollDiagnostic}; '
-        '${LocalNotifyService.instance.debugSummary()}',
-      );
+      // W-06（2026-09-10）：诊断上报节流到 60s 一条（首帧必报，保证联调能拿到
+      // 第一条）。原每 15s 一条，多设备下会形成稳定的心跳风暴。
+      final now = DateTime.now();
+      final last = _lastDiagAt;
+      if (last == null || now.difference(last) >= _diagInterval) {
+        _lastDiagAt = now;
+        cloud.pushDiagnostics(
+          'push shown=$shown; ${PushService.instance.lastPollDiagnostic}; '
+          '${LocalNotifyService.instance.debugSummary()}',
+        );
+      }
     }
 
     ref.read(runtimeConfigProvider.notifier).hydrated.then((cfg) {

@@ -748,7 +748,11 @@ class RealHardwareService implements HardwareService {
   ///
   /// 2026-09-02：改为返回 bool，**不再静默丢弃**（原来直接 `return`）。
   /// 未连上时由 [_dispatch] 决定是否入队补发。
-  bool _publish(Map<String, dynamic> cmd) {
+  bool _publish(
+    Map<String, dynamic> cmd, {
+    bool injectReqId = true,
+    MqttQos qos = MqttQos.atLeastOnce,
+  }) {
     if (_mqtt?.connectionStatus?.state != MqttConnectionState.connected) {
       return false;
     }
@@ -756,13 +760,14 @@ class RealHardwareService implements HardwareService {
     // cmd_ack 关联回具体命令，并用「10s 内相同非空 reqId 丢弃」防 QoS1 重投。
     // 每次发布注入新 UUID：重试/补发也换新，否则会被小屏去重规则丢弃。
     // prepare_job/confirm 已自带 reqId（与 _awaitingReqId 精确匹配），不覆盖。
+    // W-09-h：hello 心跳无 ack 需求，injectReqId=false + QoS0 省掉无谓开销。
     final existing = cmd['reqId'];
-    final out = (existing is String && existing.isNotEmpty)
-        ? cmd
-        : {...cmd, 'reqId': _newId()};
+    final needInject =
+        injectReqId && !(existing is String && existing.isNotEmpty);
+    final out = needInject ? {...cmd, 'reqId': _newId()} : cmd;
     final builder = MqttClientPayloadBuilder();
     builder.addString(jsonEncode(out));
-    _mqtt!.publishMessage(mqttCmdTopic, MqttQos.atLeastOnce, builder.payload!);
+    _mqtt!.publishMessage(mqttCmdTopic, qos, builder.payload!);
     return true;
   }
 
@@ -1307,7 +1312,13 @@ class RealHardwareService implements HardwareService {
   /// 注意：机器码与摄像头码统一后，该帧也会被摄像头收到；摄像头固件须忽略
   /// payload 中非 stream_start / stream_stop 的帧。
   void _sendHello() {
-    _publish({'cmd': 'hello'});
+    // W-09-h（2026-09-10）：hello 只为重置机器 15s Feed Hold 定时器，无 ack 需求，
+    // 不再注入 reqId、降为 QoS0（原每帧一个新 reqId + QoS1 属无谓开销）。
+    _publish(
+      {'cmd': 'hello'},
+      injectReqId: false,
+      qos: MqttQos.atMostOnce,
+    );
   }
 
   @override

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -92,6 +93,10 @@ class PushService {
           _cachedToken = cid;
           await _persistCid(cid);
           lastInitDiagnostic = 'cid-ready';
+          // W-09-e（2026-09-10）：CID **真正到达**之后再补绑 alias。
+          // `_getuiReady` 是在 initGetuiSdk 之后立即置位的，那时 SDK 可能尚未完成
+          // 注册，那一次 bindAlias 会静默失败；CID 回调是唯一可靠的绑定时机。
+          await _bindPendingUserIfReady();
           onCidReady?.call(cid);
         },
         // 关键：App 在前台时，个推 SDK **不会**自动弹系统通知栏，而是把消息
@@ -119,10 +124,12 @@ class PushService {
         onLiveActivityResult: (_) async {},
         onRegisterPushToStartTokenResult: (_) async {},
       );
-      // 提前建好本地通知通道并申请通知运行时权限（Android 13+/API 33+ 必需）。
-      // 个推在 App 前台不自动弹通知栏，靠本地通知兜底展示。两者都幂等。
+      // 提前建好本地通知通道（个推在 App 前台不自动弹通知栏，靠本地通知兜底展示）。
       await LocalNotifyService.instance.ensureInitialized();
-      await LocalNotifyService.instance.ensurePermission();
+      // W-09-f（2026-09-10）：权限申请**不再串行 await**。
+      // ensurePermission 内部有 5s 超时，串在初始化链上会白白占用最多 5s 启动时间；
+      // 且真正 show() 之前本就会再申请一次，这里改为旁路异步发起即可。
+      unawaited(LocalNotifyService.instance.ensurePermission());
 
       // 个推 Flutter 插件约定用 getter 触发初始化（无参）。
       // 若真机 CID 始终不来，可尝试改为 Getuiflut().initGetuiSdk();
