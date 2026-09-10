@@ -29,6 +29,7 @@ import 'sys_bits_page.dart';
 import 'work_history_page.dart';
 
 import '../settings/debug_settings_page.dart';
+import '../settings/privacy_policy_page.dart';
 
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
@@ -124,6 +125,10 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     final auth = ref.watch(authProvider);
 
     final loggedIn = auth.isLoggedIn;
+
+    // W-14（2026-09-10）：调试面板入口仅 debug / profile 包可见。
+    // 用局部变量承载，避免 collection-if 里出现常量条件导致的死代码提示。
+    final showDebugEntry = !kReleaseMode;
 
     final username = auth.username?.isNotEmpty == true
 
@@ -478,11 +483,32 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
             ),
 
+            // 调试面板入口：正式包隐藏（W-14）。
+            if (showDebugEntry)
+
+              _MenuItem(
+
+                icon: Symbols.tune,
+
+                title: '连接调试（高级）',
+
+                onTap: () => Navigator.push(
+
+                  context,
+
+                  MaterialPageRoute(
+
+                      builder: (_) => const DebugSettingsPage()),
+
+                ),
+
+              ),
+
             _MenuItem(
 
-              icon: Symbols.tune,
+              icon: Symbols.fact_check,
 
-              title: '连接调试（高级）',
+              title: '隐私政策',
 
               onTap: () => Navigator.push(
 
@@ -490,7 +516,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
                 MaterialPageRoute(
 
-                    builder: (_) => const DebugSettingsPage()),
+                    builder: (_) => const PrivacyPolicyPage()),
 
               ),
 

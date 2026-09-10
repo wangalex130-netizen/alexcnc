@@ -265,6 +265,12 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
 
   Widget build(BuildContext context) {
 
+    // W-14（2026-09-10）：release 包不提供调试面板。
+    // 本页可运行时覆盖 Broker 地址 / 账号口令 / 设备 ID —— 正式用户点几下就能
+    // 把 App 指向非预期服务器，属量产阻断问题。此处做硬门控（入口侧另做隐藏，
+    // 双保险），debug / profile 包照常可用，不影响工程师联调。
+    if (kReleaseMode) return const _DebugDisabledPage();
+
     final t = Theme.of(context).textTheme;
 
     return Scaffold(
@@ -1128,3 +1134,42 @@ class _Field extends StatelessWidget {
 
 }
 
+
+/// release 包访问调试面板时的占位页（W-14）。
+///
+/// 保留页面壳只为让误入的用户明确知道「这里是内部功能」，
+/// 不暴露任何可编辑的运行配置项。
+class _DebugDisabledPage extends StatelessWidget {
+  const _DebugDisabledPage();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: CncColors.bg,
+      appBar: AppBar(
+        backgroundColor: CncColors.bg,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Symbols.arrow_back, color: CncColors.textMain),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text('连接调试',
+            style: TextStyle(color: CncColors.textMain, fontSize: 17)),
+      ),
+      body: const Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 32),
+          child: Text(
+            '该功能仅在内部调试版本中可用。',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              height: 1.6,
+              color: CncColors.textSub,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

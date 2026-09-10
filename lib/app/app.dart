@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'theme.dart';
 import 'theme_mode_controller.dart';
+import '../features/settings/privacy_consent_gate.dart';
 import '../features/shell/app_shell.dart';
 import '../state/providers.dart';
 import '../state/firmware_update_provider.dart';
@@ -56,7 +57,8 @@ class AlexCncApp extends ConsumerWidget {
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: mode,
-      home: const AppShell(),
+      // 首次启动隐私政策同意门控（合规 + 推送初始化的正式入口）。
+      home: const PrivacyConsentGate(child: AppShell()),
     );
   }
 }
