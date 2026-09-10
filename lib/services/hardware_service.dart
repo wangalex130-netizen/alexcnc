@@ -116,14 +116,24 @@ abstract class HardwareService {
   Future<({double widthMm, double heightMm})> getWorkArea();
 
   // --- Motion ---
-  /// 点动。返回是否**已发出**：false = 被门禁拦下（未确认同网）或未送达。
+  /// 🔴 W-10（2026-09-10，对齐契约源 `contract/views/app_view.json` 的 `wan_whitelist`）：
   ///
-  /// 🔴 D-DEC-1（2026-09-10 拍板）：Jog 额外要求"手机与机器同一局域网"，
-  /// 外网 / 无法确认同网时直接拒绝并返回 false（安全侧默认锁定）。
-  /// 开切 / 暂停 / 停止 / 急停**不受**此限制。
+  /// - `forbidden = [jog, home, setWorkZero, startSpindle, startJob]`
+  ///   —— 这 5 类**只有「能证明与机器同网（LAN 可达）」才允许执行**，
+  ///   外网 / 无法确认同网一律拒绝并返回 false（安全侧默认锁定）；
+  /// - `allowed = [monitor, pauseJob, resumeJob, stopJob, setAux_light, setAux_fan, ota]`
+  ///   —— **停机与监视类外网必须可用**，故 [stopSpindle] / [pauseJob] / [resumeJob]
+  ///   / [stopJob] 不受本门禁限制。
+  ///
+  /// 返回值语义统一为「是否**已发出**」：false = 被门禁拦下或未送达，
+  /// UI 必须给出明确提示（不再静默失败）。
   Future<bool> jog(String axis, double distanceMm); // axis: x | y | z
-  Future<void> home(); // homing cycle ($H)
-  Future<void> setWorkZero(
+
+  /// 回零。契约 forbidden → 仅同网（全行程移动，外网误触即撞机）。
+  Future<bool> home(); // homing cycle ($H)
+
+  /// 设工件原点。契约 forbidden → 仅同网。
+  Future<bool> setWorkZero(
       {List<String> axes = const ['x', 'y', 'z']}); // G92，清单 §4.6-4.8 axes 数组
 
   /// 软复位（Grbl `Ctrl-X` = 0x18）。立即中止当前运动、清空规划器缓冲。
@@ -140,12 +150,19 @@ abstract class HardwareService {
   Future<void> unlock();
 
   // --- Spindle / aux ---
-  Future<void> startSpindle(double rpm);
+  /// 主轴启动。契约 forbidden → 仅同网（`rpm <= 0` 等价停机，放行）。
+  Future<bool> startSpindle(double rpm);
+
+  /// 主轴停止。**不受 WAN 门禁限制**（外网必须能停机）。
   Future<void> stopSpindle();
-  Future<void> setAux(String key, bool on); // light | laser | timelapse | fan
+
+  /// 辅助开关。契约只允许 `setAux_light` / `setAux_fan` 走外网；
+  /// `laser` 仅同网可**开**（关闭仍放行，便于远程灭激光）。
+  Future<bool> setAux(String key, bool on); // light | fan（外网允许）| laser（仅同网）
 
   // --- Job control ---
-  Future<void> startJob();
+  /// 开始加工。契约 forbidden → 仅同网（另有 D9 机器端物理确认兜底）。
+  Future<bool> startJob();
   Future<void> pauseJob();
   Future<void> resumeJob();
   Future<void> stopJob(); // soft stop

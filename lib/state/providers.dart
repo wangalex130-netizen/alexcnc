@@ -853,7 +853,12 @@ class ActiveJobNotifier extends StateNotifier<ActiveJob?> {
 final activeJobProvider = StateNotifierProvider<ActiveJobNotifier, ActiveJob?>(
   (ref) {
     final notifier = ActiveJobNotifier(
-      startJob: () => ref.read(hardwareServiceProvider).startJob(),
+      // W-10 扩展（2026-09-10）：服务层对外网开切返回 false（契约 forbidden）。
+      // ActiveJobNotifier 期望 Future<void>，故此处只 await 并丢弃返回值；
+      // 真正的"非静默提示"随审计 I-2（可感知性专项）在自检页统一收口。
+      startJob: () async {
+        await ref.read(hardwareServiceProvider).startJob();
+      },
       // 雕刻主链路 v2：只把模型库的 G-code URL + 元数据传给小屏，App 不碰文件本身（D2）
       prepareJob: ({required fileUrl, int? sizeBytes, String? sha256}) =>
           ref.read(hardwareServiceProvider).prepareJob(

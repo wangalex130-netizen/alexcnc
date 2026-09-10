@@ -560,6 +560,29 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
 
 
+  /// W-10 扩展（2026-09-10，契约 `wan_whitelist.forbidden`）：
+
+  /// 动作被"必须与机器同网"门禁拦下时的统一提示 —— 必须说清原因，不许静默失败。
+
+  void _toastWanBlocked(String what) {
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+
+      SnackBar(
+
+        content: Text('$what 只能在机器同一局域网内执行（外网仅监视 / 可停机）'),
+
+        duration: const Duration(seconds: 3),
+
+      ),
+
+    );
+
+  }
+
+
   /// 云中继拉流地址（A3 解耦）：
 
   /// 架构对齐——中继地址固定（AppConfig 北京），摄像头设备 ID = 机器码（sn）。
@@ -2351,7 +2374,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                               setState(() => _light = !_light);
 
-                              hw.setAux('light', _light);
+                              unawaited(hw.setAux('light', _light));
 
                             }),
 
@@ -2367,7 +2390,19 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                               setState(() => _laser = !_laser);
 
-                              hw.setAux('laser', _laser);
+                              hw.setAux('laser', _laser).then((sent) {
+
+                                if (!sent && mounted) {
+
+                                  // 被门禁拦下 → 回滚开关，避免界面与机器状态不一致
+
+                                  setState(() => _laser = false);
+
+                                  _toastWanBlocked('红点激光');
+
+                                }
+
+                              });
 
                             }),
 
@@ -2383,7 +2418,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                               setState(() => _fan = !_fan);
 
-                              hw.setAux('fan', _fan);
+                              unawaited(hw.setAux('fan', _fan));
 
                             }),
 
@@ -2432,7 +2467,27 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                       setState(() => _spindleOn = !_spindleOn);
 
-                      _spindleOn ? hw.startSpindle(_rpm.toDouble()) : hw.stopSpindle();
+                      if (_spindleOn) {
+
+                        hw.startSpindle(_rpm.toDouble()).then((sent) {
+
+                          if (!sent && mounted) {
+
+                            setState(() => _spindleOn = false);
+
+                            _toastWanBlocked('主轴启动');
+
+                          }
+
+                        });
+
+                      } else {
+
+                        // 停机不受门禁限制：外网必须能停主轴
+
+                        hw.stopSpindle();
+
+                      }
 
                     },
 

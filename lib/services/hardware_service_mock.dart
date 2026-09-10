@@ -204,7 +204,7 @@ class MockHardwareService implements HardwareService {
   }
 
   @override
-  Future<void> home() async {
+  Future<bool> home() async {
     _current = _current.copyWith(state: MachineState.homing);
     _emit();
     await Future.delayed(const Duration(milliseconds: 800));
@@ -214,6 +214,7 @@ class MockHardwareService implements HardwareService {
       machinePosition: const Position(),
     );
     _emit();
+    return true; // 模拟器无网络门禁，恒为已发出
   }
 
   @override
@@ -241,7 +242,7 @@ class MockHardwareService implements HardwareService {
   }
 
   @override
-  Future<void> setWorkZero({List<String> axes = const ['x', 'y', 'z']}) async {
+  Future<bool> setWorkZero({List<String> axes = const ['x', 'y', 'z']}) async {
     final has = (String a) => axes.contains(a);
     _current = _current.copyWith(
       position: Position(
@@ -251,12 +252,14 @@ class MockHardwareService implements HardwareService {
       ),
     );
     _emit();
+    return true; // 模拟器无网络门禁，恒为已发出
   }
 
   @override
-  Future<void> startSpindle(double rpm) async {
+  Future<bool> startSpindle(double rpm) async {
     _current = _current.copyWith(spindleRpm: rpm);
     _emit();
+    return true; // 模拟器无网络门禁，恒为已发出
   }
 
   @override
@@ -266,13 +269,14 @@ class MockHardwareService implements HardwareService {
   }
 
   @override
-  Future<void> setAux(String key, bool on) async {
+  Future<bool> setAux(String key, bool on) async {
     _aux[key] = on;
     _emit();
+    return true; // 模拟器无网络门禁，恒为已发出
   }
 
   @override
-  Future<void> startJob() async {
+  Future<bool> startJob() async {
     // 触发固件：自检流水线 + 加工由固件在 startJob 后统一执行；
     // App 不再自己计时推进自检（见 docs/功能逻辑与分工梳理.md 决策②）。
     _current = _current.copyWith(
@@ -283,6 +287,7 @@ class MockHardwareService implements HardwareService {
       eta: const Duration(minutes: 5),
     );
     _emit();
+    return true; // 模拟器无网络门禁，恒为已发出
   }
 
   // ---- 雕刻主链路 v2（Mock：模拟两阶段成功，便于无真机时调 UI）----

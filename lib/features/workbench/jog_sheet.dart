@@ -248,7 +248,14 @@ class _JogSheetState extends ConsumerState<JogSheet> {
                         enabled: canUnlock, repeat: false, danger: true),
                     const SizedBox(height: 6),
                     _JogKey('回零', () {
-                      if (canControl) widget.hw.home();
+                      if (!canControl) return;
+                      // W-10 扩展：回零属契约 forbidden（全行程移动）→ 仅同网可执行。
+                      widget.hw.home().then((sent) {
+                        if (!sent && mounted) {
+                          toastJogBlocked(
+                              '未发送：回零只能在机器同一局域网内执行（外网仅监视）');
+                        }
+                      });
                     }, enabled: canControl, repeat: false),
                   ],
                 ),

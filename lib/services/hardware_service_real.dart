@@ -1395,6 +1395,15 @@ class RealHardwareService implements HardwareService {
     return ok;
   }
 
+  /// 🔴 W-10 扩展（2026-09-10，契约源 `contract/views/app_view.json`）：
+  /// `wan_whitelist.forbidden = [jog, home, setWorkZero, startSpindle, startJob]`。
+  /// 语义：**只有能证明与机器同网（发现机器局域网 IP + TCP 探测通过）才放行**；
+  /// 无法证明即视为外网 → 拒绝（安全侧默认锁定，宁可锁不误放）。
+  ///
+  /// 停机/监视类命令（stopSpindle / pauseJob / resumeJob / stopJob / 状态订阅）
+  /// **不走这里** —— 外网必须保留"停机"能力。
+  Future<bool> _allowLocalOnly() => _confirmLan();
+
   @override
   Future<bool> jog(String axis, double distanceMm) async {
     // 🔴 W-10（D-DEC-1）：外网（未确认与机器同网）**禁止点动**。
@@ -1419,9 +1428,12 @@ class RealHardwareService implements HardwareService {
   }
 
   @override
-  Future<void> home() async {
+  Future<bool> home() async {
+    // W-10 扩展：回零 = 全行程移动，路径上有工件/夹具即撞机，契约列为 forbidden。
+    if (!await _allowLocalOnly()) return false;
     final cmd = {'cmd': 'home'};
     _dispatch(cmd);
+    return true;
   }
 
   @override
@@ -1452,15 +1464,23 @@ class RealHardwareService implements HardwareService {
         axes.contains('x') &&
         axes.contains('y') &&
         axes.contains('z');
+    // W-10 扩展：改工件原点会波及后续所有加工坐标（错位 → 撞刀废件），
+    // 契约列为 forbidden → 仅同网。
+    if (!await _allowLocalOnly()) return false;
     final cmd = <String, dynamic>{'cmd': 'setWorkZero'};
     if (!all) cmd['axes'] = axes;
     _dispatch(cmd);
+    return true;
   }
 
   @override
-  Future<void> startSpindle(double rpm) async {
+  Future<bool> startSpindle(double rpm) async {
+    // W-10 扩展：主轴起转（刀在转、手在附近即伤害）契约列为 forbidden → 仅同网。
+    // `rpm <= 0` 是"停机"语义，必须放行（外网要能停主轴）。
+    if (rpm > 0 && !await _allowLocalOnly()) return false;
     final cmd = {'cmd': 'spindle', 'rpm': rpm};
     _dispatch(cmd);
+    return true;
   }
 
   @override
@@ -1470,16 +1490,25 @@ class RealHardwareService implements HardwareService {
   }
 
   @override
-  Future<void> setAux(String key, bool on) async {
+  Future<bool> setAux(String key, bool on) async {
+    // W-10 扩展：契约 `wan_whitelist.allowed` 只放行 `setAux_light` / `setAux_fan`。
+    // 激光（对眼睛不可逆伤害）**仅同网可开**；**关闭仍放行**，便于远程灭激光。
+    final wanAllowed = key == 'light' || key == 'fan';
+    if (!wanAllowed && on && !await _allowLocalOnly()) return false;
     _aux[key] = on;
     final cmd = {'cmd': 'aux', 'key': key, 'on': on};
     _dispatch(cmd);
+    return true;
   }
 
   @override
-  Future<void> startJob() async {
+  Future<bool> startJob() async {
+    // W-10 扩展：远程开切契约列为 forbidden → 仅同网。
+    // （机器端另有 D9 物理确认兜底：App 不远程启动雕刻。）
+    if (!await _allowLocalOnly()) return false;
     final cmd = {'cmd': 'job', 'action': 'start'};
     _dispatch(cmd);
+    return true;
   }
 
   @override

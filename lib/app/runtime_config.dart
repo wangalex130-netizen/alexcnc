@@ -2,6 +2,8 @@ import 'dart:convert';
 
 
 
+import 'package:flutter/foundation.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -315,6 +317,34 @@ class RuntimeConfigNotifier extends Notifier<RuntimeConfig> {
       }
 
       final j = jsonDecode(raw) as Map<String, dynamic>;
+
+      // P1-14（2026-09-10）：**正式包不在本地保留任何凭据**（明文 SharedPreferences
+
+      // + 系统备份）。正式包已隐藏调试面板（W-14）→ 不可能再写入；这里擦掉"曾经
+
+      // 装过调试包"留下的残留，并把清洗结果落盘，避免明文长期留在磁盘。
+
+      // 正式包所需凭据一律来自编译期注入（AppConfig），不依赖本持久化配置。
+
+      var scrubbed = false;
+
+      if (kReleaseMode) {
+
+        for (final k in ['mqttUser', 'mqttPass', 'cameraRelayToken']) {
+
+          if ((j[k] as String?)?.isNotEmpty == true) {
+
+            j[k] = '';
+
+            scrubbed = true;
+
+          }
+
+        }
+
+      }
+
+      if (scrubbed) await p.setString(_key, jsonEncode(j));
 
       // 版本迁移：v1 之前摄像头中继字段可能存的是旧的 cnc-cam-01，
 
