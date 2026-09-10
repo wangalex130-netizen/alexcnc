@@ -11,22 +11,27 @@ import '../models/app_update_info.dart';
 /// 版本与构建号，服务端与后台配置比对后返回是否有新版 + 下载地址。
 ///
 /// 设计约定：
-/// - **失败一律返回 null**，绝不抛异常、绝不弹错。检查更新是"锦上添花"，
+/// - **失败一律返回 null**，绝不抛异常、绝不弹错。检查更新是「锦上添花」，
 ///   云端不可达时不应影响任何主流程（与 W-06 的静默原则一致）。
 /// - 接口文档未要求鉴权头，故不携带 token；若后端后续加鉴权，在此补 header。
 /// - 请求参数非法（version 为空 / buildNumber < 0）时**直接不发请求** ——
 ///   发了也只会换回 HTTP 400，白跑一趟。
 class AppUpdateService {
   AppUpdateService({http.Client? client, String? url})
-      : _client = client ?? http.Client(),
+      : _client = client ?? _sharedClient,
         url = url ?? AppConfig.resolvedAppUpdateCheckUrl;
+
+  /// 共享连接池（P2-4 自审修复）：本服务是**短生命周期、按次创建**的
+  /// （每次点「检查更新」、每次 provider 重建都会 new），若各自持有 http.Client
+  /// 又从不 close，会持续泄漏连接。共享一个实例即可避免，且能复用连接。
+  static final http.Client _sharedClient = http.Client();
 
   final http.Client _client;
 
   /// 完整接口地址；为空表示未配置（此时 [check] 直接返回 null）。
   final String url;
 
-  /// 检查某目标是否有新版本。返回 null 表示"检查失败 / 未配置"（调用方不提示）。
+  /// 检查某目标是否有新版本。返回 null 表示「检查失败 / 未配置」（调用方不提示）。
   Future<AppUpdateInfo?> check({
     required AppUpdateTarget target,
     required String version,

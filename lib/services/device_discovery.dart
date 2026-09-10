@@ -70,7 +70,10 @@ class DeviceDiscovery {
 
     final found = await _mdnsProbe(const Duration(seconds: 2));
     if (found != null) {
-      await prefs.setString(_kCachedHost, found);
+      // 写「按 deviceId 绑定」的 key（与上面读缓存的 key 保持一致）。
+      // 原实现写的是全局 key，与读取用的 `device_tcp_host__<deviceId>` 不匹配
+      // ⇒ mDNS 结果永远读不回来，每次都要重新探测（2026-09-10 自审修复）。
+      await prefs.setString(cacheKey, found);
       return found;
     }
     // 兜底：用配置的固定地址（DHCP 绑定 / 设置页填写）。
@@ -171,14 +174,26 @@ class DeviceDiscovery {
     return BeaconDevice(ip, port, deviceId);
   }
 
+  /// 缓存 key（与 [discover] 的规则保持一致：按 deviceId 绑定）。
+  static String _cacheKeyOf(String? deviceId) =>
+      (deviceId != null && deviceId.isNotEmpty)
+          ? '${_kCachedHost}__$deviceId'
+          : _kCachedHost;
+
   /// 手动写入缓存（设置页填固定 IP，或路由器已做 DHCP 绑定）。
-  static Future<void> saveHost(String host) async {
+  static Future<void> saveHost(String host, {String? deviceId}) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kCachedHost, host);
+    await prefs.setString(_cacheKeyOf(deviceId), host);
   }
 
-  static Future<void> clearCache() async {
+  /// 让缓存立即失效（供「探测失败」时调用，下次会重新发信标发现）。
+  ///
+  /// ⚠️ 必须同时清「按 deviceId 绑定」槽位与全局槽位：原实现只 remove 了
+  /// 全局 key，而 [discover] 读的是 `device_tcp_host__<deviceId>` ⇒「清了却仍命中」
+  /// （2026-09-10 自审修复）。
+  static Future<void> invalidateCache(String? deviceId) async {
     final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_cacheKeyOf(deviceId));
     await prefs.remove(_kCachedHost);
   }
 

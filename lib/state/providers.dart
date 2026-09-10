@@ -758,13 +758,13 @@ class ActiveJob {
 class ActiveJobNotifier extends StateNotifier<ActiveJob?> {
   /// 触发固件开始（自检 + 加工由固件在 startJob 后统一执行）。
   /// 由 providers 注入，解耦 StateNotifier 与 Provider 树。
-  final Future<void> Function() startJob;
+  final Future<bool> Function() startJob;
 
   /// 雕刻主链路 v2 的第一阶段（prepare_job）。由 providers 注入。
   /// App **不下载 G-code**，只传模型库的 OSS URL + 完整性元数据给小屏
   /// 让它自己下载并校验（D2）。sizeBytes/sha256 由后端 2026-09-03 补字段提供。
   /// （可空 = 可选命名参数，与注入闭包签名保持一致，避免函数类型不匹配）
-  final Future<void> Function({
+  final Future<bool> Function({
     required String fileUrl,
     int? sizeBytes,
     String? sha256,
@@ -782,26 +782,31 @@ class ActiveJobNotifier extends StateNotifier<ActiveJob?> {
   ///
   /// [gcodeUrl] 非空 → 走**新主链路**（prepare_job → confirm 两阶段）；
   /// 为空 → 走**旧的一步式** `startJob()`（老固件 / 模型没有加工程序时回退）。
-  void start(
+  /// 返回 true = 开切指令已受理；false = 被同网门禁拦下（或其他原因未发出）。
+  /// 调用方（向导页，持有 context）据此做**非静默提示**，不要静默失败。
+  Future<bool> start(
     ActiveJob job, {
     String? gcodeUrl,
     int gcodeSizeBytes = 0,
     String gcodeSha256 = '',
-  }) {
+  }) async {
     // 固件拥有自检流水线：App 仅下发启动指令，阶段推进由固件广播驱动
     // （见 docs/功能逻辑与分工梳理.md 决策②）。App 不再自己计时。
     state = job.copyWith(selfCheckIndex: -1, selfCheckTotal: 0);
 
     final url = gcodeUrl?.trim() ?? '';
-    if (url.isNotEmpty && prepareJob != null) {
-      prepareJob!(
-        fileUrl: url,
-        sizeBytes: gcodeSizeBytes,
-        sha256: gcodeSha256,
-      );
-    } else {
-      startJob();
+    final accepted = (url.isNotEmpty && prepareJob != null)
+        ? await prepareJob!(
+            fileUrl: url,
+            sizeBytes: gcodeSizeBytes,
+            sha256: gcodeSha256,
+          )
+        : await startJob();
+    if (!accepted) {
+      // 未受理 ⇒ 不要留一个不会推进的空作业（否则界面会停在「准备中」）。
+      state = null;
     }
+    return accepted;
   }
 
   /// 固件广播自检阶段进度时由 providers 调用，同步到 UI。
@@ -853,12 +858,10 @@ class ActiveJobNotifier extends StateNotifier<ActiveJob?> {
 final activeJobProvider = StateNotifierProvider<ActiveJobNotifier, ActiveJob?>(
   (ref) {
     final notifier = ActiveJobNotifier(
-      // W-10 扩展（2026-09-10）：服务层对外网开切返回 false（契约 forbidden）。
-      // ActiveJobNotifier 期望 Future<void>，故此处只 await 并丢弃返回值；
-      // 真正的"非静默提示"随审计 I-2（可感知性专项）在自检页统一收口。
-      startJob: () async {
-        await ref.read(hardwareServiceProvider).startJob();
-      },
+      // W-10 扩展（2026-09-10）：开切（prepare_job / startJob）均已带同网门禁，
+      // 服务层对外网返回 false。此处把结果**透传**给 ActiveJobNotifier.start()，
+      // 由调用方（向导页，有 context）负责非静默提示。
+      startJob: () => ref.read(hardwareServiceProvider).startJob(),
       // 雕刻主链路 v2：只把模型库的 G-code URL + 元数据传给小屏，App 不碰文件本身（D2）
       prepareJob: ({required fileUrl, int? sizeBytes, String? sha256}) =>
           ref.read(hardwareServiceProvider).prepareJob(

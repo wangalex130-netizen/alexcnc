@@ -1,9 +1,6 @@
-import 'dart:async';
-
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../app/config.dart';
 import '../../models/app_update_info.dart';
 import '../../services/app_update_service.dart';
 import '../preview/camera_discovery.dart';
@@ -19,15 +16,11 @@ import 'firmware_models.dart';
 /// 摄像头走局域网直连触发升级；`screen` 的版本比对走云端接口（见 [checkCloudUpdate]）。
 /// `board` 在更新接口中没有对应 `app_key`，保持占位（无更新）。
 class FirmwareService {
-  FirmwareService({http.Client? client, String? baseUrl, AppUpdateService? updates})
+  FirmwareService({http.Client? client, AppUpdateService? updates})
       : _client = client ?? http.Client(),
-        baseUrl = baseUrl ?? AppConfig.fwBaseUrl,
         _updates = updates ?? AppUpdateService();
 
   final http.Client _client;
-
-  /// 仅遗留：旧固件服务地址（云端查询已改走 [AppUpdateService]）。
-  final String baseUrl;
 
   /// 云端更新检查（PC 工程师《APP 手动检查更新接口》，2026-09-10）。
   final AppUpdateService _updates;
@@ -77,7 +70,11 @@ class FirmwareService {
       final target = _targetOf(type);
       if (target == null) continue;
       final cur = await knownVersion(type);
-      if (cur == null) continue; // 当前版本未知：不猜、不提示
+      // 当前版本未知 → 不猜、不提示。
+      // ⚠️ 现实上 `screen` **必然走到这里**：全库只有 camera 会调
+      // saveKnownVersion（屏幕的当前版本 App 拿不到，见 docs/56 §3.8.3 F-04）。
+      // 保留 screen 分支是为了 F-04 落地后零改动生效，别误读为「屏幕已支持」。
+      if (cur == null) continue;
       final info = await _updates.check(
         target: target,
         version: cur,

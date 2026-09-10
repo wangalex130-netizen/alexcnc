@@ -253,7 +253,7 @@ class _JogSheetState extends ConsumerState<JogSheet> {
                       widget.hw.home().then((sent) {
                         if (!sent && mounted) {
                           toastJogBlocked(
-                              '未发送：回零只能在机器同一局域网内执行（外网仅监视）');
+                              '回零未发送：只能在机器同一局域网内执行（外网仅监视 / 可停机）');
                         }
                       });
                     }, enabled: canControl, repeat: false),

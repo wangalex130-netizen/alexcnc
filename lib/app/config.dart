@@ -164,17 +164,11 @@ class AppConfig {
 
   // ---- 固件升级（OTA，docs/31）----
 
-  // 固件托管服务：与 cameraRelayBaseUrl 同机不同端口（8090）。
+  // 旧的 `fwBaseUrl`（`http://43.154.192.242:8090` 的 `/fw/<type>/latest`）**已弃用**：
 
-  // 本轮只接 camera（服务已就绪）；screen/board 上线后填地址即可，App 代码不用大改。
+  // 设备/App 的版本查询统一走 `POST {cloudBaseUrl}/api/app/updates/check`（见下节）。
 
-  static const String fwBaseUrl = String.fromEnvironment(
-
-    'FW_BASE_URL',
-
-    defaultValue: 'http://43.154.192.242:8090',
-
-  );
+  // App 仅保留**同网直连摄像头**的 `GET http://<摄像头IP>/ota/check|do|status`。
 
   // ---- 更新检查（PC 工程师《APP 手动检查更新接口》，2026-09-10）----
   // POST {cloudBaseUrl}/api/app/updates/check
@@ -292,7 +286,7 @@ class AppConfig {
 
   // 真实模式下设备 ID 一律来自「用户选中的绑定机器」的 sn（后端 code 字段）；
 
-  // 把某个机器码写死在默认值里，会让"未选机器"时静默指向某一台具体机器
+  // 把某个机器码写死在默认值里，会让「未选机器」时静默指向某一台具体机器
 
   // —— 测试期是串台，量产期是事故（见 docs/38 A-1）。
 

@@ -1074,16 +1074,22 @@ class RealHardwareService implements HardwareService {
   }
 
   @override
-  Future<void> prepareJob({
+  Future<bool> prepareJob({
     required String fileUrl,
     String fileName = 'job.gc',
     int sizeBytes = 0,
     String sha256 = '',
   }) async {
+    // 🔴 W-10 扩展（2026-09-10，昊总裁定）：`prepare_job` 是**开切主路径的第一个动作**
+    // —— 小屏 ACK 到达后本端会**自动接着发 `confirm`**（见 _handleCmdAck），
+    // 即「prepare 成功 ≈ 机器开始动刀」。契约 `wan_whitelist` 未列此命令，
+    // 按「只放行 allowed 的 7 项、其余一律同网限定」处理：**仅同网可发起**。
+    // （此前门禁只加在回退路径 startJob 上，主路径完全没覆盖 —— 2026-09-10 自审修复。）
+    if (!await _allowLocalOnly()) return false;
     final trimmed = fileUrl.trim();
     if (trimmed.isEmpty) {
       _failCarve('这个模型还没有可用的加工程序，请换一个试试');
-      return;
+      return false;
     }
     final jobId = _newId();
     final reqId = _newId();
@@ -1122,15 +1128,20 @@ class RealHardwareService implements HardwareService {
     if (!_publish(cmd)) {
       _awaitingReqId = null;
       _failCarve('网络不稳，指令没发出去，请检查网络后重试');
+      return false;
     }
+    return true;
   }
 
   @override
-  Future<void> confirmJob() async {
+  Future<bool> confirmJob() async {
+    // 🔴 W-10 扩展（2026-09-10）：`confirm` = 让小屏开始向 GRBL 流式传输（**真实动刀**），
+    // 契约未列 → 同网限定（与 prepare_job 同一道闸门；此处是纵深防御）。
+    if (!await _allowLocalOnly()) return false;
     final jobId = _carve.jobId;
     if (jobId == null || _carve.stage != CarveStage.ready) {
       // 不在 ready 阶段（比如 prepare 还没好）→ 不盲发，避免打断机器
-      return;
+      return false;
     }
     final reqId = _newId();
     _awaitingReqId = reqId;
@@ -1146,7 +1157,9 @@ class RealHardwareService implements HardwareService {
     if (!_publish(cmd)) {
       _awaitingReqId = null;
       _failCarve('网络不稳，指令没发出去，请检查网络后重试');
+      return false;
     }
+    return true;
   }
 
   void _updateCarve(CarveSession s) {
@@ -1251,7 +1264,13 @@ class RealHardwareService implements HardwareService {
           jobId: jobId,
           download: 100,
         ));
-        confirmJob();
+        // W-10 扩展：confirm 亦受同网门禁（纵深防御）。prepare 已在入口拦住外网，
+        // 正常不会走到这里；若真被拦下，不留「卡在就绪」而不给原因。
+        unawaited(confirmJob().then((ok) {
+          if (!ok && _carve.stage == CarveStage.ready) {
+            _failCarve('开切只能在机器同一局域网内执行（外网仅监视 / 可停机）');
+          }
+        }));
       case CarveStage.confirming:
         // confirm ACK 到 → 已进入流式传输
         _updateCarve(_carve.copyWith(stage: CarveStage.running, jobId: jobId));
@@ -1397,6 +1416,13 @@ class RealHardwareService implements HardwareService {
           tcpPort,
           timeout: const Duration(seconds: 2),
         );
+        if (!ok) {
+          // 🟠 P1-3（2026-09-10 自审修复）：探测失败 ⇒ 这个地址**当前不可达**。
+          // 缓存里可能存的正是机器换掉的旧 IP（路由器重启 / DHCP 重分配）。
+          // 原实现缓存**永不过期**且 discover 命中即返回 ⇒ Jog/回零/开切等
+          // 会被**永久锁死**且 App 不会自恢复。此处失效缓存，使下一次重新发信标发现。
+          await DeviceDiscovery.invalidateCache(deviceId);
+        }
       }
     } catch (_) {
       ok = false;

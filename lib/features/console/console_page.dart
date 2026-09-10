@@ -15,6 +15,8 @@ import '../../app/runtime_config.dart';
 
 import '../../app/theme.dart';
 
+import '../../widgets/wan_blocked.dart';
+
 import '../../data/tool_library.dart';
 
 import '../../widgets/tool_icon.dart';
@@ -568,17 +570,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
     if (!mounted) return;
 
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+    // 实现统一收敛到 showWanBlockedSnack（原先各页各写一份、措辞不一）。
 
-      SnackBar(
-
-        content: Text('$what 只能在机器同一局域网内执行（外网仅监视 / 可停机）'),
-
-        duration: const Duration(seconds: 3),
-
-      ),
-
-    );
+    showWanBlockedSnack(context, what);
 
   }
 

@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/runtime_config.dart';
 import '../../app/theme.dart';
 import '../../data/material_db.dart';
+import '../../widgets/wan_blocked.dart';
 import '../../data/tool_library.dart';
 import '../../widgets/material_icon.dart';
 import '../../widgets/tool_icon.dart';
@@ -209,6 +210,9 @@ class _WizardPageState extends ConsumerState<WizardPage> {
             .setLevelingPlan(mode: _leveling, cols: plan.cols, rows: plan.rows)
             .then((ok) {
           if (!ok) _toastWanBlocked('调平方案下发');
+        }, onError: (Object _) {
+          // 门禁异常不得变成未处理的 Future 错误（P2-7 自审修复）。
+          _toastWanBlocked('调平方案下发');
         }),
       );
     }
@@ -219,12 +223,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   /// 说清原因，避免客户以为"点了没反应"。
   void _toastWanBlocked(String what) {
     if (!mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(
-        content: Text('$what 只能在机器同一局域网内执行（外网仅监视 / 可停机）'),
-        duration: const Duration(seconds: 3),
-      ),
-    );
+    // 实现统一收敛到 showWanBlockedSnack（原先各页各写一份、措辞不一）。
+    showWanBlockedSnack(context, what);
   }
 
   @override
@@ -1105,13 +1105,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                     final ok = await hw.updateToolMap(tools);
                     if (!context.mounted) return;
                     if (!ok) {
-                      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-                        const SnackBar(
-                          content:
-                              Text('刀仓映射只能在机器同一局域网内同步（外网仅监视 / 可停机）'),
-                          duration: Duration(seconds: 3),
-                        ),
-                      );
+                      showWanBlockedSnack(context, '刀仓映射同步');
                       return;
                     }
                     widget.onSync();
@@ -2216,7 +2210,9 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
     // 2026-09-03 补字段提供（roughingGcodeSizeBytes / roughingGcodeSha256 等）。
     final gcode = widget.item.primaryGcode;
 
-    ref.read(activeJobProvider.notifier).start(
+    // 🔴 W-10 扩展（2026-09-10）：开切走 prepare_job（→ 自动 confirm）或回退 startJob，
+    // 两者均已带同网门禁。未受理时**明确提示并留在本页**，不跳进自检页空转。
+    final accepted = await ref.read(activeJobProvider.notifier).start(
           ActiveJob(
             item: widget.item,
             task: task,
@@ -2229,6 +2225,15 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
           gcodeSizeBytes: gcode?.sizeBytes ?? 0,
           gcodeSha256: gcode?.sha256 ?? '',
         );
+    if (!mounted) return;
+    if (!accepted) {
+      setState(() => _launching = false);
+      // 注意：本方法在 _StepTakeoffState，**不是** _WizardPageState，
+      // 因此必须用共享 helper，不能引用 _WizardPageState._toastWanBlocked
+      // （2026-09-10 自审自查抓到的编译错误）。
+      showWanBlockedSnack(context, '开始雕刻');
+      return;
+    }
     // 清空导航栈进入自检页，避免加工过程中返回雕刻向导
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(

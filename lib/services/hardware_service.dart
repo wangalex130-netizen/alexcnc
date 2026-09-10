@@ -177,7 +177,7 @@ abstract class HardwareService {
   /// [sizeBytes]/[sha256] 后台暂未提供，先传 0/空；按工程师确认的方案 A，
   /// 小屏此时**跳过完整性校验**，只下载即可继续流程。
   /// 后台接口补齐这两个字段后，App 传入真值即可（无需改结构）。
-  Future<void> prepareJob({
+  Future<bool> prepareJob({
     required String fileUrl,
     String fileName = 'job.gc',
     int sizeBytes = 0,
@@ -187,7 +187,12 @@ abstract class HardwareService {
   /// 第二阶段：下发 `confirm`，让小屏开始向 GRBL 流式传输（真实动刀）。
   ///
   /// 必须在 [prepareJob] 的 ACK 成功（阶段 = ready）之后调用。
-  Future<void> confirmJob();
+  ///
+  /// 🔴 W-10 扩展（2026-09-10 昊总裁定）：`prepare_job` / `confirm` 是**开切主路径**
+  /// （prepare 的 ACK 到达后本端会自动接着发 confirm），契约 `wan_whitelist` 未列，
+  /// 按「只放行 allowed 的 7 项、其余一律同网限定」处理 —— **仅同网可执行**。
+  /// 返回 false = 被门禁拦下或指令未发出。
+  Future<bool> confirmJob();
 
   /// 雕刻作业阶段流（preparing / ready / confirming / running / failed）。
   Stream<CarveSession> get carveSession;

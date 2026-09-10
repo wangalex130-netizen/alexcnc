@@ -307,7 +307,7 @@ class MockHardwareService implements HardwareService {
   }
 
   @override
-  Future<void> prepareJob({
+  Future<bool> prepareJob({
     required String fileUrl,
     String fileName = 'job.gc',
     int sizeBytes = 0,
@@ -323,11 +323,11 @@ class MockHardwareService implements HardwareService {
     }
     _carve = _carve.copyWith(stage: CarveStage.ready);
     _carveCtrl.add(_carve);
-    await confirmJob();
+    return confirmJob();
   }
 
   @override
-  Future<void> confirmJob() async {
+  Future<bool> confirmJob() async {
     _carve = _carve.copyWith(stage: CarveStage.confirming);
     _carveCtrl.add(_carve);
     await Future<void>.delayed(const Duration(milliseconds: 120));
@@ -335,6 +335,7 @@ class MockHardwareService implements HardwareService {
     _carveCtrl.add(_carve);
     _current = _current.copyWith(state: MachineState.busy, progress: 0);
     _emit();
+    return true;
   }
 
   @override

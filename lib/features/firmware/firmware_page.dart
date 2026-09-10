@@ -230,7 +230,11 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
 
 
-  /// 检查更新：本轮 camera 走真实服务；screen/board 保持占位（无更新）。
+  /// 检查更新。**必须先拿到机器局域网地址（同网）才做云端比对**，否则直接返回且
+  /// 不改动绿点（原因见下方 P1-1 注释）。
+
+  /// 本轮只有 camera 参与：`screen` 缺当前版本来源（见 docs/56 §3.8.3 F-04），
+  /// `board` 在更新接口中没有对应 app_key。
 
   Future<void> _checkAll() async {
 
@@ -263,6 +267,38 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
         unawaited(FirmwareService.saveKnownVersion(FwDeviceType.camera, v));
 
       }
+
+    }
+
+    // 🟠 P1-1（2026-09-10 自审修复）：**拿不到机器局域网地址时不做云端比对**。
+
+    // 更新检查接口是按「客户端上报的当前版本」比对的；外网时 curVer 仍是 '0.0.0'，
+
+    // 服务端必然判为「有新版本」→ ①页面显示假信息 ②把假状态回写绿点，
+
+    // 破坏 checkCloudUpdate 刻意做的「当前版本未知就不提示」。
+
+    // 因此这里直接返回，并且**不改动全局绿点**（它可能是同网时查到的真实结果）。
+
+    if (_cameraIp == null) {
+
+      setState(() {
+
+        _checking = false;
+
+        _devices[FwDeviceType.camera] = FwDeviceStatus(
+
+          type: FwDeviceType.camera,
+
+          curVer: '0.0.0',
+
+          phase: FwPhase.idle,
+
+        );
+
+      });
+
+      return;
 
     }
 
@@ -369,6 +405,22 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
             : cur.copyWith(phase: FwPhase.failed);
 
       });
+
+      // 🟠 P1-2（2026-09-10 自审修复）：升级成功后必须刷新**落盘的当前版本**缓存。
+
+      // 否则外网静默检查仍用升级前的旧版本比对 → 刚升级完又点亮绿点。
+
+      if (success) {
+
+        final newVer = _devices[d.type]?.curVer;
+
+        if (newVer != null && newVer.isNotEmpty) {
+
+          unawaited(FirmwareService.saveKnownVersion(d.type, newVer));
+
+        }
+
+      }
 
       if (!success) anyFail = true;
 
@@ -790,13 +842,13 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
             _buildActionButton(),
 
-            if (_cameraIp == null && _hasUpdate)
+            if (_cameraIp == null)
 
               const Padding(
 
                 padding: EdgeInsets.only(top: 10),
 
-                child: Text('检测到新版本，但当前不在设备所在 WiFi。请连接与设备相同的 WiFi 后升级',
+                child: Text('当前不在设备所在 WiFi，无法检查更新。请连接与设备相同的 WiFi 后重试',
 
                     textAlign: TextAlign.center,
 

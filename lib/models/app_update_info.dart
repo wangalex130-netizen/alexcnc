@@ -10,11 +10,11 @@
 /// 服务端按「客户端上报的当前 version / build_number」与后台配置比对，得出
 /// `update_available`；只有**存在新版本且后台已填下载地址**时才为 true。
 ///
-/// 参数非法时接口返回 HTTP 400（`INVALID_REQUEST`），此处按"检查失败"处理。
+/// 参数非法时接口返回 HTTP 400（`INVALID_REQUEST`），此处按「检查失败」处理。
 library;
 
 class AppUpdateInfo {
-  /// 响应结构版本，当前固定为 1。
+  /// 响应结构版本，当前固定为 1。已解析备查（UI 暂未使用）。
   final int schemaVersion;
 
   /// 是否存在可下载的新版本。
@@ -24,6 +24,7 @@ class AppUpdateInfo {
   final String latestVersion;
 
   /// 后台最新构建号；未找到对应应用时回显请求中的当前构建号。
+  /// 已解析备查（「版本相同比构建号」的判定由服务端完成，UI 未直接使用）。
   final int latestBuildNumber;
 
   /// 更新说明；无需更新时为空字符串。
@@ -40,12 +41,6 @@ class AppUpdateInfo {
     this.releaseNotes = '',
     this.downloadUrl = '',
   });
-
-  /// 无需更新 / 无可展示内容时的兜底值。
-  static const AppUpdateInfo none = AppUpdateInfo();
-
-  /// 是否真的可以下载（服务端保证 update_available=true 时 url 非空，双保险）。
-  bool get hasDownload => updateAvailable && downloadUrl.isNotEmpty;
 
   factory AppUpdateInfo.fromJson(Map<String, dynamic> j) {
     int asInt(dynamic v) {
@@ -75,16 +70,18 @@ class AppUpdateInfo {
 /// 取值与接口文档一致，**不可随意改名**（服务端按此匹配）。
 enum AppUpdateTarget {
   /// Android 客户端（本 App）。
-  android('android', 'Android'),
+  android('android'),
 
   /// 摄像头固件。
-  camera('camera', '摄像头'),
+  camera('camera'),
 
   /// 屏幕固件。
-  screen('screen', '屏幕');
+  screen('screen');
 
+  /// 接口 `app_key` 取值 —— **与接口文档字面量一致，不可改名**。
+  /// （接口另有 `name` 参数，可选值 `Android` / `摄像头` / `屏幕`；
+  /// 因 `app_key` 优先级更高且已足够，故不冗余保存 `name`。）
   final String appKey;
-  final String displayName;
 
-  const AppUpdateTarget(this.appKey, this.displayName);
+  const AppUpdateTarget(this.appKey);
 }
