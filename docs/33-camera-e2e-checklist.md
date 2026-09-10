@@ -92,7 +92,7 @@ Query 参数：
 ## 四、③ 中继 relay.py 部署步骤（AI 负责）
 
 框架已就绪（`_binding_allowed` + `REQUIRE_BINDING` + `BIND_AUTH_URL` 已写）。
-- **Demo 期（当前）：** `REQUIRE_BINDING=0`（默认），`cnc-demo-01` + `lunyee-cnc-relay-7k2p` 放行，所有人可拉演示流。
+- **Demo 期（当前）：** `REQUIRE_BINDING=0`（默认），`cnc-demo-01` + `********` 放行，所有人可拉演示流。
 - **量产前：** 启动 relay 时设环境变量 `REQUIRE_BINDING=1`，对接阿里云 §二 接口生效。
 - **摄像头推流端（/publish）加固（可选，量产前）：** 增加 device↔token 绑定校验，防别设备冒用 token 推流。当前仅校验 token。
 - 北京 `39.106.144.53:8080` 与 HK `43.154.192.242:8080` 同源部署，HK 为蜂窝网拉流出口。
@@ -118,7 +118,7 @@ Query 参数：
   - 进入/自动播放 → 经 MQTT 发 `stream_start` 到 `cnc/<机器码>/cmd`；退出 → 发 `stream_stop`（**上轮已实现**）。
   - 右上状态药丸「启动中 / 已连接 / 无信号」由 MJPEG 帧到达驱动；固件 §五 发 `streaming` 状态后可升级为订阅 `cnc/<device>/status` 精确指示（下一步）。
   - **本轮新增：** 真实后端模式（`useRealBackend=true`）下，未登录/未选机器**不拉硬编码演示流、不发启停命令**，显示「请先登录并选择绑定机器」；demo 模式保留兜底默认地址联调。
-- `config.dart`：token `lunyee-cnc-relay-7k2p`、device `cnc-demo-01` 仍为 demo 默认值；量产前改为后端下发（见 §二可选增强）。
+- `config.dart`：token `********`、device `cnc-demo-01` 仍为 demo 默认值；量产前改为后端下发（见 §二可选增强）。
 
 ---
 
@@ -137,7 +137,7 @@ Query 参数：
 **① 风险可行性（结论：穷举不可行，但 ID 在本架构下不保密，不能作唯一防线）**
 - 12 位随机字母数字 ≈ 62^12 ≈ 3.2e21，暴力猜 ID 不可行（工程师此点正确）。
 - 但安全不能建立在 ID 保密上（违反 Kerckhoffs），本架构 ID 非秘密，有两条披露路径：
-  - **共享 token 写在 APK**（`relay.py:31` 默认 `lunyee-cnc-relay-7k2p`；App `config.dart:34` 同值）。反编译 APK 即提取 → 任何人持共享 token，只差任意有效 deviceId。
+  - **共享 token 写在 APK**（`relay.py:31` 默认 `********`；App `config.dart:34` 同值）。反编译 APK 即提取 → 任何人持共享 token，只差任意有效 deviceId。
   - **MQTT 通配订阅泄露 ID**：§三 生产 acl 片段 subscribe 含 `cnc/+/status` 通配 → 任意 App 订阅即收到全量 `online`/`streaming` 广播，deviceId 直接暴露在 topic 路径。恶意 App 一订阅即 harvest 全量 ID。
   - ID 还见于 App 机器列表 UI / 绑定表 / broadcast topic —— 它是标识符非能力密钥。
 - 结论：保留随机 ID（防穷举很好），但**真正控制权放 token scope + MQTT ACL scope，不在 ID 保密**。demo/单信任域可接受；量产 B2C 多租户不可接受。

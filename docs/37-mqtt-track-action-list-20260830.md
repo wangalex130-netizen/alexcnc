@@ -73,7 +73,7 @@ App 每 10s 往这里发 `{"cmd":"hello"}`，用于重置固件的 15s Feed Hold
 > **验收取「任意设备码」，不要挑白名单内的机器**（下文 `cnc-demo-04` 仅为举例，
 > 换成任何一台新增机器都应同样通过 —— 这才是本条要达成的能力）。
 
-1. `mosquitto_sub -h 43.154.192.242 -p 8883 -u app-demo -P demo123 -t 'cnc/<任意新增设备码>/status' -d` → SUBACK 成功（**不是 0x80**）；
+1. `mosquitto_sub -h 43.154.192.242 -p 8883 -u app-demo -P ******** -t 'cnc/<任意新增设备码>/status' -d` → SUBACK 成功（**不是 0x80**）；
 2. `mosquitto_pub ... -t 'cnc/<任意新增设备码>/cmd' -m '{"cmd":"hello"}'` → ACL deny 日志**无记录**；
 3. App 选中这台（任意新增的）机器 → 状态能进来、Jog 解锁、命令有响应。
 
@@ -108,7 +108,7 @@ App 每 10s 往这里发 `{"cmd":"hello"}`，用于重置固件的 15s Feed Hold
 ```json
 "users": {
   "...": "...",
-  "cam-cnc-demo-03": "demo123"
+  "cam-cnc-demo-03": "********"
 }
 ```
 
@@ -382,10 +382,10 @@ MQTT 轨登上服务器后自行推翻了自己的结论，见 `cnc-control-serv
 
 ```bash
 # ① 任意新增设备码 -> 必须 ALLOW（证明通配已生效）
-python verify/acl_probe.py -u app-demo -P demo123 -t "cnc/zzz-new-999/status" --expect-allow
+python verify/acl_probe.py -u app-demo -P ******** -t "cnc/zzz-new-999/status" --expect-allow
 
 # ② 已废弃的 gw 路径 -> 必须 DENY (0x80)（证明内置数据库确实同步到新版）
-python verify/acl_probe.py -u app-demo -P demo123 -t "gw/+/ack"
+python verify/acl_probe.py -u app-demo -P ******** -t "gw/+/ack"
 ```
 
 | 检查 | 期望 | 不符说明 |
@@ -401,7 +401,7 @@ python verify/acl_probe.py -u app-demo -P demo123 -t "gw/+/ack"
 2. 线上**实际有几个授权源**、分别是什么类型（内置数据库源是否存在）；
 3. `cnc-relay` 是否已从**认证 + 授权两处**彻底删除；
 4. ACL deny 审计日志是否开启、查询方式是什么（后续静默故障的唯一抓手）；
-5. **`cam-cnc-demo-03` 账号是否可连通、凭据是什么**（仓库里是 `demo123`，如有变更请告知）—— 摄像头端烧录要用。
+5. **`cam-cnc-demo-03` 账号是否可连通、凭据是什么**（仓库里是 `********`，如有变更请告知）—— 摄像头端烧录要用。
 
 ### 8.6 顺序依赖（不能颠倒）
 

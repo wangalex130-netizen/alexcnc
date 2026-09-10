@@ -35,7 +35,7 @@ App(退预览) ──MQTT─▶ cnc/<deviceId>/cmd  {"action":"stream_stop"} ─
     两者**不再分流**，靠 payload 区分：机器帧 `{"cmd":...}`、摄像头帧 `{"action":...}`、
     心跳 `{"cmd":"hello"}`。机器码与摄像头码统一后，两端都会收到彼此的帧，
     **摄像头固件必须忽略 payload 中非 `stream_start`/`stream_stop` 的帧**。
-- 客户端 ID：`cam-<deviceId>`，broker 密码 `demo123`（联调期，上线换正式）。
+- 客户端 ID：`cam-<deviceId>`，broker 密码 `********`（联调期，上线换正式）。
 - 命令：`{"action":"stream_start"}` / `{"action":"stream_stop"}`（firmware 子串匹配，容错）。
 - 额外命令（固件已支持，待 App 暴露 UI）：`set_quality`(4–40)、`set_framesize`(qvga/qqvga…)。
 
@@ -52,7 +52,7 @@ App(退预览) ──MQTT─▶ cnc/<deviceId>/cmd  {"action":"stream_stop"} ─
 | 项 | demo 现状 | 量产目标 |
 |---|---|---|
 | 拉流地址 | 硬编码 `AppConfig.cameraRelayBaseUrl` + `cnc-demo-01` | 登录后由后端下发（见 §4）|
-| 中继 token | 写死 `lunyee-cnc-relay-7k2p` | 后端按账号签发，不落客户端 |
+| 中继 token | 写死 `********` | 后端按账号签发，不落客户端 |
 | 摄像头启停 | App 发 MQTT（已接） | 同左 + 多观众引用计数（中继侧）|
 | 未登录 | 可看 demo | 禁止拉任何流（或仅标「演示」）|
 
@@ -130,7 +130,7 @@ App 侧已逐条核对本文档，结论如下。
 
 ### 6.3 App 侧待办（依赖外部）
 
-- **§4.1 阿里云**：App 目前的中继 token 仍是**硬编码**默认值 `lunyee-cnc-relay-7k2p`。
+- **§4.1 阿里云**：App 目前的中继 token 仍是**硬编码**默认值 `********`。
   等后端在登录后的机器信息里下发「按账号签发、可过期」的 token，与「是否有权拉流」标记后，
   App 会改为读取下发值。
 - **§2 额外命令 `set_quality`(4–40) / `set_framesize`(qvga/qqvga…)**：固件已支持，

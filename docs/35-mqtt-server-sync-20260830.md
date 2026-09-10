@@ -32,7 +32,7 @@ App 侧与摄像头侧已闭环的部分列在文末「已闭环」，供对照�
 摄像头认证失败、连不上 MQTT → **收不到 `stream_start` / `stream_stop` → 按需推流整体失效**
 （画面会一直「无信号」，且因 `deny_action=ignore` 而无任何告警）。
 
-**建议**：把 `cam-<deviceId>`（当前 `cam-cnc-demo-01`，口令 `demo123`）写进 `users.json`，
+**建议**：把 `cam-<deviceId>`（当前 `cam-cnc-demo-01`，口令 `********`）写进 `users.json`，
 由 `emqx-init.py` 自动创建；量产接入时改为绑定驱动签发。
 
 ### 3. 请开放 EMQX 的 ACL deny 日志 / 审计

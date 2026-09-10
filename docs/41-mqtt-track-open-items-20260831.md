@@ -49,7 +49,7 @@
 **验收**：
 
 ```bash
-python verify/acl_probe.py -u app-demo -P demo123 -t "cnc/<任意设备码>/cam" --expect-allow
+python verify/acl_probe.py -u app-demo -P ******** -t "cnc/<任意设备码>/cam" --expect-allow
 ```
 
 期望 **ALLOW**。改完需 `docker compose -f docker-compose.yml restart emqx`（注意服务器上的文件名，见 M-6）。

@@ -40,12 +40,18 @@
          hardwareAccelerated）会报 "tools:replace specified ... but no new value
          specified" 直接构建失败。故这里严格对应上面 5 个已声明的属性。
          测试包 alexcnc_push_test（Run 15 跑通）用的就是同样的处理。 -->
+    <!-- P1-14（2026-09-10）：关闭系统自动备份。原 Manifest 未声明 allowBackup，
+         Android 默认 true → SharedPreferences（含联调设置里可能保存的 broker 账号口令）
+         会进入云备份/换机迁移。客户包不再需要它，直接关掉。
+         注：Android 12+ 的"设备间迁移"另由 dataExtractionRules 控制，如需彻底禁止，
+         后续补 res/xml/data_extraction_rules.xml（本轮未加，避免影响设置项恢复）。 -->
     <application android:usesCleartextTraffic="true"
         android:requestLegacyExternalStorage="true"
+        android:allowBackup="false"
         android:label="alexcnc"
         android:name=".MainApplication"
         android:icon="@mipmap/ic_launcher"
-        tools:replace="android:label,android:icon,android:name,android:usesCleartextTraffic,android:requestLegacyExternalStorage">
+        tools:replace="android:label,android:icon,android:name,android:allowBackup,android:usesCleartextTraffic,android:requestLegacyExternalStorage">
         <activity
             android:name=".MainActivity"
             android:exported="true"

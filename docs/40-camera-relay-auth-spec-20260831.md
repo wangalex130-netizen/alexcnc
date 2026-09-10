@@ -16,14 +16,14 @@
 // lib/app/config.dart
 static const String cameraRelayToken = String.fromEnvironment(
   'CAMERA_RELAY_TOKEN',
-  defaultValue: 'lunyee-cnc-relay-7k2p',
+  defaultValue: '********',
 );
 ```
 
 App 组装拉流 URL 时直接拼上这个全局 token：
 
 ```
-http://39.106.144.53:8080/stream/<device>?token=lunyee-cnc-relay-7k2p&user=<userId>
+http://39.106.144.53:8080/stream/<device>?token=********&user=<userId>
 ```
 
 中继 `relay.py` 当前的 `REQUIRE_BINDING` 未开启，**只要 token 正确即可拉任意设备的流**。

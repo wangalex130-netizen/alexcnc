@@ -466,7 +466,7 @@ PC 工程师此前给出的参数是「用户名 `cam-cnc-demo-01` / ClientId `c
 > **顺带建议（可选）**：后台 `/api/machine/list` 里的 `cam_device` / `cameraId` 字段
 > 建议**不再返回**或**恒等于 `code`**。它现在是冗余字段，若将来被人填成别的值
 > （如历史遗留的 `CNC-CAM01`），会造成"机器 ID 与摄像头 ID 不一致"的假象，排查时误导。
-| A3 | 登录后机器信息下发「按账号签发、可过期」的**中继 token** + 「是否有权拉流」标记 | App 现在硬编码 `lunyee-cnc-relay-7k2p`，量产不可用 |
+| A3 | 登录后机器信息下发「按账号签发、可过期」的**中继 token** + 「是否有权拉流」标记 | App 现在硬编码 `********`，量产不可用 |
 | A4 | 确认 `/api/device/bit-config/*` 中 `slot1~4` 的整数 = 系统刀具 id（1/2/3/5/8），以及更新后是否真的下发 MQTT | Step3 刀位已走真实数据，靠这个接口 |
 
 ### B 类：一致性修正（不阻塞，但会埋雷，建议本周内）
@@ -586,7 +586,7 @@ PC 工程师此前给出的参数是「用户名 `cam-cnc-demo-01` / ClientId `c
 | 层 | 谁拥有 | 里面有什么 | 举例 |
 |---|---|---|---|
 | **① 业务层（阿里云后台）** | PC / 阿里云工程师 | 只有 **客户账号 ↔ 机器 ID** 一张绑定表 | `Lunyee@517788.xyz` → `cnc-demo-03` |
-| **② 通信层（EMQX / MQTT）** | MQTT 服务器轨 | **MQTT 账号（username/clientId）+ 密码 + ACL 规则** | `cam-cnc-demo-03` / `demo123` |
+| **② 通信层（EMQX / MQTT）** | MQTT 服务器轨 | **MQTT 账号（username/clientId）+ 密码 + ACL 规则** | `cam-cnc-demo-03` / `********` |
 | **③ 设备层（固件）** | 摄像头轨 / 固件轨 | 烧进设备里的设备码、连 MQTT 用的凭据 | 设备码 `cnc-demo-03`，用 ② 的账号去连 |
 
 **两条铁律**：
@@ -626,7 +626,7 @@ PC 工程师此前给出的参数是「用户名 `cam-cnc-demo-01` / ClientId `c
 | 1 | 设备码 | `cnc-demo-03`（固件三处强制赋值，二进制 grep 确认 03×1 / 01×0） | ✅ |
 | 2 | MQTT username | `cam-cnc-demo-03` | ✅ |
 | 3 | clientId | 日志 `MQTT connected as cam-cnc-demo-03` | ✅ |
-| 4 | 密码 | `demo123`（与 `deploy/users.json` 一致） | ✅ |
+| 4 | 密码 | `********`（与 `deploy/users.json` 一致） | ✅ |
 | 5 | 订阅 | `cnc/cnc-demo-03/cmd` | ✅ 与 App `mqttCamCmdTopic(id)` 一致 |
 | 6 | 发布 | `cnc/cnc-demo-03/**cam**` | ✅ **正确**——不是 `status`，避开了"把加工状态刷成 idle 误解锁 Jog"的安全问题 |
 | 7 | 推流 | `39.106.144.53:8080/stream/cnc-demo-03` | ✅ 与 App `cameraRelayBaseUrl` 默认值一致 |
@@ -641,7 +641,7 @@ PC 工程师此前给出的参数是「用户名 `cam-cnc-demo-01` / ClientId `c
 | 项 | App 实际值 | 结论 |
 |---|---|---|
 | 中继地址 | `AppConfig.cameraRelayBaseUrl = http://39.106.144.53:8080` | ✅ 与摄像头一致 |
-| 中继 token | `AppConfig.cameraRelayToken = lunyee-cnc-relay-7k2p` | ✅ 与摄像头刚补的 token **完全一致** |
+| 中继 token | `AppConfig.cameraRelayToken = ********` | ✅ 与摄像头刚补的 token **完全一致** |
 | 流控指令 | `{"action":"stream_start"}` → `cnc/<sn>/cmd`（`hardware_service_real.dart:601-607`） | ✅ 与摄像头订阅/解析一致 |
 | 拉流设备码（**登录态**） | `machine.sn`（Lunyee 账号 → `cnc-demo-03`） | ✅ 拉 `/stream/cnc-demo-03`，正确 |
 | 拉流设备码（**演示态兜底**） | `AppConfig.cameraRelayDevice = cnc-demo-01` | ❌ **演示模式会拉空**（摄像头已切 03） |
@@ -662,7 +662,7 @@ PC 工程师此前给出的参数是「用户名 `cam-cnc-demo-01` / ClientId `c
 **全擦 flash 会连 NVS 里的推流 token 一起清掉** → 中继 403 → 摄像头每 200–400ms 疯狂重连。
 现象具有迷惑性：**MQTT 完全正常**（能收令、能回 `{"streaming":true}`），只有中继一帧没有。
 
-修复：`curl "http://<摄像头IP>/relay?token=lunyee-cnc-relay-7k2p&on=0"`（即设即存）。
+修复：`curl "http://<摄像头IP>/relay?token=********&on=0"`（即设即存）。
 
 > **建议**：给固件加 token **默认值**（与 App 的 `cameraRelayToken` 同值），
 > 否则再全擦 flash 会再次掉坑，且这个现象看起来像"中继坏了"，极难定位。

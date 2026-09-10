@@ -22,11 +22,11 @@ two_stage_launch_sim.py — 雕刻启动「两段式」验收用最小模拟器�
 
 用法示例（与 EMQX 同机走内网 1883）：
   python3 two_stage_launch_sim.py --broker 127.0.0.1 --port 1883 \\
-      --device cnc-demo-01 --user screen-cnc-demo-01 --password demo123 --mode two-stage
+      --device cnc-demo-01 --user screen-cnc-demo-01 --password ******** --mode two-stage
 
 外网 TLS（香港 43.154.192.242:8883）：
   python3 two_stage_launch_sim.py --broker 43.154.192.242 --port 8883 --tls \\
-      --device cnc-demo-01 --user screen-cnc-demo-01 --password demo123 --mode two-stage
+      --device cnc-demo-01 --user screen-cnc-demo-01 --password ******** --mode two-stage
 
 协议契约（与 App hardware_service_real 一致）：
   订阅 cnc/{id}/cmd          收 {"cmd":"job","action":"start"}

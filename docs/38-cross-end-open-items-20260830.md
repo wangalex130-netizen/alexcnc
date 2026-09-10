@@ -28,8 +28,8 @@
 
 | # | 事实 | 出处 |
 |---|---|---|
-| 9 | MQTT 默认 `43.154.192.242` / `8883(TLS)` / `app-demo` / `demo123` | `lib/app/config.dart:75-84` |
-| 10 | 中继默认 `http://39.106.144.53:8080`，token `lunyee-cnc-relay-7k2p`，兜底设备码 `cnc-demo-01` | `config.dart:30-43` |
+| 9 | MQTT 默认 `43.154.192.242` / `8883(TLS)` / `app-demo` / `********` | `lib/app/config.dart:75-84` |
+| 10 | 中继默认 `http://39.106.144.53:8080`，token `********`，兜底设备码 `cnc-demo-01` | `config.dart:30-43` |
 | 11 | 设备 ID 来自后端 `/api/machine/list` 的 **`code` 字段**（`sn` 兜底），选中后驱动 7 处 | `lib/services/machines_service.dart:36`、`lib/state/providers.dart:81-83` |
 | 12 | **App 没有订阅 `cnc/<id>/cam`** —— 只订阅 status / notify / telemetry / broadcast.msg / broadcast.system（及 v11 的 job、sys） | `lib/services/hardware_service_real.dart:251-262` |
 | 13 | `useRealBackend` 默认 **false**（Mock） | `config.dart:47-48` |
@@ -119,7 +119,7 @@
 |---|---|---|
 | C-1 | 确认**心跳容忍**：继续忽略非 `action` 字段的帧 | ✅ **可以催，且现在正是时机** |
 | C-2 | 加 **90s 看门狗**（无续租自动停推） | ⛔ **有硬冲突，必须先做 A-6** |
-| C-3 | 固件加 **token 默认值**（`lunyee-cnc-relay-7k2p`） | 💡 建议（它自己在考虑） |
+| C-3 | 固件加 **token 默认值**（`********`） | 💡 建议（它自己在考虑） |
 | C-4 | 设备码目前**硬编码三处** → 量产须改 NVS / 自注册 | 📅 量产前 |
 | C-5 | **认知纠正**：「`cnc-demo-03` 在 `app-demo` 枚举白名单内」已过时 | ⚠️ 需同步 |
 | **C-6** | 🔴 **确认 `stream_start` 是否幂等**（已在推流时收到该帧是直接忽略，还是会重新初始化推流） | ❓ **阻塞 A-6 的安全使用，见 N-1** |

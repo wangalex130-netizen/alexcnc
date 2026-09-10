@@ -452,6 +452,14 @@ class PushPoller {
     _started = true;
 
     Future<void> tick(CloudService cloud, String deviceId) async {
+      // P1-13（2026-09-10，合规）：未同意隐私政策前**不得联网、不得申请权限、不得上报诊断**。
+      // 原实现无论是否同意都会 pollEvents（联网）+ ensurePermission（申请通知权限）+
+      // pushDiagnostics（上报诊断）—— 属"同意前即处理数据/申请权限"，不合规。
+      // 同意后无需重启轮询：下一次 tick 自然放行（周期 15s）。
+      if (!await PushService.instance.isPrivacyAccepted()) {
+        PushService.instance.lastPollDiagnostic = 'skip-not-accepted';
+        return;
+      }
       // 网络轮询优先：通知初始化/权限申请在部分国产 ROM 兼容层可能长时间
       // 不返回，若放在前面会卡死整个轮询。先拉事件，弹窗失败不阻塞水位推进。
       final shown =
