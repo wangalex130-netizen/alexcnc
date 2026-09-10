@@ -71,6 +71,9 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
   int _elapsed = 0;
 
+  /// W-12（2026-09-10）：暂停累计秒数（暂停期间不计入"已用"）。
+  int _pausedSeconds = 0;
+
   bool _doneShown = false;
 
 
@@ -95,15 +98,35 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
     _pollTimer = Timer.periodic(const Duration(seconds: 1), (_) {
 
-      final completed = ref.read(activeJobProvider)?.completed ?? false;
+      final job = ref.read(activeJobProvider);
+
+      final completed = job?.completed ?? false;
 
       final st = ref.read(machineStatusProvider).value?.state ?? MachineState.idle;
 
-      if (!completed && st != MachineState.paused && mounted) {
+      if (completed || !mounted) return;
 
-        setState(() => _elapsed++);
+      // W-12（2026-09-10）："已用"改由任务 startedAt 实时推算，不再用页面级计数器
 
-      }
+      // （原实现退出重进会归零）；暂停期间冻结计时并累加暂停时长。
+
+      setState(() {
+
+        if (st == MachineState.paused) {
+
+          _pausedSeconds++;
+
+        } else if (job != null) {
+
+          final sec = DateTime.now().difference(job.startedAt).inSeconds -
+
+              _pausedSeconds;
+
+          _elapsed = sec < 0 ? 0 : sec;
+
+        }
+
+      });
 
     });
 
@@ -235,7 +258,11 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
     final prog = completed ? 1.0 : rawProg;
 
-    final remain = completed ? 0 : max(0, (_totalTime * (1 - prog)).round());
+    // W-12（2026-09-10）：剩余时间优先用机器上报的真实 ETA（status.eta 已解析但
+
+    // 此前未消费）；机器未上报时才回退到"按进度缩放总时长"的旧估算。
+
+    final remain = _remainSeconds(status, prog, completed);
 
 
 
@@ -821,7 +848,16 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
 
 
-  int get _totalTime => 750; // 12:30，与 Wizard 内部一致
+  /// W-12：机器未上报 ETA 时的兜底总时长（12:30）。
+  static const int _fallbackTotal = 750;
+
+  /// W-12：剩余秒数 —— 优先机器上报的真实 ETA，其次按进度估算。
+  int _remainSeconds(MachineStatus status, double prog, bool completed) {
+    if (completed) return 0;
+    final eta = status.eta;
+    if (eta != null) return max(0, eta.inSeconds);
+    return max(0, (_fallbackTotal * (1 - prog)).round());
+  }
 
 
 

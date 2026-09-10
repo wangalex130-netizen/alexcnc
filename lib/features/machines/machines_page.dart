@@ -87,6 +87,18 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
       if (mounted) {
 
+        // W-13（2026-09-10）：校验「当前机器」是否仍属于本账号。换号 / 解绑 /
+        // 归属变更后，持久化的 currentMachine 可能指向不在列表中的机器 —— 不清理
+        // 就会继续向该机器（可能已属他人）下发命令。
+
+        final cur = ref.read(currentMachineProvider);
+
+        if (cur != null && !list.any((m) => m.sn == cur.sn)) {
+
+          await ref.read(currentMachineProvider.notifier).select(null);
+
+        }
+
         setState(() => _machines = list);
 
         // 同步到全局绑定清单，供常驻在线监听服务订阅全部设备

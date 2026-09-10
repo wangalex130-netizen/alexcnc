@@ -2218,6 +2218,8 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
       mat: mat,
       requiredTools: req,
       procSlot: widget.procSlot,
+      durationText: widget.item.duration,
+      durationSec: widget.item.durationSec,
       timeLapse: _timeLapse,
       onToggleTimeLapse: (v) => setState(() => _timeLapse = v),
       durationController: _durCtrl,
@@ -2236,6 +2238,12 @@ class _ReadyPhase extends StatelessWidget {
   final TextEditingController durationController;
   final VoidCallback onStart;
 
+  /// W-12（2026-09-10）：云端模型自带的真实预估耗时文案（如"12分30秒"）。
+  final String? durationText;
+
+  /// W-12：预估耗时秒数（duration 文案缺失时使用）。
+  final int? durationSec;
+
   /// 已发起启动（指令在途）。为 true 时按钮禁用并显示「已下发…」。
   final bool launching;
   const _ReadyPhase({
@@ -2247,7 +2255,25 @@ class _ReadyPhase extends StatelessWidget {
     required this.durationController,
     required this.onStart,
     this.launching = false,
+    this.durationText,
+    this.durationSec,
   });
+
+  /// W-12（2026-09-10）：原实现写死"约 12 分 30 秒"（编造数字，与所选模型无关）。
+  /// 改为使用云端模型自带的真实预估；两者都没有时如实说明由机器上报，不再展示假数。
+  String get _estimateText {
+    final d = durationText;
+    if (d != null && d.trim().isNotEmpty) {
+      return d.startsWith('约') ? d : '约 $d';
+    }
+    final sec = durationSec;
+    if (sec != null && sec > 0) {
+      final m = sec ~/ 60;
+      final s = sec % 60;
+      return m > 0 ? '约 $m 分 $s 秒' : '约 $s 秒';
+    }
+    return '开始后由机器上报';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2281,7 +2307,7 @@ class _ReadyPhase extends StatelessWidget {
                 return _Param('工序刀具 ${p + 1}',
                     slot != null ? 'T$slot · ${ringEmoji(defRing)} $defName' : '未分配');
               }),
-              _Param('预估总耗时', '约 12 分 30 秒'),
+              _Param('预估总耗时', _estimateText),
             ],
           ),
         ),

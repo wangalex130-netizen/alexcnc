@@ -175,6 +175,12 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
 
   void _save() {
 
+    // W-14（2026-09-10）：release 包拒绝运行时改写 Broker / 后端 / 设备 ID 等敏感项。
+
+    // 页面 build() 已硬门控，这里是第二道保险（防止后续新增调用点绕过页面）。
+
+    if (kReleaseMode) return;
+
     final cfg = RuntimeConfig(
 
       useRealBackend: _useReal,

@@ -41,6 +41,16 @@ class CurrentMachineNotifier extends Notifier<Machine?> {
 
   @override
   Machine? build() {
+    // W-13（2026-09-10）：登出 / 切号时清空「当前机器」（含本地持久化）。
+    // 背景：currentMachine 会持久化到 SharedPreferences（重启仍在），而 logout()
+    // 此前只解绑推送 alias —— 同一台手机上换账号后仍指向上一账号的机器，
+    // 会继续向其下发命令。归属校验见 machines_page._load()（第二道防线）。
+    ref.listen<AuthState>(authProvider, (prev, next) {
+      final wasLoggedIn = prev?.isLoggedIn ?? false;
+      if (wasLoggedIn && !next.isLoggedIn) {
+        unawaited(select(null));
+      }
+    });
     _hydrate();
     return null;
   }
