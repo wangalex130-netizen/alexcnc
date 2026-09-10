@@ -22,11 +22,15 @@ class JogSheet extends ConsumerStatefulWidget {
 }
 
 class _JogSheetState extends ConsumerState<JogSheet> {
+  /// W-10：上次弹出「Jog 被拦下」提示的时间，用于节流（见 build 内 toastJogBlocked）。
+  DateTime? _lastJogBlockToast;
+
   @override
   Widget build(BuildContext context) {
     final step = ref.watch(jogStepProvider);
-    // 终局方案（2026-08-28）：命令一律经云端 MQTT 下发，内外网权限无区别，
-    // 能否手动移动只取决于机器状态 —— 空闲可动，加工中/报警/回零中/未连接均锁定。
+    // 终局方案（2026-08-28）：命令一律经云端 MQTT 下发；
+    // 🔴 D-DEC-1（2026-09-10）：Jog 额外要求与机器同一局域网（服务层拦截，见 hw.jog）。
+    // 能否手动移动取决于机器状态 —— 空闲可动，加工中/报警/回零中/未连接均锁定。
     final mState = ref.watch(machineStatusProvider).value?.state;
     // 2026-08-29 安全加固：真实后端模式下未选机器时同样锁定
     //（未选机器 deviceId 会回退到默认联调设备，不能往未知机器下发运动命令）。
@@ -50,17 +54,33 @@ class _JogSheetState extends ConsumerState<JogSheet> {
     // 解锁只在报警态点亮，避免正常状态下误触（$X 无害但会让用户以为出了问题）。
     final canUnlock = !lockedByMachine && connected && mState == MachineState.alarm;
 
-    void jog(String axis, int sign) {
-      if (!canControl) return;
-      widget.hw.jog(axis, step * sign);
-    }
-
     /// 局部函数必须先声明后使用（Dart 不做 hoisting），故放在两个动作之前。
     /// 底部浮层可能没有外层 Scaffold，用 maybeOf 兜底避免抛异常。
     void toast(String msg) {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(content: Text(msg), duration: const Duration(seconds: 3)),
       );
+    }
+
+    /// W-10：Jog 被门禁拦下时的提示。连发为 180ms/帧，必须节流，
+    /// 否则每帧弹一次会把提示刷成"抖动"，反而看不清原因。
+    void toastJogBlocked(String msg) {
+      final now = DateTime.now();
+      final last = _lastJogBlockToast;
+      if (last != null && now.difference(last) < const Duration(seconds: 3)) {
+        return;
+      }
+      _lastJogBlockToast = now;
+      toast(msg);
+    }
+
+    Future<void> jog(String axis, int sign) async {
+      if (!canControl) return;
+      final sent = await widget.hw.jog(axis, step * sign);
+      if (!sent && mounted) {
+        // false = 未确认与机器同网（D-DEC-1 门禁）或 MQTT 未连上（W-09-c）。
+        toastJogBlocked('未发送：请连接机器所在 Wi-Fi 后再点动（外网仅监视）');
+      }
     }
 
     /// 软复位：加工中/暂停中会中断作业，故需二次确认；空闲/报警态直接执行。

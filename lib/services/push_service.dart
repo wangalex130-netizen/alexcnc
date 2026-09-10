@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:getuiflut/getuiflut.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -57,9 +58,19 @@ class PushService {
   }
 
   /// 隐私政策页在用户同意后调用。
+  ///
+  /// N-02（2026-09-10）：写完标记后**主动通知原生层**完成个推初始化 ——
+  /// 原实现只写 Dart 侧标记，而原生 onCreate 早已无条件初始化完毕（CID 已注册），
+  /// 合规门控形同虚设。现原生改为只 preInit，由这里触发后续初始化。
   Future<void> setPrivacyAccepted() async {
     final p = await SharedPreferences.getInstance();
     await p.setBool(kPrivacyAcceptedKey, true);
+    try {
+      await const MethodChannel('alexcnc/push').invokeMethod('initialize');
+    } catch (e) {
+      // 原生未实现 / 非 Android：忽略；下次启动 onCreate 读到 true 会自行初始化。
+      debugPrint('[push] native initialize failed: $e');
+    }
   }
 
   // ---------------------------------------------------------------- 个推初始化

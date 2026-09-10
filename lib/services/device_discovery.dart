@@ -47,15 +47,24 @@ class DeviceDiscovery {
   /// 返回可达的控制器 IP（字符串）；找不到返回 null。
   static Future<String?> discover({
     Duration timeout = const Duration(seconds: 3),
+    String? expectedDeviceId,
   }) async {
     final prefs = await SharedPreferences.getInstance();
-    final cached = prefs.getString(_kCachedHost);
+    // W-04（2026-09-10）：缓存按 deviceId 绑定 —— 否则 A 机器被发现后写入的地址，
+    // 会被当成 B 机器的地址复用（缓存投毒 / 连错机器）。
+    final cacheKey = (expectedDeviceId != null && expectedDeviceId.isNotEmpty)
+        ? '${_kCachedHost}__$expectedDeviceId'
+        : _kCachedHost;
+    final cached = prefs.getString(cacheKey);
     if (cached != null && cached.isNotEmpty) return cached;
 
     // UDP 信标优先：固件每 3s 广播，局域网内秒级发现真机 IP
-    final beacon = await discoverViaBeacon(timeout: timeout);
+    final beacon = await discoverViaBeacon(
+      timeout: timeout,
+      expectedDeviceId: expectedDeviceId,
+    );
     if (beacon != null) {
-      await prefs.setString(_kCachedHost, beacon.ip);
+      await prefs.setString(cacheKey, beacon.ip);
       return beacon.ip;
     }
 
@@ -71,11 +80,20 @@ class DeviceDiscovery {
   /// 单次 UDP 信标发现：在 [timeout] 内返回第一台发现的机器，超时返回 null。
   static Future<BeaconDevice?> discoverViaBeacon({
     Duration timeout = const Duration(seconds: 3),
+    String? expectedDeviceId,
   }) async {
     final completer = Completer<BeaconDevice?>();
     BeaconDevice? result;
     final sub = startBeaconListener(maxDuration: timeout).listen(
       (d) {
+        // W-04（2026-09-10）：beacon 是明文广播，同网段任何人都能伪造。
+        // 原实现取**第一台**且不与当前选中的机器比对 → App 可能连到攻击者 IP 并缓存。
+        // 给定期望 deviceId 时，只接受完全一致的那台机器。
+        if (expectedDeviceId != null &&
+            expectedDeviceId.isNotEmpty &&
+            d.deviceId != expectedDeviceId) {
+          return;
+        }
         result ??= d;
         if (!completer.isCompleted) completer.complete(d);
       },

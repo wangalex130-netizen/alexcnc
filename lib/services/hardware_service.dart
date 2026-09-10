@@ -115,8 +115,13 @@ abstract class HardwareService {
   /// Machine physical work area (mm). Determined by connected model config.
   Future<({double widthMm, double heightMm})> getWorkArea();
 
-  // --- Motion（终局方案：只由机器状态决定可否执行，不再看内外网）---
-  Future<void> jog(String axis, double distanceMm); // axis: x | y | z
+  // --- Motion ---
+  /// 点动。返回是否**已发出**：false = 被门禁拦下（未确认同网）或未送达。
+  ///
+  /// 🔴 D-DEC-1（2026-09-10 拍板）：Jog 额外要求"手机与机器同一局域网"，
+  /// 外网 / 无法确认同网时直接拒绝并返回 false（安全侧默认锁定）。
+  /// 开切 / 暂停 / 停止 / 急停**不受**此限制。
+  Future<bool> jog(String axis, double distanceMm); // axis: x | y | z
   Future<void> home(); // homing cycle ($H)
   Future<void> setWorkZero(
       {List<String> axes = const ['x', 'y', 'z']}); // G92，清单 §4.6-4.8 axes 数组

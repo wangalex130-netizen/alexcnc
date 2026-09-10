@@ -18,11 +18,16 @@ import '../models/telemetry.dart';
 import '../models/tool.dart';
 import 'device_discovery.dart';
 import 'hardware_service.dart';
+import 'network_auth.dart';
 
 /// 真实硬件实现。
 ///
 /// **2026-08-28 终局方案**（PC / 云端 / 固件三方确认，替代原 R2 网关转发）：
-///  - 不再区分内网 / 外网权限，命令与状态**全部走外网 MQTT Broker**；
+///  - 命令与状态**全部走外网 MQTT Broker**（传输通道不再区分内外网）；
+///  - 🔴 **D-DEC-1（2026-09-10 拍板）恢复"外网锁 Jog"**：通道虽统一，但**点动
+///    （Jog）额外要求手机与机器处于同一局域网**（见 [_confirmLan]）。
+///    开切 / 暂停 / 停止 / 急停不受此限（开切仍由 D9 物理按钮兜底）。
+///    —— 此前"内外网权限无区别"的实现与 V3.1 §5 / D7 契约冲突，现已回归契约。
 ///  - ClientId = `android-<deviceId>`（设备维度，不再按账号维度、也不再加随机后缀）；
 ///  - 命令发布到 `cnc/<deviceId>/cmd`；原 `gw/<deviceId>/cmd` 网关转发、
 ///    `wan_whitelist` 白名单与 `gw/<deviceId>/ack` 回执主题均已废弃；
@@ -48,6 +53,14 @@ class RealHardwareService implements HardwareService {
   String _tcpHost;
   bool _mqttConnected = false;
   Timer? _heartbeatTimer;
+
+  /// W-10：最近一次「手机与机器同网」探测结果（null = 尚未探测）。
+  bool? _lanOk;
+  DateTime? _lanCheckedAt;
+  /// 探测结果缓存时长 —— Jog 连发是 180ms/帧，绝不能每帧都探测（每帧 2s 超时会卡死）。
+  static const Duration _lanCacheTtl = Duration(seconds: 15);
+  /// W-05：Jog 帧递增序号，供固件按 seq / ts 丢弃乱序与超龄帧。
+  int _jogSeq = 0;
   /// 固件 15s 内收不到任何命令即 Feed Hold；心跳周期取 10s 留安全余量。
   static const Duration _heartbeatInterval = Duration(seconds: 10);
 
@@ -279,7 +292,14 @@ class RealHardwareService implements HardwareService {
       // 字段声明为 bool Function(X509Certificate)?，但库内部会 as bool Function(Object)?，
       // 若写成 (cert) => true 被推断成 X509Certificate 参数就会在运行时 cast 失败
       //（报错：type '(X509Certificate)=>bool' is not a subtype of '((Object)=>bool)?'）。
-      client.onBadCertificate = (Object cert) => true; // 信任自签证书，仅联调期；上线换正式 CA 后删除此行
+      // 🔴 W-01（2026-09-10，P0）：默认**强制校验证书链**，不再无条件信任自签证书。
+      // 原实现 `(cert) => true` 会让同网络 / 路径上的中间人劫持 TLS 会话、注入伪造状态帧
+      //（这正是"把雕刻中伪造成 idle 解锁 Jog"的前置条件）。
+      // 仅当显式传入构建参数 MQTT_ALLOW_SELF_SIGNED=true 时才旁路（**仅供联调**）；
+      // 正式包不带该参数 → 走完整校验（Broker 需挂正式 CA 证书或做证书钉扎）。
+      if (AppConfig.mqttAllowSelfSigned) {
+        client.onBadCertificate = (Object cert) => true;
+      }
       client.keepAlivePeriod = 30;
       client.logging(on: false);
       client.onDisconnected = _onMqttDisconnected;
@@ -453,15 +473,17 @@ class RealHardwareService implements HardwareService {
     }
   }
 
-  /// 判定是否为「摄像头状态帧」：带摄像头专属字段、且不含任何机器状态字段。
-  /// 命中则直接丢弃，不交给 MachineStatus 解析（理由见 _parseAndEmit 注释）。
+  /// 判定是否为「摄像头状态帧」：只要带任一摄像头专属字段即命中，
+  /// 命中则**无条件**丢弃，不交给 MachineStatus 解析（理由见 _parseAndEmit 注释）。
+  ///
+  /// 🔴 W-02（2026-09-10，P0）：原逻辑是「带摄像头字段**且不含**机器字段」才拦，
+  /// 于是 `{"streaming":true,"state":"idle"}` 这类混合帧会被放行进 MachineStatus，
+  /// state 解析为 idle → canControl=true → **加工中解锁 Jog**（撞刀风险）。
+  /// 现改为无条件丢弃：机器状态帧自身不含 streaming / cam / camera / online 这些键
+  ///（机器上下线用 `grbl_online`），摄像头状态请发专用主题 cnc/<id>/cam。
   static bool _isCameraStatusFrame(Map<String, dynamic> j) {
     const camMarkers = ['streaming', 'cam', 'camera', 'online'];
-    const machineMarkers = ['state', 'pos', 'mpos', 'mp'];
-    final hasCam = camMarkers.any(j.containsKey);
-    if (!hasCam) return false;
-    final hasMachine = machineMarkers.any(j.containsKey);
-    return !hasMachine; // 同时带机器字段 → 视为合法机器帧，不拦
+    return camMarkers.any(j.containsKey);
   }
 
   /// 遥测帧解析（R13）：高频 QoS0，仅 emit 到 telemetryStream；字段缺失安全回退 null。
@@ -1017,9 +1039,12 @@ class RealHardwareService implements HardwareService {
   final Set<String> _handledAcks = <String>{};
 
   /// 生成本次作业的 ID（不引第三方依赖，够用即可）。
+  /// W-09-a（2026-09-10）：原第二段用 `DateTime.now().microsecond`，
+  /// 那是「秒内的微秒分量」（0–999）而非 sinceEpoch，同一毫秒内碰撞概率约 1/1000，
+  /// reqId 碰撞会导致 cmd_ack 串号。两段统一改用 microsecondsSinceEpoch。
   static String _newId() =>
       '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}-'
-      '${(100000 + DateTime.now().microsecond % 900000).toRadixString(36)}';
+      '${(100000 + DateTime.now().microsecondsSinceEpoch % 900000).toRadixString(36)}';
 
   @override
   Stream<CarveSession> get carveSession => _carveCtrl.stream;
@@ -1295,6 +1320,18 @@ class RealHardwareService implements HardwareService {
     _tcp = null;
     _tcpConnected = false;
     _mqttConnected = false;
+    // W-09-b（2026-09-10）：正常 disconnect **不会触发 LWT**，此前 retain 的
+    // online:true 会永久残留 → 其他端长期误显示"App 在线"。断开前主动覆盖成 false。
+    if (_mqtt?.connectionStatus?.state == MqttConnectionState.connected) {
+      try {
+        final b = MqttClientPayloadBuilder();
+        b.addString(jsonEncode({'online': false}));
+        _mqtt!.publishMessage(mqttAppTopic, MqttQos.atLeastOnce, b.payload!,
+            retain: true);
+      } catch (_) {
+        // 发布失败也不能阻塞断开流程
+      }
+    }
     _mqtt?.disconnect();
     _mqtt = null;
     _setConn(LinkState.disconnected);
@@ -1310,10 +1347,60 @@ class RealHardwareService implements HardwareService {
     return (widthMm: 300.0, heightMm: 200.0);
   }
 
+  /// W-10（D-DEC-1，2026-09-10 拍板）：判定手机与机器是否处于**同一局域网**。
+  ///
+  /// 先取机器局域网地址（缓存 → UDP beacon → mDNS → 配置兜底），再用
+  /// [NetworkProbe] 做一次短超时 TCP 连通探测。
+  /// - 结果缓存 [_lanCacheTtl]（15s）：Jog 连发为 180ms/帧，绝不能每帧探测；
+  /// - **探测失败 / 取不到机器地址 → 一律判为不同网**（安全侧默认：宁可锁，不误放行）。
+  ///   代价：手机确实在机器旁却拿不到地址时会被锁，UI 会提示"请连接机器所在 Wi-Fi"。
+  Future<bool> _confirmLan() async {
+    final now = DateTime.now();
+    final cached = _lanOk;
+    final checkedAt = _lanCheckedAt;
+    if (cached != null &&
+        checkedAt != null &&
+        now.difference(checkedAt) < _lanCacheTtl) {
+      return cached;
+    }
+    var ok = false;
+    try {
+      final host = await DeviceDiscovery.discover(
+        timeout: const Duration(seconds: 2),
+        expectedDeviceId: deviceId,
+      );
+      if (host != null && host.isNotEmpty) {
+        ok = await NetworkProbe.probe(
+          host,
+          tcpPort,
+          timeout: const Duration(seconds: 2),
+        );
+      }
+    } catch (_) {
+      ok = false;
+    }
+    _lanOk = ok;
+    _lanCheckedAt = now;
+    return ok;
+  }
+
   @override
-  Future<void> jog(String axis, double distanceMm) async {
-    final cmd = {'cmd': 'jog', 'axis': axis, 'dist': distanceMm};
-    _dispatch(cmd);
+  Future<bool> jog(String axis, double distanceMm) async {
+    // 🔴 W-10（D-DEC-1）：外网（未确认与机器同网）**禁止点动**。
+    // 门禁做在服务层而非仅 UI 置灰，避免被绕过；开切 / 暂停 / 停止 / 急停不受此限。
+    if (!await _confirmLan()) return false;
+    final cmd = {
+      'cmd': 'jog',
+      'axis': axis,
+      'dist': distanceMm,
+      // W-05：连发帧携带时间戳与递增序号 —— 弱网积压后松手仍会继续位移，
+      // 固件据此丢弃超龄帧（>500ms，配套改造见工单 F-01）。
+      'ts': DateTime.now().millisecondsSinceEpoch,
+      'seq': _jogSeq++,
+    };
+    // 直接 _publish（jog 属"尽力而为、绝不重发"类，与 _dispatch 的该分支等价），
+    // 并返回值供 UI 提示"指令未送达"（W-09-c）。
+    return _publish(cmd);
   }
 
   @override

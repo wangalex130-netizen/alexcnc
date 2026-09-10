@@ -165,9 +165,12 @@ class MachineStatus {
         case 'run':
         case 'running':
           state = MachineState.busy;
-        case '':
-          state = MachineState.idle; // 帧里根本没有 state 字段 → 按空闲
       }
+      // 🔴 W-02（2026-09-10，P0 安全加固）：已删除原 `case '': state = idle`。
+      // 帧里没有 state 字段（或为空串）时**保持 [MachineState.unknown]**，
+      // 绝不再回落 idle —— 回落会让 Jog 闸门（canControl == state==idle）
+      // 被任意「缺 state 字段」的帧打开，加工中也能点动 = 撞刀风险。
+      // 合法机器状态帧必须携带 state（契约 §2），缺字段一律按未知处理（Jog 保持锁定）。
     }
     Position _pos(List<String> keys) {
       for (final k in keys) {
@@ -186,7 +189,12 @@ class MachineStatus {
 
     final progRaw = j['progress'] ?? j['prog'];
     final etaRaw = j['etaSec'] ?? j['eta'];
-    final rpmRaw = j['rpm'] ?? j['spindle'];
+    // W-09-d（2026-09-10）：`rpm` 与 `spindle` **分离解析**（契约状态帧陷阱 1）：
+    //   - `rpm`     = 数值转速；
+    //   - `spindle` = 布尔运转态（true / false）。
+    // 原写法 `j['rpm'] ?? j['spindle']` 在 spindle 为 bool 时取到 true（非 num）
+    // → 转速恒显示为空。现以 `rpm` 为准，仅在 spindle 仍是**数字**的旧固件下兜底。
+    final rpmRaw = j['rpm'];
     var prog =
         (progRaw is num) ? (progRaw as num).toDouble() : 0.0;
     // 协议约定 progress 为 0..1；部分固件/旧字段可能发送 0..100 百分比。
@@ -199,7 +207,9 @@ class MachineStatus {
       state: state,
       position: _pos(['pos']),
       machinePosition: _pos(['mpos', 'mp']),
-      spindleRpm: (rpmRaw is num) ? (rpmRaw as num).toDouble() : null,
+      spindleRpm: (rpmRaw is num)
+          ? (rpmRaw as num).toDouble()
+          : (j['spindle'] is num ? (j['spindle'] as num).toDouble() : null),
       feedRate: (j['feed'] is num) ? (j['feed'] as num).toDouble() : null,
       progress: prog.clamp(0.0, 1.0),
       eta: etaSec != null ? Duration(seconds: etaSec) : null,

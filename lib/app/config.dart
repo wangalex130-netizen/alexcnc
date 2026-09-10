@@ -185,6 +185,26 @@ class AppConfig {
 
       String.fromEnvironment('MQTT_PASS', defaultValue: 'demo123');
 
+  /// W-01（2026-09-10，P0）：是否旁路 MQTT TLS 证书校验（**仅限联调**）。
+
+  ///
+
+  /// 默认 false = 强制校验证书链。原实现无条件 `onBadCertificate => true`，
+
+  /// 会让同网络 / 路径上的中间人劫持会话、注入伪造状态帧（伪造成 idle 解锁 Jog）。
+
+  /// 联调期 Broker 仍是自签证书时，构建加 `--dart-define=MQTT_ALLOW_SELF_SIGNED=true`；
+
+  /// **正式包一律不带此参数**（Broker 需挂正式 CA 证书或做证书钉扎）。
+
+  static const bool mqttAllowSelfSigned = bool.fromEnvironment(
+
+    'MQTT_ALLOW_SELF_SIGNED',
+
+    defaultValue: false,
+
+  );
+
 
 
   // ---- 设备局域网 TCP（低延迟运动控制：jog / 回零 / 定原点）----

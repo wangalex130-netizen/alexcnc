@@ -110,11 +110,22 @@ class DevicePresenceService {
     _client?.disconnect();
     _client = null;
 
-    final clientId = 'android-presence-${AppConfig.appUserId}';
+    // W-03（2026-09-10）：与 hardware 侧 D3 修复对齐，clientId 必须**全局唯一**。
+    // 原写法只带 userId：两台手机登录同一账号（或都未登录 = 都是 demo）时
+    // clientId 完全相同 → broker 互踢 → 各自重连 → 无限循环。
+    // 未登录 / demo 一律归为 anon，且同样加随机后缀。
+    final uid = AppConfig.appUserId;
+    final who = (uid.isEmpty || uid == 'demo') ? 'anon' : uid;
+    final clientId =
+        'android-presence-$who-${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}';
     final client = MqttServerClient(broker, clientId);
     client.port = mqttPort;
     client.secure = true; // TLS 8883，与控制连接一致
-    client.onBadCertificate = (Object cert) => true; // 联调期信任自签；上线换正式 CA
+    // W-01（2026-09-10，P0）：与控制连接同样处理 —— 默认强制校验证书链，
+    // 仅联调包显式带 MQTT_ALLOW_SELF_SIGNED=true 时才旁路自签证书。
+    if (AppConfig.mqttAllowSelfSigned) {
+      client.onBadCertificate = (Object cert) => true;
+    }
     client.keepAlivePeriod = 30;
     client.logging(on: false);
     client.onDisconnected = _onDisconnected;

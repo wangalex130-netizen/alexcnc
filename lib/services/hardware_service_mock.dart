@@ -190,7 +190,7 @@ class MockHardwareService implements HardwareService {
   }
 
   @override
-  Future<void> jog(String axis, double distanceMm) async {
+  Future<bool> jog(String axis, double distanceMm) async {
     final p = _current.position;
     _current = _current.copyWith(
       position: axis == 'x'
@@ -200,6 +200,7 @@ class MockHardwareService implements HardwareService {
               : p.copyWith(z: p.z + distanceMm),
     );
     _emit();
+    return true; // 模拟器无网络门禁，恒为已发出
   }
 
   @override

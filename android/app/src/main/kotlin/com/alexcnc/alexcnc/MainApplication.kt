@@ -40,6 +40,8 @@ class MainApplication : Application() {
         const val KEY_NATIVE_INIT = "push_native_init_log"
         const val KEY_SDK_LOG = "push_sdk_log"
         const val KEY_PROCESS = "push_native_process"
+        /** N-02：隐私同意标记，与 push_service.dart 的 kPrivacyAcceptedKey 同名。 */
+        const val KEY_PRIVACY = "push_privacy_accepted_v1"
 
         /** 进程内缓存（供后续扩展读取，落盘以 FlutterSharedPreferences 为准）。 */
         @JvmField var nativeInitLog: String = "(未执行)"
@@ -61,8 +63,47 @@ class MainApplication : Application() {
         }
 
         installSdkDebugLogger(applicationContext)
-        agreePrivacyPolicyBeforeInit(applicationContext)
-        initGetuiSdkProperly(applicationContext)
+        // 🔴 N-02（2026-09-10，P1 合规）：隐私门控下沉到原生层。
+        // 原实现在 onCreate 无条件 setPrivacyPolicyStrategy(true) + initialize，
+        // 而 Dart 侧 push_service 的门控发生在更晚 —— 用户还没同意，CID 就已注册完成
+        //（已在收集设备信息）。现按**真实同意状态**决定：未同意只做 preInit，
+        // initialize 等用户同意后由 MainActivity 的 MethodChannel 触发。
+        val accepted = isPrivacyAccepted()
+        Log.d(TAG, "privacyAccepted=$accepted")
+        agreePrivacyPolicyBeforeInit(applicationContext, accepted)
+        initGetuiSdkProperly(applicationContext, fullInit = accepted)
+    }
+
+    /**
+     * 读取 Dart 侧写入的隐私同意标记（shared_preferences 会加 "flutter." 前缀）。
+     * 与 push_service.dart 的 [kPrivacyAcceptedKey] 保持同一 key。
+     */
+    private fun isPrivacyAccepted(): Boolean {
+        return try {
+            val sp = getSharedPreferences(SP_NAME, Context.MODE_PRIVATE)
+            sp.getBoolean("flutter.$KEY_PRIVACY", false) ||
+                sp.getBoolean(KEY_PRIVACY, false)
+        } catch (e: Throwable) {
+            Log.e(TAG, "isPrivacyAccepted failed", e)
+            false
+        }
+    }
+
+    /**
+     * N-02：用户在 App 内同意隐私政策后，由 MainActivity 的 MethodChannel 调用，
+     * 完成此前被门控拦下的 registerPushIntentService + initialize。
+     */
+    fun initAfterConsent() {
+        if (!isPrivacyAccepted()) {
+            Log.d(TAG, "initAfterConsent: 仍未同意，忽略")
+            return
+        }
+        if (nativeInitLog.contains("initialize")) {
+            Log.d(TAG, "initAfterConsent: 已初始化过，跳过")
+            return
+        }
+        agreePrivacyPolicyBeforeInit(applicationContext, true)
+        initGetuiSdkProperly(applicationContext, fullInit = true)
     }
 
     private fun writeSp(key: String, value: String) {
@@ -145,10 +186,12 @@ class MainApplication : Application() {
     }
 
     /**
-     * 反射同意个推隐私策略。多路径兼容不同 gtsdk 版本的类名：
+     * 反射设置个推隐私策略。**N-02：布尔值必须反映真实同意状态**
+     *（原来是硬编码 true，等于替用户点了同意，属代用户同意）。
+     * 多路径兼容不同 gtsdk 版本的类名：
      *   com.igexin.sdk.PushManager / com.getui.gt.GTPrivacyManager / com.igexin.sdk.GTPrivacyManager
      */
-    private fun agreePrivacyPolicyBeforeInit(context: Context) {
+    private fun agreePrivacyPolicyBeforeInit(context: Context, accepted: Boolean) {
         val candidates = listOf(
             "com.igexin.sdk.PushManager",
             "com.getui.gt.GTPrivacyManager",
@@ -168,7 +211,7 @@ class MainApplication : Application() {
                 }
                 if (method != null) {
                     method.isAccessible = true
-                    method.invoke(instance, context, true)
+                    method.invoke(instance, context, accepted)
                     attempts.add("$clsName.setPrivacyPolicyStrategy=OK")
                 } else {
                     attempts.add("$clsName.setPrivacyPolicyStrategy=not found")
@@ -186,7 +229,7 @@ class MainApplication : Application() {
      * 按个推官方顺序初始化：preInit → registerPushIntentService(FlutterIntentService)
      * → initialize(context, FlutterPushService)。任一步失败都记录到 push_native_init_log。
      */
-    private fun initGetuiSdkProperly(context: Context) {
+    private fun initGetuiSdkProperly(context: Context, fullInit: Boolean = true) {
         val steps = mutableListOf<String>()
         try {
             val pmCls = Class.forName("com.igexin.sdk.PushManager")
@@ -211,6 +254,16 @@ class MainApplication : Application() {
                 }
             } catch (e: Throwable) {
                 steps.add("preInit=ERR:${e.javaClass.simpleName}")
+            }
+
+            // 🔴 N-02：未同意隐私政策 → 到 preInit 为止（官方允许的合规路径），
+            // 不做 registerPushIntentService / initialize —— 那才是真正注册 CID 的动作。
+            if (!fullInit) {
+                steps.add("已停止：等待用户同意隐私政策")
+                nativeInitLog = steps.joinToString(" | ")
+                writeSp(KEY_NATIVE_INIT, nativeInitLog)
+                Log.d(TAG, "initGetuiSdkProperly: 仅 preInit（未同意隐私政策）")
+                return
             }
 
             // 1) 注册回调桥梁：CID / 消息回调经此转发到 Flutter（onReceiveClientId 才生效）。
