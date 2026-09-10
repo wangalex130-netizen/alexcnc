@@ -98,11 +98,17 @@ class AppConfig {
 
   );
 
+  /// 中继 token 同样**不再写死在仓库里**（原默认值是明文 token，公开仓库可读）。
+
+  ///
+
+  /// 现默认空串，实际值由构建注入；内部联调包由 CI 从 Actions Secrets 注入。
+
   static const String cameraRelayToken = String.fromEnvironment(
 
     'CAMERA_RELAY_TOKEN',
 
-    defaultValue: 'lunyee-cnc-relay-7k2p',
+    defaultValue: '',
 
   );
 
@@ -211,13 +217,23 @@ class AppConfig {
 
       int.fromEnvironment('MQTT_PORT', defaultValue: 8883);
 
+  /// 凭据**不再写死在仓库里**（原来这里写死了出厂默认账号与口令，公开仓库任何人可读）。
+
+  ///
+
+  /// 现默认值改为空串；实际值由构建注入（`--dart-define=MQTT_USER=...`），
+
+  /// 内部联调包由 CI 从 Actions Secrets 注入，详见 .github/workflows/build.yml。
+
+  /// ⚠️ 轮换凭据时**只需改 Secret，无需改代码**。
+
   static const String mqttUser =
 
-      String.fromEnvironment('MQTT_USER', defaultValue: 'app-demo');
+      String.fromEnvironment('MQTT_USER', defaultValue: '');
 
   static const String mqttPass =
 
-      String.fromEnvironment('MQTT_PASS', defaultValue: 'demo123');
+      String.fromEnvironment('MQTT_PASS', defaultValue: '');
 
   /// W-01（2026-09-10，P0）：是否旁路 MQTT TLS 证书校验（**仅限联调**）。
 

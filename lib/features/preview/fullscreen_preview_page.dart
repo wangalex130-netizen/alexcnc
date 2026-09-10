@@ -267,7 +267,7 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
 
       // A-3：订阅摄像头状态帧，用于把"启动中"细化成"已启动·等待画面"。
 
-      // 该订阅需要 broker 侧给 app-demo 开通 cnc/+/cam 订阅权限（docs/38 M-5），
+      // 该订阅需要 broker 侧给 <MQTT 用户名> 开通 cnc/+/cam 订阅权限（docs/38 M-5），
 
       // 未开通时被拒也不会影响其它订阅（deny_action=ignore），仅本信号失效。
 

@@ -306,7 +306,7 @@ class RealHardwareService implements HardwareService {
       // 订阅被 broker 拒绝（SUBACK 0x80）时记录。
       // deny_action=ignore 下连接照常、界面无异常，只是永远收不到该主题的帧 ——
       // 这是最难排查的一类故障（表现为"点了没反应"），必须显式留痕。
-      // 2026-08-30：cnc/<id>/cam 当前就处于这个状态（acl.conf 未给 app-demo 开订阅）。
+      // 2026-08-30：cnc/<id>/cam 当前就处于这个状态（acl.conf 未给 <MQTT 用户名> 开订阅）。
       client.onSubscribeFail = (String topic) {
         if (!_deniedSubs.contains(topic)) {
           _deniedSubs.add(topic);
@@ -316,7 +316,7 @@ class RealHardwareService implements HardwareService {
       };
       // App LWT：断线时 Broker 代发 offline（retain），使其他端能感知 App 掉线。
       // 上线后下方主动发布 online（retain）覆盖，呈现"在线"最新态。
-      // 注意：acl.conf 需放行 app-demo 对 cnc/<deviceId>/app 的 PUBLISH，否则 will 被丢弃（连接仍成功）。
+      // 注意：acl.conf 需放行 <MQTT 用户名> 对 cnc/<deviceId>/app 的 PUBLISH，否则 will 被丢弃（连接仍成功）。
       // mqtt_client 的 LWT 通过 MqttConnectMessage 链式配置，再赋值给 connectionMessage。
       client.connectionMessage = MqttConnectMessage()
           .withWillTopic(mqttAppTopic)
@@ -340,7 +340,7 @@ class RealHardwareService implements HardwareService {
         client.subscribe(mqttSystemTopic, MqttQos.atLeastOnce);
         // 摄像头推流状态（2026-08-30 补订阅）：此前未订阅，导致发出 stream_start 后
         // 无法确认摄像头是否真的启动，只能干等第一帧 MJPEG（实测约一二十秒）。
-        // ⚠️ 依赖 broker 侧：app-demo 的 subscribe 白名单需包含 cnc/+/cam
+        // ⚠️ 依赖 broker 侧：<MQTT 用户名> 的 subscribe 白名单需包含 cnc/+/cam
         //    （见 docs/38 的 M-5）。当前 acl.conf:23 尚未包含，
         //    在开通前这一行会被静默拒绝（deny_action=ignore，SUBACK 0x80 无提示），
         //    由 onSubscribeFail 回调暴露出来，不会影响其它订阅。
