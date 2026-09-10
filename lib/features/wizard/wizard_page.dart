@@ -2259,7 +2259,7 @@ class _ReadyPhase extends StatelessWidget {
     this.durationSec,
   });
 
-  /// W-12（2026-09-10）：原实现写死"约 12 分 30 秒"（编造数字，与所选模型无关）。
+  /// W-12（2026-09-10）：原实现写死一个固定时长（编造数字，与所选模型无关）。
   /// 改为使用云端模型自带的真实预估；两者都没有时如实说明由机器上报，不再展示假数。
   String get _estimateText {
     final d = durationText;
