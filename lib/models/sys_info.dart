@@ -33,10 +33,14 @@ class SysInfo {
     );
   }
 
-  /// 运行持续时间（自 bootAt 起）；bootAt 非法时返回 null。
-  Duration? get uptime {
-    if (bootAt <= 0) return null;
-    final ms = DateTime.now().millisecondsSinceEpoch - bootAt;
-    return ms > 0 ? Duration(milliseconds: ms) : Duration.zero;
-  }
+  // ⚠️ 2026-09-11 更正：原 `uptime` getter（`DateTime.now() - bootAt`）**已删除**。
+  //
+  // 原因是两重问题叠加：
+  // 1) 固件上报的 `bootAt` 是「开机以来毫秒」（cnc_net.c:709，单调钟；全工程无 SNTP），
+  //    并非 Unix epoch —— 用本地绝对时间相减会得到约 **56 年**；
+  // 2) 固件把 `bootAt` 发在 `sys/register` 主题，而 App 订阅的是 `cnc/<id>/sys`
+  //    （固件不发布该主题）⇒ 本模型当前根本拿不到数据。
+  //
+  // 结论：等契约 v1 把设备时间字段定为 `uptimeMs` 并落到 status 帧后再实现，
+  // 且**直接展示该值**（`Duration(milliseconds: uptimeMs)`），不做任何减法。
 }

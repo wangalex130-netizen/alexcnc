@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/config.dart';
 import '../../app/runtime_config.dart';
 import '../../app/theme.dart';
 import '../../models/machine_status.dart';
@@ -21,9 +22,46 @@ class JogSheet extends ConsumerStatefulWidget {
   ConsumerState<JogSheet> createState() => _JogSheetState();
 }
 
-class _JogSheetState extends ConsumerState<JogSheet> {
+class _JogSheetState extends ConsumerState<JogSheet>
+    with WidgetsBindingObserver {
   /// W-10：上次弹出「Jog 被拦下」提示的时间，用于节流（见 build 内 toastJogBlocked）。
   DateTime? _lastJogBlockToast;
+
+  /// 是否正处于"长按连续点动"中（2026-09-11 S1）。
+  /// 用于退后台 / 页面销毁时补发 jog_cancel —— 不能只依赖固件的超时兜底，
+  /// 因为长按手势在 App 失去焦点时会被系统直接中断（不会触发 onTapUp）。
+  bool _jogActive = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    // 离开页面时若仍在连续点动，补发取消（此处直接调服务：jogEnd 是 build 内的
+    // 局部函数，生命周期回调里访问不到）。
+    if (_jogActive) {
+      _jogActive = false;
+      widget.hw.jogCancel();
+    }
+    super.dispose();
+  }
+
+  /// App 退到后台 / 失去焦点 / 被销毁：主动取消连续点动。
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      if (_jogActive) {
+        _jogActive = false;
+        widget.hw.jogCancel();
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -81,6 +119,30 @@ class _JogSheetState extends ConsumerState<JogSheet> {
         // false = 未确认与机器同网（D-DEC-1 门禁）或 MQTT 未连上（W-09-c）。
         toastJogBlocked('未发送：请连接机器所在 Wi-Fi 后再点动（外网仅监视）');
       }
+    }
+
+    /// 长按开始：**只发一次**连续点动指令（2026-09-11 三方共识 S1）。
+    ///
+    /// 由固件把它转成一条长距离 `$J` 持续运动，松手由 [jogEnd] 取消；
+    /// 这样不再需要 180ms 连发，也就不存在"运动队列堆积 → 松手后继续走"。
+    Future<void> jogStart(String axis, int sign) async {
+      if (!canControl) return;
+      _jogActive = true;
+      final sent = await widget.hw.jogContinuous(axis, sign);
+      if (!sent) {
+        _jogActive = false;
+        if (mounted) {
+          toastJogBlocked('未发送：请连接机器所在 Wi-Fi 后再点动（外网仅监视）');
+        }
+      }
+    }
+
+    /// 松手 / 手势取消：取消连续点动（固件写 GRBL 实时字符 0x85）。
+    /// 幂等 —— 未在点动中时调用无副作用。
+    Future<void> jogEnd() async {
+      if (!_jogActive) return;
+      _jogActive = false;
+      await widget.hw.jogCancel();
     }
 
     /// 软复位：加工中/暂停中会中断作业，故需二次确认；空闲/报警态直接执行。
@@ -203,9 +265,13 @@ class _JogSheetState extends ConsumerState<JogSheet> {
                   crossAxisSpacing: 6,
                   children: [
                     const SizedBox(),
-                    _JogKey('Y+', () => jog('y', 1), enabled: canControl),
+                    _JogKey('Y+', () => jog('y', 1),
+                        onJogStart: () => jogStart('y', 1),
+                        onJogEnd: jogEnd, enabled: canControl),
                     const SizedBox(),
-                    _JogKey('X-', () => jog('x', -1), enabled: canControl),
+                    _JogKey('X-', () => jog('x', -1),
+                        onJogStart: () => jogStart('x', -1),
+                        onJogEnd: jogEnd, enabled: canControl),
                     Container(
                       decoration: BoxDecoration(
                         color: CncColors.bg,
@@ -216,9 +282,13 @@ class _JogSheetState extends ConsumerState<JogSheet> {
                             style: TextStyle(fontSize: 11, color: CncColors.textSub)),
                       ),
                     ),
-                    _JogKey('X+', () => jog('x', 1), enabled: canControl),
+                    _JogKey('X+', () => jog('x', 1),
+                        onJogStart: () => jogStart('x', 1),
+                        onJogEnd: jogEnd, enabled: canControl),
                     const SizedBox(),
-                    _JogKey('Y-', () => jog('y', -1), enabled: canControl),
+                    _JogKey('Y-', () => jog('y', -1),
+                        onJogStart: () => jogStart('y', -1),
+                        onJogEnd: jogEnd, enabled: canControl),
                     const SizedBox(),
                   ],
                 ),
@@ -228,8 +298,12 @@ class _JogSheetState extends ConsumerState<JogSheet> {
                 width: 52,
                 child: Column(
                   children: [
-                    _JogKey('Z+', () => jog('z', 1), enabled: canControl),
-                    _JogKey('Z−', () => jog('z', -1), enabled: canControl),
+                    _JogKey('Z+', () => jog('z', 1),
+                        onJogStart: () => jogStart('z', 1),
+                        onJogEnd: jogEnd, enabled: canControl),
+                    _JogKey('Z−', () => jog('z', -1),
+                        onJogStart: () => jogStart('z', -1),
+                        onJogEnd: jogEnd, enabled: canControl),
                   ],
                 ),
               ),
@@ -283,11 +357,18 @@ class _JogKey extends StatefulWidget {
   final bool repeat;
   /// 危险动作配色（软复位 / 解锁）：橙红描边，与移动键区分，降低误触。
   final bool danger;
+  /// 长按开始（2026-09-11 共识 S1）：传了它才走"长按只发一次"的新模型。
+  /// 为 null 或开关关闭时，退回旧的 180ms 连发行为。
+  final VoidCallback? onJogStart;
+  /// 松手 / 手势取消 / 页面销毁：取消连续点动（固件写 0x85）。
+  final VoidCallback? onJogEnd;
   const _JogKey(this.label, this.onTap,
       {this.enabled = true,
       this.tall = false,
       this.repeat = true,
-      this.danger = false});
+      this.danger = false,
+      this.onJogStart,
+      this.onJogEnd});
 
   @override
   State<_JogKey> createState() => _JogKeyState();
@@ -295,14 +376,39 @@ class _JogKey extends StatefulWidget {
 
 class _JogKeyState extends State<_JogKey> {
   Timer? _repeat;
+  /// 长按判定计时器（新模型：达阈值才发 continuous）。
+  Timer? _holdTimer;
   bool _holding = false;
+  /// 本次按压是否已发出 continuous（决定松手时发 cancel 还是当作单击）。
+  bool _continuous = false;
 
-  /// 按下即走一步；按住 500ms 后转入连续点动（每 180ms 一步），
-  /// 解决「一次点动只走 0.1mm、对刀要点几十次」的操作痛点。
-  /// [repeat] 为 false 时只触发一次，不进连发（动作键走这条路径）。
+  /// 是否走「长按只发一次 + 松手取消」的新模型。
+  /// 需要同时满足：构建开关打开（AppConfig.jogContinuousEnabled）**且**调用方传了
+  /// [widget.onJogStart]。后者为 null 的多是动作键（软复位/解锁/回零），不受影响。
+  bool get _useContinuous =>
+      AppConfig.jogContinuousEnabled && widget.onJogStart != null;
+
+  /// 按下。
+  ///
+  /// - **新模型**：只启动长按判定；达到 220ms 阈值时**只发一次** continuous，
+  ///   由固件转成一条长距离 `$J` 持续运动 —— 从源头消除
+  ///   「每 180ms 连发 → GRBL 运动队列堆积 → 松手后机器继续走」。
+  /// - **旧模型（默认）**：按下即走一步；按住 500ms 后每 180ms 一步。
+  /// [widget.repeat] 为 false 时只触发一次（动作键走这条路径）。
   void _start() {
     if (!widget.enabled) return;
     if (mounted) setState(() => _holding = true);
+
+    if (_useContinuous) {
+      _holdTimer?.cancel();
+      _holdTimer = Timer(const Duration(milliseconds: 220), () {
+        if (!mounted || !_holding) return;
+        _continuous = true;
+        widget.onJogStart!.call();
+      });
+      return;
+    }
+
     widget.onTap();
     if (!widget.repeat) return;
     _repeat?.cancel();
@@ -313,15 +419,35 @@ class _JogKeyState extends State<_JogKey> {
     });
   }
 
+  /// 抬起 / 手势取消 / 长按结束。
+  ///
+  /// - 新模型：已发过 continuous → 发一次 `jog_cancel`；未达阈值 → 当作单击走一步。
+  /// - 旧模型：停掉连发定时器即可。
   void _stop() {
+    _holdTimer?.cancel();
+    _holdTimer = null;
     _repeat?.cancel();
     _repeat = null;
+    if (_useContinuous) {
+      if (_continuous) {
+        _continuous = false;
+        widget.onJogEnd?.call();
+      } else {
+        widget.onTap(); // 未达长按阈值：按单击处理
+      }
+    }
     if (mounted && _holding) setState(() => _holding = false);
   }
 
   @override
   void dispose() {
+    _holdTimer?.cancel();
     _repeat?.cancel();
+    // 控件销毁时若仍在连续点动，必须补发取消，否则机器会一直走到软限位。
+    if (_continuous) {
+      _continuous = false;
+      widget.onJogEnd?.call();
+    }
     super.dispose();
   }
 

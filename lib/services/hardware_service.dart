@@ -129,6 +129,18 @@ abstract class HardwareService {
   /// UI 必须给出明确提示（不再静默失败）。
   Future<bool> jog(String axis, double distanceMm); // axis: x | y | z
 
+  /// 长按连续点动（2026-09-11 三方共识 S1）：**只发一次** `mode:"continuous"`，
+  /// 由固件转成一条长距离 `$J` 持续运动。松手必须调用 [jogCancel]。
+  ///
+  /// 受 `AppConfig.jogContinuousEnabled` 开关保护，默认关闭（老固件不认该格式）。
+  Future<bool> jogContinuous(String axis, int direction); // direction: +1 / -1
+
+  /// 取消连续点动：松手 / 手势取消 / App 退后台 / 页面销毁时调用。
+  ///
+  /// 固件侧写 GRBL 实时字符 `0x85`（jog cancel，非点动状态下是空操作，天然幂等）。
+  /// 必须**幂等且可重复调用**（多次调用无副作用）。
+  Future<void> jogCancel();
+
   /// 回零。契约 forbidden → 仅同网（全行程移动，外网误触即撞机）。
   Future<bool> home(); // homing cycle ($H)
 

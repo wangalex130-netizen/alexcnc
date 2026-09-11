@@ -367,8 +367,8 @@ class RealHardwareService implements HardwareService {
         _flushPendingCameraAction();
       } else {
         _mqttConnected = false;
-        final reason = client.connectionStatus?.returnCode?.toString() ?? 'broker returned non-zero CONNACK';
-        _lastConnError = 'MQTT 握手失败：$reason';
+        _lastConnError =
+            _describeMqttFailure(client.connectionStatus?.returnCode, null);
         _setConn(LinkState.disconnected);
         _scheduleReconnect();
       }
@@ -376,13 +376,55 @@ class RealHardwareService implements HardwareService {
       // 云端不可达：保持离线并尝试重连，不阻断 App；把异常记入 UI 诊断。
       _mqttConnected = false;
       final msg = e.toString();
-      _lastConnError = '连接异常：$msg';
+      _lastConnError = _describeMqttFailure(null, e);
       // ignore: avoid_print
       print('[MQTT] connect error: $msg\n$st');
       _updateHeartbeat();
       _setConn(LinkState.disconnected);
       _scheduleReconnect();
     }
+  }
+
+  /// 把连接失败翻译成**可直接定位**的原因（2026-09-11）。
+  ///
+  /// 背景：修复前失败只有一句笼统的"握手失败"，导致排查只能靠猜 ——
+  /// 2026-09-11 那起"装上正式包连不上"就是典型：真实原因是**没注入凭据 +
+  /// 强制校验证书链**，而不是网络问题。现在按「证书 / 网络 / 凭据 / 授权 / Broker」
+  /// 五类分别给话术，客户与工程师各取所需。
+  ///
+  /// 用字符串匹配而非 `MqttConnectReturnCode` 枚举成员名：
+  /// 避免 mqtt_client 包版本差异导致的编译/行为偏差。
+  static String _describeMqttFailure(dynamic returnCode, Object? error) {
+    final s = error?.toString() ?? '';
+    if (s.contains('CertificateException') ||
+        s.contains('HandshakeException') ||
+        s.contains('CERTIFICATE_VERIFY_FAILED') ||
+        s.contains('certificate')) {
+      return '证书校验失败：Broker 证书不被信任。联调请用联调包（已放行自签证书）；'
+          '正式包需 Broker 部署正式 CA 证书';
+    }
+    if (s.contains('SocketException') ||
+        s.contains('Connection refused') ||
+        s.contains('Connection timed out') ||
+        s.contains('Network is unreachable') ||
+        s.contains('Failed host lookup')) {
+      return '网络不通：请检查手机网络，以及 Broker 地址与端口（8883）';
+    }
+    final rc = returnCode?.toString() ?? '';
+    if (rc.contains('badUserNameOrPassword')) {
+      return '凭据被拒：MQTT 账号或口令不正确（联调包请确认已注入凭据）';
+    }
+    if (rc.contains('NotAuthorized')) {
+      return '未授权：该账号没有对应主题的权限（Broker ACL），请核对账号与设备绑定关系';
+    }
+    if (rc.contains('ServerUnavailable') || rc.contains('ServerBusy')) {
+      return 'Broker 不可用：服务未启动或已达连接上限';
+    }
+    if (rc.contains('BadProtocolVersion')) {
+      return '协议版本不被接受：Broker 与客户端的 MQTT 版本不一致';
+    }
+    if (returnCode != null) return 'MQTT 握手被拒（$rc）';
+    return '连接异常：${s.isEmpty ? '未知原因' : s}';
   }
 
   void _onMqttDisconnected() {
@@ -1224,6 +1266,9 @@ class RealHardwareService implements HardwareService {
       'ETIMEOUT': '机器等待控制板回复超时，请重试',
       'ENETDOWN': '机器的 Wi-Fi 已离线，请检查机器网络',
       'EVERIFY': '加工程序下载或校验失败，请重新开始',
+      // P0-1（2026-09-11）：机身确认采用"延迟回执"——收到 confirm 后不立即开切，
+      // 需在机器上按开始键；超时（默认 60s）由固件回此码。
+      'ECONFIRM_TIMEOUT': '等待机旁确认超时：请在机器上按"开始"键后重试',
     };
     if (map.containsKey(code)) return map[code]!;
     if (code.startsWith('GRBL_error')) return '控制板拒绝了这条指令（$code）';
@@ -1448,20 +1493,45 @@ class RealHardwareService implements HardwareService {
     if (!await _confirmLan()) return false;
     final cmd = {
       'cmd': 'jog',
+      'mode': 'step',
       'axis': axis,
       'dist': distanceMm,
-      // W-05：连发帧携带时间戳与递增序号 —— 弱网积压后松手仍会继续位移，
-      // 固件据此丢弃超龄帧（>500ms，配套改造见工单 F-01）。
+      // ⚠️ 2026-09-11 共识修订：**不再**用 `ts` 做超龄丢弃。
+      // 固件时钟是「开机以来毫秒」（cnc_net.c:505，全工程无 SNTP），而 App 发的是
+      // Unix 毫秒，两者相差 56 年 —— 固件若按 `now - ts > 500` 丢弃，会把**所有**
+      // 点动帧判为超龄，点动 100% 失效。`ts`/`seq` 此后仅作诊断，不参与任何跨端比较。
+      // 真正的失效机制见 [jogCancel]（长按一次 + 松手 0x85）。
       'ts': DateTime.now().millisecondsSinceEpoch,
       'seq': _jogSeq++,
     };
-    // 直接 _publish（jog 属"尽力而为、绝不重发"类，与 _dispatch 的该分支等价），
-    // 并返回值供 UI 提示"指令未送达"（W-09-c）。
-    //
-    // W-05（2026-09-10）：连发改 **QoS0**。权衡——丢一帧只是"少走一步"（手感），
-    // 而 QoS1 重传产生的**迟到帧**会让松手后机器继续移动（撞刀风险）。
-    // 与固件侧 F-01（按 ts 丢弃 >500ms 超龄帧）是同一目标的两道防线。
+    // jog 属"尽力而为、绝不重发"类（与 _dispatch 的该分支等价）：用 QoS0 ——
+    // 丢一帧只是"少走一步"的手感问题，而 QoS1 重传产生的迟到帧会让松手后继续移动。
     return _publish(cmd, qos: MqttQos.atMostOnce);
+  }
+
+  @override
+  Future<bool> jogContinuous(String axis, int direction) async {
+    // 2026-09-11 三方共识（S1「点动控制模型」）：长按**只发一次**，从源头消除
+    // 「每 180ms 连发 → GRBL 运动队列堆积 → 松手后仍继续走」。
+    // 门禁与 jog 一致（同网限定）。
+    if (!await _confirmLan()) return false;
+    final cmd = {
+      'cmd': 'jog',
+      'mode': 'continuous',
+      'axis': axis,
+      'dir': direction, // +1 / -1
+      'feed': 600, // 与固件缺省一致（cnc_net.c 单轴分支缺省 F600）
+    };
+    return _publish(cmd, qos: MqttQos.atMostOnce);
+  }
+
+  @override
+  Future<void> jogCancel() async {
+    // 松手 / 手势取消 / App 退后台 / 页面销毁时调用。
+    // 固件写 0x85（在非点动状态下是空操作，天然幂等，可安全重复调用）。
+    // 用 QoS0 且不等待回执：取消要"尽快"，不能因等回执而延迟。
+    final cmd = {'cmd': 'jog_cancel'};
+    _publish(cmd, qos: MqttQos.atMostOnce);
   }
 
   @override

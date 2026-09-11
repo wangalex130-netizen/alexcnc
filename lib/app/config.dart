@@ -348,6 +348,34 @@ class AppConfig {
 
   );
 
+  // ---- 点动控制模型（2026-09-11 三方共识 S1，**默认关闭**）----
+
+  // 背景：原实现「按下即一步，按住 500ms 后每 180ms 一步」会把 GRBL 运动队列灌满
+
+  // （10mm 档 F600 需 1000ms/步，而帧 180ms 一条）→ 松手后机器继续走。
+
+  // 共识方案：长按**只发一次** `mode:"continuous"`，由固件转成一条长距离 $J 持续运动；
+
+  // 松手/取消/退后台发 `jog_cancel`（固件写 GRBL 实时字符 0x85）。
+
+  //
+
+  // ⚠️ 为什么默认关闭：固件目前只认 `axis`+`dist` / `x,y,z`，**不解析 `mode`**，
+
+  // 直接发 continuous 会被固件当作「多轴但无有效轴」→ 回 E500，点动当场失效。
+
+  // 待固件支持 `mode:"continuous"` 与 `jog_cancel`（并实机验证 0x85）后，
+
+  // 构建加 `--dart-define=JOG_CONTINUOUS=true` 打开。
+
+  static const bool jogContinuousEnabled = bool.fromEnvironment(
+
+    'JOG_CONTINUOUS',
+
+    defaultValue: false,
+
+  );
+
 
 
   /// MQTT 状态广播主题：cnc/<deviceId>/status

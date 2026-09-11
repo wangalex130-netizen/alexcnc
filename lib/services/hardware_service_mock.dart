@@ -204,6 +204,17 @@ class MockHardwareService implements HardwareService {
   }
 
   @override
+  Future<bool> jogContinuous(String axis, int direction) async {
+    // 模拟器：按 10mm 档模拟"一次长按"产生的位移（不模拟真实连续运动）。
+    return jog(axis, 10.0 * direction);
+  }
+
+  @override
+  Future<void> jogCancel() async {
+    // 模拟器无真实运动，取消为空操作（保持与真机一致的幂等语义）。
+  }
+
+  @override
   Future<bool> home() async {
     _current = _current.copyWith(state: MachineState.homing);
     _emit();
