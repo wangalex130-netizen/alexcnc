@@ -157,6 +157,32 @@ jobs:
 
       # ------------------------------------------------------------------
 
+      # 单测（2026-09-11）：**非阻塞诊断**。
+
+      # 理由：本地沙箱无 flutter 工具链，用例只能在 CI 上跑；而构建日志 artifact
+
+      # 只保留 /tmp/ci.log 的尾部 200KB（`flutter build apk --verbose` 输出远超），
+
+      # 会把测试段整个截掉 —— 故这里**直接输出到 job 日志**，不写进 $LOG。
+
+      # 稳定后（连续若干次全绿）再改为阻塞步骤。
+
+      - name: Flutter unit tests (non-blocking diagnostics)
+
+        continue-on-error: true
+
+        timeout-minutes: 10
+
+        run: |
+
+          set +e
+
+          echo "=== flutter test ==="
+
+          flutter test
+
+          echo "### flutter test exit=$?"
+
       - name: Build APK (capture full log)
 
         id: build
@@ -268,16 +294,6 @@ jobs:
             # 只打印开关状态与长度，绝不打印值 —— Actions 日志是公开可见的。
             echo "### LAB_DIAG lab_build='${LAB_BUILD}' mqttUserLen=${#LAB_MQTT_USER} mqttPassLen=${#LAB_MQTT_PASS} camUserLen=${#LAB_CAMERA_USER} camPassLen=${#LAB_CAMERA_PASS} relayLen=${#LAB_RELAY_TOKEN}"
             echo "### LAB_DIAG define_keys: $(printf '%s' "$DEFINE_ARGS" | tr ' ' '\n' | sed 's/^--dart-define=//' | sed 's/=.*//' | tr '\n' ' ')"
-
-            echo "" >> "$LOG"
-
-            echo "=== flutter test（诊断用，非阻塞）===" >> "$LOG"
-
-            flutter test >> "$LOG" 2>&1
-
-            echo "### flutter test exit=$?" >> "$LOG"
-
-            echo "" >> "$LOG"
 
             echo "=== flutter build apk --release ===" >> "$LOG"
 
