@@ -269,6 +269,16 @@ jobs:
             echo "### LAB_DIAG lab_build='${LAB_BUILD}' mqttUserLen=${#LAB_MQTT_USER} mqttPassLen=${#LAB_MQTT_PASS} camUserLen=${#LAB_CAMERA_USER} camPassLen=${#LAB_CAMERA_PASS} relayLen=${#LAB_RELAY_TOKEN}"
             echo "### LAB_DIAG define_keys: $(printf '%s' "$DEFINE_ARGS" | tr ' ' '\n' | sed 's/^--dart-define=//' | sed 's/=.*//' | tr '\n' ' ')"
 
+            echo "" >> "$LOG"
+
+            echo "=== flutter test（诊断用，非阻塞）===" >> "$LOG"
+
+            flutter test >> "$LOG" 2>&1
+
+            echo "### flutter test exit=$?" >> "$LOG"
+
+            echo "" >> "$LOG"
+
             echo "=== flutter build apk --release ===" >> "$LOG"
 
             flutter build apk --release --verbose $DEFINE_ARGS >> "$LOG" 2>&1

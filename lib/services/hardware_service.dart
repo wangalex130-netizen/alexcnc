@@ -133,13 +133,27 @@ abstract class HardwareService {
   /// 由固件转成一条长距离 `$J` 持续运动。松手必须调用 [jogCancel]。
   ///
   /// 受 `AppConfig.jogContinuousEnabled` 开关保护，默认关闭（老固件不认该格式）。
-  Future<bool> jogContinuous(String axis, int direction); // direction: +1 / -1
+  /// [feed] 为该档位的进给（mm/min，见 `models/jog_profile.dart` 的
+  /// `jogFeedForStep`）；缺省 600 与固件缺省一致（`cnc_net.c:1432`）。
+  /// A1-2（2026-09-11）：必须按档位给值，否则 10mm 档在 F600 下需 1000ms，
+  /// 而连发间隔仅 180ms → 队列堆积。
+  Future<bool> jogContinuous(String axis, int direction, {double feed = 600});
 
   /// 取消连续点动：松手 / 手势取消 / App 退后台 / 页面销毁时调用。
   ///
   /// 固件侧写 GRBL 实时字符 `0x85`（jog cancel，非点动状态下是空操作，天然幂等）。
   /// 必须**幂等且可重复调用**（多次调用无副作用）。
   Future<void> jogCancel();
+
+  /// 连续点动保活（2026-09-11 架构审查 A2 新增）。
+  ///
+  /// **按住期间每 200ms 调用一次**。固件侧语义：连续点动中超过 600ms 未收到
+  /// 保活即自行写 `0x85` 停机。因此保活**不是可选的安全冗余，而是连续模式
+  /// 能够持续下去的前提** —— 不发保活，长按只会动 600ms 就停。
+  ///
+  /// 实现要点：QoS0、**不注入 reqId**（无回执需求，且避免每 200ms 产生一条
+  /// 无用 UUID 污染固件的 reqId 去重表）。异常必须静默，不得中断 UI 按压。
+  Future<void> jogKeepalive();
 
   /// 回零。契约 forbidden → 仅同网（全行程移动，外网误触即撞机）。
   Future<bool> home(); // homing cycle ($H)

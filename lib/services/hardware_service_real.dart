@@ -10,6 +10,7 @@ import '../models/broadcast_message.dart';
 import '../models/camera_stream_state.dart';
 import '../models/carve_session.dart';
 import '../models/job_progress.dart';
+import '../models/jog_profile.dart';
 import '../models/machine_status.dart';
 import '../models/notify_event.dart';
 import '../models/position.dart';
@@ -1496,6 +1497,12 @@ class RealHardwareService implements HardwareService {
       'mode': 'step',
       'axis': axis,
       'dist': distanceMm,
+      // A1-2（2026-09-11 架构审查）：**必须带 feed**。
+      // 原实现不带 feed → 固件按缺省 F600 执行（cnc_net.c:1432/1443）；
+      // 10mm 档在 F600 下要走 1000ms，而旧连发是 180ms/帧 —— 到达速度是
+      // 消耗速度的 5.5 倍，GRBL 运动队列必然堆积。按档位匹配进给后，
+      // 「走完一步」与「下一帧到达」量级相当，从源头消除堆积。
+      'feed': jogFeedForStep(distanceMm),
       // ⚠️ 2026-09-11 共识修订：**不再**用 `ts` 做超龄丢弃。
       // 固件时钟是「开机以来毫秒」（cnc_net.c:505，全工程无 SNTP），而 App 发的是
       // Unix 毫秒，两者相差 56 年 —— 固件若按 `now - ts > 500` 丢弃，会把**所有**
@@ -1510,7 +1517,8 @@ class RealHardwareService implements HardwareService {
   }
 
   @override
-  Future<bool> jogContinuous(String axis, int direction) async {
+  Future<bool> jogContinuous(String axis, int direction,
+      {double feed = 600}) async {
     // 2026-09-11 三方共识（S1「点动控制模型」）：长按**只发一次**，从源头消除
     // 「每 180ms 连发 → GRBL 运动队列堆积 → 松手后仍继续走」。
     // 门禁与 jog 一致（同网限定）。
@@ -1520,7 +1528,7 @@ class RealHardwareService implements HardwareService {
       'mode': 'continuous',
       'axis': axis,
       'dir': direction, // +1 / -1
-      'feed': 600, // 与固件缺省一致（cnc_net.c 单轴分支缺省 F600）
+      'feed': feed, // A1-2：由调用方按档位给出（jogFeedForStep）
     };
     return _publish(cmd, qos: MqttQos.atMostOnce);
   }
@@ -1530,8 +1538,32 @@ class RealHardwareService implements HardwareService {
     // 松手 / 手势取消 / App 退后台 / 页面销毁时调用。
     // 固件写 0x85（在非点动状态下是空操作，天然幂等，可安全重复调用）。
     // 用 QoS0 且不等待回执：取消要"尽快"，不能因等回执而延迟。
+    // A2（2026-09-11 架构审查）：取消是安全指令，不能只发一次就赌它到达。
+    // 原实现走 QoS0 单发 —— 公网丢一包，机器就继续走到尽头。
+    // 现改为：QoS1（broker 至少投一次）+ 连发 3 次（约 100ms 间隔）。
+    // 固件对重复 0x85 完全幂等，多发代价 ≈ 0；漏发代价 = 越程。
+    // 每次发布由 _publish 注入**新的** reqId（见其注释），故固件不会把
+    // 第 2/3 发当重复丢掉 —— 这正是我们要的冗余。
+    // 用 Future.delayed 而非 Timer：调用点（dispose / lifecycle）可能立刻
+    // 失活，Timer 会随 State 一起被取消，导致后两发永远发不出去。
     final cmd = {'cmd': 'jog_cancel'};
-    _publish(cmd, qos: MqttQos.atMostOnce);
+    for (var i = 0; i < 3; i++) {
+      _publish(cmd, qos: MqttQos.atLeastOnce);
+      if (i < 2) await Future.delayed(const Duration(milliseconds: 100));
+    }
+  }
+
+  @override
+  Future<void> jogKeepalive() {
+    // A2：连续点动保活，按住期间每 200ms 一次（由 JogKey 的定时器驱动）。
+    // - QoS0：丢一帧无妨 —— 下一帧 200ms 后就到，固件窗口 600ms = 3 帧余量。
+    // - injectReqId=false：保活无回执需求；每 200ms 生成一条 UUID 只会白白
+    //   占用固件的 reqId 去重表。
+    // - **不做同网门禁**：continuous 本身已被门禁；且每 200ms 跑一次异步探测
+    //   纯属白耗。保活只刷新固件看门狗时间戳，本身无运动语义。
+    _publish({'cmd': 'jog_keepalive'},
+        injectReqId: false, qos: MqttQos.atMostOnce);
+    return Future<void>.value();
   }
 
   @override

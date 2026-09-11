@@ -204,7 +204,8 @@ class MockHardwareService implements HardwareService {
   }
 
   @override
-  Future<bool> jogContinuous(String axis, int direction) async {
+  Future<bool> jogContinuous(String axis, int direction,
+      {double feed = 600}) async {
     // 模拟器：按 10mm 档模拟"一次长按"产生的位移（不模拟真实连续运动）。
     return jog(axis, 10.0 * direction);
   }
@@ -212,6 +213,12 @@ class MockHardwareService implements HardwareService {
   @override
   Future<void> jogCancel() async {
     // 模拟器无真实运动，取消为空操作（保持与真机一致的幂等语义）。
+  }
+
+  @override
+  Future<void> jogKeepalive() async {
+    // 模拟器无真实运动：保活为空操作。真机侧用于刷新固件的 600ms 看门狗，
+    // 保证按住就继续走、松手即停。
   }
 
   @override

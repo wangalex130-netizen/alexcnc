@@ -166,6 +166,16 @@ class MachineStatus {
         case 'running':
           state = MachineState.busy;
       }
+      // 🔴 A1-3（2026-09-11 架构审查）：固件侧词表（`cnc_net.c:421-430`）里的
+      // `jog`（点动运动中）/ `hold`（进给保持）/ `home`（回零中）在 App 枚举里
+      // **没有**对应值，本函数故意不给它们映射 ⇒ 保持 [MachineState.unknown]。
+      //
+      // **绝对不得**补成 `state = idle`：jog_sheet 的 `canControl` 要求
+      // `state == idle`，一旦机器正在运动时被判成 idle，点动键会在运动过程中
+      // **重新变为可用** → 叠加位移 / 撞刀。
+      // 契约 v1 冻结后若要把它们映射为具体状态，必须映射到**非 idle** 的值。
+      // 回归用例：`test/machine_status_mapping_test.dart`。
+      //
       // 🔴 W-02（2026-09-10，P0 安全加固）：已删除原 `case '': state = idle`。
       // 帧里没有 state 字段（或为空串）时**保持 [MachineState.unknown]**，
       // 绝不再回落 idle —— 回落会让 Jog 闸门（canControl == state==idle）
