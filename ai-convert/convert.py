@@ -9,7 +9,6 @@ def main():
         mean_values=[[0, 0, 0]],
         std_values=[[255, 255, 255]],
         target_platform='rk3566',
-        quantized_dtype='fp16',
         quantized_algorithm='normal',
         quantized_method='channel',
         optimization_level=3,
