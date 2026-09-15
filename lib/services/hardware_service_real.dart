@@ -260,6 +260,16 @@ class RealHardwareService implements HardwareService {
 
   @override
   Future<void> connect() async {
+    // P0（2026-09-15）：未选择机器（未登录/未绑定/机器列表为空且未在联调设置
+    // 填设备 ID）时，旧实现会静默订阅 `cnc//status`（空 ID 主题），永远收不到
+    // 任何帧，UI 呈现为无限"离线/连接中"——最难排查的一类"连不上"。
+    // 现直接给出可定位诊断，不发起注定失败的连接。
+    if (deviceId.isEmpty) {
+      _lastConnError = '未选择机器：请登录并在「我的机器」选择一台已绑定机器（联调可在'
+          '联调设置里填写设备 ID）';
+      _setConn(LinkState.disconnected);
+      return;
+    }
     if (cloudEnabled) {
       // 终局方案：统一走外网 MQTT 主链路，不再自动连局域网 TCP。
       // 命令一律发布到 cnc/<deviceId>/cmd（原网关 gw/<deviceId>/cmd 已废弃）。
@@ -280,6 +290,13 @@ class RealHardwareService implements HardwareService {
   }
 
   Future<void> _connectMqtt() async {
+    // 与 [connect] 同一道闸：reconnect() 直连本方法，也必须拦空设备 ID。
+    if (deviceId.isEmpty) {
+      _lastConnError = '未选择机器：请登录并在「我的机器」选择一台已绑定机器（联调可在'
+          '联调设置里填写设备 ID）';
+      _setConn(LinkState.disconnected);
+      return;
+    }
     if (_conn == LinkState.connected) return;
     _setConn(LinkState.connecting);
     try {

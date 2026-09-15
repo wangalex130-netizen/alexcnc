@@ -867,6 +867,62 @@ class _DiagnosticCard extends ConsumerWidget {
 
               style: const TextStyle(color: CncColors.textSub, fontSize: 12)),
 
+          const SizedBox(height: 6),
+
+          // 环境摘要（2026-09-15）：把"连不上"的四大配置态一眼摆平——
+
+          // ① 设备 ID 是否为空（未选机器 = 必连不上）；② MQTT 凭据是否注入
+
+          // （正式包 / P1-14 清洗后 = 必连不上）；③ 包类型（自签放行=联调包）；
+
+          // ④ 目标 Broker 地址端口。
+
+          Builder(builder: (_) {
+
+            final cfg = ref.watch(runtimeConfigProvider);
+
+            final devId = cfg.resolvedDeviceId;
+
+            final hasCred = cfg.resolvedMqttUser.isNotEmpty;
+
+            final pkg = AppConfig.mqttAllowSelfSigned ? '联调包' : '正式包';
+
+            return Column(
+
+              crossAxisAlignment: CrossAxisAlignment.start,
+
+              children: [
+
+                Text(
+
+                  '设备ID：${devId.isEmpty ? '（未选择机器 → 无法连接）' : devId}',
+
+                  style: TextStyle(
+
+                      color: devId.isEmpty ? CncColors.danger : CncColors.textSub,
+
+                      fontSize: 12,
+
+                      fontWeight:
+
+                          devId.isEmpty ? FontWeight.bold : FontWeight.normal)),
+
+                Text(
+
+                  'Broker：${cfg.resolvedMqttBroker}:${cfg.resolvedMqttPort}'
+
+                  ' ｜ 凭据：${hasCred ? '已注入' : '未注入'} ｜ 包：$pkg',
+
+                  style:
+
+                      const TextStyle(color: CncColors.textSub, fontSize: 12)),
+
+              ],
+
+            );
+
+          }),
+
           if (error != null && error.isNotEmpty) ...[
 
             const SizedBox(height: 8),
