@@ -1472,6 +1472,8 @@ class RealHardwareService implements HardwareService {
       final host = await DeviceDiscovery.discover(
         timeout: const Duration(seconds: 2),
         expectedDeviceId: deviceId,
+        scanPort: tcpPort,
+        fallbackHost: _tcpHost,
       );
       if (host != null && host.isNotEmpty) {
         ok = await NetworkProbe.probe(
@@ -1485,6 +1487,12 @@ class RealHardwareService implements HardwareService {
           // 原实现缓存**永不过期**且 discover 命中即返回 ⇒ Jog/回零/开切等
           // 会被**永久锁死**且 App 不会自恢复。此处失效缓存，使下一次重新发信标发现。
           await DeviceDiscovery.invalidateCache(deviceId);
+          // 🟠 2026-09-15：联调设置/DHCP 绑定里手填的机器地址做最后验证 ——
+          // 发现链可能在鸿蒙上全断，但用户手填的地址仍可能可达。
+          if (_tcpHost.isNotEmpty && _tcpHost != host) {
+            ok = await NetworkProbe.probe(_tcpHost, tcpPort,
+                timeout: const Duration(seconds: 2));
+          }
         }
       }
     } catch (_) {

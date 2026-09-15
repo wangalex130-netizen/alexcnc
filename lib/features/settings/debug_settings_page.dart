@@ -11,6 +11,8 @@ import '../../app/runtime_config.dart';
 
 import '../../app/theme.dart';
 
+import '../../services/device_discovery.dart';
+
 import '../../services/hardware_service.dart';
 
 import '../../services/local_notify_service.dart';
@@ -912,6 +914,14 @@ class _DiagnosticCard extends ConsumerWidget {
                   'Broker：${cfg.resolvedMqttBroker}:${cfg.resolvedMqttPort}'
 
                   ' ｜ 凭据：${hasCred ? '已注入' : '未注入'} ｜ 包：$pkg',
+
+                  style:
+
+                      const TextStyle(color: CncColors.textSub, fontSize: 12)),
+
+                Text(
+
+                  '同网探测：${DeviceDiscovery.lastDiscoverDetail ?? '尚未执行'}',
 
                   style:
 

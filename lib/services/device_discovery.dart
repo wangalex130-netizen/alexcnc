@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app/config.dart';
+import 'network_auth.dart';
 
 /// 局域网 UDP 信标（固件每 3s 广播一次）。
 ///
@@ -45,9 +46,14 @@ class DeviceDiscovery {
   static const int _kBeaconPort = 45454;
 
   /// 返回可达的控制器 IP（字符串）；找不到返回 null。
+  /// 最近一次发现过程的诊断信息（供连接诊断卡展示；null = 尚未执行）。
+  static String? lastDiscoverDetail;
+
   static Future<String?> discover({
     Duration timeout = const Duration(seconds: 3),
     String? expectedDeviceId,
+    int scanPort = AppConfig.deviceTcpPort,
+    String? fallbackHost,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     // W-04（2026-09-10）：缓存按 deviceId 绑定 —— 否则 A 机器被发现后写入的地址，
@@ -76,8 +82,72 @@ class DeviceDiscovery {
       await prefs.setString(cacheKey, found);
       return found;
     }
-    // 兜底：用配置的固定地址（DHCP 绑定 / 设置页填写）。
-    return AppConfig.deviceTcpHost;
+    // 兜底①（2026-09-15）：网段扫描 —— 鸿蒙等系统拿不到 Wi-Fi IP、部分路由器禁
+    // UDP 广播/组播，信标与 mDNS 全部哑火，导致「同一 Wi-Fi 却被判非同网、
+    // Jog/主轴被锁」。用 TCP 出站连接反推本机 /24 网段（无需任何权限），并发探测
+    // 机器端口；是否真同网仍以 TCP 可达为准，不放松「宁锁勿放」。
+    final scan = await _subnetScan(scanPort);
+    if (scan != null) {
+      await prefs.setString(cacheKey, scan);
+      return scan;
+    }
+    // 兜底②：调用方运行时配置的固定地址（联调设置 / DHCP 绑定），最后编译期默认值。
+    final cfgHost = fallbackHost ?? AppConfig.deviceTcpHost;
+    if (cfgHost.isEmpty) {
+      lastDiscoverDetail = '信标/mDNS/网段扫描均未发现机器，且未配置机器地址';
+    }
+    return cfgHost;
+  }
+
+  /// 用出站 TCP 连接的本地地址反推本机局域网网段（前 3 段），失败返回 null。
+  /// 不依赖 network_info_plus / 定位权限（鸿蒙上两者都不可用）。
+  static Future<String?> _localSubnetPrefix() async {
+    for (final host in ['223.5.5.5', '119.29.29.29', '8.8.8.8']) {
+      try {
+        final s = await Socket.connect(host, 53,
+            timeout: const Duration(milliseconds: 800));
+        final addr = s.address.address;
+        s.destroy();
+        final parts = addr.split('.');
+        if (parts.length == 4 &&
+            !addr.startsWith('127.') &&
+            !addr.startsWith('0.')) {
+          return '${parts[0]}.${parts[1]}.${parts[2]}';
+        }
+      } catch (_) {
+        // 换下一个探测目标
+      }
+    }
+    return null;
+  }
+
+  /// /24 网段并发端口扫描：返回第一个 [port] 开放的主机，未命中返回 null。
+  static Future<String?> _subnetScan(int port) async {
+    final base = await _localSubnetPrefix();
+    if (base == null) {
+      lastDiscoverDetail = '无法确定本机网段（手机当前无局域网/外网出口）';
+      return null;
+    }
+    lastDiscoverDetail = '正在扫描网段 $base.1~254:$port …';
+    const concurrency = 48;
+    const perTry = Duration(milliseconds: 400);
+    final hosts = [for (var i = 1; i <= 254; i++) '$base.$i'];
+    for (var i = 0; i < hosts.length; i += concurrency) {
+      final end =
+          (i + concurrency > hosts.length) ? hosts.length : i + concurrency;
+      final batch = hosts.sublist(i, end);
+      final rs = await Future.wait(
+          batch.map((h) => NetworkProbe.probe(h, port, timeout: perTry)));
+      for (var k = 0; k < batch.length; k++) {
+        if (rs[k]) {
+          lastDiscoverDetail = '网段扫描发现机器 ${batch[k]}:$port 端口开放';
+          return batch[k];
+        }
+      }
+    }
+    lastDiscoverDetail =
+        '网段扫描完成：$base.0/24 无 $port 开放主机（若确认同一 Wi-Fi，请检查路由器 AP/客户端隔离）';
+    return null;
   }
 
   /// 单次 UDP 信标发现：在 [timeout] 内返回第一台发现的机器，超时返回 null。
