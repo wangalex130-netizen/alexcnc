@@ -2102,9 +2102,21 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                     final job = ref.watch(activeJobProvider);
 
-                    if (job == null) return const SizedBox.shrink();
+                    // 2026-09-15：屏幕/PC 发起的雕刻，App 无 activeJob 也必须显示进度
+                    // （PRD §3.3.1⑨ 执行与监视）。原来 job 为空直接不渲染 ⇒ 非本 App
+                    // 发起的作业在控制台看不到任何进度。监控页对空作业安全（无刀路时
+                    // 仅显示百分比与状态）。
+                    final remoteBusy = job == null &&
+                        (status.state == MachineState.busy ||
+                            status.state == MachineState.paused);
 
-                    final completed = job.completed;
+                    if (job == null && !remoteBusy) {
+                      return const SizedBox.shrink();
+                    }
+
+                    final j = job;
+
+                    final completed = j?.completed ?? false;
 
                     final progress = completed
 
@@ -2116,7 +2128,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                       onTap: () {
 
-                        if (completed || job.selfCheckDone) {
+                        if (j == null || completed || j.selfCheckDone) {
 
                           Navigator.of(context).push(
 
@@ -2134,11 +2146,11 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                               builder: (_) => SelfCheckPage(
 
-                                materialKey: job.materialKey,
+                                materialKey: j!.materialKey,
 
-                                requiredTools: job.task.requiredTools,
+                                requiredTools: j!.task.requiredTools,
 
-                                procSlot: job.procSlot,
+                                procSlot: j!.procSlot,
 
                               ),
 
@@ -2228,7 +2240,11 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                                         ? '加工已完成'
 
-                                        : '当前加工中 · $progress%',
+                                        : j == null
+
+                                            ? '正在雕刻（其他端发起）· $progress%'
+
+                                            : '当前加工中 · $progress%',
 
                                     style: TextStyle(
 
@@ -2242,7 +2258,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                                   ),
 
-                                  Text(job.item.title,
+                                  Text(j?.item.title ?? '（其他端发起的作业）',
 
                                       maxLines: 1,
 
