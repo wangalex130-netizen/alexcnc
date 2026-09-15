@@ -1459,6 +1459,11 @@ class RealHardwareService implements HardwareService {
   /// - **探测失败 / 取不到机器地址 → 一律判为不同网**（安全侧默认：宁可锁，不误放行）。
   ///   代价：手机确实在机器旁却拿不到地址时会被锁，UI 会提示"请连接机器所在 Wi-Fi"。
   Future<bool> _confirmLan() async {
+    // 2026-09-15 昊总拍板：**暂缓内外网区分，先放开全功能测试**。此前门禁在鸿蒙
+    // 上因发现链不通把同一 Wi-Fi 也锁死（Jog/主轴/回零全部弹「未发送」）。
+    // 门禁逻辑原样保留于下方；要恢复时构建加 --dart-define=SAME_NET_GATE=true。
+    // 外网拦截权威在云端网关 + EMQX ACL（PRD §6），此处关闭不新增服务端风险面。
+    if (!AppConfig.sameNetGateEnabled) return true;
     final now = DateTime.now();
     final cached = _lanOk;
     final checkedAt = _lanCheckedAt;

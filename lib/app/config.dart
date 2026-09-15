@@ -376,6 +376,28 @@ class AppConfig {
 
   );
 
+  // ---- 同网门禁开关（W-10 引入；**2026-09-15 昊总拍板：默认关闭**）----
+
+  // 背景：门禁要求 Jog/主轴/回零等仅在「App 与机器同局域网」可用，但其发现链
+
+  // （UDP 信标/mDNS）在鸿蒙等设备上不通，导致同一 Wi-Fi 也被锁死，阻塞全功能测试。
+
+  // 决策：**暂缓内外网区分**，先放开功能验证；门禁代码原样保留，后续要恢复时
+
+  // 构建加 `--dart-define=SAME_NET_GATE=true` 即可，无需改代码。
+
+  // 注：外网拦截的权威本来就在云端网关 + EMQX ACL（见 PRD §6），App 侧门禁
+
+  // 只是体验层，关闭它不新增服务端风险面。
+
+  static const bool sameNetGateEnabled = bool.fromEnvironment(
+
+    'SAME_NET_GATE',
+
+    defaultValue: false,
+
+  );
+
 
 
   /// MQTT 状态广播主题：cnc/<deviceId>/status
