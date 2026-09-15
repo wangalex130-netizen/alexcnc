@@ -19,7 +19,7 @@ def main():
     ret = rknn.load_onnx(model='v7_ep17_best.onnx')
     assert ret == 0, 'load_onnx failed'
     print('-- build (INT8 quantization, 35 calib images)')
-    ret = rknn.build(do_quantization=True, dataset='calib_list.txt')
+    ret = rknn.build(do_quantization=False)
     assert ret == 0, 'build failed'
     print('-- export')
     ret = rknn.export_rknn('v7_fire_smoke_416_int8.rknn')
