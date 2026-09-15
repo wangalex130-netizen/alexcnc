@@ -77,7 +77,6 @@ class DevicePresenceService {
   MqttServerClient? _client;
   final Set<String> _subscribed = {};
   final Set<String> _deniedSubs = {};
-  Timer? _staleTimer;
   Timer? _reconnectTimer;
   bool _closing = false;
   bool _connecting = false;
@@ -88,7 +87,12 @@ class DevicePresenceService {
     if (_closing) return;
     if (_client != null) return; // 已连接或连接中
     _connect();
-    _staleTimer ??= Timer.periodic(const Duration(seconds: 30), (_) => _checkStale());
+    // 在线判定只信 Broker 真相（retain status + 遗嘱），不做「长间隔无新帧即离线」
+    // 的降级（2026-09-15 修订）：屏幕固件只在状态变化时发布 status（retain+QoS1，
+    // 见 cnc_net.c publish_status；telemetry 默认关、hello 不回发状态），空闲机器
+    // 可以很长时间没有新帧。旧降级逻辑会把空闲机器误判成离线——表现即「机器一会
+    // 在线一会离线，工程师一操作机器又变回在线」。真实掉线由 Broker 遗嘱覆盖：
+    // 断链必发 retained disconnected（QoS1+retain），比按沉默猜测可靠得多。
   }
 
   void _setConn(PresenceConnectionState s) {
@@ -234,29 +238,15 @@ class DevicePresenceService {
     });
   }
 
-  /// 长期收不到状态帧（>90s）即判离线，覆盖 LWT 偶发丢失。
-  void _checkStale() {
-    final now = DateTime.now();
-    var changed = false;
-    for (final e in _map.entries) {
-      if (e.value.online && now.difference(e.value.lastSeen).inSeconds > 90) {
-        _map[e.key] = DevicePresence(
-          online: false,
-          state: e.value.state,
-          lastSeen: e.value.lastSeen,
-        );
-        changed = true;
-      }
-    }
-    if (changed) _emit();
-  }
-
+  // （2026-09-15 修订）原有的「长间隔无新帧即判离线」检查已移除：固件 status 只在
+  // 状态变化时发布（retain），空闲机器长期无新帧是在常态而非掉线；该检查曾把空闲
+  // 机器周期性误判成离线。真实掉线由 Broker retained 遗嘱（断链必发）覆盖，见 init
+  // 处注释。
   void _emit() => _ctrl.add(Map.unmodifiable(_map));
 
   void dispose() {
     _closing = true;
     _reconnectTimer?.cancel();
-    _staleTimer?.cancel();
     _client?.disconnect();
     _client = null;
     _connCtrl.close();
