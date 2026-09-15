@@ -10,7 +10,7 @@ def main():
         std_values=[[255, 255, 255]],
         target_platform='rk3566',
         quantized_dtype='w8a8',
-        quantized_algorithm='normal',
+        quantized_algorithm='mmse',
         quantized_method='channel',
         optimization_level=3,
     )
