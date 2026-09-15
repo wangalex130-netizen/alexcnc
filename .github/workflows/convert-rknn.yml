@@ -1,0 +1,26 @@
+name: convert-rknn
+on:
+  push:
+    branches: [ai-rknn-convert]
+    paths: ["ai-convert/**"]
+permissions:
+  contents: write
+jobs:
+  convert:
+    runs-on: ubuntu-22.04
+    defaults: { run: { working-directory: ai-convert } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.10" }
+      - name: Install rknn-toolkit2
+        run: pip install rknn-toolkit2 numpy==1.26.4
+      - name: Convert ONNX -> RKNN INT8 (rk3566)
+        run: python convert.py
+      - name: Commit artifact back
+        run: |
+          git config user.email "bot@local"
+          git config user.name "rknn-bot"
+          git add v7_fire_smoke_416_int8.rknn
+          git commit -m "RKNN artifact (rk3566 INT8)" || echo "nothing to commit"
+          git push origin HEAD:ai-rknn-convert
