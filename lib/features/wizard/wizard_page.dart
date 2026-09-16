@@ -1327,7 +1327,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
   bool _show3D = false;
   bool _busy = false;
   bool _laserOn = false;
-  String? _note;
+  String? _noteMsg;
   bool _noteBad = false;
   DateTime? _frameAt; // N2：状态帧新鲜度（本地接收时刻）
   OriginMeta? _meta;
@@ -1381,7 +1381,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
   void _note(String s, {bool bad = false}) {
     if (!mounted) return;
     setState(() {
-      _note = s;
+      _noteMsg = s;
       _noteBad = bad;
     });
   }
@@ -1806,9 +1806,9 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
           const SizedBox(height: 8),
           _banner('图案已超出可用安全区（标定区域 − 10mm 隔离带 − 刀径）：请调整位置或换大料', bad: true),
         ],
-        if (_note != null) ...[
+        if (_noteMsg != null) ...[
           const SizedBox(height: 8),
-          _banner(_note!, bad: _noteBad),
+          _banner(_noteMsg!, bad: _noteBad),
         ],
         const SizedBox(height: 12),
 

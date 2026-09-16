@@ -2,8 +2,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../app/theme.dart';
-
 /// 材料/标定区域形态（开发文档 §5.2 形态分支）。
 /// 矩形料 = 2 点标定；圆形料 = 3 点定圆（圆料无料边可对齐 ⇒ 不算 θ）。
 enum StockShape { rect, circle }
