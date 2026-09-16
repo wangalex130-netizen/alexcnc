@@ -38,6 +38,9 @@ class ZGridData {
 
   bool get isEmpty => resX <= 0 || resY <= 0 || z.isEmpty;
 
+  /// 格点总数。
+  int get pointCount => z.length;
+
   /// 取格点高度（行主序：index = gj * (resX+1) + gi）。
   double zAt(int gi, int gj) {
     final i = gj * (resX + 1) + gi;
@@ -49,6 +52,15 @@ class ZGridData {
     var m = 0.0;
     for (final v in z) {
       if (v < m) m = v;
+    }
+    return m;
+  }
+
+  /// 网格内最大 Z（通常 0，异常数据也可能为正）。
+  double get maxZ {
+    var m = 0.0;
+    for (final v in z) {
+      if (v > m) m = v;
     }
     return m;
   }
@@ -103,10 +115,140 @@ class ZGridData {
   }
 }
 
-/// 轻量 JSON 的 3D 预览：等轴测投影渲染减材实体（材料平板 + 下凹雕刻面）。
+/// 数据驱动的 3D 减材实体视图（**不依赖网络**）。
+///
+/// 供两处共用：① 网络轻量 JSON 预览（[ZGridPreview]）；② 本地文件调试解析
+/// （`LocalPayloadPage`）。交互：单指拖动旋转、双指缩放/平移、双击复位。
+class ZGridSurface extends StatefulWidget {
+  final ZGridData data;
+  final double fallbackWidthMm;
+  final double fallbackHeightMm;
+  final double fallbackThicknessMm;
+  final double height;
+
+  const ZGridSurface({
+    super.key,
+    required this.data,
+    this.fallbackWidthMm = 0,
+    this.fallbackHeightMm = 0,
+    this.fallbackThicknessMm = 0,
+    this.height = 220,
+  });
+
+  @override
+  State<ZGridSurface> createState() => _ZGridSurfaceState();
+}
+
+class _ZGridSurfaceState extends State<ZGridSurface> {
+  // 相机：绕 Z / 绕 X 旋转（弧度）、缩放、平移
+  double _rotX = 0.62;
+  double _rotZ = -0.35;
+  double _zoom = 1.0;
+  Offset _pan = Offset.zero;
+  Offset? _focal;
+  double? _baseScale;
+
+  void _reset() {
+    setState(() {
+      _rotX = 0.62;
+      _rotZ = -0.35;
+      _zoom = 1.0;
+      _pan = Offset.zero;
+    });
+  }
+
+  void _onScaleStart(ScaleStartDetails d) {
+    _focal = d.focalPoint;
+    // ScaleStartDetails 无 scale（该属性只存在于 ScaleUpdateDetails）；
+    // 手势起始时缩放系数恒为 1.0，之后靠 d.scale 的增量推进。
+    _baseScale = 1.0;
+  }
+
+  void _onScaleUpdate(ScaleUpdateDetails d) {
+    final focal = d.focalPoint;
+    final prev = _focal ?? focal;
+    final dx = focal.dx - prev.dx;
+    final dy = focal.dy - prev.dy;
+    setState(() {
+      if (d.pointerCount >= 2) {
+        _pan += Offset(dx, dy);
+        final b = _baseScale;
+        if (b != null && b > 0) {
+          _zoom = (_zoom * (d.scale / b)).clamp(0.4, 6.0);
+        }
+      } else {
+        _rotZ += dx * 0.008;
+        _rotX = (_rotX - dy * 0.008).clamp(0.06, math.pi / 2 - 0.03);
+      }
+      _focal = focal;
+      _baseScale = d.scale;
+    });
+  }
+
+  void _onScaleEnd(ScaleEndDetails d) {
+    _focal = null;
+    _baseScale = null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: widget.height,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onScaleStart: _onScaleStart,
+              onScaleUpdate: _onScaleUpdate,
+              onScaleEnd: _onScaleEnd,
+              onDoubleTap: _reset,
+              child: CustomPaint(
+                painter: _ZGridPainter(
+                  data: widget.data,
+                  rotX: _rotX,
+                  rotZ: _rotZ,
+                  zoom: _zoom,
+                  pan: _pan,
+                  fallbackW: widget.fallbackWidthMm,
+                  fallbackH: widget.fallbackHeightMm,
+                  fallbackT: widget.fallbackThicknessMm,
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 6,
+            right: 6,
+            child: GestureDetector(
+              onTap: _reset,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.85),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: CncColors.border),
+                ),
+                child: const Text('复位',
+                    style: TextStyle(fontSize: 10, color: CncColors.textSub)),
+              ),
+            ),
+          ),
+          const Positioned(
+            left: 8,
+            bottom: 6,
+            child: Text('拖动旋转 · 双指缩放',
+                style: TextStyle(fontSize: 10, color: CncColors.textSub)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 轻量 JSON 的 3D 预览（**按 URL 拉取**）：拉取成功即交给 [ZGridSurface] 渲染。
 ///
 /// 无数据 / 加载失败 → 显示占位，绝不报错、绝不空转。
-/// 交互：单指拖动旋转、双指缩放/平移、双击复位。
 class ZGridPreview extends StatefulWidget {
   final String? url;
   final double fallbackWidthMm;
@@ -128,14 +270,6 @@ class ZGridPreview extends StatefulWidget {
 class _ZGridPreviewState extends State<ZGridPreview> {
   ZGridData? _data;
   bool _loading = false;
-
-  // 相机：绕 Z / 绕 X 旋转（弧度）、缩放、平移
-  double _rotX = 0.62;
-  double _rotZ = -0.35;
-  double _zoom = 1.0;
-  Offset _pan = Offset.zero;
-  Offset? _focal;
-  double? _baseScale;
 
   @override
   void initState() {
@@ -185,48 +319,6 @@ class _ZGridPreviewState extends State<ZGridPreview> {
     }
   }
 
-  void _reset() {
-    setState(() {
-      _rotX = 0.62;
-      _rotZ = -0.35;
-      _zoom = 1.0;
-      _pan = Offset.zero;
-    });
-  }
-
-  void _onScaleStart(ScaleStartDetails d) {
-    _focal = d.focalPoint;
-    // ScaleStartDetails 无 scale（该属性只存在于 ScaleUpdateDetails）；
-    // 手势起始时缩放系数恒为 1.0，之后靠 d.scale 的增量推进。
-    _baseScale = 1.0;
-  }
-
-  void _onScaleUpdate(ScaleUpdateDetails d) {
-    final focal = d.focalPoint;
-    final prev = _focal ?? focal;
-    final dx = focal.dx - prev.dx;
-    final dy = focal.dy - prev.dy;
-    setState(() {
-      if (d.pointerCount >= 2) {
-        _pan += Offset(dx, dy);
-        final b = _baseScale;
-        if (b != null && b > 0) {
-          _zoom = (_zoom * (d.scale / b)).clamp(0.4, 6.0);
-        }
-      } else {
-        _rotZ += dx * 0.008;
-        _rotX = (_rotX - dy * 0.008).clamp(0.06, math.pi / 2 - 0.03);
-      }
-      _focal = focal;
-      _baseScale = d.scale;
-    });
-  }
-
-  void _onScaleEnd(ScaleEndDetails d) {
-    _focal = null;
-    _baseScale = null;
-  }
-
   @override
   Widget build(BuildContext context) {
     return SizedBox(
@@ -269,53 +361,11 @@ class _ZGridPreviewState extends State<ZGridPreview> {
         ),
       );
     }
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onScaleStart: _onScaleStart,
-            onScaleUpdate: _onScaleUpdate,
-            onScaleEnd: _onScaleEnd,
-            onDoubleTap: _reset,
-            child: CustomPaint(
-              painter: _ZGridPainter(
-                data: d,
-                rotX: _rotX,
-                rotZ: _rotZ,
-                zoom: _zoom,
-                pan: _pan,
-                fallbackW: widget.fallbackWidthMm,
-                fallbackH: widget.fallbackHeightMm,
-                fallbackT: widget.fallbackThicknessMm,
-              ),
-            ),
-          ),
-        ),
-        Positioned(
-          top: 6,
-          right: 6,
-          child: GestureDetector(
-            onTap: _reset,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.85),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: CncColors.border),
-              ),
-              child: const Text('复位',
-                  style: TextStyle(fontSize: 10, color: CncColors.textSub)),
-            ),
-          ),
-        ),
-        const Positioned(
-          left: 8,
-          bottom: 6,
-          child: Text('拖动旋转 · 双指缩放',
-              style: TextStyle(fontSize: 10, color: CncColors.textSub)),
-        ),
-      ],
+    return ZGridSurface(
+      data: d,
+      fallbackWidthMm: widget.fallbackWidthMm,
+      fallbackHeightMm: widget.fallbackHeightMm,
+      fallbackThicknessMm: widget.fallbackThicknessMm,
     );
   }
 }
@@ -379,8 +429,9 @@ class _ZGridPainter extends CustomPainter {
         data.spanX > 0 ? data.spanX : (fallbackW > 0 ? fallbackW : 60.0);
     final spanY =
         data.spanY > 0 ? data.spanY : (fallbackH > 0 ? fallbackH : 60.0);
-    final thick =
-        data.thicknessMm > 0 ? data.thicknessMm : (fallbackT > 0 ? fallbackT : 10.0);
+    final thick = data.thicknessMm > 0
+        ? data.thicknessMm
+        : (fallbackT > 0 ? fallbackT : 10.0);
 
     final cosZ = math.cos(rotZ), sinZ = math.sin(rotZ);
     final cosX = math.cos(rotX), sinX = math.sin(rotX);

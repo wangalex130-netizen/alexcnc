@@ -34,6 +34,7 @@ import 'work_history_page.dart';
 
 import '../settings/debug_settings_page.dart';
 import '../settings/privacy_policy_page.dart';
+import '../debug/local_payload_page.dart';
 
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
@@ -604,6 +605,26 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
               title: '智能诊断与日志提取',
 
               onTap: () => _openSheet(const _DiagSheet()),
+
+            ),
+
+            // 临时调试口：读手机里的轻量 JSON，验证解析 + 3D 预览
+            // （不面向客户流程，联调后可整体删除）。
+            _MenuItem(
+
+              icon: Symbols.download,
+
+              title: '本地文件解析（调试）',
+
+              onTap: () => Navigator.push(
+
+                context,
+
+                MaterialPageRoute(
+
+                    builder: (_) => const LocalPayloadPage()),
+
+              ),
 
             ),
 

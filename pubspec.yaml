@@ -44,6 +44,13 @@ dependencies:
   # 个推推送（B阶段）：真实厂商通道 CID + alias 绑定/解绑（账号↔机器隔离）。
   # 版本以 pub.dev 当前为准（^0.2.41，2026-08 验证）。
   getuiflut: ^0.2.41
+  # 本地文件解析（临时调试口）：从手机选取轻量 JSON（Unified Payload v2.3.0）
+  # 解析并 3D 预览，用于云端尚未注入数据时模拟后续「定原点」链路。
+  # 走系统 SAF 文件选择器，无需申请存储权限。锁 8.x（CI Flutter 3.29 / Dart 3.7 兼容）。
+  # 锁死 8.1.2（实测 environment: sdk>=3.4.0 <4.0.0 + flutter>=3.22.0，
+  # 与 CI Flutter 3.29.0 / Dart 3.7 兼容；9.x+ 起要求更高 SDK）。
+  file_picker: 8.1.2
+  # 注意：9.x+ 起要求 Dart >=3.8，13.x 要 >=3.10，勿升级。
 
 dev_dependencies:
   flutter_test:
