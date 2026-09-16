@@ -39,6 +39,9 @@ class LibraryItem {
   final double boardThicknessMm; // 推荐板材厚度
   final List<RequiredTool> requiredTools; // 有序工序刀具
   final String? previewUrl; // 2D 刀路预览矢量 JSON 地址
+  /// 轻量 JSON（Unified Payload v2.3.0）地址：含 zGridBase64 高程网格，
+  /// 供 App 做 3D 预览（App 不解析 G-code）。未注入时为 null。
+  final String? payloadUrl;
 
   // ---- 模型库接口补充（推荐加工参数，由云端下发的真实值）----
   final int? recommendedSpindleRpm; // 推荐主轴转速 (RPM)
@@ -127,6 +130,7 @@ class LibraryItem {
     this.boardThicknessMm = 0,
     this.requiredTools = const [],
     this.previewUrl,
+    this.payloadUrl,
     this.recommendedSpindleRpm,
     this.recommendedFeedRate,
     this.zFeedRate,
@@ -179,6 +183,7 @@ class LibraryItem {
         // （**真实接口 2026-09-03 实测**：只回 `tools`，不回 `requiredTools`）
         requiredTools: _parseRequiredTools(j),
         previewUrl: j['previewUrl'] as String?,
+        payloadUrl: j['payloadUrl'] as String?,
         recommendedSpindleRpm: (j['recommendedSpindleRpm'] as num?)?.toInt(),
         recommendedFeedRate: (j['recommendedFeedRate'] as num?)?.toDouble(),
         // 详情接口新增（2026-09-03）：全部可空，缺失即 null，不设默认值
@@ -342,6 +347,7 @@ class LibraryItem {
     double? boardThicknessMm,
     List<RequiredTool>? requiredTools,
     String? previewUrl,
+    String? payloadUrl,
     int? recommendedSpindleRpm,
     double? recommendedFeedRate,
     double? zFeedRate,
@@ -381,6 +387,7 @@ class LibraryItem {
         boardThicknessMm: boardThicknessMm ?? this.boardThicknessMm,
         requiredTools: requiredTools ?? this.requiredTools,
         previewUrl: previewUrl ?? this.previewUrl,
+        payloadUrl: payloadUrl ?? this.payloadUrl,
         recommendedSpindleRpm:
             recommendedSpindleRpm ?? this.recommendedSpindleRpm,
         recommendedFeedRate: recommendedFeedRate ?? this.recommendedFeedRate,

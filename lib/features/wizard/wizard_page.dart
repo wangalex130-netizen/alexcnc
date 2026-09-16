@@ -19,6 +19,7 @@ import '../preview/timelapse_client.dart';
 import 'self_check_page.dart';
 import 'job_launch_banner.dart';
 import 'job_monitor_page.dart';
+import 'zgrid_preview.dart';
 
 /// Core 2: 6-step foolproof processing wizard.
 ///
@@ -29,7 +30,7 @@ import 'job_monitor_page.dart';
 class WizardPage extends ConsumerStatefulWidget {
   final LibraryItem item;
 
-  /// 起始步骤（0=材质确认 / 1=刀仓映射 / 2=定原点防撞 / 3=智能调平 / 4=开始雕刻）。
+  /// 起始步骤（0=材料确认与装夹 / 1=刀仓映射 / 2=定原点防撞 / 3=智能调平 / 4=开始雕刻）。
   ///
   /// 2026-09-04 改：详情页已展示模型信息（材料/刀具/尺寸），"解析任务"步骤整段
   /// 移除（顶部步骤条不再出现该栏目），进入向导即为材质确认。
@@ -50,10 +51,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   bool _loading = true;
 
   // ---- 跨步骤共享状态 ----
-  late String _materialKey; // Step1 模型默认材质 → Step2 预选
-  late String _thickness; // 板材厚度（默认=模型默认板厚）
-  late TextEditingController _thicknessCtl; // Step2 厚度输入（稳定 controller，避免无法删除）
-  late FocusNode _thicknessFocus; // 失去焦点时吸附到最小板厚
+  late String _materialKey; // Step1 模型指定材质（由模型固定，不可更换）→ Step5 展示
   Offset _origin = const Offset(15, 15); // 工件零点 (mm, 底板 300x200)
   bool _originSet = false;
   bool _originOverflow = false; // Step4 图纸外包矩形是否超出机床行程
@@ -66,12 +64,13 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   Map<int, int> _procSlot = {};
   Set<int> _procConfirmed = {};
   bool _syncedToMachine = false; // Step3：必须点「确认映射并同步到机器」
-  bool _chkThick = false; // 实物厚度与设置一致
-  bool _chkMatch = false; // 材质/尺寸厚度与实物完全一致
+  bool _chkThick = false; // 实物厚度已确认 ≥ 模型要求（Z 由探针实测，此处仅目视确认）
+  bool _chkSize = false; // 实物板材平面尺寸 ≥ 雕刻图形尺寸
+  bool _chkFixture = false; // 材料已平放，夹具固定在雕刻区域外
   bool _safetyChecked = false; // Step4 轨迹落在耗材内且避开压板
 
   static const _titles = [
-    '材质确认',
+    '材料确认',
     '刀仓映射',
     '定原点防撞',
     '智能调平',
@@ -82,17 +81,6 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   void initState() {
     super.initState();
     _step = widget.initialStep;
-    _thicknessFocus = FocusNode();
-    _thicknessFocus.addListener(() {
-      if (!_thicknessFocus.hasFocus) {
-        final parsed = double.tryParse(_thicknessCtl.text);
-        if (parsed != null && parsed < _minThickness) {
-          final snapped = _minThickness.toStringAsFixed(1);
-          _thicknessCtl.text = snapped;
-          setState(() => _thickness = snapped);
-        }
-      }
-    });
     _load();
   }
 
@@ -106,9 +94,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     setState(() {
       _task = task;
       _loading = false;
+      // 材质由模型固定，本步只读展示（不可更换）。
       _materialKey = task.defaultMaterialKey;
-      _thickness = task.boardThicknessMm.toStringAsFixed(1);
-      _thicknessCtl = TextEditingController(text: _thickness);
       // 刀仓以「控制台刀仓管理」为准（用户可增删/清空刀位）：
       // 已装好的工序刀沿用当前刀兜；未装的工序刀留空，由用户在 Step3 选择。
       // 不再自动按 1..N 覆盖/重排刀仓 —— 否则控制台删除（清空）的刀会在向导中"复活"。
@@ -127,8 +114,9 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     });
   }
 
+  /// 模型要求的最小材料厚度（mm）：材料厚度须 ≥ 该值，否则切穿板材、伤及台面。
+  /// 定稿口径：Z 原点一律由主轴探针实测，App 不采集厚度、也不由厚度推算 Z0。
   double get _minThickness => _task?.boardThicknessMm ?? 3.0;
-  double get _thicknessVal => double.tryParse(_thickness) ?? 0;
 
   /// 刀仓映射是否就绪：每把工序刀都分配到不同刀兜、逐兜实物确认完成、
   /// 且已点「确认映射并同步到机器」。
@@ -178,10 +166,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   bool get _canProceed {
     switch (_step) {
       case 0:
-        return _thicknessVal >= _minThickness &&
-            _thicknessVal > 0 &&
-            _chkThick &&
-            _chkMatch;
+        // 三项目视确认：厚度下限、平面尺寸、装夹。厚度不再由客户输入数值。
+        return _chkThick && _chkSize && _chkFixture;
       case 1:
         return _atcReady;
       case 2:
@@ -229,8 +215,6 @@ class _WizardPageState extends ConsumerState<WizardPage> {
 
   @override
   void dispose() {
-    _thicknessFocus.dispose();
-    _thicknessCtl.dispose();
     super.dispose();
   }
 
@@ -315,9 +299,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   Widget _guardHint(TextTheme t) {
     String msg;
     if (_step == 0) {
-      msg = _thicknessVal < _minThickness
-          ? '板材厚度需 ≥ ${_minThickness.toStringAsFixed(1)}mm（模型默认板厚），防止穿底伤床。'
-          : '请完成实物核验勾选项。';
+      msg = '请逐项确认：实物尺寸 ≥ 图形尺寸、材料厚度 ≥ '
+          '${_minThickness.toStringAsFixed(1)}mm、且材料已用夹具固定。';
     } else if (_step == 1) {
       final req = _task?.requiredTools ?? [];
       final dup = _procSlot.values.length != _procSlot.values.toSet().length;
@@ -359,17 +342,16 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       case 0:
         return _StepMaterial(
           materialKey: _materialKey,
-          thickness: _thickness,
-          minThickness: _minThickness,
-          defaultKey: _task?.defaultMaterialKey ?? 'pine',
-          controller: _thicknessCtl,
-          focusNode: _thicknessFocus,
+          modelWidthMm: _task?.widthMm ?? 0,
+          modelHeightMm: _task?.heightMm ?? 0,
+          minThicknessMm: _minThickness,
+          payloadUrl: widget.item.payloadUrl,
           chkThick: _chkThick,
-          chkMatch: _chkMatch,
-          onMaterial: (k) => setState(() => _materialKey = k),
-          onThickness: (v) => setState(() => _thickness = v),
+          chkSize: _chkSize,
+          chkFixture: _chkFixture,
           onChkThick: (v) => setState(() => _chkThick = v),
-          onChkMatch: (v) => setState(() => _chkMatch = v),
+          onChkSize: (v) => setState(() => _chkSize = v),
+          onChkFixture: (v) => setState(() => _chkFixture = v),
         );
       case 1:
         return _StepAtc(
@@ -460,97 +442,112 @@ class _Progress extends StatelessWidget {
   }
 }
 
-// ===================== Step 1 · 材质确认（默认松木 + 参数联动 + 厚度校验）=====================
+// ===================== Step 1 · 材料确认与装夹 =====================
+/// 材质由模型固定：G-code 的雕刻工艺参数在云端生成时已写死，App 侧改不了，
+/// 因此本步取消材质选择下拉，只做「确认实物与模型预置一致」：
+///   ① 材质只读（按模型指定备料）
+///   ② 平面尺寸 ≥ 雕刻图形尺寸（图形尺寸来自模型库；将来轻量 JSON 的
+///      modelBBox.spanX/spanY 与此同源）
+///   ③ 材料厚度 ≥ 模型要求（红线提醒；Z 原点由主轴探针实测，App 不采集厚度）
+///   ④ 装夹确认（材料平放 + 夹具只夹在雕刻区域外）
+///   ⑤ 轻量 JSON（Unified Payload v2.3.0）3D 预览，数据未就绪时显示占位
 class _StepMaterial extends StatelessWidget {
-  final String materialKey;
-  final String defaultKey; // 模型默认材质 key（排在第一位、标注「模型默认」）
-  final String thickness;
-  final double minThickness;
-  final TextEditingController controller; // 稳定 controller（可正常删除/编辑）
-  final FocusNode focusNode; // 失去焦点时父级吸附到最小板厚
+  final String materialKey; // 模型指定材质 key（只读，不再可选）
+  final double modelWidthMm; // 雕刻图形宽（mm）
+  final double modelHeightMm; // 雕刻图形高（mm）
+  final double minThicknessMm; // 材料厚度下限（mm）
+  final String? payloadUrl; // 轻量 JSON 地址 → 3D 预览数据源
   final bool chkThick;
-  final bool chkMatch; // 材质/尺寸厚度与实物完全一致
-  final void Function(String) onMaterial;
-  final void Function(String) onThickness;
+  final bool chkSize;
+  final bool chkFixture;
   final void Function(bool) onChkThick;
-  final void Function(bool) onChkMatch;
+  final void Function(bool) onChkSize;
+  final void Function(bool) onChkFixture;
+
   const _StepMaterial({
     required this.materialKey,
-    required this.defaultKey,
-    required this.thickness,
-    required this.minThickness,
-    required this.controller,
-    required this.focusNode,
+    required this.modelWidthMm,
+    required this.modelHeightMm,
+    required this.minThicknessMm,
+    required this.payloadUrl,
     required this.chkThick,
-    required this.chkMatch,
-    required this.onMaterial,
-    required this.onThickness,
+    required this.chkSize,
+    required this.chkFixture,
     required this.onChkThick,
-    required this.onChkMatch,
+    required this.onChkSize,
+    required this.onChkFixture,
   });
+
+  /// 数值格式化：整数不带小数位（70.0 → 70），否则保留 1 位。
+  static String _mm(double v) {
+    final s = v.toStringAsFixed(1);
+    return s.endsWith('.0') ? s.substring(0, s.length - 2) : s;
+  }
+
+  Widget _card({required Widget child}) => Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: CncColors.bg,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: CncColors.border),
+        ),
+        child: child,
+      );
+
+  Widget _title(IconData icon, String text) => Row(
+        children: [
+          Icon(icon, size: 15, color: CncColors.textSub),
+          const SizedBox(width: 6),
+          Text(text,
+              style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: CncColors.textSub)),
+        ],
+      );
+
+  Widget _kv(String k, String v) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(k,
+                style:
+                    const TextStyle(fontSize: 12, color: CncColors.textSub)),
+            Flexible(
+              child: Text(v,
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: CncColors.textMain)),
+            ),
+          ],
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
-    final mat = materialByKey(materialKey);
-    final def = materialByKey(defaultKey);
-    final th = double.tryParse(controller.text) ?? 0;
-    final tooThin = th > 0 && th < minThickness;
-    // 输入框处理：输入过程中自由编辑/删除，不在 onChanged 中强制吸附，
-    // 避免用户输入 "10" 时因先输入 "1" 而被误判为小于最小厚度。
-    // 真正吸附在父级 FocusNode 失去焦点时完成。
-    void onChanged(String v) => onThickness(v);
-    // 材料库列表：默认材质排第一位。
-    final ordered = [def, ...materials.where((m) => m.key != def.key)];
-    final selectedIsDefault = materialKey == defaultKey;
+    final def = materialByKey(materialKey);
+    final hasSize = modelWidthMm > 0 && modelHeightMm > 0;
+    final sizeText = hasSize
+        ? '${_mm(modelWidthMm)} × ${_mm(modelHeightMm)} mm'
+        : '以模型标注为准';
+    final minT = minThicknessMm.toStringAsFixed(1);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Step 1 · 材质确认',
+        Text('Step 1 · 材料确认与装夹',
             style: t.titleMedium?.copyWith(color: CncColors.textMain)),
         const SizedBox(height: 6),
-        Text('耗材材质（默认「${def.name}」来自模型）',
-            style: const TextStyle(fontSize: 12, color: CncColors.textSub)),
+        const Text('请对照实物逐项确认。材质与刀路参数由模型预设，App 无法更改。',
+            style: TextStyle(fontSize: 12, color: CncColors.textSub)),
         const SizedBox(height: 12),
 
-        // 2026-09-03 加：选材功能暂未启用。
-        // 真实情况：模型库 G-code 是云端针对默认材质生成后写死的，
-        // 云端/小屏不会根据 App 选择的新材质重新生成 G-code。
-        // 客户选了也没用（参数不会变），反而误导。
-        // 当前默认材质 + 参数就是真实加工参数；选材是预留交互，等云端接入
-        // 驱动按材质重新生成 G-code 后再激活。
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: CncColors.warning.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: CncColors.warning.withOpacity(0.45)),
-          ),
-          child: const Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Symbols.info, size: 16, color: CncColors.warning),
-              SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  '当前材质暂未生效：雕刻参数由模型预设，切换材质不会改变实际加工效果，建议保持默认材质加工。',
-                  style: TextStyle(fontSize: 11, color: CncColors.textMain, height: 1.4),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-
-        // 模型默认材料卡（标注「模型默认」，排第一）
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: CncColors.primary.withOpacity(0.10),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: CncColors.primary.withOpacity(0.4)),
-          ),
+        // ① 材质（只读：不再提供选择）
+        _card(
           child: Row(
             children: [
               MaterialIcon(visual: def.visual, swatch: def.swatch, size: 44),
@@ -561,11 +558,13 @@ class _StepMaterial extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Text(def.name,
-                            style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: CncColors.textMain)),
+                        Flexible(
+                          child: Text(def.name,
+                              style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: CncColors.textMain)),
+                        ),
                         const SizedBox(width: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -574,7 +573,7 @@ class _StepMaterial extends StatelessWidget {
                             color: CncColors.primary,
                             borderRadius: BorderRadius.circular(4),
                           ),
-                          child: const Text('模型默认',
+                          child: const Text('模型指定',
                               style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.bold,
@@ -583,7 +582,7 @@ class _StepMaterial extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 4),
-                    const Text('模型库自带材质，建议优先使用（点下方可换其它材料）',
+                    const Text('按此材质备料；更换材质不会改变加工参数。',
                         style: TextStyle(
                             fontSize: 11, color: CncColors.textSub)),
                   ],
@@ -594,137 +593,100 @@ class _StepMaterial extends StatelessWidget {
         ),
         const SizedBox(height: 12),
 
-        // 选择其它材料（材料库下拉；默认排第一并标记）
-        const Text('更换为其它材料（材料库）',
-            style: TextStyle(fontSize: 11, color: CncColors.textSub)),
-        const SizedBox(height: 6),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          decoration: BoxDecoration(
-            color: CncColors.bg,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: CncColors.border),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: materialKey,
-              isExpanded: true,
-              dropdownColor: CncColors.card,
-              icon: const Icon(Symbols.arrow_drop_down,
-                  color: CncColors.primary),
-              style: const TextStyle(
-                  color: CncColors.textMain, fontSize: 14),
-              onChanged: (k) {
-                if (k != null) onMaterial(k);
-              },
-              items: ordered
-                  .map((m) => DropdownMenuItem(
-                        value: m.key,
-                        child: Row(
-                          children: [
-                            MaterialIcon(
-                                visual: m.visual, swatch: m.swatch, size: 28),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(m.name,
-                                  style: const TextStyle(
-                                      fontSize: 14,
-                                      color: CncColors.textMain)),
-                            ),
-                            if (m.key == defaultKey)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color:
-                                      CncColors.primary.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: const Text('默认',
-                                    style: TextStyle(
-                                        fontSize: 10,
-                                        color: CncColors.primary)),
-                              ),
-                          ],
-                        ),
-                      ))
-                  .toList(),
-            ),
-          ),
-        ),
-        const SizedBox(height: 14),
-
-        // 自动联动参数
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: CncColors.bg,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: CncColors.border),
-          ),
+        // ② 平面尺寸核验
+        _card(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('云端注入最佳参数（随材质自动调整）',
-                  style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+              _title(Symbols.fact_check, '尺寸核验'),
               const SizedBox(height: 8),
-              _Param('主轴转速', '${mat.rpm} RPM'),
-              _Param('进给速度', '${mat.feed} mm/min'),
-              _Param('下刀速度', '${mat.plunge} mm/min'),
+              _kv('雕刻图形尺寸', sizeText),
+              _kv('材料平面尺寸', '必须 ≥ 图形尺寸'),
               const SizedBox(height: 6),
-              Text(
-                  '推荐刀具：${mat.toolIds.map((id) => toolById(id)?.name ?? '未知').join('、')}',
-                  style: const TextStyle(
-                      fontSize: 11, color: CncColors.blue)),
-              const SizedBox(height: 4),
-              Text(mat.note,
-                  style: const TextStyle(
-                      fontSize: 10, color: CncColors.textSub)),
+              _CheckTile(
+                value: chkSize,
+                onChanged: onChkSize,
+                label: hasSize ? '实物板材尺寸 ≥ $sizeText' : '实物板材尺寸 ≥ 图形尺寸',
+              ),
             ],
           ),
         ),
-        const SizedBox(height: 14),
-        TextField(
-          controller: controller,
-          focusNode: focusNode,
-          keyboardType:
-              const TextInputType.numberWithOptions(decimal: true),
-          onChanged: onChanged,
-          onSubmitted: (_) => focusNode.unfocus(),
-          style: const TextStyle(color: CncColors.textMain),
-          decoration: InputDecoration(
-            labelText:
-                '板材厚度 (mm)　最小板材厚度 ${minThickness.toStringAsFixed(1)} mm',
-            hintText: '只能填写 ≥ ${minThickness.toStringAsFixed(1)} mm',
-            labelStyle: const TextStyle(color: CncColors.textSub),
-            hintStyle: const TextStyle(color: CncColors.textSub),
-            errorText: tooThin
-                ? '需 ≥ ${minThickness.toStringAsFixed(1)}mm（模型默认板厚）'
-                : null,
-            filled: true,
-            fillColor: CncColors.bg,
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: CncColors.border),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: CncColors.primary),
-            ),
+        const SizedBox(height: 12),
+
+        // ③ 厚度下限（只读红线，取消输入框）
+        _card(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _title(Symbols.priority_high, '厚度要求'),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(Symbols.error, size: 15, color: CncColors.danger),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text('材料厚度必须 ≥ $minT mm',
+                        style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: CncColors.danger)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                  'Z 原点由主轴探针实测，App 不采集厚度；薄于此值会切穿板材、伤及台面。',
+                  style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+              const SizedBox(height: 6),
+              _CheckTile(
+                value: chkThick,
+                onChanged: onChkThick,
+                label: '实物厚度已确认 ≥ $minT mm',
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 12),
-        _CheckTile(
-          value: chkThick,
-          onChanged: onChkThick,
-          label: '实物厚度与设置一致',
+
+        // ④ 装夹确认
+        _card(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _title(Symbols.construction, '装夹'),
+              const SizedBox(height: 8),
+              const Text('材料平放于台面；夹具只夹在雕刻区域之外，不得伸入图形范围。',
+                  style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+              const SizedBox(height: 6),
+              _CheckTile(
+                value: chkFixture,
+                onChanged: onChkFixture,
+                label: '材料已平放，夹具固定在雕刻区域外',
+              ),
+            ],
+          ),
         ),
-        _CheckTile(
-          value: chkMatch,
-          onChanged: onChkMatch,
-          label: selectedIsDefault
-              ? '材质/尺寸厚度与实物完全一致'
-              : '材质/尺寸厚度与实物完全一致（已切换材料，请确认）',
+        const SizedBox(height: 12),
+
+        // ⑤ 轻量 JSON 3D 预览
+        _card(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _title(Symbols.visibility, '3D 预览'),
+              const SizedBox(height: 8),
+              ZGridPreview(
+                url: payloadUrl,
+                fallbackWidthMm: modelWidthMm,
+                fallbackHeightMm: modelHeightMm,
+                fallbackThicknessMm: minThicknessMm,
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                  '预览来自云端轻量 JSON（高程网格），并非 G-code；数据未就绪时显示占位。',
+                  style: TextStyle(fontSize: 10, color: CncColors.textSub)),
+            ],
+          ),
         ),
       ],
     );
