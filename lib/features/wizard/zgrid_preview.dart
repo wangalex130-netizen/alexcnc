@@ -196,7 +196,9 @@ class _ZGridPreviewState extends State<ZGridPreview> {
 
   void _onScaleStart(ScaleStartDetails d) {
     _focal = d.focalPoint;
-    _baseScale = d.scale;
+    // ScaleStartDetails 无 scale（该属性只存在于 ScaleUpdateDetails）；
+    // 手势起始时缩放系数恒为 1.0，之后靠 d.scale 的增量推进。
+    _baseScale = 1.0;
   }
 
   void _onScaleUpdate(ScaleUpdateDetails d) {
