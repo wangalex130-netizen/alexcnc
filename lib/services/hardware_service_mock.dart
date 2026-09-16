@@ -287,6 +287,26 @@ class MockHardwareService implements HardwareService {
   }
 
   @override
+  Future<bool> setWcsOffset({
+    required double x,
+    required double y,
+    double z = 0,
+    String? jobId,
+    String wcs = 'G54',
+  }) async {
+    return true;
+  }
+
+  @override
+  Future<bool> framing({
+    required List<List<double>> points,
+    double feed = 1200,
+    bool laser = true,
+  }) async {
+    return true;
+  }
+
+  @override
   Future<bool> setAux(String key, bool on) async {
     _aux[key] = on;
     _emit();

@@ -1659,6 +1659,46 @@ class RealHardwareService implements HardwareService {
   }
 
   @override
+  Future<bool> setWcsOffset({
+    required double x,
+    required double y,
+    double z = 0,
+    String? jobId,
+    String wcs = 'G54',
+  }) async {
+    // 无感定原点（开发文档 §5.4）：契约未列 → 同网限定（偏置写错会整体跑偏）。
+    if (!await _allowLocalOnly()) return false;
+    final cmd = <String, dynamic>{
+      'cmd': 'setWcsOffset',
+      'wcs': wcs,
+      'x': x,
+      'y': y,
+      'z': z,
+    };
+    if (jobId != null && jobId.isNotEmpty) cmd['jobId'] = jobId;
+    _dispatch(cmd);
+    return true;
+  }
+
+  @override
+  Future<bool> framing({
+    required List<List<double>> points,
+    double feed = 1200,
+    bool laser = true,
+  }) async {
+    // 走边框（开发文档 §6）：契约未列 → 同网限定。
+    if (!await _allowLocalOnly()) return false;
+    final cmd = <String, dynamic>{
+      'cmd': 'framing',
+      'points': points,
+      'feed': feed,
+      'laser': laser,
+    };
+    _dispatch(cmd);
+    return true;
+  }
+
+  @override
   Future<bool> setAux(String key, bool on) async {
     // W-10 扩展：契约 `wan_whitelist.allowed` 只放行 `setAux_light` / `setAux_fan`。
     // 激光（对眼睛不可逆伤害）**仅同网可开**；**关闭仍放行**，便于远程灭激光。

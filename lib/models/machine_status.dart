@@ -66,6 +66,10 @@ class MachineStatus {
   /// GRBL 主控 UART 在线（grbl_online）：true=在线；false=掉线/无响应。
   final bool grblOnline;
 
+  /// 机器是否已回零（N1，开发文档 §5.1）。**帧里没有该字段时为 null（未上报）**，
+  /// 与 false（明确未回零）区分：未上报时 UI 只黄字提醒，不硬拦（老固件兼容）。
+  final bool? homed;
+
   const MachineStatus({
     this.state = MachineState.idle,
     this.position = const Position(),
@@ -86,6 +90,7 @@ class MachineStatus {
     this.door = false,
     this.spindleOn = false,
     this.grblOnline = false,
+    this.homed,
   });
 
   MachineStatus copyWith({
@@ -108,6 +113,7 @@ class MachineStatus {
     bool? door,
     bool? spindleOn,
     bool? grblOnline,
+    bool? homed,
   }) =>
       MachineStatus(
         state: state ?? this.state,
@@ -129,6 +135,7 @@ class MachineStatus {
         door: door ?? this.door,
         spindleOn: spindleOn ?? this.spindleOn,
         grblOnline: grblOnline ?? this.grblOnline,
+        homed: homed ?? this.homed,
       );
 
   /// 物理在位刀位数（installed==true 计入）。
@@ -237,6 +244,8 @@ class MachineStatus {
       door: j['door'] == true,
       spindleOn: j['spindle'] == true,
       grblOnline: j['grbl_online'] == true,
+      // N1：区分「未上报（null）」与「明确未回零（false）」
+      homed: j.containsKey('homed') ? j['homed'] == true : null,
     );
   }
 

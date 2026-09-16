@@ -162,6 +162,33 @@ abstract class HardwareService {
   Future<bool> setWorkZero(
       {List<String> axes = const ['x', 'y', 'z']}); // G92，清单 §4.6-4.8 axes 数组
 
+  /// 写入工件坐标系偏移（无感定原点 · 开发文档 §5.4）。契约未列 → 同网限定。
+  ///
+  /// 由固件**原子执行** `G92.1`（清残留临时偏置，必须先于 G10）+ `G10 L2 P1`，
+  /// 避免双重偏置；幂等（同值重写无害）。**只写 XY**：Z 分量由固件在按键后
+  /// 对刀完成时实测写入并绑定 jobId，App 不写 Z。
+  /// G54_X = DesignPosX − camOriginOffset.x（**允许为负**，严禁 max(0,·)）。
+  /// ⚠️ 固件工单 F1 交付前该命令无响应（向导可先跑通 UI/计算）。
+  Future<bool> setWcsOffset({
+    required double x,
+    required double y,
+    double z = 0,
+    String? jobId,
+    String wcs = 'G54',
+  });
+
+  /// 走边框巡边（Framing，开发文档 §6）。契约未列 → 同网限定。
+  ///
+  /// 下位机**本地闭环执行**（抬 Z 至安全高度 → 逐点走位 → 回起点 → 自动关激光
+  /// → `framing_done`）。三个硬锁：① Z 已抬至最高安全位（V1 定型，不要求已对刀）
+  /// ② 外框 ⊆ [0,300]×[0,200] ③ 期间锁定控制器（仅 abort/急停可打断）。
+  /// 断连时本地继续跑完并关激光（§6.3）。
+  Future<bool> framing({
+    required List<List<double>> points,
+    double feed = 1200,
+    bool laser = true,
+  });
+
   /// 软复位（Grbl `Ctrl-X` = 0x18）。立即中止当前运动、清空规划器缓冲。
   ///
   /// 🔴 与 [unlock] 一起构成「报警自救」组合：机器进入 Alarm 后 Jog 全部锁定，
