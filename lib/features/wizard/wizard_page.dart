@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
+import 'package:http/http.dart' as http;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/runtime_config.dart';
@@ -20,6 +22,7 @@ import 'self_check_page.dart';
 import 'job_launch_banner.dart';
 import 'job_monitor_page.dart';
 import 'zgrid_preview.dart';
+import 'origin_canvas.dart';
 
 /// Core 2: 6-step foolproof processing wizard.
 ///
@@ -68,6 +71,11 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   bool _chkSize = false; // 实物板材平面尺寸 ≥ 雕刻图形尺寸
   bool _chkFixture = false; // 材料已平放，夹具固定在雕刻区域外
   bool _safetyChecked = false; // Step4 轨迹落在耗材内且避开压板
+  // ---- Step3 定原点：标定点 + 材料形态（放父级 ⇒ 来回切步/预览循环都不丢，§5.8 V2）----
+  Offset? _p0;
+  Offset? _p1;
+  Offset? _p2;
+  StockShape _stockShape = StockShape.rect;
 
   static const _titles = [
     '材料确认',
@@ -376,14 +384,23 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       case 2:
         return _StepOrigin(
           task: _task,
+          payloadUrl: widget.item.payloadUrl,
           origin: _origin,
           originSet: _originSet,
           overflow: _originOverflow,
           safetyChecked: _safetyChecked,
+          p0: _p0,
+          p1: _p1,
+          p2: _p2,
+          stockShape: _stockShape,
           onOrigin: (o) => setState(() => _origin = o),
           onOriginSet: (v) => setState(() => _originSet = v),
           onOverflow: (v) => setState(() => _originOverflow = v),
           onSafety: (v) => setState(() => _safetyChecked = v),
+          onP0: (v) => setState(() => _p0 = v),
+          onP1: (v) => setState(() => _p1 = v),
+          onP2: (v) => setState(() => _p2 = v),
+          onShape: (v) => setState(() => _stockShape = v),
         );
       case 3:
         return _StepLeveling(
@@ -1250,497 +1267,698 @@ class _Slot extends StatelessWidget {
   }
 }
 
-// ===================== Step 3 · 定原点防撞（按 step4.html 重做）=====================
-
+// ===================== Step 3 · 定原点（大画框：标定 → 拖设计 → 走边框）=====================
+/// 所见即所得定原点（开发文档 §4 / §5 / §6）。
+///
+/// - **有轻量 JSON**：标定（矩形 2 点 / 圆形 3 点）→ 拖设计排版 → App 算 G54_XY
+///   → 走边框目视确认。**Z 基准不在本步建立**（按键后由固件探针/对刀写入）。
+/// - **无轻量 JSON**：退回手动定原点（Jog + 激光十字设原点），仍做行程校验。
+/// - 标定点与排版位置保存在向导父级 ⇒ 来回切步、预览-调整-再预览都不丢（§5.8 V2）。
 class _StepOrigin extends ConsumerStatefulWidget {
   final TaskMetadata? task;
-  final Offset origin; // mm
+  final String? payloadUrl; // 有轻量 JSON → 所见即所得；空 → 手动定原点
+  final Offset origin; // 设计/原点左下角（机器 mm）
   final bool originSet;
-  final bool overflow; // 图纸外包矩形是否超出机床行程
+  final bool overflow; // 软围栏溢出
   final bool safetyChecked;
+  final Offset? p0;
+  final Offset? p1;
+  final Offset? p2;
+  final StockShape stockShape;
   final void Function(Offset) onOrigin;
   final void Function(bool) onOriginSet;
   final void Function(bool) onOverflow;
   final void Function(bool) onSafety;
+  final void Function(Offset?) onP0;
+  final void Function(Offset?) onP1;
+  final void Function(Offset?) onP2;
+  final void Function(StockShape) onShape;
+
   const _StepOrigin({
     required this.task,
+    required this.payloadUrl,
     required this.origin,
     required this.originSet,
     required this.overflow,
     required this.safetyChecked,
+    required this.p0,
+    required this.p1,
+    required this.p2,
+    required this.stockShape,
     required this.onOrigin,
     required this.onOriginSet,
     required this.onOverflow,
     required this.onSafety,
+    required this.onP0,
+    required this.onP1,
+    required this.onP2,
+    required this.onShape,
   });
 
   @override
   ConsumerState<_StepOrigin> createState() => _StepOriginState();
 }
 
-class _StepOriginState extends ConsumerState<_StepOrigin>
-    with SingleTickerProviderStateMixin {
-  double _bedW = 300; // 机器 X 行程 mm，连接后自动读取
-  double _bedH = 200; // 机器 Y 行程 mm，连接后自动读取
+class _StepOriginState extends ConsumerState<_StepOrigin> {
+  double _bedW = 300;
+  double _bedH = 200;
   bool _areaLoading = true;
-  double _jogStep = 1; // 0.1 / 1 / 10 mm
-  late final AnimationController _walk = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 2200))
-    ..addListener(() => setState(() {}));
-  bool _walking = false;
-  String _guide = '移动红点至耗材左下角，点击 [设雕刻原点]。系统将自动校验图形尺寸与底板边界。';
+  double _jogStep = 1;
+  bool _show3D = false;
+  bool _busy = false;
+  bool _laserOn = false;
+  String? _note;
+  bool _noteBad = false;
+  DateTime? _frameAt; // N2：状态帧新鲜度（本地接收时刻）
+  OriginMeta? _meta;
+
+  static const double _knifeR = 1.6; // 刀半径（围栏外扩）
+  static const double _clearBand = 10; // 压块安全隔离带 mm
+
+  bool get _wysiwyg => (widget.payloadUrl ?? '').isNotEmpty;
+  double get _w => _meta?.spanX ?? (widget.task?.widthMm ?? 0);
+  double get _h => _meta?.spanY ?? (widget.task?.heightMm ?? 0);
+  int get _needPts => widget.stockShape == StockShape.circle ? 3 : 2;
 
   @override
   void initState() {
     super.initState();
     _loadWorkArea();
+    _loadMeta();
   }
 
   Future<void> _loadWorkArea() async {
-    final area = await ref.read(hardwareServiceProvider).getWorkArea();
+    final a = await ref.read(hardwareServiceProvider).getWorkArea();
     if (!mounted) return;
     setState(() {
-      _bedW = area.widthMm;
-      _bedH = area.heightMm;
+      _bedW = a.widthMm;
+      _bedH = a.heightMm;
       _areaLoading = false;
     });
   }
 
-  @override
-  void dispose() {
-    _walk.dispose();
-    super.dispose();
-  }
-
-  double get _w => widget.task?.widthMm ?? 90;
-  double get _h => widget.task?.heightMm ?? 90;
-  double get _cmX => widget.origin.dx / 10;
-  double get _cmY => widget.origin.dy / 10;
-
-  bool get _isOverflow =>
-      widget.origin.dx + _w > _bedW || widget.origin.dy + _h > _bedH;
-
-  void _move(double dx, double dy) {
-    if (_walking) return;
-    var x = widget.origin.dx + dx * _jogStep;
-    var y = widget.origin.dy + dy * _jogStep;
-    x = x.clamp(0.0, _bedW);
-    y = y.clamp(0.0, _bedH);
-    widget.onOrigin(Offset(x, y));
-    // 若已设原点，移动激光后实时重新校验行程边界
-    if (widget.originSet) {
-      final nowOverflow = _isOverflow;
-      widget.onOverflow(nowOverflow);
-      setState(() {
-        if (nowOverflow) {
-          _guide =
-              '超限警告：雕刻图形已超出机床物理极限！请向左/下调整原点。';
-        } else {
-          _guide =
-              '雕刻原点锁定！行程校验通过。请点击 [启动实物走边框]，肉眼检查红点轨迹是否踩在耗材上且避开压板。';
-        }
-      });
+  Future<void> _loadMeta() async {
+    final url = widget.payloadUrl;
+    if (url == null || url.isEmpty) return;
+    try {
+      final resp =
+          await http.get(Uri.parse(url)).timeout(const Duration(seconds: 8));
+      if (!mounted) return;
+      OriginMeta? m;
+      if (resp.statusCode == 200) {
+        final j = jsonDecode(utf8.decode(resp.bodyBytes));
+        if (j is Map<String, dynamic>) m = OriginMeta.fromJson(j);
+      }
+      setState(() => _meta = m);
+      if (m == null) _note('轻量 JSON 不可用：已回退手动定原点', bad: true);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _meta = null);
+      _note('轻量 JSON 拉取失败：已回退手动定原点', bad: true);
     }
   }
 
-  void _setOrigin() {
-    final overflow = _isOverflow;
-    widget.onOriginSet(true);
-    widget.onSafety(false);
-    widget.onOverflow(overflow);
+  void _note(String s, {bool bad = false}) {
+    if (!mounted) return;
     setState(() {
-      if (overflow) {
-        _guide =
-            '超限警告：雕刻图形已超出机床物理极限！请向左/下调整原点。';
+      _note = s;
+      _noteBad = bad;
+    });
+  }
+
+  // ---------- 几何 ----------
+
+  /// 矩形标定区域：P0 左下 + P1 底边右端；宽度由基线推，P2 给出高度。
+  Rect? _stockRect() {
+    final a = widget.p0;
+    final b = widget.p1;
+    if (a == null || b == null) return null;
+    final w = (b.dx - a.dx).abs();
+    final h = widget.p2 == null ? w * 0.75 : (widget.p2!.dy - a.dy).abs();
+    if (w <= 0 || h <= 0) return null;
+    return Rect.fromLTWH(a.dx, a.dy, w, h);
+  }
+
+  /// 圆形料：三点外接圆圆心（机器 mm）。
+  Offset? _circleCenter() {
+    final a = widget.p0;
+    final b = widget.p1;
+    final c = widget.p2;
+    if (a == null || b == null || c == null) return null;
+    final d = 2 *
+        (a.dx * (b.dy - c.dy) + b.dx * (c.dy - a.dy) + c.dx * (a.dy - b.dy));
+    if (d.abs() < 1e-6) return null;
+    final a2 = a.dx * a.dx + a.dy * a.dy;
+    final b2 = b.dx * b.dx + b.dy * b.dy;
+    final c2 = c.dx * c.dx + c.dy * c.dy;
+    return Offset(
+      (a2 * (b.dy - c.dy) + b2 * (c.dy - a.dy) + c2 * (a.dy - b.dy)) / d,
+      (a2 * (c.dx - b.dx) + b2 * (a.dx - c.dx) + c2 * (b.dx - a.dx)) / d,
+    );
+  }
+
+  /// 可用区（§4.3）= 标定区域 − 压块隔离带 − 刀径；未标定返回 null（走行程兜底）。
+  ({Offset min, Offset max})? _avail() {
+    if (widget.p0 == null) return null;
+    final band = _clearBand + _knifeR;
+    if (widget.stockShape == StockShape.circle) {
+      final c = _circleCenter();
+      final a = widget.p0;
+      if (c == null || a == null) return null;
+      final r = (a - c).distance - band;
+      if (r <= 0) return null;
+      return (min: Offset(c.dx - r, c.dy - r), max: Offset(c.dx + r, c.dy + r));
+    }
+    final s = _stockRect();
+    if (s == null || s.width <= band * 2 || s.height <= band * 2) return null;
+    return (
+      min: Offset(s.left + band, s.top + band),
+      max: Offset(s.right - band, s.bottom - band),
+    );
+  }
+
+  /// §4.3 软围栏：夹进可用区；图案比可用区还大 → overflow（**禁静默截断**）。
+  void _setDesign(Offset raw, {bool quiet = false}) {
+    var p = raw;
+    var of = false;
+    final av = _avail();
+    if (av != null) {
+      final mx = av.max.dx - _w;
+      final my = av.max.dy - _h;
+      if (mx < av.min.dx || my < av.min.dy) {
+        of = true;
+        p = Offset(av.min.dx, av.min.dy);
       } else {
-        _guide =
-            '雕刻原点锁定！行程校验通过。请点击 [启动实物走边框]，肉眼检查红点轨迹是否踩在耗材上且避开压板。';
+        p = Offset(
+          p.dx.clamp(av.min.dx, mx),
+          p.dy.clamp(av.min.dy, my),
+        );
       }
-    });
+    } else {
+      final mx = _bedW - _w - _knifeR;
+      final my = _bedH - _h - _knifeR;
+      if (mx < _knifeR || my < _knifeR) {
+        of = true;
+        p = Offset.zero;
+      } else {
+        p = Offset(
+          p.dx.clamp(_knifeR, mx),
+          p.dy.clamp(_knifeR, my),
+        );
+      }
+    }
+    widget.onOrigin(p);
+    widget.onOverflow(of);
+    if (!quiet && of) {
+      _note('图案尺寸超出当前耗材可用安全区：请换大料或缩小设计（禁止静默截断）',
+          bad: true);
+    }
   }
 
-  /// 走边框（**暂未启用**：2026-09-03 起按钮置灰）。
-  ///
-  /// 当前实现只驱动本地动画，不产生任何机械动作，会误导客户以为机器在走边框。
-  /// 真接口两案待定（见按钮处注释）：① 挪到 prepare_job 之后由小屏执行 G-code
-  /// 末尾几行；② 新增 walk_frame 命令由小屏按长宽自绘矩形路径。
-  /// 方案确定后，把按钮 `onPressed` 改回 `widget.originSet && !widget.overflow ? _walkFrame : null`
-  /// 并去掉「（功能建设中）」后缀即可，本方法无需改动。
-  void _walkFrame() {
-    if (_walking || !widget.originSet || widget.overflow) return;
-    setState(() => _walking = true);
-    _walk.forward(from: 0).whenComplete(() {
-      if (mounted) setState(() => _walking = false);
-    });
+  // ---------- 交互 ----------
+
+  void _take() {
+    final st = ref.read(machineStatusProvider).valueOrNull;
+    final mp = st?.machinePosition;
+    if (mp == null) {
+      _note('读不到机器坐标：请确认已连接机器；未回零时坐标不可信', bad: true);
+      return;
+    }
+    final pt = Offset(mp.x, mp.y);
+    final sx = pt.dx.toStringAsFixed(1);
+    final sy = pt.dy.toStringAsFixed(1);
+    if (widget.p0 == null) {
+      widget.onP0(pt);
+      _note('已取 P0 = ($sx, $sy)。请沿材料底边移到最右端远角再取 P1（建议基线 >50mm）');
+    } else if (widget.p1 == null) {
+      widget.onP1(pt);
+      final base = (pt.dx - widget.p0!.dx).abs();
+      if (base < 50) {
+        _note('基线仅 ${base.toStringAsFixed(0)}mm（建议 >50mm）：角度误差会被放大，'
+            '请退远一点重取 P1', bad: true);
+      } else if (widget.stockShape == StockShape.circle) {
+        _note('已取 P1，基线 ${base.toStringAsFixed(0)}mm。请再取圆周上第 3 点（不与 P0/P1 相邻）');
+      } else {
+        _note('已取 P1，基线 ${base.toStringAsFixed(0)}mm。可拖动绿框排版；也可再取 P2 定宽度');
+      }
+    } else if (widget.p2 == null) {
+      widget.onP2(pt);
+      _note(widget.stockShape == StockShape.circle
+          ? '标定完成：圆形 3 点（外接圆）'
+          : '标定完成：矩形 2 点 + P2 定宽');
+      _setDesign(widget.origin, quiet: true);
+    } else {
+      widget.onP0(pt);
+      widget.onP1(null);
+      widget.onP2(null);
+      _note('已重新开始标定：P0 = ($sx, $sy)');
+    }
   }
 
-  void _reset() {
-    widget.onOrigin(const Offset(15, 15));
-    widget.onOriginSet(false);
-    widget.onSafety(false);
+  void _clearPts() {
+    widget.onP0(null);
+    widget.onP1(null);
+    widget.onP2(null);
     widget.onOverflow(false);
-    setState(() {
-      _guide =
-          '移动红点至耗材左下角，点击 [设雕刻原点]。系统将自动校验图形尺寸与底板边界。';
-    });
+    widget.onOriginSet(false);
+    _note('已清除标定点与原点锁定');
   }
+
+  void _jog(String axis, double dir) {
+    if (_busy) return;
+    final d = dir * _jogStep;
+    if (!_wysiwyg) {
+      // 手动模式：Jog 即移动雕刻原点
+      _setDesign(widget.origin + (axis == 'x' ? Offset(d, 0) : Offset(0, d)));
+    }
+    ref.read(hardwareServiceProvider).jog(axis, d);
+  }
+
+  Future<void> _toggleLaser() async {
+    final on = !_laserOn;
+    final ok = await ref.read(hardwareServiceProvider).setAux('laser', on);
+    if (!mounted) return;
+    if (ok) setState(() => _laserOn = on);
+    _note(ok ? (on ? '激光十字已开：用它对齐材料边角' : '激光十字已关') : '激光开关被拦下（仅同网可开）',
+        bad: !ok);
+  }
+
+  Future<void> _doFraming() async {
+    if (_busy) return;
+    if (!widget.originSet) {
+      _note('请先完成标定并锁定原点，再走边框', bad: true);
+      return;
+    }
+    final o = widget.origin;
+    final pts = <List<double>>[
+      [o.dx, o.dy],
+      [o.dx + _w, o.dy],
+      [o.dx + _w, o.dy + _h],
+      [o.dx, o.dy + _h],
+      [o.dx, o.dy],
+    ];
+    setState(() => _busy = true);
+    final ok = await ref.read(hardwareServiceProvider).framing(points: pts);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    _note(
+      ok
+          ? '已下发走边框：机器抬 Z 至安全高度后巡边一圈，请目视确认激光框落在料上、避开夹具'
+          : '走边框被拦下（需与机器同网）',
+      bad: !ok,
+    );
+  }
+
+  Future<void> _writeG54() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final cam = _meta?.camOriginOffset ?? Offset.zero;
+    // §4.1：G54 = DesignPos − camOriginOffset。**允许为负**（严禁 max(0,·)）。
+    final gx = widget.origin.dx - cam.dx;
+    final gy = widget.origin.dy - cam.dy;
+    final ok = await ref.read(hardwareServiceProvider).setWcsOffset(x: gx, y: gy);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    widget.onOriginSet(ok);
+    _note(
+      ok
+          ? '已写入 G54：X ${gx.toStringAsFixed(2)} / Y ${gy.toStringAsFixed(2)}'
+              '（Z 由机器在按键后对刀时写入，App 不写 Z）'
+          : 'G54 写入被拦下（需同网；固件 F1 交付前该命令无响应）',
+      bad: !ok,
+    );
+  }
+
+  void _manualSet() {
+    if (_busy) return;
+    _setDesign(widget.origin);
+    if (!widget.overflow) {
+      widget.onOriginSet(true);
+      _note('雕刻原点已锁定（手动模式）：行程校验通过。可点【走边框】目视确认落点');
+    }
+  }
+
+  // ---------- 视图 ----------
+
+  Widget _chip(String text, bool ok) => Container(
+        margin: const EdgeInsets.only(right: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        decoration: BoxDecoration(
+          color: ok ? const Color(0xFFEAF3DE) : const Color(0xFFFAEEDA),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+              color: ok ? const Color(0xFFC0DD97) : const Color(0xFFEF9F27),
+              width: 0.5),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(
+                color: ok ? const Color(0xFF639922) : const Color(0xFFBA7517),
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 5),
+            Text(text,
+                style: TextStyle(
+                    fontSize: 11,
+                    color: ok ? const Color(0xFF27500A) : const Color(0xFF633806))),
+          ],
+        ),
+      );
+
+  Widget _kv(String k, String v, {bool strong = false}) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(k,
+                style: const TextStyle(fontSize: 12, color: CncColors.textSub)),
+            Flexible(
+              child: Text(v,
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                      fontSize: strong ? 14 : 12,
+                      fontWeight: strong ? FontWeight.bold : FontWeight.normal,
+                      color: strong ? CncColors.primaryInk : CncColors.textMain)),
+            ),
+          ],
+        ),
+      );
+
+  Widget _sq(String label, VoidCallback? onTap, {bool primary = false}) =>
+      SizedBox(
+        width: 74,
+        child: Padding(
+          padding: const EdgeInsets.all(3),
+          child: SizedBox(
+            height: 42,
+            child: primary
+                ? FilledButton(
+                    onPressed: onTap,
+                    style: FilledButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      backgroundColor: CncColors.primary,
+                      foregroundColor: Colors.black,
+                    ),
+                    child: Text(label, style: const TextStyle(fontSize: 12)),
+                  )
+                : OutlinedButton(
+                    onPressed: onTap,
+                    style: OutlinedButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      side: const BorderSide(color: CncColors.border),
+                      foregroundColor: CncColors.textMain,
+                    ),
+                    child: Text(label, style: const TextStyle(fontSize: 12)),
+                  ),
+          ),
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
-    final taskName = widget.task?.name ?? '模型';
-    final statusText = _walking
-        ? '走边框中…'
-        : (widget.originSet ? '激光准直' : '激光准直');
+    final st = ref.watch(machineStatusProvider).valueOrNull;
+    ref.listen(machineStatusProvider, (_, __) {
+      _frameAt = DateTime.now();
+    });
+    final fresh = _frameAt != null &&
+        DateTime.now().difference(_frameAt!) < const Duration(seconds: 2);
+    final mp = st?.machinePosition;
+    final laserMm = mp == null ? null : Offset(mp.x, mp.y);
+    final homed = st?.homed;
+    final idle = st?.canControl ?? false;
 
     if (_areaLoading) {
       return const Center(
-          child: CircularProgressIndicator(color: CncColors.primary));
+          child: Padding(
+        padding: EdgeInsets.all(24),
+        child: CircularProgressIndicator(color: CncColors.primary),
+      ));
     }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Step 3 · 定原点防撞',
+        Text('Step 3 · 定原点',
             style: t.titleMedium?.copyWith(color: CncColors.textMain)),
+        const SizedBox(height: 6),
+        Text(
+          _wysiwyg
+              ? '标定加工区域 → 拖动设计选位置 → 走边框确认。坐标由机器实时回读。'
+              : '当前模型没有轻量 JSON：走手动定原点（Jog + 激光十字）。',
+          style: const TextStyle(fontSize: 12, color: CncColors.textSub),
+        ),
         const SizedBox(height: 8),
-        // 继承 Step 1 的任务信息卡
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(children: [
+            _chip('机器已连接', st != null && idle),
+            _chip(homed == true ? '已回零' : (homed == null ? '回零状态未上报' : '未回零'),
+                homed == true),
+            _chip('坐标实时', fresh),
+          ]),
+        ),
+        const SizedBox(height: 10),
+        if (homed == false)
+          _banner('机器未回零：坐标不可信，请先回零再取点', bad: true)
+        else if (homed == null)
+          _banner('固件未上报回零状态：请自行确认已回零（未回零取点会整体偏移）', bad: false),
+        const SizedBox(height: 10),
+
+        // ---- 画框 / 3D ----
+        if (_show3D && _wysiwyg)
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              color: const Color(0xFFF5F7FA),
+              child: ZGridPreview(
+                url: widget.payloadUrl,
+                fallbackWidthMm: _w,
+                fallbackHeightMm: _h,
+                fallbackThicknessMm: widget.task?.boardThicknessMm ?? 0,
+              ),
+            ),
+          )
+        else
+          SizedBox(
+            height: 320,
+            child: OriginCanvas(
+              bedW: _bedW,
+              bedH: _bedH,
+              shape: widget.stockShape,
+              p0: widget.p0,
+              p1: widget.p1,
+              p2: widget.p2,
+              designPos: widget.origin,
+              designW: _w,
+              designH: _h,
+              knifeRadius: _knifeR,
+              clearBand: _clearBand,
+              overflow: widget.overflow,
+              laserMm: laserMm,
+              hasPayload: _wysiwyg,
+              onDesignDrag: (d) {
+                if (_busy) return;
+                _setDesign(widget.origin + d, quiet: true);
+              },
+            ),
+          ),
+        const SizedBox(height: 8),
+        Row(children: [
+          _pill('2D', !_show3D, () => setState(() => _show3D = false)),
+          const SizedBox(width: 6),
+          _pill('3D', _show3D, _wysiwyg ? () => setState(() => _show3D = true) : null),
+          const SizedBox(width: 8),
+          if (_wysiwyg)
+            Text('拖动绿框排版 · 【3D】看减材效果',
+                style: const TextStyle(fontSize: 11, color: CncColors.textSub)),
+        ]),
+        const SizedBox(height: 10),
+
+        // ---- G54 ----
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: CncColors.card,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(color: CncColors.border),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('当前作业',
-                        style:
-                            TextStyle(fontSize: 10, color: CncColors.textSub)),
-                    Text(taskName,
-                        style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: CncColors.textMain)),
-                  ],
-                ),
-              ),
-              Text('${_w.toInt()} x ${_h.toInt()} mm',
-                  style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: CncColors.primary,
-                      fontFamily: 'monospace')),
-            ],
-          ),
+          child: Column(children: [
+            _kv(
+              '${_wysiwyg ? 'G54（设计左下角 − CAM 原点）' : '雕刻原点（手动）'}',
+              'X ${widget.origin.dx.toStringAsFixed(1)}　Y ${widget.origin.dy.toStringAsFixed(1)} mm',
+              strong: true,
+            ),
+            if (_wysiwyg && _meta != null)
+              _kv('CAM 原点偏移',
+                  'X ${_meta!.camOriginOffset.dx.toStringAsFixed(1)}　Y ${_meta!.camOriginOffset.dy.toStringAsFixed(1)}'),
+            _kv('图形尺寸', '${_w.toStringAsFixed(1)} × ${_h.toStringAsFixed(1)} mm'),
+            if (_meta != null)
+              _kv('最大切深', '${_meta!.maxCutDepth.toStringAsFixed(2)} mm'),
+          ]),
         ),
-        const SizedBox(height: 10),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text('寻位与范围校验',
-                style: TextStyle(fontSize: 11, color: CncColors.textSub)),
-            Text('Smart 3020',
-                style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: CncColors.primary)),
-          ],
-        ),
+        if (widget.overflow) ...[
+          const SizedBox(height: 8),
+          _banner('图案已超出可用安全区（标定区域 − 10mm 隔离带 − 刀径）：请调整位置或换大料', bad: true),
+        ],
+        if (_note != null) ...[
+          const SizedBox(height: 8),
+          _banner(_note!, bad: _noteBad),
+        ],
+        const SizedBox(height: 12),
+
+        // ---- 标定 ----
+        if (_wysiwyg) ...[
+          Row(children: [
+            const Text('材料形态', style: TextStyle(fontSize: 12, color: CncColors.textSub)),
+            const SizedBox(width: 8),
+            _pill('矩形（2 点）', widget.stockShape == StockShape.rect,
+                () => widget.onShape(StockShape.rect)),
+            const SizedBox(width: 6),
+            _pill('圆形（3 点）', widget.stockShape == StockShape.circle,
+                () => widget.onShape(StockShape.circle)),
+            const Spacer(),
+            Text('已取 ${[widget.p0, widget.p1, widget.p2].where((e) => e != null).length}/$_needPts',
+                style: const TextStyle(fontSize: 11, color: CncColors.textSub)),
+          ]),
+          const SizedBox(height: 10),
+        ],
+
+        // ---- Jog 盘 ----
+        Row(children: [
+          const Text('步进', style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+          const SizedBox(width: 6),
+          _pill('0.1', _jogStep == 0.1, () => setState(() => _jogStep = 0.1)),
+          const SizedBox(width: 4),
+          _pill('1', _jogStep == 1, () => setState(() => _jogStep = 1)),
+          const SizedBox(width: 4),
+          _pill('10', _jogStep == 10, () => setState(() => _jogStep = 10)),
+          const Spacer(),
+          _pill(_laserOn ? '激光 开' : '激光 关', _laserOn, _toggleLaser),
+        ]),
         const SizedBox(height: 8),
-        // 机床物理底板（带点阵、刻度）
-        Container(
-          padding: const EdgeInsets.only(
-              left: 24, top: 18, right: 16, bottom: 14),
-          decoration: BoxDecoration(
-            color: CncColors.bg,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: CncColors.border),
-          ),
-          child: Column(
-            children: [
-              // X 轴刻度
-              Padding(
-                padding: const EdgeInsets.only(left: 2, bottom: 4),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    for (final v in [0, _bedW / 3, _bedW * 2 / 3, _bedW])
-                      Text('${(v / 10).toStringAsFixed(v == _bedW ? 0 : 0)}${v == _bedW ? 'cm' : ''}',
-                          style: const TextStyle(
-                              fontSize: 9,
-                              color: CncColors.textSub,
-                              fontFamily: 'monospace')),
-                  ],
-                ),
-              ),
-              IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Y 轴刻度
-                    SizedBox(
-                      width: 22,
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          for (final v in [_bedH, _bedH / 2, 0])
-                            Text('${(v / 10).toStringAsFixed(0)}',
-                                style: const TextStyle(
-                                    fontSize: 9,
-                                    color: CncColors.textSub,
-                                    fontFamily: 'monospace')),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    // 画布
-                    Expanded(
-                      child: AspectRatio(
-                        aspectRatio: _bedW / _bedH,
-                        child: CustomPaint(
-                          painter: _BedPainter(
-                            bedW: _bedW,
-                            bedH: _bedH,
-                            partW: _w,
-                            partH: _h,
-                            origin: widget.origin,
-                            originSet: widget.originSet,
-                            overflow: widget.overflow,
-                            walk: _walk.value,
-                            walking: _walking,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('工件 ${_w.toInt()}×${_h.toInt()}mm',
-                      style: const TextStyle(
-                          fontSize: 11, color: CncColors.textSub)),
-                  Text(
-                      '底板坐标 (${_cmX.toStringAsFixed(2)}, ${_cmY.toStringAsFixed(2)}) cm',
-                      style: const TextStyle(
-                          fontSize: 11, color: CncColors.textSub)),
-                ],
-              ),
-            ],
+        Row(children: [
+          const Spacer(),
+          _sq('Y+', () => _jog('y', 1)),
+          const Spacer(),
+        ]),
+        const SizedBox(height: 2),
+        Row(children: [
+          _sq('X−', () => _jog('x', -1)),
+          _sq(_wysiwyg ? '取点' : '设原点',
+              _busy ? null : (_wysiwyg ? _take : _manualSet),
+              primary: true),
+          _sq('X+', () => _jog('x', 1)),
+        ]),
+        const SizedBox(height: 2),
+        Row(children: [
+          const Spacer(),
+          _sq('Y−', () => _jog('y', -1)),
+          const Spacer(),
+        ]),
+        const SizedBox(height: 10),
+
+        // ---- 锁定 / 走边框 ----
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _busy ? null : _doFraming,
+            icon: Icon(Symbols.play_arrow,
+                size: 18, color: widget.originSet ? Colors.black : CncColors.textSub),
+            label: Text(_busy ? '下发中…' : '启动走边框（激光预览）'),
+            style: FilledButton.styleFrom(
+              backgroundColor:
+                  widget.originSet ? CncColors.primary : const Color(0xFFE0E3E8),
+              foregroundColor:
+                  widget.originSet ? Colors.black : CncColors.textSub,
+            ),
           ),
         ),
-        const SizedBox(height: 12),
-        // D-pad + 坐标面板 + 步长
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              width: 130,
-              child: GridView.count(
-                crossAxisCount: 3,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                childAspectRatio: 1.05,
-                mainAxisSpacing: 4,
-                crossAxisSpacing: 4,
-                children: [
-                  const SizedBox(),
-                  _J(icon: Symbols.arrow_upward, onTap: () => _move(0, 1)),
-                  const SizedBox(),
-                  _J(icon: Symbols.arrow_left, onTap: () => _move(-1, 0)),
-                  _J(label: '设\n原点', onTap: _setOrigin, primary: true),
-                  _J(icon: Symbols.arrow_right, onTap: () => _move(1, 0)),
-                  const SizedBox(),
-                  _J(icon: Symbols.arrow_downward, onTap: () => _move(0, -1)),
-                  const SizedBox(),
-                ],
+        const SizedBox(height: 6),
+        Row(children: [
+          Expanded(
+            child: OutlinedButton(
+              onPressed: _busy ? null : _clearPts,
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: CncColors.border),
+                foregroundColor: CncColors.textMain,
               ),
+              child: const Text('清除标定', style: TextStyle(fontSize: 12)),
             ),
-            const SizedBox(width: 10),
+          ),
+          if (_wysiwyg) ...[
+            const SizedBox(width: 8),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: CncColors.card,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: CncColors.border),
-                    ),
-                    child: Column(
-                      children: [
-                        _CoordRow('底板 X:', '${_cmX.toStringAsFixed(2)} cm'),
-                        _CoordRow('底板 Y:', '${_cmY.toStringAsFixed(2)} cm'),
-                        const Divider(color: CncColors.border, height: 10),
-                        _CoordRow('状态:', statusText),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text('微调步长',
-                      style:
-                          TextStyle(fontSize: 10, color: CncColors.textSub)),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [0.1, 1.0, 10.0]
-                        .map((s) => Expanded(
-                              child: Padding(
-                                padding: EdgeInsets.only(
-                                    right: s == 10.0 ? 0 : 4),
-                                child: _StepChip(
-                                  label: s == 0.1
-                                      ? '0.1mm'
-                                      : '${s.toInt()}mm',
-                                  active: _jogStep == s,
-                                  onTap: () =>
-                                      setState(() => _jogStep = s),
-                                ),
-                              ),
-                            ))
-                        .toList(),
-                  ),
-                ],
+              child: OutlinedButton(
+                onPressed: _busy ? null : _writeG54,
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: CncColors.border),
+                  foregroundColor: CncColors.textMain,
+                ),
+                child: const Text('写入 G54', style: TextStyle(fontSize: 12)),
               ),
             ),
           ],
-        ),
-        const SizedBox(height: 12),
-        // 操作按钮
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                // 2026-09-03：走边框暂未接通真实机械动作 —— 当前实现只是本地
-                // 动画（_walkFrame 只跑 AnimationController），按长宽数据模拟，
-                // 与实际机械位置无关，会误导客户以为机器真的在走边框。
-                // 真接口待定：① 挪到 prepare_job 之后由小屏执行 G-code 末尾几行；
-                // ② 新增 walk_frame 命令由小屏按长宽自绘矩形路径。先禁用占位。
-                onPressed: null,
-                icon: const Icon(Symbols.route, color: CncColors.textSub),
-                label: const Text('走边框（即将支持）',
-                    style: TextStyle(color: CncColors.textSub)),
-                style: OutlinedButton.styleFrom(
-                  side: BorderSide(color: CncColors.border),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10)),
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: _reset,
-                icon: const Icon(Symbols.my_location,
-                    color: CncColors.textSub),
-                // 2026-09-03 改名：这是激光准直标识（物理对准点），不是坐标归零
-                label: const Text('激光准直标识',
-                    style: TextStyle(color: CncColors.textSub)),
-                style: OutlinedButton.styleFrom(
-                  side: BorderSide(color: CncColors.border),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10)),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        // 引导/警告文案
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: widget.overflow
-                ? CncColors.danger.withOpacity(0.12)
-                : CncColors.primary.withOpacity(0.08),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-                color: widget.overflow
-                    ? CncColors.danger
-                    : CncColors.primary.withOpacity(0.4)),
-          ),
-          child: Text(_guide,
-              style: TextStyle(
-                  fontSize: 11,
-                  color: widget.overflow
-                      ? CncColors.danger
-                      : CncColors.textMain)),
-        ),
-        const SizedBox(height: 10),
+        ]),
+        const SizedBox(height: 8),
         _CheckTile(
           value: widget.safetyChecked,
           onChanged: widget.onSafety,
-          label: '红点轨迹已落在耗材内，且避开了压板',
+          label: '红点轨迹已落在耗材内，且避开了夹具',
         ),
       ],
     );
   }
-}
 
-class _CoordRow extends StatelessWidget {
-  final String k;
-  final String v;
-  const _CoordRow(this.k, this.v);
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 1),
+  Widget _pill(String text, bool active, VoidCallback? onTap) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: active ? CncColors.primary.withOpacity(0.14) : CncColors.bg,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+                color: active ? CncColors.primary : CncColors.border),
+          ),
+          child: Text(text,
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: active ? FontWeight.bold : FontWeight.normal,
+                  color: active ? CncColors.primaryInk : CncColors.textSub)),
+        ),
+      );
+
+  Widget _banner(String s, {required bool bad}) => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: (bad ? CncColors.danger : CncColors.warning).withOpacity(0.12),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+              color: (bad ? CncColors.danger : CncColors.warning)
+                  .withOpacity(0.45)),
+        ),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(k,
-                style: const TextStyle(
-                    fontSize: 11, color: CncColors.textSub)),
-            Text(v,
-                style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: CncColors.primary,
-                    fontFamily: 'monospace')),
+            Icon(bad ? Symbols.error : Symbols.info,
+                size: 15,
+                color: bad ? CncColors.danger : CncColors.warning),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(s,
+                  style: const TextStyle(
+                      fontSize: 11, color: CncColors.textMain, height: 1.4)),
+            ),
           ],
         ),
       );
 }
-
-class _J extends StatelessWidget {
-  final String? label;
-  final IconData? icon;
-  final VoidCallback onTap;
-  final bool primary;
-  const _J({this.label, this.icon, required this.onTap, this.primary = false});
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-        onTap: onTap,
-        child: Container(
-          decoration: BoxDecoration(
-            color: primary ? CncColors.primary.withOpacity(0.15) : const Color(0xFFEDEFF2),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(
-                color: primary ? CncColors.primary : CncColors.border),
-          ),
-          child: Center(
-            child: icon != null
-                ? Icon(icon,
-                    size: 20,
-                    color: primary ? CncColors.primary : CncColors.textMain)
-                : Text(label ?? '',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: primary ? CncColors.primary : CncColors.textMain)),
-          ),
-        ),
-      );
-}
-
 class _StepChip extends StatelessWidget {
   final String label;
   final bool active;
