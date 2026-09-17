@@ -25,6 +25,7 @@ import 'zgrid_preview.dart';
 import 'origin_canvas.dart';
 import 'payload.dart';
 import 'payload_store.dart';
+import 'debug_sim.dart';
 
 /// Core 2: 6-step foolproof processing wizard.
 ///
@@ -1392,13 +1393,19 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
     super.initState();
     _loadWorkArea();
     LocalPayloadStore.instance.addListener(_onLocalPayload);
+    DebugSim.instance.addListener(_onSim);
     _loadMeta();
   }
 
   @override
   void dispose() {
     LocalPayloadStore.instance.removeListener(_onLocalPayload);
+    DebugSim.instance.removeListener(_onSim);
     super.dispose();
+  }
+
+  void _onSim() {
+    if (mounted) setState(() {});
   }
 
   /// 本地调试载荷变化：**仅在云端 payloadUrl 缺失时**接管（云端永远优先）。
@@ -1590,14 +1597,25 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
 
   // ---------- 交互 ----------
 
-  void _take() {
+  /// 取点用的实时坐标：**虚拟机器位开启 ⇒ 用虚拟位**（调试），
+  /// 否则用机器上报的 `mpos`。没有它一个点也取不了。
+  Offset? _livePos() {
+    if (DebugSim.instance.enabled) return DebugSim.instance.pos;
     final st = ref.read(machineStatusProvider).valueOrNull;
     final mp = st?.machinePosition;
-    if (mp == null) {
-      _note('读不到机器坐标：请确认已连接机器；未回零时坐标不可信', bad: true);
+    return mp == null ? null : Offset(mp.x, mp.y);
+  }
+
+  void _take() {
+    final pt = _livePos();
+    if (pt == null) {
+      _note(
+          '读不到机器坐标：请确认机器在线（MQTT 已连、已上报状态帧）；'
+          '未回零时坐标不可信。只想调这一页的话，可在「我的 → 本地文件解析'
+          '（调试）」打开「模拟机器位」',
+          bad: true);
       return;
     }
-    final pt = Offset(mp.x, mp.y);
     final sx = pt.dx.toStringAsFixed(1);
     final sy = pt.dy.toStringAsFixed(1);
     if (widget.p0 == null) {
@@ -1654,6 +1672,14 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
   void _jog(String axis, double dir) {
     if (_busy) return;
     final d = dir * _jogStep;
+    if (DebugSim.instance.enabled) {
+      // 调试模式：只移动虚拟位、**不发任何指令**（避免调试时意外驱动真机）
+      DebugSim.instance.jog(axis == 'x' ? d : 0, axis == 'y' ? d : 0);
+      if (!_wysiwyg) {
+        _setDesign(widget.origin + (axis == 'x' ? Offset(d, 0) : Offset(0, d)));
+      }
+      return;
+    }
     if (!_wysiwyg) {
       // 手动模式：Jog 即移动雕刻原点
       _setDesign(widget.origin + (axis == 'x' ? Offset(d, 0) : Offset(0, d)));
@@ -1714,17 +1740,26 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
       [o.dx, o.dy],
     ];
     setState(() => _busy = true);
-    final ok = await ref.read(hardwareServiceProvider).framing(points: pts);
+    final sim = DebugSim.instance.enabled;
+    final ok = sim
+        ? true
+        : await ref.read(hardwareServiceProvider).framing(points: pts);
     if (!mounted) return;
     setState(() {
       _busy = false;
       _framingDone = ok;
-      _framingFail = ok ? null : '命令未受理（需与机器同网；固件 F2 交付前无响应）';
+      _framingFail = ok
+          ? null
+          : '命令未发出：MQTT 未连接（机器不在线 / 网络断开），'
+              '或固件尚未支持 framing（F2 未交付）';
     });
     _note(
       ok
-          ? '已下发走边框：机器抬 Z 至最高安全位后巡边一圈，请目视确认激光框落在料上、避开夹具'
-          : '走边框被拦下：需与机器同网（固件 F2 交付前该命令无响应）',
+          ? '已下发走边框：机器抬 Z 至最高安全位后巡边一圈，'
+              '请目视确认激光框落在料上、避开夹具'
+              '${sim ? "〔调试模式：未下发指令，此处仅推进流程〕" : ""}'
+          : '走边框未发出：MQTT 未连接（机器不在线 / 网络断开），'
+              '或固件尚未支持 framing（F2 未交付）',
       bad: !ok,
     );
   }
@@ -1743,7 +1778,12 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
     setState(() => _busy = true);
     // §4.1：G54 = DesignPos − camOriginOffset。**允许为负**（严禁 max(0,·)）。
     final g = m.g54For(widget.origin.dx, widget.origin.dy);
-    final ok = await ref.read(hardwareServiceProvider).setWcsOffset(x: g.x, y: g.y);
+    final sim = DebugSim.instance.enabled;
+    final ok = sim
+        ? true
+        : await ref
+            .read(hardwareServiceProvider)
+            .setWcsOffset(x: g.x, y: g.y);
     if (!mounted) return;
     setState(() {
       _busy = false;
@@ -1756,7 +1796,9 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
       ok
           ? '已写入 G54：X ${g.x.toStringAsFixed(2)} / Y ${g.y.toStringAsFixed(2)}'
               '，并绑定作业 ${m.jobId}（Z 由机器按键后对刀写入，App 不写 Z）'
-          : 'G54 写入被拦下（需同网；固件 F1 交付前该命令无响应）',
+              '${sim ? "〔调试模式：未下发指令〕" : ""}'
+          : 'G54 未发出：MQTT 未连接（机器不在线 / 网络断开），'
+              '或固件尚未支持 setWcsOffset（F1 未交付）',
       bad: !ok,
     );
   }
@@ -1895,8 +1937,11 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
     });
     final fresh = _frameAt != null &&
         DateTime.now().difference(_frameAt!) < const Duration(seconds: 2);
+    final sim = DebugSim.instance.enabled;
     final mp = st?.machinePosition;
-    final laserMm = mp == null ? null : Offset(mp.x, mp.y);
+    final laserMm = sim
+        ? DebugSim.instance.pos
+        : (mp == null ? null : Offset(mp.x, mp.y));
     final homed = st?.homed;
     final idle = st?.canControl ?? false;
 
@@ -1924,6 +1969,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(children: [
+            if (sim) _chip('模拟机器位（调试）', true),
             _chip('机器已连接', st != null && idle),
             _chip(homed == true ? '已回零' : (homed == null ? '回零状态未上报' : '未回零'),
                 homed == true),
@@ -1934,7 +1980,12 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
           ]),
         ),
         const SizedBox(height: 10),
-        if (homed == false)
+        if (sim)
+          _banner(
+              '调试模式：坐标取自「虚拟机器位」，不连真机、不发指令。'
+              '直接拖动画框上的红十字（或用下方 Jog 盘）移动它，再按【取点】。',
+              bad: false)
+        else if (homed == false)
           _banner('机器未回零：坐标不可信，请先回零再取点', bad: true)
         else if (homed == null)
           _banner('固件未上报回零状态：请自行确认已回零（未回零取点会整体偏移）', bad: false),
@@ -1985,6 +2036,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
               clearBand: _clearBand,
               overflow: widget.overflow,
               laserMm: laserMm,
+              laserDraggable: sim,
+              onLaserDrag: (p) => DebugSim.instance.moveTo(p),
               hasPayload: _wysiwyg,
               zGrid: _grid,
               gridCols: _meta?.gridCols ?? 0,

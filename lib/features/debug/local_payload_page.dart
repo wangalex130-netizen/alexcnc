@@ -9,6 +9,7 @@ import 'package:material_symbols_icons/material_symbols_icons.dart';
 import '../../app/config.dart';
 
 import '../../app/theme.dart';
+import '../wizard/debug_sim.dart';
 import '../wizard/payload.dart';
 import '../wizard/payload_store.dart';
 import '../wizard/zgrid_preview.dart';
@@ -33,6 +34,9 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
   int _bytes = 0;
   String? _error; // 真正的解析失败（红）
   String? _info; // 解析成功但需说明（中性/琥珀，例如 L0/L1 无网格体）
+
+  /// 虚拟机器位（调试）：让定原点页在没有真机时也能取点。
+  bool _simMachine = DebugSim.instance.enabled;
   Map<String, dynamic>? _raw;
   Payload? _pl;
   ZGridData? _grid;
@@ -360,6 +364,45 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
           const SizedBox(height: 6),
           Text('当前构建 ${AppConfig.buildTag}',
               style: const TextStyle(fontSize: 10, color: CncColors.textSub)),
+          const SizedBox(height: 14),
+
+          // 虚拟机器位：定原点页取点需要机器实时坐标，没真机时用它兜底
+          _card(
+            child: Row(
+              children: [
+                const Icon(Symbols.precision_manufacturing,
+                    size: 16, color: CncColors.textSub),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('模拟机器位（调试）',
+                          style: TextStyle(
+                              fontSize: 12, color: CncColors.textMain)),
+                      SizedBox(height: 2),
+                      Text(
+                          '打开后，定原点页的【取点】用虚拟坐标：'
+                          '直接拖画框上的红十字即可。Jog/取点不发指令，'
+                          '「写入 G54 / 走边框」只在本机推进流程。'
+                          '重启即清，不影响真机。',
+                          style: TextStyle(
+                              fontSize: 10,
+                              color: CncColors.textSub,
+                              height: 1.4)),
+                    ],
+                  ),
+                ),
+                Switch(
+                  value: _simMachine,
+                  onChanged: (v) {
+                    DebugSim.instance.setEnabled(v);
+                    setState(() => _simMachine = v);
+                  },
+                ),
+              ],
+            ),
+          ),
           if (_fileName != null) ...[
             const SizedBox(height: 8),
             Text('文件：$_fileName　($_bytes 字节)',

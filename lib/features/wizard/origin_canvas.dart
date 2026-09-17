@@ -44,6 +44,12 @@ class OriginCanvas extends StatefulWidget {
   /// 拖动回调：只回吐 mm 位移（dy 已按屏幕 Y 翻转）。
   final void Function(Offset deltaMm) onDesignDrag;
 
+  /// **调试用**：激光十字可手指拖动（代表"机器位"）。仅虚拟机器位模式打开。
+  final bool laserDraggable;
+
+  /// **调试用**：拖动激光十字时回吐新的机床坐标（mm）。
+  final void Function(Offset mm)? onLaserDrag;
+
   const OriginCanvas({
     super.key,
     required this.bedW,
@@ -66,6 +72,8 @@ class OriginCanvas extends StatefulWidget {
     this.baseMm = 0,
     this.thetaDeg = 0,
     required this.onDesignDrag,
+    this.laserDraggable = false,
+    this.onLaserDrag,
   });
 
   @override
@@ -74,6 +82,7 @@ class OriginCanvas extends StatefulWidget {
 
 class _OriginCanvasState extends State<OriginCanvas> {
   bool _dragging = false;
+  bool _draggingLaser = false;
 
   @override
   Widget build(BuildContext context) {
@@ -83,21 +92,45 @@ class _OriginCanvasState extends State<OriginCanvas> {
         final g = _Geom(size: size, bedW: widget.bedW, bedH: widget.bedH);
         final designPx = g.rectPx(widget.designPos, widget.designW, widget.designH);
         final canDrag = widget.hasPayload && !widget.overflow;
+        // 调试：激光十字也可成为拖动靶（代表"机器位"）
+        final laserPx = (widget.laserDraggable && widget.laserMm != null)
+            ? g.toPx(widget.laserMm!)
+            : null;
+        final dragEnabled = canDrag || laserPx != null;
+
+        void endDrag() {
+          if (!_dragging && !_draggingLaser) return;
+          setState(() {
+            _dragging = false;
+            _draggingLaser = false;
+          });
+        }
 
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onPanStart: canDrag
+          onPanStart: dragEnabled
               ? (d) {
-                  if (designPx.inflate(6).contains(d.localPosition)) {
+                  if (laserPx != null &&
+                      (laserPx - d.localPosition).distance < 22) {
+                    setState(() => _draggingLaser = true);
+                  } else if (canDrag &&
+                      designPx.inflate(6).contains(d.localPosition)) {
                     setState(() => _dragging = true);
                   }
                 }
               : null,
-          onPanUpdate: (canDrag && _dragging)
-              ? (d) => widget.onDesignDrag(g.toMmDelta(d.delta))
+          onPanUpdate: dragEnabled
+              ? (d) {
+                  if (_draggingLaser) {
+                    // 拖十字 = 移动"机器"（仅调试）
+                    widget.onLaserDrag?.call(g.toMm(d.localPosition));
+                  } else if (_dragging) {
+                    widget.onDesignDrag(g.toMmDelta(d.delta));
+                  }
+                }
               : null,
-          onPanEnd: canDrag ? (_) => setState(() => _dragging = false) : null,
-          onPanCancel: canDrag ? () => setState(() => _dragging = false) : null,
+          onPanEnd: dragEnabled ? (_) => endDrag() : null,
+          onPanCancel: dragEnabled ? () => endDrag() : null,
           child: CustomPaint(
             size: size,
             painter: _OriginPainter(
@@ -154,6 +187,10 @@ class _Geom {
   Offset toPx(Offset mm) => Offset(_l + mm.dx * scale, _b - mm.dy * scale);
 
   Offset toMmDelta(Offset px) => Offset(px.dx / scale, -px.dy / scale);
+
+  /// px → 机器 mm（绝对坐标；调试拖动激光十字用）。
+  Offset toMm(Offset px) =>
+      Offset((px.dx - _l) / scale, (_b - px.dy) / scale);
 
   Rect rectPx(Offset mm, double w, double h) {
     final a = toPx(mm);

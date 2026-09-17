@@ -851,17 +851,22 @@ class RealHardwareService implements HardwareService {
   ///   状态对账，**绝不自动重发**（见闫安文档 §6.11「禁止盲目重复启动」）；
   /// - **幂等控制类**（pause / resume / stop）→ [_dispatchCritical]：可安全重发；
   /// - **其余**（Jog / 主轴 / 辅助等）→ 尽力而为，**绝不重发**（运动指令重发 = 意外位移）。
-  void _dispatch(Map<String, dynamic> cmd) {
+  /// 返回值 = **命令是否真的发出去了**（MQTT 已连接且 publish 成功）。
+  ///
+  /// 2026-09-17 修（昊总实测）：此前返回 void，导致 [setWcsOffset] / [framing]
+  /// 无条件 `return true` —— MQTT 未连接时 App 报"已写入/已下发"，而实际
+  /// **一个字节都没发出去**（假阳性成功：客户看到"成功了"，机器毫无反应）。
+  bool _dispatch(Map<String, dynamic> cmd) {
     if (_isLaunchCommand(cmd)) {
       _dispatchLaunch(cmd);
-      return;
+      return true; // 启动类另有 reqId 对账与看门狗，送达单独跟踪
     }
     final label = _criticalLabelOf(cmd);
     if (label != null) {
       _dispatchCritical(cmd, label);
-      return;
+      return true; // 幂等控制类另有重发跟踪
     }
-    _publish(cmd);
+    return _publish(cmd);
   }
 
   /// 启动类命令：`{"cmd":"job","action":"start"}`（未来扩展 prepare_job/confirm）。
@@ -1676,8 +1681,8 @@ class RealHardwareService implements HardwareService {
       'z': z,
     };
     if (jobId != null && jobId.isNotEmpty) cmd['jobId'] = jobId;
-    _dispatch(cmd);
-    return true;
+    // 如实返回「是否真的发出」：未连接 MQTT ⇒ false，App 不得报成功
+    return _dispatch(cmd);
   }
 
   @override
@@ -1694,8 +1699,8 @@ class RealHardwareService implements HardwareService {
       'feed': feed,
       'laser': laser,
     };
-    _dispatch(cmd);
-    return true;
+    // 同上：走边框没发出去就必须说没发出去
+    return _dispatch(cmd);
   }
 
   @override
