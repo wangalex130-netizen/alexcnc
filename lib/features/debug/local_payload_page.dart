@@ -3,7 +3,10 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:material_symbols_icons/material_symbols_icons.dart';
+
+import '../../app/config.dart';
 
 import '../../app/theme.dart';
 import '../wizard/payload.dart';
@@ -34,6 +37,28 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
   Payload? _pl;
   ZGridData? _grid;
   bool _picking = false;
+
+  /// 载入**内置** Full 级样例载荷（含 Int16 高程网格，128×80）。
+  ///
+  /// 为什么内置：把文件拷进手机/在鸿蒙上选对文件这两步最容易出错，
+  /// 一旦出错就会误判成「3D 功能没做出来」。内置后一键即可验证全链路。
+  Future<void> _loadBuiltin() async {
+    if (_picking) return;
+    setState(() => _picking = true);
+    const path = 'assets/samples/payload_full_sample_relief.json';
+    try {
+      final txt = await rootBundle.loadString(path);
+      final bytes = Uint8List.fromList(utf8.encode(txt));
+      _analyze('内置样例（Full 级 · 含高程网格）', bytes);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _picking = false;
+        _error = '内置样例读取失败：$e\n'
+            '（构建时是否漏打包 assets/samples/？检查 pubspec.yaml 的 assets 声明）';
+      });
+    }
+  }
 
   Future<void> _pick() async {
     if (_picking) return;
@@ -323,6 +348,18 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
               label: Text(_picking ? '正在打开文件选择器…' : '选择本地文件（.json / .txt）'),
             ),
           ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _picking ? null : _loadBuiltin,
+              icon: const Icon(Symbols.science, size: 18),
+              label: const Text('载入内置 Full 级样例（含网格 → 有 3D）'),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text('当前构建 ${AppConfig.buildTag}',
+              style: const TextStyle(fontSize: 10, color: CncColors.textSub)),
           if (_fileName != null) ...[
             const SizedBox(height: 8),
             Text('文件：$_fileName　($_bytes 字节)',

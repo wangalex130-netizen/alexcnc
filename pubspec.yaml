@@ -61,3 +61,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/img/karva_logo.png
+    # 内置 Full 级样例载荷（含 Int16 高程网格）：调试口一键载入，免拷文件
+    - assets/samples/

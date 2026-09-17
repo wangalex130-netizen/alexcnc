@@ -196,6 +196,18 @@ class AppConfig {
 
       int.fromEnvironment('APP_BUILD_NUMBER', defaultValue: 1);
 
+  /// 构建标识：CI 注入的短 commit SHA（见 .github/workflows/build.yml）。
+  ///
+  /// 用途：在 App 内显示，用于**一眼确认装的是哪一版** —— 联调中曾两次
+  /// 因装了旧包而误判「功能没生效」，把版本变成可自证的事实。本地运行为空串。
+  static const String buildSha =
+
+      String.fromEnvironment('BUILD_SHA', defaultValue: '');
+
+  /// 一行式构建标识，例如 `0.1.0+1 · e6cfd33`。
+  static String get buildTag =>
+      '$appVersion+$appBuildNumber${buildSha.isEmpty ? '' : ' · $buildSha'}';
+
 
 
   // ---- 云端（材质主表 / 任务元数据 / G-code 推送）----
