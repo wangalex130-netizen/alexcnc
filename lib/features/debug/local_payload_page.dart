@@ -7,6 +7,7 @@ import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import '../../app/theme.dart';
 import '../wizard/payload.dart';
+import '../wizard/payload_store.dart';
 import '../wizard/zgrid_preview.dart';
 
 /// 本地轻量 JSON 解析（临时调试口）。
@@ -27,7 +28,8 @@ class LocalPayloadPage extends StatefulWidget {
 class _LocalPayloadPageState extends State<LocalPayloadPage> {
   String? _fileName;
   int _bytes = 0;
-  String? _error;
+  String? _error; // 真正的解析失败（红）
+  String? _info; // 解析成功但需说明（中性/琥珀，例如 L0/L1 无网格体）
   Map<String, dynamic>? _raw;
   Payload? _pl;
   ZGridData? _grid;
@@ -73,6 +75,7 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
 
   void _analyze(String name, Uint8List bytes) {
     String? err;
+    String? info;
     Map<String, dynamic>? raw;
     Payload? pl;
     ZGridData? grid;
@@ -89,14 +92,27 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
           err = '不是可用的 Unified Payload v2.3.0：取不到包围盒。'
               '需 bbox:{x:[min,max],y:[min,max]} 或 modelBBox:{spanX,spanY}。';
         } else if (grid == null) {
-          // L0/L1 级载荷本就没有网格体 —— 这不是错误，但要如实说明
-          err = '已解析到定位字段（可定原点），但**没有网格体** ⇒ 无 3D 预览。'
-              '若需 3D，请用 Full 级载荷（含 zGrid.base64 / detail.zGridBase64），'
-              '且 Base64 解码字节数 ≥ 点数×2。';
+          // L0/L1 级载荷本就没有网格体 —— 这**不是错误**，只是"定位可用、无 3D"
+          info = '解析成功：定位字段齐全（可定原点）。该载荷为 L0/L1 级、'
+              '不含高程网格 ⇒ 没有 3D / 俯视伪彩。'
+              '需要 3D 时请换 Full 级载荷（含 zGrid.base64 或 detail.zGridBase64）。';
         }
       }
     } catch (e) {
       err = 'JSON 解析失败：$e';
+    }
+    // 解析成功 ⇒ **送入向导**：Step1 的 3D 预览与 Step3 的定原点都会用上它
+    // （云端 payloadUrl 仍然是第一优先级，本缓存只在缺失时兜底）。
+    if (pl != null) {
+      LocalPayloadStore.instance.put(LocalPayload(
+        meta: pl,
+        grid: grid == null ? null : pl.decodeGrid(),
+        raw: raw ?? const <String, dynamic>{},
+        fileName: name,
+      ));
+      final base = info ?? '解析成功：已是可用 Payload。';
+      info = '$base\n\n已送入向导：Step1 的 3D 预览与 Step3 的定原点会使用这份载荷'
+          '（云端 payloadUrl 存在时以云端为准）。';
     }
     if (!mounted) return;
     setState(() {
@@ -107,6 +123,7 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
       _pl = pl;
       _grid = grid;
       _error = err;
+      _info = info;
     });
   }
 
@@ -279,7 +296,9 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
                   child: Text(
                     '临时调试口：把生产端产出的轻量 JSON（Unified Payload v2.3.0）'
                     '拷进手机后在此选择，即可查看解析结果与 3D 预览。'
-                    'App 依旧不解析 G-code。',
+                    '解析成功后**该载荷会同时送入雕刻向导**，'
+                    'Step1 的 3D 预览与 Step3 的定原点都会用上它'
+                    '（云端 payloadUrl 存在时以云端为准）。App 依旧不解析 G-code。',
                     style: TextStyle(
                         fontSize: 11, color: CncColors.textMain, height: 1.4),
                   ),
@@ -318,25 +337,30 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Icon(
-                    _error == null ? Symbols.check_circle : Symbols.error,
+                    _error != null
+                        ? Symbols.error
+                        : (_info != null ? Symbols.info : Symbols.check_circle),
                     size: 16,
-                    color: _error == null
-                        ? CncColors.primaryInk
-                        : CncColors.danger,
+                    color: _error != null
+                        ? CncColors.danger
+                        : (_info != null ? CncColors.warning : CncColors.primaryInk),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       _error ??
+                          _info ??
                           '解析成功：已是可用 Payload（${(_pl?.payloadBytes ?? 0) ~/ 1024} KB'
                               '${(_pl?.withinContract ?? false) ? '，契约通过' : '，注意超限'}），'
                               '可在下方 3D 预览。',
                       style: TextStyle(
                         fontSize: 12,
                         height: 1.4,
-                        color: _error == null
-                            ? CncColors.primaryInk
-                            : CncColors.danger,
+                        color: _error != null
+                            ? CncColors.danger
+                            : (_info != null
+                                ? const Color(0xFF633806)
+                                : CncColors.primaryInk),
                       ),
                     ),
                   ),

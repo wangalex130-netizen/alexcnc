@@ -7,6 +7,7 @@ import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import '../../app/theme.dart';
 import 'payload.dart';
+import 'payload_store.dart';
 
 /// 轻量 JSON（Unified Payload v2.3.0）的高程网格解析 + 3D 预览。
 ///
@@ -64,6 +65,18 @@ class ZGridData {
     }
     return m;
   }
+
+  /// 由已解析的载荷 + 已解码网格构造（本地调试载荷走这条路，不再二次解析）。
+  static ZGridData fromPayload(Payload p, List<double> grid) => ZGridData(
+        resX: (p.gridCols - 1).clamp(1, 4096),
+        resY: (p.gridRows - 1).clamp(1, 4096),
+        zScale: p.zScale,
+        spanX: p.spanX,
+        spanY: p.spanY,
+        spanZ: p.spanZ,
+        thicknessMm: p.minMaterialThickness,
+        z: grid,
+      );
 
   /// 解析 Payload JSON；结构不符 / 网格缺失返回 null（调用方显示占位，不报错）。
   ///
@@ -244,10 +257,41 @@ class _ZGridPreviewState extends State<ZGridPreview> {
   ZGridData? _data;
   bool _loading = false;
 
+  /// 数据来源说明（云端 payloadUrl / 本地调试文件 / 无）。
+  String? _source;
+
   @override
   void initState() {
     super.initState();
+    LocalPayloadStore.instance.addListener(_onLocal);
     _load();
+  }
+
+  @override
+  void dispose() {
+    LocalPayloadStore.instance.removeListener(_onLocal);
+    super.dispose();
+  }
+
+  /// 本地调试载荷变化：**只在没有云端 payloadUrl 时接管**（云端永远优先）。
+  void _onLocal() {
+    if ((widget.url ?? '').isNotEmpty) return;
+    _applyLocal();
+  }
+
+  void _applyLocal() {
+    if (!mounted) return;
+    final lp = LocalPayloadStore.instance.payload;
+    // 注意：必须在**同一个表达式**里做 null 提升后再访问成员，
+    // 不能把提升结果（bool）拿到表达式之外用 —— 那样 lp 仍是可空类型。
+    final ok = lp != null && lp.hasGrid;
+    final d = ok ? ZGridData.fromPayload(lp.meta, lp.grid!) : null;
+    final source = ok ? '本地调试文件「${lp.fileName}」' : null;
+    setState(() {
+      _data = d;
+      _loading = false;
+      _source = source;
+    });
   }
 
   @override
@@ -261,12 +305,9 @@ class _ZGridPreviewState extends State<ZGridPreview> {
 
   Future<void> _load() async {
     final url = widget.url;
+    // 云端 payloadUrl 缺失 ⇒ 回退到「我的 → 本地文件解析（调试）」放入的载荷
     if (url == null || url.isEmpty) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _data = null;
-      });
+      _applyLocal();
       return;
     }
     setState(() => _loading = true);
@@ -282,12 +323,14 @@ class _ZGridPreviewState extends State<ZGridPreview> {
       setState(() {
         _data = d;
         _loading = false;
+        _source = d == null ? null : '云端轻量 JSON';
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _data = null;
         _loading = false;
+        _source = null;
       });
     }
   }
@@ -328,17 +371,38 @@ class _ZGridPreviewState extends State<ZGridPreview> {
             Text('暂无 3D 预览',
                 style: TextStyle(fontSize: 12, color: CncColors.textSub)),
             SizedBox(height: 2),
-            Text('云端注入轻量 JSON 后自动显示',
-                style: TextStyle(fontSize: 10, color: CncColors.textSub)),
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Text(
+                '需要含高程网格（zGrid.base64）的 Full 级轻量 JSON。\n'
+                '云端未注入时，可在「我的 → 本地文件解析（调试）」放入一份 Full 级载荷，'
+                '本处长按下拉即自动显示。',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 10, color: CncColors.textSub, height: 1.4),
+              ),
+            ),
           ],
         ),
       );
     }
-    return ZGridSurface(
-      data: d,
-      fallbackWidthMm: widget.fallbackWidthMm,
-      fallbackHeightMm: widget.fallbackHeightMm,
-      fallbackThicknessMm: widget.fallbackThicknessMm,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ZGridSurface(
+          data: d,
+          fallbackWidthMm: widget.fallbackWidthMm,
+          fallbackHeightMm: widget.fallbackHeightMm,
+          fallbackThicknessMm: widget.fallbackThicknessMm,
+          // 外层 SizedBox 是 220 ⇒ 给来源文字留出高度，避免 RenderFlex 溢出
+          height: 184,
+        ),
+        if (_source != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text('数据来源：$_source',
+                style: const TextStyle(fontSize: 10, color: CncColors.textSub)),
+          ),
+      ],
     );
   }
 }

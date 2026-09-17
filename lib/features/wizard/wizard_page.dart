@@ -24,6 +24,7 @@ import 'job_monitor_page.dart';
 import 'zgrid_preview.dart';
 import 'origin_canvas.dart';
 import 'payload.dart';
+import 'payload_store.dart';
 
 /// Core 2: 6-step foolproof processing wizard.
 ///
@@ -1390,7 +1391,46 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
   void initState() {
     super.initState();
     _loadWorkArea();
+    LocalPayloadStore.instance.addListener(_onLocalPayload);
     _loadMeta();
+  }
+
+  @override
+  void dispose() {
+    LocalPayloadStore.instance.removeListener(_onLocalPayload);
+    super.dispose();
+  }
+
+  /// 本地调试载荷变化：**仅在云端 payloadUrl 缺失时**接管（云端永远优先）。
+  void _onLocalPayload() {
+    if ((widget.payloadUrl ?? '').isNotEmpty) return;
+    final lp = LocalPayloadStore.instance.payload;
+    if (lp == null) return;
+    _applyPayload(lp.meta, lp.grid, source: '本地调试文件「${lp.fileName}」');
+  }
+
+  /// 载荷落地：解除旧绑定 → 清巡边结论 → 按真实足迹居中排版 → 如实提示。
+  void _applyPayload(Payload m, List<double>? grid, {required String source}) {
+    if (!mounted) return;
+    setState(() {
+      _meta = m;
+      _grid = grid;
+      _g54Written = false;
+      _g54JobId = '';
+      _framingDone = false;
+      _framingFail = null;
+    });
+    final c = m.centeredOnBed();
+    _setDesign(Offset(c.x, c.y), quiet: true);
+    final kb = (m.payloadBytes / 1024).toStringAsFixed(1);
+    final head = '数据来源：$source。载荷 ${m.jobId}：'
+        '${m.spanX.toStringAsFixed(1)}×${m.spanY.toStringAsFixed(1)}mm · $kb KB';
+    _note(
+      m.hasGrid
+          ? '$head · 网格 ${m.gridCols}×${m.gridRows}'
+              '${m.withinContract ? '' : '（超 45KB 契约上限）'}'
+          : '$head · 无网格体（L0/L1 级）⇒ 无 3D/俯视伪彩，定原点照常可用',
+    );
   }
 
   Future<void> _loadWorkArea() async {
@@ -1410,7 +1450,14 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
   /// （P4 宁锁勿放：换载荷必须重写 G54）；③ 清空巡边结论；④ 按真实足迹居中排版。
   Future<void> _loadMeta() async {
     final url = widget.payloadUrl;
-    if (url == null || url.isEmpty) return;
+    // 云端未注入 payloadUrl ⇒ 回退「我的 → 本地文件解析（调试）」放入的载荷
+    if (url == null || url.isEmpty) {
+      final lp = LocalPayloadStore.instance.payload;
+      if (lp != null) {
+        _applyPayload(lp.meta, lp.grid, source: '本地调试文件「${lp.fileName}」');
+      }
+      return;
+    }
     try {
       final resp =
           await http.get(Uri.parse(url)).timeout(const Duration(seconds: 8));
@@ -1425,30 +1472,15 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
         }
       }
       if (!mounted) return;
-      setState(() {
-        _meta = m;
-        _grid = grid;
-        _g54Written = false;
-        _g54JobId = '';
-        _framingDone = false;
-        _framingFail = null;
-      });
       if (m == null) {
+        setState(() {
+          _meta = null;
+          _grid = null;
+        });
         _note('轻量 JSON 不可用（缺 bbox / camOriginOffset）：已回退手动定原点', bad: true);
         return;
       }
-      final c = m.centeredOnBed();
-      _setDesign(Offset(c.x, c.y), quiet: true);
-      final kb = (m.payloadBytes / 1024).toStringAsFixed(1);
-      if (!m.hasGrid) {
-        _note('已载入载荷 ${m.jobId}：${m.spanX.toStringAsFixed(1)}×'
-            '${m.spanY.toStringAsFixed(1)}mm · $kb KB。'
-            '该载荷无网格体（L0/L1 级）⇒ 无 3D / 俯视伪彩，定原点照常可用');
-      } else {
-        _note('已载入载荷 ${m.jobId}：${m.spanX.toStringAsFixed(1)}×'
-            '${m.spanY.toStringAsFixed(1)}mm · 网格 ${m.gridCols}×${m.gridRows} · '
-            '$kb KB${m.withinContract ? '' : '（超 45KB 契约上限）'}');
-      }
+      _applyPayload(m, grid, source: '云端轻量 JSON');
     } catch (_) {
       if (!mounted) return;
       setState(() {
