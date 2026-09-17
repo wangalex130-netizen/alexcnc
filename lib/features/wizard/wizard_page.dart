@@ -1694,8 +1694,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       // 调试模式：只移动虚拟位、**不发任何指令**；且**不可移出台面**。
       final t = DebugSim.instance.pos + delta;
       DebugSim.instance.moveTo(Offset(
-        t.dx.clamp(0.0, _bedW),
-        t.dy.clamp(0.0, _bedH),
+        min(max(t.dx, 0.0), _bedW),
+        min(max(t.dy, 0.0), _bedH),
       ));
       if (!_wysiwyg) _setDesign(widget.origin + delta);
       return;
@@ -1996,7 +1996,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
 
     // 手柄条宽度：刚好放得下大十字盘即可，每多占 1px 画框就少 1px
     final deckW =
-        (MediaQuery.of(context).size.width * 0.20).clamp(118.0, 184.0);
+        min(max(MediaQuery.of(context).size.width * 0.20, 118.0), 184.0);
     final guide = _guideText();
 
     return Row(

@@ -607,7 +607,7 @@ class _ZGridPainter extends CustomPainter {
   /// 朝上平面（n = +Z）的朗伯系数 —— 板面与未切削处同值 ⇒ 无缝衔接。
   static const _flatK = 0.40 + 0.60 * _lz;
 
-  static Color _wood(double k) => Color.fromARGB(
+  static Color _wood(num k) => Color.fromARGB(
         255,
         (_woodR * k).round().clamp(0, 255),
         (_woodG * k).round().clamp(0, 255),
@@ -629,12 +629,17 @@ class _ZGridPainter extends CustomPainter {
     final spanX = hasBoard ? boardW : modelSpanX;
     final spanY = hasBoard ? boardH : modelSpanY;
     // 模型在板内的左下角（夹进板内，避免画到板外）
-    final mx0 =
-        hasBoard ? modelX.clamp(0.0, math.max(0.0, spanX - modelSpanX)) : 0.0;
-    final my0 =
-        hasBoard ? modelY.clamp(0.0, math.max(0.0, spanY - modelSpanY)) : 0.0;
-    final mx1 = mx0 + modelSpanX;
-    final my1 = my0 + modelSpanY;
+    // 注意：`double.clamp` 的静态返回类型是 num，进三元/传 double 形参会报
+    // 「argument type num can't be assigned to double」⇒ 这里用 math.min/max
+    // （泛型 T extends num，两参皆 double ⇒ 确定为 double），并显式标注类型。
+    final double mx0 = hasBoard
+        ? math.min(math.max(modelX, 0.0), math.max(0.0, spanX - modelSpanX))
+        : 0.0;
+    final double my0 = hasBoard
+        ? math.min(math.max(modelY, 0.0), math.max(0.0, spanY - modelSpanY))
+        : 0.0;
+    final double mx1 = mx0 + modelSpanX;
+    final double my1 = my0 + modelSpanY;
 
     final thick = data.thicknessMm > 0
         ? data.thicknessMm
@@ -846,7 +851,7 @@ class _ZGridPainter extends CustomPainter {
         // 深度压暗：越深吸收越明显，凸显凹槽层次
         final rawAvg = (rawA + rawB + rawC + rawD) / 4;
         final depRatio = gRange > 0.05
-            ? ((gMax - rawAvg) / gRange).clamp(0.0, 1.0)
+            ? math.min(math.max((gMax - rawAvg) / gRange, 0.0), 1.0)
             : 0.0;
         final depthDim = 1.0 - depRatio * 0.35;
         final k = (0.40 + 0.60 * light) * depthDim;

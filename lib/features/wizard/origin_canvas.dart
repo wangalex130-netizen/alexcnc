@@ -170,8 +170,8 @@ class _OriginCanvasState extends State<OriginCanvas> {
                     final t = l0 + dmm;
                     // 激光不可移出台面（昊总 2026-09-18）
                     widget.onLaserDrag?.call(Offset(
-                      t.dx.clamp(0.0, widget.bedW),
-                      t.dy.clamp(0.0, widget.bedH),
+                      math.min(math.max(t.dx, 0.0), widget.bedW),
+                      math.min(math.max(t.dy, 0.0), widget.bedH),
                     ));
                   } else if (_dragging) {
                     final d0 = _grabDesign;
@@ -375,7 +375,7 @@ class _OriginPainter extends CustomPainter {
     // ⑦ 巡边光点：沿模型框走一圈（与机器激光巡边同步）
     final fp = framingProgress;
     if (fp != null && hasPayload) {
-      _paintFramingDot(canvas, g, fp.clamp(0.0, 1.0));
+      _paintFramingDot(canvas, g, math.min(math.max(fp, 0.0), 1.0));
     }
   }
 
