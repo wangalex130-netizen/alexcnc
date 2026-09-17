@@ -14,16 +14,6 @@ enum StockShape { rect, circle }
 /// 图层顺序：画框内衬 → 台面网格 → 机床零点 → 材料（矩形/圆）→ 压块隔离带
 ///          → 设计框（可拖）→ 激光十字 → 溢出红态。
 class OriginCanvas extends StatefulWidget {
-  /// 放正判定：偏差 ≤ 此值视为"已放正"（不提示）。
-  static const double skewOkDeg = 1.0;
-
-  /// 放正硬阈值：偏差 > 此值 ⇒ 判定"未放正"，拦截写入 G54 / 走边框。
-  ///
-  /// 依据（开发文档 §4.2 数值验算）：料 200×100、skew=3° 时，轴对齐标定矩形
-  /// 比实际料大约 8mm(宽)/17mm(高) = 料高的 17% ⇒ 软围栏失真，
-  /// 图形可能被判为"在料内"而实际落在料外。
-  static const double skewMaxDeg = 3.0;
-
   final double bedW;
   final double bedH;
   final StockShape shape;
@@ -50,9 +40,6 @@ class OriginCanvas extends StatefulWidget {
   /// 基线长度与方向（P0→P1）：用于现场判断点是否取得够开、方位对不对。
   final double baseMm;
   final double thetaDeg;
-
-  /// **放正偏差**（度，0~45）：θ 到最近直角轴的夹角。§4.2 判定用（不旋转视图）。
-  final double skewDeg;
 
   /// 拖动回调：只回吐 mm 位移（dy 已按屏幕 Y 翻转）。
   final void Function(Offset deltaMm) onDesignDrag;
@@ -84,7 +71,6 @@ class OriginCanvas extends StatefulWidget {
     this.gridRows = 0,
     this.baseMm = 0,
     this.thetaDeg = 0,
-    this.skewDeg = 0,
     required this.onDesignDrag,
     this.laserDraggable = false,
     this.onLaserDrag,
@@ -167,7 +153,6 @@ class _OriginCanvasState extends State<OriginCanvas> {
               gridRows: widget.gridRows,
               baseMm: widget.baseMm,
               thetaDeg: widget.thetaDeg,
-              skewDeg: widget.skewDeg,
               dragging: _dragging,
             ),
           ),
@@ -190,8 +175,8 @@ class _Geom {
   _Geom({required this.size, required this.bedW, required this.bedH})
       : pad = 26,
         scale = math.min(
-          (size.width - 52) / (bedW <= 0 ? 300 : bedW),
-          (size.height - 52) / (bedH <= 0 ? 200 : bedH),
+          (size.width - 32) / (bedW <= 0 ? 300 : bedW),
+          (size.height - 32) / (bedH <= 0 ? 200 : bedH),
         ),
         left = 0,
         bottom = 0;
@@ -235,7 +220,6 @@ class _OriginPainter extends CustomPainter {
   final int gridRows;
   final double baseMm;
   final double thetaDeg;
-  final double skewDeg;
   final bool dragging;
 
   const _OriginPainter({
@@ -258,13 +242,13 @@ class _OriginPainter extends CustomPainter {
     required this.gridRows,
     required this.baseMm,
     required this.thetaDeg,
-    required this.skewDeg,
     required this.dragging,
   });
 
   static const _sub = Color(0xFF888780);
   static const _grid = Color(0xFFD3D1C7);
   static const _green = Color(0xFF00863D);
+  static const _blue = Color(0xFF185FA5); // 标定点（P0/P1）
   static const _greenDeep = Color(0xFF0F6E56);
   static const _red = Color(0xFFE24B4A);
   static const _redDeep = Color(0xFFA32D2D);
@@ -484,7 +468,7 @@ class _OriginPainter extends CustomPainter {
       // 隔离带（内缩）
       final inner = rp - clearBand * g.scale;
       if (inner > 0) _dashedCircle(canvas, cp, inner);
-      _text(canvas, '材料（圆形 3 点标定）', cp + Offset(-rp, -rp - 6), const Color(0xFF633806), 11);
+      _text(canvas, '材料（三点定圆）', cp + Offset(-rp, -rp - 6), const Color(0xFF633806), 11);
       _paintBase(canvas, g);
     } else {
       final r = _stockRect();
@@ -502,42 +486,48 @@ class _OriginPainter extends CustomPainter {
       if (rp.width > inset * 2 && rp.height > inset * 2) {
         _dashedRect(canvas, rp.deflate(inset));
       }
-      _text(canvas, '材料（矩形 2 点标定）',
+      _text(canvas, '材料（两点对角）',
           rp.topLeft + const Offset(6, -6), const Color(0xFF633806), 11);
     }
     _paintBase(canvas, g);
   }
 
-  /// P0→P1 基线虚线 + 基线长度 / **放正偏差** 标签（现场判断取点质量）。
+  /// P0→P1（对角）虚线 + **两端圆点标注** + 实测材料尺寸。
   ///
-  /// 标注的是 **skew**（到最近直角轴的夹角）而不是 θ 本身 —— 客户沿长边或短边取点
-  /// θ 会差 90°，但"有没有放正"是同一个数（§4.2）。
+  /// 2026-09-17 昊总定稿：取点 = 两点对角（左下角 → 右上角）⇒ 材料的宽与高
+  /// **都是实测值**，不再需要第 3 点、也不再猜。对角方向由长宽比决定，
+  /// 本就与"是否放正"无关，故这里不再算放正偏差。
   void _paintBase(Canvas canvas, _Geom g) {
     final a = p0, b = p1;
     if (a == null || b == null) return;
     final pa = g.toPx(a), pb = g.toPx(b);
     _dashLine(canvas, pa, pb);
+
+    // 两点必须看得见：P0 = 空心蓝环（起点），P1 = 实心蓝（右上角）
+    canvas.drawCircle(pa, 7, Paint()..color = Colors.white);
+    canvas.drawCircle(
+        pa,
+        7,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5
+          ..color = _blue);
+    canvas.drawCircle(pb, 7, Paint()..color = _blue);
+    canvas.drawCircle(pb, 2.6, Paint()..color = Colors.white);
+    _text(canvas, 'P0', pa + const Offset(-9, 10), _blue, 11);
+    _text(canvas, 'P1', pb + const Offset(-9, 10), _blue, 11);
+
+    final w = (b.dx - a.dx).abs();
+    final h = (b.dy - a.dy).abs();
+    final bad = w < 10 || h < 10;
     final mid = Offset((pa.dx + pb.dx) / 2, (pa.dy + pb.dy) / 2);
-    final tooShort = baseMm < 30;
-    final tooLong = baseMm > 240;
-    final skewBad = skewDeg > OriginCanvas.skewMaxDeg;
-    final skewWarn = skewDeg > OriginCanvas.skewOkDeg;
-    final col = (tooShort || skewBad)
-        ? _redDeep
-        : ((tooLong || skewWarn) ? const Color(0xFF633806) : _greenDeep);
-    final tail = tooShort
-        ? '（过短）'
-        : (tooLong
-            ? '（过长，请复核）'
-            : (skewBad
-                ? '（未放正，请摆正后重取）'
-                : (skewWarn ? '（略偏，建议摆正）' : '')));
     _text(
         canvas,
-        '基线 ${baseMm.toStringAsFixed(1)}mm · 放正偏差 '
-            '${skewDeg.toStringAsFixed(1)}°$tail',
+        bad
+            ? '两点太近：请取到材料的两个对角'
+            : '材料 ${w.toStringAsFixed(1)} × ${h.toStringAsFixed(1)} mm',
         mid + const Offset(6, -6),
-        col,
+        bad ? _redDeep : _greenDeep,
         11);
   }
 
@@ -551,14 +541,18 @@ class _OriginPainter extends CustomPainter {
       ..lineTo(b.dx, b.dy), p);
   }
 
-  /// 矩形：P0 左下 + P1 底边右端 → 宽度由 P2（对边点）或 P0→P1 距离推定。
+  /// 矩形 = **两点对角**（P0 左下角 → P1 右上角）：宽 = |Δx|、高 = |Δy|。
+  ///
+  /// 2026-09-17 修（昊总指出）：原实现假设"两点在同一条底边上"，于是高度写成
+  /// `w * 0.75` —— **凭空猜的**。两点取对角时高就是 Δy，属实测，两点即定全矩形。
   Rect? _stockRect() {
     final a = p0, b = p1;
     if (a == null || b == null) return null;
-    final w = (b.dx - a.dx).abs() < 1 ? (p2 == null ? 0.0 : (p2!.dx - a.dx).abs()) : b.dx - a.dx;
-    var h = p2 == null ? w * 0.75 : (p2!.dy - a.dy).abs();
-    if (w <= 0 || h <= 0) return null;
-    return Rect.fromLTWH(a.dx, a.dy, w, h);
+    final w = (b.dx - a.dx).abs();
+    final h = (b.dy - a.dy).abs();
+    if (w < 1 || h < 1) return null;
+    return Rect.fromLTWH(
+        a.dx < b.dx ? a.dx : b.dx, a.dy < b.dy ? a.dy : b.dy, w, h);
   }
 
   /// 圆：三点外接圆（圆周上互不相邻三点），返回圆心（机器 mm）。
@@ -632,7 +626,6 @@ class _OriginPainter extends CustomPainter {
       old.hasPayload != hasPayload ||
       old.zGrid != zGrid ||
       old.baseMm != baseMm ||
-      old.thetaDeg != thetaDeg ||
-      old.skewDeg != skewDeg;
+      old.thetaDeg != thetaDeg;
 }
 
