@@ -3,16 +3,39 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 /// 材料/标定区域形态（开发文档 §5.2 形态分支）。
-/// 矩形料 = 2 点标定；圆形料 = 3 点定圆（圆料无料边可对齐 ⇒ 不算 θ）。
+/// 矩形料 = 两点对角标定；圆形料 = 三点定圆。
 enum StockShape { rect, circle }
+
+/// 两点标定的材料矩形 —— **不区分取点顺序**（开发文档 §5.2）。
+///
+/// 客户取的是材料的两个对角，先取哪个角都行：宽 = |Δx|、高 = |Δy|、
+/// 左下角 = 两点各自的小值 ⇒ 永远得到同一个横平竖直矩形，**不存在负宽高、
+/// 不存在坐标反转**。这是全页**唯一**的材料矩形算法，画布与页面共用，
+/// 避免两处实现不一致导致"框出来的料和算出来的原点对不上"。
+Rect? stockRectOf(Offset? p0, Offset? p1) {
+  if (p0 == null || p1 == null) return null;
+  final w = (p1.dx - p0.dx).abs();
+  final h = (p1.dy - p0.dy).abs();
+  if (w <= 0 || h <= 0) return null;
+  return Rect.fromLTWH(
+      math.min(p0.dx, p1.dx), math.min(p0.dy, p1.dy), w, h);
+}
 
 /// 定原点页的「大画框」画布（2D 自绘，机器坐标 mm → 屏幕 px）。
 ///
-/// 只负责画与"拖"，**不拥有状态**：拖动只回吐 mm 位移，软围栏/溢出判定由
+/// 只负责画与"拖"，**不拥有状态**：拖动只回吐 mm 位置，软围栏/溢出判定由
 /// 调用方（`_StepOrigin`）按开发文档 §4.3 统一裁决。
 ///
-/// 图层顺序：画框内衬 → 台面网格 → 机床零点 → 材料（矩形/圆）→ 压块隔离带
-///          → 设计框（可拖）→ 激光十字 → 溢出红态。
+/// 图层顺序：台面网格 + 刻度 → 机床零点 → 材料 + 夹具隔离带 → 模型（伪彩）
+///          → 标定点 ①②③ → 激光十字 → 巡边光点。
+///
+/// 昊总 2026-09-18 修订：
+///  ① 去掉画框内外两层衬框（台面因此更大）；
+///  ② 取点**不分先后**：两点任取对角即得同一个横平竖直矩形（见 [stockRectOf]）；
+///  ③ 取一个点就画一个点（旧版要两点齐了才画）；
+///  ④ 去掉"拖动"胶囊与全部随动文字（拖动时互相干涉）；
+///  ⑤ 激光不可移出台面；
+///  ⑥ 巡边期间同步模拟光点走边框（[framingProgress]）。
 class OriginCanvas extends StatefulWidget {
   final double bedW;
   final double bedH;
@@ -21,13 +44,16 @@ class OriginCanvas extends StatefulWidget {
   final Offset? p1;
   final Offset? p2;
 
-  /// 设计（图形）左下角，机器坐标 mm。
+  /// 材料矩形（机器坐标 mm，由调用方用 [stockRectOf] 算好传入）——单一真源。
+  final Rect? stockRect;
+
+  /// 模型（设计）左下角，机器坐标 mm。
   final Offset designPos;
   final double designW;
   final double designH;
 
   final double knifeRadius; // 刀具半径（围栏外扩，§4.3）
-  final double clearBand; // 压块安全隔离带 mm（§4.3，默认 10）
+  final double clearBand; // 夹具安全隔离带 mm（§4.3）
   final bool overflow; // 软围栏溢出（红态）
   final Offset? laserMm; // 激光十字位置（mpos）
   final bool hasPayload; // 有轻量 JSON 才显示设计框与拖动
@@ -37,18 +63,20 @@ class OriginCanvas extends StatefulWidget {
   final int gridCols;
   final int gridRows;
 
-  /// 基线长度与方向（P0→P1）：用于现场判断点是否取得够开、方位对不对。
-  final double baseMm;
-  final double thetaDeg;
-
-  /// 拖动回调：只回吐 mm 位移（dy 已按屏幕 Y 翻转）。
-  final void Function(Offset deltaMm) onDesignDrag;
+  /// 拖动回调：**回吐绝对目标位置（mm）**。
+  ///
+  /// 用绝对位置而非 delta 累加 —— 每次 panUpdate 的像素位移都直接映射一次，
+  /// 不叠加前序误差，保证"框内位移 = 机械坐标"严格等比、无漂移。
+  final void Function(Offset mm) onDesignDragTo;
 
   /// **调试用**：激光十字可手指拖动（代表"机器位"）。仅虚拟机器位模式打开。
   final bool laserDraggable;
 
-  /// **调试用**：拖动激光十字时回吐新的机床坐标（mm）。
+  /// **调试用**：拖动激光十字时回吐新的机床坐标（mm，已在台面内）。
   final void Function(Offset mm)? onLaserDrag;
+
+  /// 巡边动画进度 0~1（null = 不显示）。与机器激光巡边同步模拟。
+  final double? framingProgress;
 
   const OriginCanvas({
     super.key,
@@ -58,22 +86,22 @@ class OriginCanvas extends StatefulWidget {
     this.p0,
     this.p1,
     this.p2,
+    this.stockRect,
     required this.designPos,
     required this.designW,
     required this.designH,
     this.knifeRadius = 1.6,
-    this.clearBand = 10,
+    this.clearBand = 8,
     this.overflow = false,
     this.laserMm,
     this.hasPayload = false,
     this.zGrid,
     this.gridCols = 0,
     this.gridRows = 0,
-    this.baseMm = 0,
-    this.thetaDeg = 0,
-    required this.onDesignDrag,
+    required this.onDesignDragTo,
     this.laserDraggable = false,
     this.onLaserDrag,
+    this.framingProgress,
   });
 
   @override
@@ -84,6 +112,11 @@ class _OriginCanvasState extends State<OriginCanvas> {
   bool _dragging = false;
   bool _draggingLaser = false;
 
+  /// panStart 时的触点与当时的对象位置 —— 绝对映射的基准。
+  Offset? _grabLocal;
+  Offset? _grabDesign;
+  Offset? _grabLaser;
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
@@ -92,7 +125,6 @@ class _OriginCanvasState extends State<OriginCanvas> {
         final g = _Geom(size: size, bedW: widget.bedW, bedH: widget.bedH);
         final designPx = g.rectPx(widget.designPos, widget.designW, widget.designH);
         final canDrag = widget.hasPayload && !widget.overflow;
-        // 调试：激光十字也可成为拖动靶（代表"机器位"）
         final laserPx = (widget.laserDraggable && widget.laserMm != null)
             ? g.toPx(widget.laserMm!)
             : null;
@@ -104,6 +136,9 @@ class _OriginCanvasState extends State<OriginCanvas> {
             _dragging = false;
             _draggingLaser = false;
           });
+          _grabLocal = null;
+          _grabDesign = null;
+          _grabLaser = null;
         }
 
         return GestureDetector(
@@ -111,21 +146,37 @@ class _OriginCanvasState extends State<OriginCanvas> {
           onPanStart: dragEnabled
               ? (d) {
                   if (laserPx != null &&
-                      (laserPx - d.localPosition).distance < 22) {
+                      (laserPx - d.localPosition).distance < 24) {
                     setState(() => _draggingLaser = true);
+                    _grabLocal = d.localPosition;
+                    _grabLaser = widget.laserMm;
                   } else if (canDrag &&
-                      designPx.inflate(6).contains(d.localPosition)) {
+                      designPx.inflate(4).contains(d.localPosition)) {
                     setState(() => _dragging = true);
+                    _grabLocal = d.localPosition;
+                    _grabDesign = widget.designPos;
                   }
                 }
               : null,
           onPanUpdate: dragEnabled
               ? (d) {
+                  final base = _grabLocal;
+                  if (base == null) return;
+                  // 本次手势的累计位移（px）→ mm，一次性映射，不做逐帧累加
+                  final dmm = g.toMmDelta(d.localPosition - base);
                   if (_draggingLaser) {
-                    // 拖十字 = 移动"机器"（仅调试）
-                    widget.onLaserDrag?.call(g.toMm(d.localPosition));
+                    final l0 = _grabLaser;
+                    if (l0 == null) return;
+                    final t = l0 + dmm;
+                    // 激光不可移出台面（昊总 2026-09-18）
+                    widget.onLaserDrag?.call(Offset(
+                      t.dx.clamp(0.0, widget.bedW),
+                      t.dy.clamp(0.0, widget.bedH),
+                    ));
                   } else if (_dragging) {
-                    widget.onDesignDrag(g.toMmDelta(d.delta));
+                    final d0 = _grabDesign;
+                    if (d0 == null) return;
+                    widget.onDesignDragTo(d0 + dmm);
                   }
                 }
               : null,
@@ -140,6 +191,7 @@ class _OriginCanvasState extends State<OriginCanvas> {
               p0: widget.p0,
               p1: widget.p1,
               p2: widget.p2,
+              stockRect: widget.stockRect,
               designPos: widget.designPos,
               designW: widget.designW,
               designH: widget.designH,
@@ -151,9 +203,8 @@ class _OriginCanvasState extends State<OriginCanvas> {
               zGrid: widget.zGrid,
               gridCols: widget.gridCols,
               gridRows: widget.gridRows,
-              baseMm: widget.baseMm,
-              thetaDeg: widget.thetaDeg,
               dragging: _dragging,
+              framingProgress: widget.framingProgress,
             ),
           ),
         );
@@ -163,23 +214,24 @@ class _OriginCanvasState extends State<OriginCanvas> {
 }
 
 /// 坐标换算：机器 mm(0,0 在左下) ↔ 屏幕 px。
+///
+/// `scale` 是**唯一**的 mm↔px 比例：框内任何位移都严格等于 mm × scale，
+/// 因此"框内拖动距离"与"机械坐标变化"绝对统一，不存在非线性或分区。
 class _Geom {
   final Size size;
   final double bedW;
   final double bedH;
-  final double pad;
   final double scale;
-  final double left;
-  final double bottom;
+
+  /// 台面四周留白：只留刻度文字的空间（越小台面越大）。
+  static const _padX = 26.0;
+  static const _padY = 18.0;
 
   _Geom({required this.size, required this.bedW, required this.bedH})
-      : pad = 26,
-        scale = math.min(
-          (size.width - 32) / (bedW <= 0 ? 300 : bedW),
-          (size.height - 32) / (bedH <= 0 ? 200 : bedH),
-        ),
-        left = 0,
-        bottom = 0;
+      : scale = math.min(
+          (size.width - _padX) / (bedW <= 0 ? 300 : bedW),
+          (size.height - _padY) / (bedH <= 0 ? 200 : bedH),
+        );
 
   double get _l => (size.width - bedW * scale) / 2;
   double get _b => (size.height - bedH * scale) / 2 + bedH * scale;
@@ -207,6 +259,7 @@ class _OriginPainter extends CustomPainter {
   final Offset? p0;
   final Offset? p1;
   final Offset? p2;
+  final Rect? stockRect;
   final Offset designPos;
   final double designW;
   final double designH;
@@ -218,9 +271,8 @@ class _OriginPainter extends CustomPainter {
   final List<double>? zGrid;
   final int gridCols;
   final int gridRows;
-  final double baseMm;
-  final double thetaDeg;
   final bool dragging;
+  final double? framingProgress;
 
   const _OriginPainter({
     required this.bedW,
@@ -229,6 +281,7 @@ class _OriginPainter extends CustomPainter {
     required this.p0,
     required this.p1,
     required this.p2,
+    required this.stockRect,
     required this.designPos,
     required this.designW,
     required this.designH,
@@ -240,16 +293,14 @@ class _OriginPainter extends CustomPainter {
     required this.zGrid,
     required this.gridCols,
     required this.gridRows,
-    required this.baseMm,
-    required this.thetaDeg,
     required this.dragging,
+    required this.framingProgress,
   });
 
   static const _sub = Color(0xFF888780);
   static const _grid = Color(0xFFD3D1C7);
   static const _green = Color(0xFF00863D);
-  static const _blue = Color(0xFF185FA5); // 标定点（P0/P1）
-  static const _greenDeep = Color(0xFF0F6E56);
+  static const _blue = Color(0xFF185FA5); // 标定点
   static const _red = Color(0xFFE24B4A);
   static const _redDeep = Color(0xFFA32D2D);
   static const _wood = Color(0xFFB07D54);
@@ -259,41 +310,18 @@ class _OriginPainter extends CustomPainter {
     final g = _Geom(size: size, bedW: bedW, bedH: bedH);
     final bed = g.bedPx;
 
-    // ① 画框内衬（"画框"观感：外衬 + 内衬双线）
-    final mat = Rect.fromLTWH(0, 0, size.width, size.height);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(mat.deflate(4), const Radius.circular(12)),
-      Paint()..color = const Color(0xFFF5F7FA),
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(mat.deflate(4), const Radius.circular(12)),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5
-        ..color = _sub,
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(mat.deflate(12), const Radius.circular(6)),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1
-        ..color = _grid,
-    );
-
-    // ② 台面 + 网格 + 刻度
+    // ① 台面 + 网格 + 刻度（无内衬框：台面就是画布主体）
     canvas.drawRect(bed, Paint()..color = const Color(0xFFEDEFF2));
     final gridPaint = Paint()
       ..strokeWidth = 0.5
       ..color = _grid;
     for (var x = 50.0; x < bedW; x += 50) {
-      final a = g.toPx(Offset(x, 0));
-      final b = g.toPx(Offset(x, bedH));
-      canvas.drawLine(a, b, gridPaint);
+      canvas.drawLine(
+          g.toPx(Offset(x, 0)), g.toPx(Offset(x, bedH)), gridPaint);
     }
     for (var y = 50.0; y < bedH; y += 50) {
-      final a = g.toPx(Offset(0, y));
-      final b = g.toPx(Offset(bedW, y));
-      canvas.drawLine(a, b, gridPaint);
+      canvas.drawLine(
+          g.toPx(Offset(0, y)), g.toPx(Offset(bedW, y)), gridPaint);
     }
     canvas.drawRect(
       bed,
@@ -302,82 +330,101 @@ class _OriginPainter extends CustomPainter {
         ..strokeWidth = 1.5
         ..color = const Color(0xFF5F5E5A),
     );
-    for (var x = 0.0; x <= bedW + 0.1; x += 50) {
-      _text(canvas, x.toStringAsFixed(0), g.toPx(Offset(x, 0)) + const Offset(2, 14),
-          _sub, 11);
+    for (var x = 50.0; x <= bedW - 1; x += 50) {
+      _text(canvas, x.toStringAsFixed(0),
+          g.toPx(Offset(x, 0)) + const Offset(-8, 15), _sub, 10);
     }
-    for (var y = 0.0; y <= bedH + 0.1; y += 50) {
+    for (var y = 50.0; y <= bedH - 1; y += 50) {
       _text(canvas, y.toStringAsFixed(0),
-          g.toPx(Offset(0, y)) + const Offset(-20, 4), _sub, 11);
+          g.toPx(Offset(0, y)) + const Offset(-22, 4), _sub, 10);
     }
-    _text(canvas, '台面 ${bedW.toStringAsFixed(0)} × ${bedH.toStringAsFixed(0)} mm',
-        bed.topLeft + const Offset(6, -8), _sub, 11);
+    // 台面尺寸固定在右上角内侧（不随内容移动 ⇒ 不与任何东西干涉）
+    _textRight(canvas, '台面 ${bedW.toStringAsFixed(0)}×${bedH.toStringAsFixed(0)}',
+        bed.right - 6, bed.top + 4, _sub, 10);
 
-    // ③ 机床绝对零点（红 X / 绿 Y）
+    // ② 机床绝对零点（红 X / 绿 Y）
     final z = g.toPx(Offset.zero);
     canvas.drawLine(
-        z, z + const Offset(24, 0), Paint()..strokeWidth = 2.5..color = _red);
-    canvas.drawLine(
-        z, z + const Offset(0, -24), Paint()..strokeWidth = 2.5..color = const Color(0xFF639922));
+        z, z + const Offset(22, 0), Paint()..strokeWidth = 2.5..color = _red);
+    canvas.drawLine(z, z + const Offset(0, -22),
+        Paint()..strokeWidth = 2.5..color = const Color(0xFF639922));
     canvas.drawCircle(z, 4, Paint()..color = const Color(0xFFEAB308));
 
-    // ④ 材料（标定区域）+ 压块隔离带
+    // ③ 材料（标定区域）+ 夹具隔离带
     _paintStock(canvas, g);
 
-    // ⑤ 设计框（可拖）
-    if (hasPayload) {
-      final r = g.rectPx(designPos, designW, designH);
-      final col = overflow ? _redDeep : _green;
+    // ④ 模型（设计框）
+    if (hasPayload) _paintDesign(canvas, g);
 
-      // ⑤-0 框内俯视浮雕伪彩（与 3D 同源 zGrid；无网格体则留空）
-      if (zGrid != null && gridCols > 0 && gridRows > 0) {
-        canvas.save();
-        canvas.clipRect(r);
-        _paintGridTop(canvas, r);
-        canvas.restore();
-      }
-
-      canvas.drawRect(r, Paint()..color = col.withOpacity(0.12));
-      canvas.drawRect(
-        r,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2
-          ..color = col,
-      );
-      _text(
-          canvas,
-          '设计 ${designW.toStringAsFixed(0)} × ${designH.toStringAsFixed(0)} mm',
-          r.topLeft + const Offset(6, 15),
-          overflow ? _redDeep : _greenDeep,
-          11);
-
-      final hint = Rect.fromCenter(
-          center: r.center, width: dragging ? 62 : 56, height: 22);
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(hint, const Radius.circular(11)),
-        Paint()..color = Colors.white,
-      );
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(hint, const Radius.circular(11)),
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1
-          ..color = col,
-      );
-      _text(canvas, dragging ? '拖动中' : '拖动',
-          Offset(hint.left + 13, hint.top + 15), col, 11);
-    }
+    // ⑤ 标定点：**取一个画一个**（不分先后）
+    if (p0 != null) _paintPoint(canvas, g, p0!, 1);
+    if (p1 != null) _paintPoint(canvas, g, p1!, 2);
+    if (p2 != null) _paintPoint(canvas, g, p2!, 3);
 
     // ⑥ 激光十字
     final lp = laserMm == null ? null : g.toPx(laserMm!);
     if (lp != null) {
-      final lp2 = Paint()..strokeWidth = 1.5..color = _red;
-      canvas.drawLine(lp + const Offset(-20, 0), lp + const Offset(20, 0), lp2);
-      canvas.drawLine(lp + const Offset(0, -20), lp + const Offset(0, 20), lp2);
+      final pc = Paint()
+        ..strokeWidth = 1.5
+        ..color = _red;
+      canvas.drawLine(lp + const Offset(-18, 0), lp + const Offset(18, 0), pc);
+      canvas.drawLine(lp + const Offset(0, -18), lp + const Offset(0, 18), pc);
       canvas.drawCircle(lp, 3, Paint()..color = _red);
-      _text(canvas, '激光', lp + const Offset(6, -8), _red, 11);
     }
+
+    // ⑦ 巡边光点：沿模型框走一圈（与机器激光巡边同步）
+    final fp = framingProgress;
+    if (fp != null && hasPayload) {
+      _paintFramingDot(canvas, g, fp.clamp(0.0, 1.0));
+    }
+  }
+
+  /// 巡边光点：0 = 框左下角起，顺时针走一圈（周长参数化）。
+  void _paintFramingDot(Canvas canvas, _Geom g, double t) {
+    final r = g.rectPx(designPos, designW, designH);
+    final per = 2 * (r.width + r.height);
+    if (per <= 0) return;
+    var d = t * per;
+    Offset p;
+    if (d < r.width) {
+      p = Offset(r.left + d, r.bottom);
+    } else if (d < r.width + r.height) {
+      d -= r.width;
+      p = Offset(r.right, r.bottom - d);
+    } else if (d < 2 * r.width + r.height) {
+      d -= r.width + r.height;
+      p = Offset(r.right - d, r.top);
+    } else {
+      d -= 2 * r.width + r.height;
+      p = Offset(r.left, r.top + d);
+    }
+    canvas.drawCircle(p, 9, Paint()..color = _red.withOpacity(0.25));
+    canvas.drawCircle(p, 5, Paint()..color = _red);
+    canvas.drawCircle(p, 2, Paint()..color = Colors.white);
+  }
+
+  /// 模型区：俯视伪彩（有网格体）+ 细描边框；**不画"拖动"胶囊**（挡模型）。
+  void _paintDesign(Canvas canvas, _Geom g) {
+    final r = g.rectPx(designPos, designW, designH);
+    final col = overflow ? _redDeep : _green;
+
+    final hasGrid = zGrid != null && gridCols > 0 && gridRows > 0;
+    if (hasGrid) {
+      canvas.save();
+      canvas.clipRect(r);
+      _paintGridTop(canvas, r);
+      canvas.restore();
+    } else {
+      // 无网格体（L0/L1）时才用淡填充提示范围，有网格时不填、免得压暗浮雕
+      canvas.drawRect(r, Paint()..color = col.withOpacity(0.10));
+    }
+    canvas.drawRect(
+      r,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = dragging ? 2.4 : 1.6
+        ..color = col,
+    );
   }
 
   /// 框内俯视伪彩：与双模拟器 v2.0 同一配色（浅蓝→深蓝，越深越暗）。
@@ -442,21 +489,15 @@ class _OriginPainter extends CustomPainter {
     }
   }
 
+  /// 材料（矩形/圆）+ 夹具隔离带。**不写任何文字**（文字随内容移动会互相干涉）。
   void _paintStock(Canvas canvas, _Geom g) {
-    final p0v = p0;
-    if (p0v == null) {
-      _text(canvas, '未标定：用 Jog 把激光移到材料边角后点【取点】',
-          g.bedPx.topLeft + const Offset(8, 22), _sub, 11);
-      return;
-    }
     if (shape == StockShape.circle) {
       final c = _circleCenter();
-      if (c == null) return;
-      final r = _circleRadius() ?? 0;
-      if (r <= 0) return;
+      final r = _circleRadius();
+      if (c == null || r == null || r <= 0) return;
       final cp = g.toPx(c);
       final rp = r * g.scale;
-      canvas.drawCircle(cp, rp, Paint()..color = _wood.withOpacity(0.35));
+      canvas.drawCircle(cp, rp, Paint()..color = _wood.withOpacity(0.32));
       canvas.drawCircle(
         cp,
         rp,
@@ -465,101 +506,53 @@ class _OriginPainter extends CustomPainter {
           ..strokeWidth = 1.5
           ..color = _wood,
       );
-      // 隔离带（内缩）
       final inner = rp - clearBand * g.scale;
       if (inner > 0) _dashedCircle(canvas, cp, inner);
-      _text(canvas, '材料（三点定圆）', cp + Offset(-rp, -rp - 6), const Color(0xFF633806), 11);
-      _paintBase(canvas, g);
-    } else {
-      final r = _stockRect();
-      if (r == null) return;
-      final rp = g.rectPx(r.topLeft, r.width, r.height);
-      canvas.drawRect(rp, Paint()..color = _wood.withOpacity(0.35));
-      canvas.drawRect(
-        rp,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.5
-          ..color = _wood,
-      );
-      final inset = clearBand * g.scale;
-      if (rp.width > inset * 2 && rp.height > inset * 2) {
-        _dashedRect(canvas, rp.deflate(inset));
-      }
-      _text(canvas, '材料（两点对角）',
-          rp.topLeft + const Offset(6, -6), const Color(0xFF633806), 11);
+      return;
     }
-    _paintBase(canvas, g);
+    final r = stockRect;
+    if (r == null) return;
+    final rp = g.rectPx(r.topLeft, r.width, r.height);
+    canvas.drawRect(rp, Paint()..color = _wood.withOpacity(0.32));
+    canvas.drawRect(
+      rp,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..color = _wood,
+    );
+    final inset = clearBand * g.scale;
+    if (rp.width > inset * 2 && rp.height > inset * 2) {
+      _dashedRect(canvas, rp.deflate(inset));
+    }
   }
 
-  /// P0→P1（对角）虚线 + **两端圆点标注** + 实测材料尺寸。
+  /// 标定点：白底蓝环 + 实心点 + 右上角编号徽标。
   ///
-  /// 2026-09-17 昊总定稿：取点 = 两点对角（左下角 → 右上角）⇒ 材料的宽与高
-  /// **都是实测值**，不再需要第 3 点、也不再猜。对角方向由长宽比决定，
-  /// 本就与"是否放正"无关，故这里不再算放正偏差。
-  void _paintBase(Canvas canvas, _Geom g) {
-    final a = p0, b = p1;
-    if (a == null || b == null) return;
-    final pa = g.toPx(a), pb = g.toPx(b);
-    _dashLine(canvas, pa, pb);
-
-    // 两点必须看得见：P0 = 空心蓝环（起点），P1 = 实心蓝（右上角）
-    canvas.drawCircle(pa, 7, Paint()..color = Colors.white);
+  /// 编号只表示"第几个记下的点"，**不代表方位**（两点任取对角，顺序无所谓）。
+  void _paintPoint(Canvas canvas, _Geom g, Offset mm, int index) {
+    final p = g.toPx(mm);
+    canvas.drawCircle(p, 8, Paint()..color = Colors.white);
     canvas.drawCircle(
-        pa,
-        7,
+        p,
+        8,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.5
+          ..strokeWidth = 3
           ..color = _blue);
-    canvas.drawCircle(pb, 7, Paint()..color = _blue);
-    canvas.drawCircle(pb, 2.6, Paint()..color = Colors.white);
-    _text(canvas, 'P0', pa + const Offset(-9, 10), _blue, 11);
-    _text(canvas, 'P1', pb + const Offset(-9, 10), _blue, 11);
+    canvas.drawCircle(p, 2.8, Paint()..color = _blue);
 
-    final w = (b.dx - a.dx).abs();
-    final h = (b.dy - a.dy).abs();
-    final bad = w < 10 || h < 10;
-    final mid = Offset((pa.dx + pb.dx) / 2, (pa.dy + pb.dy) / 2);
-    _text(
-        canvas,
-        bad
-            ? '两点太近：请取到材料的两个对角'
-            : '材料 ${w.toStringAsFixed(1)} × ${h.toStringAsFixed(1)} mm',
-        mid + const Offset(6, -6),
-        bad ? _redDeep : _greenDeep,
-        11);
-  }
-
-  void _dashLine(Canvas canvas, Offset a, Offset b) {
-    final p = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2
-      ..color = _sub.withOpacity(0.9);
-    _dashPath(canvas, Path()
-      ..moveTo(a.dx, a.dy)
-      ..lineTo(b.dx, b.dy), p);
-  }
-
-  /// 矩形 = **两点对角**（P0 左下角 → P1 右上角）：宽 = |Δx|、高 = |Δy|。
-  ///
-  /// 2026-09-17 修（昊总指出）：原实现假设"两点在同一条底边上"，于是高度写成
-  /// `w * 0.75` —— **凭空猜的**。两点取对角时高就是 Δy，属实测，两点即定全矩形。
-  Rect? _stockRect() {
-    final a = p0, b = p1;
-    if (a == null || b == null) return null;
-    final w = (b.dx - a.dx).abs();
-    final h = (b.dy - a.dy).abs();
-    if (w < 1 || h < 1) return null;
-    return Rect.fromLTWH(
-        a.dx < b.dx ? a.dx : b.dx, a.dy < b.dy ? a.dy : b.dy, w, h);
+    final bc = p + const Offset(13, -13);
+    canvas.drawCircle(bc, 8, Paint()..color = _blue);
+    _textC(canvas, '$index', bc, Colors.white, 10);
   }
 
   /// 圆：三点外接圆（圆周上互不相邻三点），返回圆心（机器 mm）。
   Offset? _circleCenter() {
     final a = p0, b = p1, c = p2;
     if (a == null || b == null || c == null) return null;
-    final d = 2 * (a.dx * (b.dy - c.dy) + b.dx * (c.dy - a.dy) + c.dx * (a.dy - b.dy));
+    final d =
+        2 * (a.dx * (b.dy - c.dy) + b.dx * (c.dy - a.dy) + c.dx * (a.dy - b.dy));
     if (d.abs() < 1e-6) return null;
     final a2 = a.dx * a.dx + a.dy * a.dy;
     final b2 = b.dx * b.dx + b.dy * b.dy;
@@ -613,6 +606,25 @@ class _OriginPainter extends CustomPainter {
     tp.paint(canvas, at);
   }
 
+  /// 右对齐文字（右边界固定 ⇒ 不随内容移动）。
+  void _textRight(
+      Canvas canvas, String s, double right, double top, Color color, double size) {
+    final tp = TextPainter(
+      text: TextSpan(text: s, style: TextStyle(fontSize: size, color: color)),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, Offset(right - tp.width, top));
+  }
+
+  /// 以 [c] 为中心的文字。
+  void _textC(Canvas canvas, String s, Offset c, Color color, double size) {
+    final tp = TextPainter(
+      text: TextSpan(text: s, style: TextStyle(fontSize: size, color: color)),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, c - Offset(tp.width / 2, tp.height / 2));
+  }
+
   @override
   bool shouldRepaint(covariant _OriginPainter old) =>
       old.designPos != designPos ||
@@ -622,10 +634,11 @@ class _OriginPainter extends CustomPainter {
       old.p0 != p0 ||
       old.p1 != p1 ||
       old.p2 != p2 ||
+      old.stockRect != stockRect ||
       old.dragging != dragging ||
       old.hasPayload != hasPayload ||
       old.zGrid != zGrid ||
-      old.baseMm != baseMm ||
-      old.thetaDeg != thetaDeg;
+      old.gridCols != gridCols ||
+      old.gridRows != gridRows ||
+      old.framingProgress != framingProgress;
 }
-

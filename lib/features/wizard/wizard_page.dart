@@ -1280,11 +1280,11 @@ class _Slot extends StatelessWidget {
   }
 }
 
-// ===================== Step 3 · 定原点（大画框：标定 → 拖设计 → 走边框）=====================
+// ===================== Step 3 · 定原点（大画框：标定 → 拖设计 → 雕刻预览）=====================
 /// 所见即所得定原点（开发文档 §4 / §5 / §6）。
 ///
 /// - **有轻量 JSON**：标定（矩形 2 点 / 圆形 3 点）→ 拖设计排版 → App 算 G54_XY
-///   → 走边框目视确认。**Z 基准不在本步建立**（按键后由固件探针/对刀写入）。
+///   → 雕刻预览目视确认。**Z 基准不在本步建立**（按键后由固件探针/对刀写入）。
 /// - **无轻量 JSON**：退回手动定原点（Jog + 激光十字设原点），仍做行程校验。
 /// - 标定点与排版位置保存在向导父级 ⇒ 来回切步、预览-调整-再预览都不丢（§5.8 V2）。
 class _StepOrigin extends ConsumerStatefulWidget {
@@ -1336,7 +1336,8 @@ class _StepOrigin extends ConsumerStatefulWidget {
   ConsumerState<_StepOrigin> createState() => _StepOriginState();
 }
 
-class _StepOriginState extends ConsumerState<_StepOrigin> {
+class _StepOriginState extends ConsumerState<_StepOrigin>
+    with SingleTickerProviderStateMixin {
   double _bedW = 300;
   double _bedH = 200;
   bool _areaLoading = true;
@@ -1356,6 +1357,10 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
   bool _framingDone = false; // 业务巡边三锁通过并收到 framing_done
   String? _framingFail; // 巡边被拒绝的原因清单（逐条，不静默）
 
+  /// 巡边可视化：0→1 沿模型框走一圈。与机器激光巡边同步（昊总 09-18）。
+  late final AnimationController _frameAnim;
+  bool _framePlaying = false;
+
   static const double _knifeR = 1.6; // 刀半径（围栏外扩）
 
   /// 压块安全隔离带（§4.3）：矩形料 8mm / 圆形料 6mm（对齐双模拟器 v2.0）。
@@ -1374,20 +1379,6 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
       widget.p0 != null &&
       widget.p1 != null &&
       (widget.stockShape != StockShape.circle || widget.p2 != null);
-
-  /// 基线长度 P0→P1（mm）。过短则 θ 不可信。
-  double get _baseMm {
-    final a = widget.p0, b = widget.p1;
-    if (a == null || b == null) return 0;
-    return (b - a).distance;
-  }
-
-  /// 材料在机床上的摆放方位角 θ（P0→P1，度）。
-  double get _theta {
-    final a = widget.p0, b = widget.p1;
-    if (a == null || b == null) return 0;
-    return atan2(b.dy - a.dy, b.dx - a.dx) * 180 / pi;
-  }
 
   /// §4.1 G54（= 排版位置 − CAM 原点，允许负值）。
   double get _g54x =>
@@ -1413,11 +1404,24 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
+    _frameAnim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2600),
+    )
+      ..addListener(() {
+        if (mounted) setState(() {});
+      })
+      ..addStatusListener((s) {
+        if (s == AnimationStatus.completed && mounted) {
+          setState(() => _framePlaying = false);
+        }
+      });
     _loadMeta();
   }
 
   @override
   void dispose() {
+    _frameAnim.dispose();
     LocalPayloadStore.instance.removeListener(_onLocalPayload);
     DebugSim.instance.removeListener(_onSim);
     SystemChrome.setPreferredOrientations(
@@ -1529,15 +1533,12 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
 
   // ---------- 几何 ----------
 
-  /// 矩形标定区域：P0 左下 + P1 底边右端；宽度由基线推，P2 给出高度。
-  Rect? _stockRect() {
-    final a = widget.p0;
-    final b = widget.p1;
-    if (a == null || b == null) return null;
-    final w = (b.dx - a.dx).abs();
-    final h = widget.p2 == null ? w * 0.75 : (widget.p2!.dy - a.dy).abs();
-    if (w <= 0 || h <= 0) return null;
-    return Rect.fromLTWH(a.dx, a.dy, w, h);
+  /// 材料矩形（两点对角，**不区分取点顺序**）——唯一算法见 [stockRectOf]。
+  /// 两点不足或太近（<10mm）返回 null。
+  Rect? get _stockRectMm {
+    final r = stockRectOf(widget.p0, widget.p1);
+    if (r == null || r.width < 10 || r.height < 10) return null;
+    return r;
   }
 
   /// 圆形料：三点外接圆圆心（机器 mm）。
@@ -1570,7 +1571,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
       if (r <= 0) return null;
       return (min: Offset(c.dx - r, c.dy - r), max: Offset(c.dx + r, c.dy + r));
     }
-    final s = _stockRect();
+    final s = stockRectOf(widget.p0, widget.p1);
     if (s == null || s.width <= band * 2 || s.height <= band * 2) return null;
     return (
       min: Offset(s.left + band, s.top + band),
@@ -1641,42 +1642,27 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
     final sy = pt.dy.toStringAsFixed(1);
     if (widget.p0 == null) {
       widget.onP0(pt);
-      _note('已取 P0 = ($sx, $sy)。请沿材料同一条边移到最远角再取 P1'
-          '（基线 >30mm 才可用，且越长 θ 越准）');
+      _note('已记下第 1 点 ($sx, $sy)。移到材料的对角另一端，再按【取点】');
     } else if (widget.p1 == null) {
       widget.onP1(pt);
-      final base = (pt - widget.p0!).distance;
-      final th = atan2(pt.dy - widget.p0!.dy, pt.dx - widget.p0!.dx) * 180 / pi;
-      if (base < 30) {
-        _note('基线仅 ${base.toStringAsFixed(1)}mm（<30mm 不可用）：θ 误差会被放大，'
-            '请退远一点重取 P1', bad: true);
-      } else if (base > 240) {
-        _note('基线 ${base.toStringAsFixed(1)}mm 偏长（>240mm）：请复核两点是否都落在'
-            '同一条料边上', bad: true);
-      } else if (widget.stockShape == StockShape.circle) {
-        // 圆料无料边可对齐 ⇒ 不算 θ、不做放正判定（§5.2）
-        _note('已取 P1，基线 ${base.toStringAsFixed(1)}mm。'
-            '请再取圆周上第 3 点（不与 P0/P1 相邻）');
+      // 两点任取对角：材料矩形由两点围成的横平竖直区域决定，与先后无关
+      final r = stockRectOf(widget.p0, pt);
+      final w = r?.width ?? 0;
+      final h = r?.height ?? 0;
+      if (widget.stockShape == StockShape.circle) {
+        _note('已记下第 2 点。请再取圆周上第 3 点（不与前两点相邻）');
+      } else if (w < 10 || h < 10) {
+        _note('两点太近（${w.toStringAsFixed(0)} × ${h.toStringAsFixed(0)} mm）：'
+            '请取到材料的两个对角', bad: true);
       } else {
-        // 两点对角 ⇒ 材料宽高都是实测（不再猜高度、不再需要第 3 点）
-        final a0 = widget.p0!;
-        final w = (pt.dx - a0.dx).abs();
-        final h = (pt.dy - a0.dy).abs();
-        if (w < 10 || h < 10) {
-          _note('两点太近（${w.toStringAsFixed(0)} × ${h.toStringAsFixed(0)} mm）：'
-              '请取到材料的两个对角（左下角 → 右上角）', bad: true);
-        } else {
-          _note('材料已确认 ${w.toStringAsFixed(1)} × ${h.toStringAsFixed(1)} mm。'
-              '拖动模型摆好位置，按【确认原点】锁定');
-        }
+        _note('材料已确认 ${w.toStringAsFixed(1)} × ${h.toStringAsFixed(1)} mm。'
+            '拖动模型摆好位置，按【确认原点】锁定');
       }
     } else if (widget.p2 == null) {
       widget.onP2(pt);
       setState(() => _framingDone = false);
       _setDesign(widget.origin, quiet: true);
-      _note(widget.stockShape == StockShape.circle
-          ? '标定完成：圆形 3 点外接圆，可拖动绿框排版'
-          : '标定完成：矩形 2 点 + P2 定宽，可拖动绿框排版');
+      _note('标定完成：拖动模型摆好位置，按【确认原点】锁定');
     } else {
       widget.onP0(pt);
       widget.onP1(null);
@@ -1703,17 +1689,30 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
   void _jog(String axis, double dir) {
     if (_busy) return;
     final d = dir * _jogStep;
+    final delta = axis == 'x' ? Offset(d, 0) : Offset(0, d);
     if (DebugSim.instance.enabled) {
-      // 调试模式：只移动虚拟位、**不发任何指令**（避免调试时意外驱动真机）
-      DebugSim.instance.jog(axis == 'x' ? d : 0, axis == 'y' ? d : 0);
-      if (!_wysiwyg) {
-        _setDesign(widget.origin + (axis == 'x' ? Offset(d, 0) : Offset(0, d)));
-      }
+      // 调试模式：只移动虚拟位、**不发任何指令**；且**不可移出台面**。
+      final t = DebugSim.instance.pos + delta;
+      DebugSim.instance.moveTo(Offset(
+        t.dx.clamp(0.0, _bedW),
+        t.dy.clamp(0.0, _bedH),
+      ));
+      if (!_wysiwyg) _setDesign(widget.origin + delta);
       return;
+    }
+    // 激光不可移出台面（昊总 09-18）：已知当前坐标时先软夹，
+    // 真机另有限位硬保护（下位机本地闭环，网络无关）。
+    final mp = ref.read(machineStatusProvider).valueOrNull?.machinePosition;
+    if (mp != null) {
+      final t = Offset(mp.x, mp.y) + delta;
+      if (t.dx < 0 || t.dy < 0 || t.dx > _bedW || t.dy > _bedH) {
+        _note('已到台面边界：激光不能再往外移', bad: true);
+        return;
+      }
     }
     if (!_wysiwyg) {
       // 手动模式：Jog 即移动雕刻原点
-      _setDesign(widget.origin + (axis == 'x' ? Offset(d, 0) : Offset(0, d)));
+      _setDesign(widget.origin + delta);
     }
     ref.read(hardwareServiceProvider).jog(axis, d);
   }
@@ -1733,7 +1732,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
   /// ③ E_LIMIT 机床坐标 = G54 + **原始 bbox** 越出台面；④ E_BUSY 指令进行中。
   ///
   /// 不通过时**逐条列出原因、绝不静默**（宁锁勿放）。双模拟器 v2.0 在拒绝时会
-  /// 切一段"走边框预览动画"——那是**无机器时的演示脚手架**；真机上巡边会让激光
+  /// 切一段"预览动画"——那是**无机器时的演示脚手架**；真机上巡边会让激光
   /// 物理移动，再叠一层动画只会干扰目视判断，故 App 只保留明确的拒绝清单。
   List<String> _framingLocks() {
     final fails = <String>[];
@@ -1759,7 +1758,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
         _framingDone = false;
         _framingFail = fails.join('\n');
       });
-      _note('走边框被拒绝（宁锁勿放）：\n${fails.join('\n')}', bad: true);
+      _note('雕刻预览被拒绝（宁锁勿放）：\n${fails.join('\n')}', bad: true);
       return;
     }
     final o = widget.origin;
@@ -1780,17 +1779,19 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
     setState(() {
       _busy = false;
       _framingDone = ok;
+      _framePlaying = ok; // 框内同步模拟巡边光点（与机器激光同步）
       _framingFail = ok
           ? null
           : '命令未发出：MQTT 未连接（机器不在线 / 网络断开），'
               '或固件尚未支持 framing（F2 未交付）';
     });
+    if (ok) _frameAnim.forward(from: 0);
     _note(
       ok
-          ? '已下发走边框：机器抬 Z 至最高安全位后巡边一圈，'
-              '请目视确认激光框落在料上、避开夹具'
+          ? '已下发雕刻预览：机器抬 Z 至最高安全位后激光巡边一圈，'
+              '画面里同步显示巡边位置，请目视确认激光落在料上、避开夹具'
               '${sim ? "〔调试模式：未下发指令，此处仅推进流程〕" : ""}'
-          : '走边框未发出：MQTT 未连接（机器不在线 / 网络断开），'
+          : '雕刻预览未发出：MQTT 未连接（机器不在线 / 网络断开），'
               '或固件尚未支持 framing（F2 未交付）',
       bad: !ok,
     );
@@ -1875,7 +1876,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
     _setDesign(widget.origin);
     if (!widget.overflow) {
       widget.onOriginSet(true);
-      _note('雕刻原点已锁定（手动模式）：行程校验通过。可点【走边框】目视确认落点');
+      _note('雕刻原点已锁定（手动模式）：行程校验通过。可点【雕刻预览】目视确认落点');
     }
   }
 
@@ -1963,12 +1964,17 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
   @override
   // ===================== 视图：横屏左右手柄布局 =====================
   //
-  // 昊总 2026-09-17 定稿：
+  // 昊总 2026-09-17 / 09-18 定稿：
   //  ① 横屏；② **上下不放任何按键**（全给画框）；③ 全部功能收进左右两条手柄条；
   //  ④ 两个大十字盘与拇指同高；⑤ 上留白 = 操作引导（异常时替换），下留白 = 进度；
-  //  ⑥ 取点 = 两点对角（左下角 → 右上角）⇒ 材料宽高都实测，不再猜。
+  //  ⑥ 取点 = 两点对角（任取、不区分顺序）⇒ 材料宽高都实测；
+  //  ⑦ 手柄条**固定不滚动**：中间十字盘吃剩余高度 ⇒ 任何屏都不需要上下滑。
   //  文案原则：一行说完、动词开头、只出现客户能懂的词、每条指向真实按钮。
 
+  /// 步进标签（0.1 / 1 / 10）。
+  String get _jogStepLabel => _jogStep < 1 ? '0.1' : _jogStep.toStringAsFixed(0);
+
+  @override
   Widget build(BuildContext context) {
     final st = ref.watch(machineStatusProvider).valueOrNull;
     ref.listen(machineStatusProvider, (_, __) {
@@ -1988,43 +1994,45 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
       ));
     }
 
+    // 手柄条宽度：刚好放得下大十字盘即可，每多占 1px 画框就少 1px
     final deckW =
-        (MediaQuery.of(context).size.width * 0.215).clamp(128.0, 200.0);
+        (MediaQuery.of(context).size.width * 0.20).clamp(118.0, 184.0);
     final guide = _guideText();
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(width: deckW, child: _deck(_leftDeck())),
+        SizedBox(width: deckW, child: _deck(_leftDeck(), left: true)),
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
             child: Column(
               children: [
                 _strip(guide.text, guide.level, dots: true),
-                const SizedBox(height: 4),
+                const SizedBox(height: 3),
                 Expanded(child: _canvasOr3D(laserMm, sim)),
-                const SizedBox(height: 4),
+                const SizedBox(height: 3),
                 _strip(_statusText(), 0, center: true),
               ],
             ),
           ),
         ),
-        SizedBox(width: deckW, child: _deck(_rightDeck())),
+        SizedBox(width: deckW, child: _deck(_rightDeck(), left: false)),
       ],
     );
   }
 
   // ---------- 手柄条容器 ----------
 
-  Widget _deck(List<Widget> children) => Container(
+  /// 手柄条：**固定不滚动**（不能靠上下滑动才看全）。
+  ///
+  /// 布局契约：子项里最多一个 `Expanded`（十字盘），其余为固定高度 ⇒ 永不溢出。
+  Widget _deck(List<Widget> children, {required bool left}) => Container(
         color: CncColors.panel,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: children,
-          ),
+        padding: EdgeInsets.fromLTRB(left ? 7 : 3, 5, left ? 3 : 7, 5),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: children,
         ),
       );
 
@@ -2046,7 +2054,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
     }
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(6),
@@ -2092,6 +2100,18 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
     );
   }
 
+  /// 十字盘下方一行小字（用途 + 步进单位合并，省一行高度）。
+  Widget _deckRuler(String label) => Padding(
+        padding: const EdgeInsets.only(top: 3),
+        child: Text(
+          '$label · 步进 $_jogStepLabel mm',
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 10, color: CncColors.textSub),
+        ),
+      );
+
   // ---------- 手柄条内容 ----------
 
   List<Widget> _leftDeck() {
@@ -2108,7 +2128,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
     Widget dot(bool on) => Container(
           width: 8,
           height: 8,
-          margin: const EdgeInsets.only(right: 5),
+          margin: const EdgeInsets.only(right: 4),
           decoration: BoxDecoration(
             color: on ? const Color(0xFF639922) : const Color(0xFFEF9F27),
             shape: BoxShape.circle,
@@ -2120,18 +2140,17 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
         dot(linked),
         dot(homed == true),
         dot(fresh || sim),
+        const SizedBox(width: 4),
         Flexible(
           child: Text(
-            sim
-                ? '模拟机器位'
-                : (allOk ? '机器就绪' : (linked ? '检查机器' : '未连接')),
+            sim ? '模拟机器位' : (allOk ? '机器就绪' : (linked ? '检查机器' : '未连接')),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 11, color: CncColors.textSub),
+            style: const TextStyle(fontSize: 10.5, color: CncColors.textSub),
           ),
         ),
       ]),
-      const SizedBox(height: 8),
+      const SizedBox(height: 5),
       if (_wysiwyg) ...[
         Row(children: [
           _deckChip('矩形', widget.stockShape == StockShape.rect,
@@ -2139,81 +2158,82 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
           _deckChip('圆形', widget.stockShape == StockShape.circle,
               () => widget.onShape(StockShape.circle)),
         ]),
-        const SizedBox(height: 10),
+        const SizedBox(height: 5),
       ],
-      _cross(
-        onUp: _busy ? null : () => _jog('y', 1),
-        onDown: _busy ? null : () => _jog('y', -1),
-        onLeft: _busy ? null : () => _jog('x', -1),
-        onRight: _busy ? null : () => _jog('x', 1),
-        centerLabel: _wysiwyg ? '取点' : '设原点',
-        centerSub: _wysiwyg ? '$got / $_needPts' : null,
-        centerActive: _wysiwyg && !_datumDone,
-        onCenter: _busy ? null : (_wysiwyg ? _take : _manualSet),
+      Expanded(
+        child: _cross(
+          onUp: _busy ? null : () => _jog('y', 1),
+          onDown: _busy ? null : () => _jog('y', -1),
+          onLeft: _busy ? null : () => _jog('x', -1),
+          onRight: _busy ? null : () => _jog('x', 1),
+          centerLabel: _wysiwyg ? '取点' : '设原点',
+          centerSub: _wysiwyg ? '$got/$_needPts' : null,
+          centerActive: _wysiwyg && !_datumDone,
+          onCenter: _busy ? null : (_wysiwyg ? _take : _manualSet),
+        ),
       ),
-      const SizedBox(height: 6),
-      const Text('主轴移动',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 11, color: CncColors.textSub)),
-      const SizedBox(height: 10),
-      const Text('步进 mm',
-          style: TextStyle(fontSize: 11, color: CncColors.textSub)),
-      const SizedBox(height: 4),
+      _deckRuler('移动主轴'),
+      const SizedBox(height: 5),
       Row(children: [
         _deckChip('0.1', _jogStep == 0.1, () => setState(() => _jogStep = 0.1)),
         _deckChip('1', _jogStep == 1, () => setState(() => _jogStep = 1)),
         _deckChip('10', _jogStep == 10, () => setState(() => _jogStep = 10)),
       ]),
-      const SizedBox(height: 10),
+      const SizedBox(height: 5),
       _deckBtn(_laserOn ? '激光 开' : '激光 关', _toggleLaser,
           icon: Symbols.lightbulb, active: _laserOn),
     ];
   }
 
   List<Widget> _rightDeck() {
-    final canPreview = !_busy && _datumDone;
+    final canPreview = !_busy && !_framePlaying && _datumDone;
     return [
-      Align(
-        alignment: Alignment.centerRight,
-        child: GestureDetector(
-          onTap: () => Navigator.of(context).pop(),
-          child: Container(
-            padding: const EdgeInsets.all(5),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: CncColors.border),
-            ),
-            child: const Icon(Symbols.close,
-                size: 16, color: CncColors.textSub),
-          ),
-        ),
-      ),
-      const SizedBox(height: 8),
       Row(children: [
         _deckChip('2D', !_show3D, () => setState(() => _show3D = false)),
-        _deckChip('3D', _show3D, (_wysiwyg && _grid != null)
-            ? () => setState(() => _show3D = true)
-            : null),
+        _deckChip('3D', _show3D,
+            (_wysiwyg && _grid != null)
+                ? () => setState(() => _show3D = true)
+                : null),
+        const SizedBox(width: 5),
+        GestureDetector(
+          onTap: () => Navigator.of(context).pop(),
+          child: Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(7),
+              border: Border.all(color: CncColors.border),
+            ),
+            child:
+                const Icon(Symbols.close, size: 15, color: CncColors.textSub),
+          ),
+        ),
       ]),
-      const SizedBox(height: 8),
+      const SizedBox(height: 5),
       _deckBtn('重标定', _busy ? null : _clearPts, icon: Symbols.refresh),
-      const SizedBox(height: 10),
-      _cross(
-        onUp: _busy ? null : () => _setDesign(widget.origin + const Offset(0, 1) * _jogStep, quiet: true),
-        onDown: _busy ? null : () => _setDesign(widget.origin - const Offset(0, 1) * _jogStep, quiet: true),
-        onLeft: _busy ? null : () => _setDesign(widget.origin - const Offset(1, 0) * _jogStep, quiet: true),
-        onRight: _busy ? null : () => _setDesign(widget.origin + const Offset(1, 0) * _jogStep, quiet: true),
-        centerLabel: '归中',
-        onCenter: _busy ? null : _centerModel,
+      const SizedBox(height: 5),
+      Expanded(
+        child: _cross(
+          onUp: _busy
+              ? null
+              : () => _setDesign(widget.origin + Offset(0, _jogStep), quiet: true),
+          onDown: _busy
+              ? null
+              : () => _setDesign(widget.origin - Offset(0, _jogStep), quiet: true),
+          onLeft: _busy
+              ? null
+              : () => _setDesign(widget.origin - Offset(_jogStep, 0), quiet: true),
+          onRight: _busy
+              ? null
+              : () => _setDesign(widget.origin + Offset(_jogStep, 0), quiet: true),
+          centerLabel: '归中',
+          onCenter: _busy ? null : _centerModel,
+        ),
       ),
-      const SizedBox(height: 6),
-      const Text('模型移动',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 11, color: CncColors.textSub)),
-      const SizedBox(height: 10),
-      _deckBtn('雕刻预览', canPreview ? _doFraming : null,
+      _deckRuler('移动模型'),
+      const SizedBox(height: 5),
+      _deckBtn(_framePlaying ? '预览中…' : '雕刻预览', canPreview ? _doFraming : null,
           icon: Symbols.play_arrow),
-      const SizedBox(height: 6),
+      const SizedBox(height: 5),
       // 「下一步」必须等：原点已锁定 + 已按【雕刻预览】目视确认 + 未溢出
       widget.originSet
           ? _deckBtn(
@@ -2235,7 +2255,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
           onTap: onTap,
           child: Container(
             margin: const EdgeInsets.symmetric(horizontal: 2),
-            padding: const EdgeInsets.symmetric(vertical: 6),
+            padding: const EdgeInsets.symmetric(vertical: 5),
             decoration: BoxDecoration(
               color: active
                   ? CncColors.primary.withOpacity(0.12)
@@ -2281,7 +2301,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 6),
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
             border: primary ? null : Border.all(color: CncColors.border),
@@ -2290,7 +2310,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               if (icon != null) ...[
-                Icon(icon, size: 17, color: fg),
+                Icon(icon, size: 16, color: fg),
                 const SizedBox(width: 5),
               ],
               Flexible(
@@ -2308,7 +2328,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
     );
   }
 
-  /// 十字盘：4 向 + 中心键。左 = 主轴移动（中心取点）／右 = 模型移动（中心归中）。
+  /// 十字盘：4 向 + 中心键，**自适应剩余高度**（始终正方形、不溢出、不滚动）。
+  /// 左 = 主轴移动（中心取点）／右 = 模型移动（中心归中）。
   Widget _cross({
     required VoidCallback? onUp,
     required VoidCallback? onDown,
@@ -2328,7 +2349,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
                 angle: angle,
                 child: Icon(
                   Symbols.chevron_right,
-                  size: 26,
+                  size: 24,
                   color: f == null ? CncColors.border : CncColors.textMain,
                 ),
               ),
@@ -2336,68 +2357,76 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
           ),
         );
 
-    return AspectRatio(
-      aspectRatio: 1.05,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: CncColors.card,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: CncColors.border),
+    return LayoutBuilder(builder: (ctx, c) {
+      final side = min(c.maxWidth, c.maxHeight);
+      if (!side.isFinite || side <= 12) return const SizedBox.shrink();
+      return Center(
+        child: SizedBox(
+          width: side,
+          height: side,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: CncColors.card,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: CncColors.border),
+                  ),
+                ),
               ),
-            ),
-          ),
-          Column(children: [
-            Expanded(child: arrow(-pi / 2, onUp)),
-            Expanded(
-              child: Row(children: [
-                Expanded(child: arrow(pi, onLeft)),
-                const Expanded(child: SizedBox()),
-                Expanded(child: arrow(0, onRight)),
+              Column(children: [
+                Expanded(child: arrow(-pi / 2, onUp)),
+                Expanded(
+                  child: Row(children: [
+                    Expanded(child: arrow(pi, onLeft)),
+                    const Expanded(child: SizedBox()),
+                    Expanded(child: arrow(0, onRight)),
+                  ]),
+                ),
+                Expanded(child: arrow(pi / 2, onDown)),
               ]),
-            ),
-            Expanded(child: arrow(pi / 2, onDown)),
-          ]),
-          GestureDetector(
-            onTap: onCenter,
-            child: Container(
-              width: 58,
-              height: 58,
-              decoration: BoxDecoration(
-                color: centerActive ? CncColors.primary : CncColors.card,
-                shape: BoxShape.circle,
-                border: Border.all(color: CncColors.primary, width: 1.5),
+              GestureDetector(
+                onTap: onCenter,
+                child: Container(
+                  width: min(58, side * 0.36),
+                  height: min(58, side * 0.36),
+                  decoration: BoxDecoration(
+                    color: centerActive ? CncColors.primary : CncColors.card,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: CncColors.primary, width: 1.5),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(centerLabel,
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: centerActive
+                                  ? Colors.white
+                                  : CncColors.primaryInk)),
+                      if (centerSub != null)
+                        Text(centerSub,
+                            style: TextStyle(
+                                fontSize: 10,
+                                color: centerActive
+                                    ? Colors.white
+                                    : CncColors.textSub)),
+                    ],
+                  ),
+                ),
               ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(centerLabel,
-                      style: TextStyle(
-                          fontSize: 12,
-                          color: centerActive
-                              ? Colors.white
-                              : CncColors.primaryInk)),
-                  if (centerSub != null)
-                    Text(centerSub,
-                        style: TextStyle(
-                            fontSize: 10,
-                            color: centerActive
-                                ? Colors.white
-                                : CncColors.textSub)),
-                ],
-              ),
-            ),
+            ],
           ),
-        ],
-      ),
-    );
+        ),
+      );
+    });
   }
 
   Widget _canvasOr3D(Offset? laserMm, bool sim) {
     final m = _meta;
+    final stock = _stockRectMm; // 客户标定的材料矩形（机器 mm）
     if (_show3D && _grid != null && m != null) {
       return ClipRRect(
         borderRadius: BorderRadius.circular(10),
@@ -2420,6 +2449,12 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
               fallbackThicknessMm: _matThickness > 0 ? _matThickness : 10,
               height: c.maxHeight,
               circleBoard: widget.stockShape == StockShape.circle,
+              // 材料 + 模型合体：材料板 = 客户标定的那块料，
+              // 模型按排版位置刻在板上 ⇒ 这才是真正雕出来的样子
+              boardWidthMm: stock?.width ?? 0,
+              boardHeightMm: stock?.height ?? 0,
+              modelOffsetX: stock == null ? 0 : widget.origin.dx - stock.left,
+              modelOffsetY: stock == null ? 0 : widget.origin.dy - stock.top,
             ),
           ),
         ),
@@ -2434,6 +2469,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
         p0: widget.p0,
         p1: widget.p1,
         p2: widget.p2,
+        stockRect: stock,
         designPos: widget.origin,
         designW: _w,
         designH: _h,
@@ -2447,11 +2483,10 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
         zGrid: _grid,
         gridCols: m?.gridCols ?? 0,
         gridRows: m?.gridRows ?? 0,
-        baseMm: _baseMm,
-        thetaDeg: _theta,
-        onDesignDrag: (d) {
+        framingProgress: _framePlaying ? _frameAnim.value : null,
+        onDesignDragTo: (mm) {
           if (_busy) return;
-          _setDesign(widget.origin + d, quiet: true);
+          _setDesign(mm, quiet: true);
         },
       ),
     );
@@ -2464,17 +2499,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
       ? 3
       : (_g54Written ? 2 : (_datumDone ? 1 : 0));
 
-  /// 两点（对角）形成的材料矩形；两点不足或太近返回 null。
-  Rect? get _stockRectMm {
-    final a = widget.p0, b = widget.p1;
-    if (a == null || b == null) return null;
-    final w = (b.dx - a.dx).abs();
-    final h = (b.dy - a.dy).abs();
-    if (w < 10 || h < 10) return null;
-    return Rect.fromLTWH(
-        min(a.dx, b.dx), min(a.dy, b.dy), w, h);
-  }
-
+  /// 两点够开且材料矩形成立（<10mm 视为没框好）。
   bool get _rectOk => _stockRectMm != null;
 
   /// 下留白：做到哪了（纯事实 + 数字）。
@@ -2498,10 +2523,10 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
       return (text: '用左手盘把激光对准雕刻起点，按【设原点】', level: 0);
     }
     if (widget.p0 == null) {
-      return (text: '打开激光，移到材料左下角，按【取点】', level: 0);
+      return (text: '打开激光，移到材料任一个角，按【取点】', level: 0);
     }
     if (widget.p1 == null) {
-      return (text: '移到材料右上角，再按【取点】', level: 0);
+      return (text: '移到材料的对角另一端，再按【取点】', level: 0);
     }
     if (widget.stockShape == StockShape.circle && widget.p2 == null) {
       return (text: '再取圆周上第 3 点', level: 0);
@@ -2709,7 +2734,7 @@ class _BedPainter extends CustomPainter {
     canvas.drawCircle(Offset(px, py), 16,
         Paint()..color = CncColors.laser.withOpacity(0.1));
 
-    // 走边框动画（真实物理轨迹预览）
+    // 雕刻预览动画（真实物理轨迹预览）
     if (walking && originSet && pw > 1 && ph > 1 && !overflow) {
       final per = 2 * (pw + ph);
       final d = walk * per;

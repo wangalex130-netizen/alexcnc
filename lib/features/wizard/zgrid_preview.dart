@@ -123,6 +123,18 @@ class ZGridSurface extends StatefulWidget {
   /// 板料形态：true = 圆料（毛坯画 24 边形），false = 矩形。
   final bool circleBoard;
 
+  /// **材料板尺寸**（客户标定的那块料，mm）。
+  ///
+  /// 昊总 2026-09-18：3D 要「把选择的材料和模型合在一起展示，这才是真正
+  /// 雕刻出来的效果」。>0 时画整块料、模型按 [modelOffsetX]/[modelOffsetY]
+  /// 刻在板上；=0 时退回「只画模型自身那块料」（Step1 无标定，走这条）。
+  final double boardWidthMm;
+  final double boardHeightMm;
+
+  /// 模型（浮雕）左下角相对材料板左下角的偏移（mm）。
+  final double modelOffsetX;
+  final double modelOffsetY;
+
   const ZGridSurface({
     super.key,
     required this.data,
@@ -131,6 +143,10 @@ class ZGridSurface extends StatefulWidget {
     this.fallbackThicknessMm = 0,
     this.height = 220,
     this.circleBoard = false,
+    this.boardWidthMm = 0,
+    this.boardHeightMm = 0,
+    this.modelOffsetX = 0,
+    this.modelOffsetY = 0,
   });
 
   @override
@@ -229,6 +245,10 @@ class _ZGridSurfaceState extends State<ZGridSurface> {
                   fallbackT: widget.fallbackThicknessMm,
                   zAmp: _zAmp,
                   circle: widget.circleBoard,
+                  boardW: widget.boardWidthMm,
+                  boardH: widget.boardHeightMm,
+                  modelX: widget.modelOffsetX,
+                  modelY: widget.modelOffsetY,
                 ),
               ),
             ),
@@ -535,6 +555,10 @@ class _ZGridPainter extends CustomPainter {
   final double fallbackT;
   final int zAmp;
   final bool circle;
+  final double boardW;
+  final double boardH;
+  final double modelX;
+  final double modelY;
 
   const _ZGridPainter({
     required this.data,
@@ -547,6 +571,10 @@ class _ZGridPainter extends CustomPainter {
     required this.fallbackT,
     required this.zAmp,
     required this.circle,
+    required this.boardW,
+    required this.boardH,
+    required this.modelX,
+    required this.modelY,
   });
 
   /// 底部控制条占位（画布避让，避免实体被控件盖住）。
@@ -570,15 +598,44 @@ class _ZGridPainter extends CustomPainter {
   /// 立壁分段步长：单边最多 ~48 段。
   static int _wallStride(int res) => res <= 48 ? 1 : (res / 48).ceil();
 
+  /// 木料基色：材料板与模型**同一个基色**，只靠光照/深度区分。
+  /// 昊总 2026-09-18：「模型和材料的展示颜色要一样」。
+  static const _woodR = 200.0;
+  static const _woodG = 158.0;
+  static const _woodB = 110.0;
+
+  /// 朝上平面（n = +Z）的朗伯系数 —— 板面与未切削处同值 ⇒ 无缝衔接。
+  static const _flatK = 0.40 + 0.60 * _lz;
+
+  static Color _wood(double k) => Color.fromARGB(
+        255,
+        (_woodR * k).round().clamp(0, 255),
+        (_woodG * k).round().clamp(0, 255),
+        (_woodB * k).round().clamp(0, 255),
+      );
+
   @override
   void paint(Canvas canvas, Size size) {
     if (data.isEmpty || size.width <= 0 || size.height <= 0) return;
     if (data.resX < 1 || data.resY < 1) return;
 
-    final spanX =
+    final modelSpanX =
         data.spanX > 0 ? data.spanX : (fallbackW > 0 ? fallbackW : 60.0);
-    final spanY =
+    final modelSpanY =
         data.spanY > 0 ? data.spanY : (fallbackH > 0 ? fallbackH : 60.0);
+
+    // 材料板：有标定尺寸就用它（模型是板上的一块），否则退化为「模型自身那块料」
+    final hasBoard = boardW > 0 && boardH > 0;
+    final spanX = hasBoard ? boardW : modelSpanX;
+    final spanY = hasBoard ? boardH : modelSpanY;
+    // 模型在板内的左下角（夹进板内，避免画到板外）
+    final mx0 =
+        hasBoard ? modelX.clamp(0.0, math.max(0.0, spanX - modelSpanX)) : 0.0;
+    final my0 =
+        hasBoard ? modelY.clamp(0.0, math.max(0.0, spanY - modelSpanY)) : 0.0;
+    final mx1 = mx0 + modelSpanX;
+    final my1 = my0 + modelSpanY;
+
     final thick = data.thicknessMm > 0
         ? data.thicknessMm
         : (fallbackT > 0 ? fallbackT : 10.0);
@@ -595,9 +652,8 @@ class _ZGridPainter extends CustomPainter {
     final bcx = spanX / 2, bcy = spanY / 2;
 
     final usableH = math.max(40.0, size.height - _ctrlH);
-    final fit = math.min(size.width, usableH) /
-        (math.max(spanX, spanY) + thick * 0.9) *
-        0.68;
+    final fit =
+        math.min(size.width, usableH) / (math.max(spanX, spanY) + thick * 0.9) * 0.68;
     final scale = fit * zoom;
     final ox = size.width / 2 + pan.dx;
     final oy = usableH / 2 + pan.dy;
@@ -618,12 +674,13 @@ class _ZGridPainter extends CustomPainter {
 
     double rz(double z) => z * zFactor;
 
-    // ---- 立壁：背面剔除 + 朗伯明暗 ----
+    // ---- 立壁 / 板面：背面剔除 + 朗伯明暗（与浮雕同基色） ----
     final wallFill = Paint();
     final wallEdge = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 0.7
       ..color = const Color(0x33000000);
+    final flatFill = Paint()..color = _wood(_flatK);
 
     void wall(List<Offset> quad, double nx, double ny) {
       // 视线方向（XY 平面投影）：法线背向观察者的立壁不画，否则会盖住浮雕
@@ -636,62 +693,118 @@ class _ZGridPainter extends CustomPainter {
         ..lineTo(quad[2].dx, quad[2].dy)
         ..lineTo(quad[3].dx, quad[3].dy)
         ..close();
-      wallFill.color = Color.fromARGB(
-        255,
-        (176 * k).round().clamp(0, 255),
-        (136 * k).round().clamp(0, 255),
-        (92 * k).round().clamp(0, 255),
-      );
+      wallFill.color = _wood(k);
       canvas.drawPath(p, wallFill);
       canvas.drawPath(p, wallEdge);
     }
 
+    /// 材料板顶面的一块（z = 0 平面，与未切削的浮雕面同高 ⇒ 视觉连续）。
+    void flat(double x0, double y0, double x1, double y1) {
+      if (x1 - x0 <= 1e-6 || y1 - y0 <= 1e-6) return;
+      final a = proj(x0, y0, 0);
+      final b = proj(x1, y0, 0);
+      final c = proj(x1, y1, 0);
+      final d = proj(x0, y1, 0);
+      final p = Path()
+        ..moveTo(a.dx, a.dy)
+        ..lineTo(b.dx, b.dy)
+        ..lineTo(c.dx, c.dy)
+        ..lineTo(d.dx, d.dy)
+        ..close();
+      canvas.drawPath(p, flatFill);
+      canvas.drawPath(p, wallEdge);
+    }
+
     if (!circle) {
-      // 矩形毛坯：四壁顶面**跟随浮雕边缘高度** ⇒ 切口到边也有真实侧壁
-      final strideX = _wallStride(data.resX);
-      for (final near in [true, false]) {
-        final gj = near ? 0 : data.resY;
-        final ny = near ? -1.0 : 1.0;
-        final y = near ? 0.0 : spanY;
-        for (var gi = 0; gi < data.resX; gi += strideX) {
-          final gi2 = math.min(gi + strideX, data.resX);
-          final x0 = spanX * gi / data.resX;
-          final x1 = spanX * gi2 / data.resX;
-          wall([
-            proj(x0, y, rz(data.zAt(gi, gj))),
-            proj(x1, y, rz(data.zAt(gi2, gj))),
-            proj(x1, y, -thick),
-            proj(x0, y, -thick),
-          ], 0, ny);
-        }
+      // 材料板四壁：顶面 z=0（板边是未切削的料面），分 8 段让明暗过渡自然
+      const seg = 8;
+      for (var i = 0; i < seg; i++) {
+        final t0 = i / seg, t1 = (i + 1) / seg;
+        // 下边 y=0（法线 -Y）
+        wall([
+          proj(spanX * t0, 0, 0),
+          proj(spanX * t1, 0, 0),
+          proj(spanX * t1, 0, -thick),
+          proj(spanX * t0, 0, -thick),
+        ], 0, -1);
+        // 右边 x=spanX（法线 +X）
+        wall([
+          proj(spanX, spanY * t0, 0),
+          proj(spanX, spanY * t1, 0),
+          proj(spanX, spanY * t1, -thick),
+          proj(spanX, spanY * t0, -thick),
+        ], 1, 0);
+        // 上边 y=spanY（法线 +Y）
+        wall([
+          proj(spanX * (1 - t0), spanY, 0),
+          proj(spanX * (1 - t1), spanY, 0),
+          proj(spanX * (1 - t1), spanY, -thick),
+          proj(spanX * (1 - t0), spanY, -thick),
+        ], 0, 1);
+        // 左边 x=0（法线 -X）
+        wall([
+          proj(0, spanY * (1 - t0), 0),
+          proj(0, spanY * (1 - t1), 0),
+          proj(0, spanY * (1 - t1), -thick),
+          proj(0, spanY * (1 - t0), -thick),
+        ], -1, 0);
       }
-      final strideY = _wallStride(data.resY);
-      for (final left in [true, false]) {
-        final gi = left ? 0 : data.resX;
-        final nx = left ? -1.0 : 1.0;
-        final x = left ? 0.0 : spanX;
-        for (var gj = 0; gj < data.resY; gj += strideY) {
-          final gj2 = math.min(gj + strideY, data.resY);
-          final y0 = spanY * gj / data.resY;
-          final y1 = spanY * gj2 / data.resY;
-          wall([
-            proj(x, y0, rz(data.zAt(gi, gj))),
-            proj(x, y1, rz(data.zAt(gi, gj2))),
-            proj(x, y1, -thick),
-            proj(x, y0, -thick),
-          ], nx, 0);
+
+      if (hasBoard) {
+        // 板面 = 整板挖去模型区域（四条留边）
+        flat(0, 0, spanX, my0); // 下留边
+        flat(0, my1, spanX, spanY); // 上留边
+        flat(0, my0, mx0, my1); // 左留边
+        flat(mx1, my0, spanX, my1); // 右留边
+      } else {
+        // 无标定尺寸：模型即整板 ⇒ 四壁顶面跟随浮雕边缘（切口到边也有侧壁）
+        final strideX = _wallStride(data.resX);
+        for (final near in [true, false]) {
+          final gj = near ? 0 : data.resY;
+          final ny = near ? -1.0 : 1.0;
+          final y = near ? 0.0 : spanY;
+          for (var gi = 0; gi < data.resX; gi += strideX) {
+            final gi2 = math.min(gi + strideX, data.resX);
+            final x0 = spanX * gi / data.resX;
+            final x1 = spanX * gi2 / data.resX;
+            wall([
+              proj(x0, y, rz(data.zAt(gi, gj))),
+              proj(x1, y, rz(data.zAt(gi2, gj))),
+              proj(x1, y, -thick),
+              proj(x0, y, -thick),
+            ], 0, ny);
+          }
+        }
+        final strideY = _wallStride(data.resY);
+        for (final left in [true, false]) {
+          final gi = left ? 0 : data.resX;
+          final nx = left ? -1.0 : 1.0;
+          final x = left ? 0.0 : spanX;
+          for (var gj = 0; gj < data.resY; gj += strideY) {
+            final gj2 = math.min(gj + strideY, data.resY);
+            final y0 = spanY * gj / data.resY;
+            final y1 = spanY * gj2 / data.resY;
+            wall([
+              proj(x, y0, rz(data.zAt(gi, gj))),
+              proj(x, y1, rz(data.zAt(gi, gj2))),
+              proj(x, y1, -thick),
+              proj(x, y0, -thick),
+            ], nx, 0);
+          }
         }
       }
     } else {
       // 圆料：24 边形毛坯外壁（顶面按 z=0；网格不强行裁圆——已知简化）
       const n = 24;
       final r = math.min(spanX, spanY) / 2;
+      final cxx = hasBoard ? spanX / 2 : bcx;
+      final cyy = hasBoard ? spanY / 2 : bcy;
       for (var i = 0; i < n; i++) {
         final a0 = i / n * math.pi * 2;
         final a1 = (i + 1) / n * math.pi * 2;
         final am = (a0 + a1) / 2;
-        final x0 = bcx + r * math.cos(a0), y0 = bcy + r * math.sin(a0);
-        final x1 = bcx + r * math.cos(a1), y1 = bcy + r * math.sin(a1);
+        final x0 = cxx + r * math.cos(a0), y0 = cyy + r * math.sin(a0);
+        final x1 = cxx + r * math.cos(a1), y1 = cyy + r * math.sin(a1);
         wall([
           proj(x0, y0, 0),
           proj(x1, y1, 0),
@@ -703,15 +816,15 @@ class _ZGridPainter extends CustomPainter {
 
     // ---- 浮雕顶面：法线叉乘 → 朗伯漫反射 + 深度压暗 → 画家算法 ----
     final stride = _stride(data.resX, data.resY);
-    final ux = spanX / data.resX;
-    final uy = spanY / data.resY;
+    final ux = modelSpanX / data.resX;
+    final uy = modelSpanY / data.resY;
     final cells = <_Quad>[];
     for (var gj = 0; gj < data.resY; gj += stride) {
       for (var gi = 0; gi < data.resX; gi += stride) {
         final gi2 = math.min(gi + stride, data.resX);
         final gj2 = math.min(gj + stride, data.resY);
-        final x0 = ux * gi, x1 = ux * gi2;
-        final y0 = uy * gj, y1 = uy * gj2;
+        final x0 = mx0 + ux * gi, x1 = mx0 + ux * gi2;
+        final y0 = my0 + uy * gj, y1 = my0 + uy * gj2;
         final rawA = data.zAt(gi, gj), rawB = data.zAt(gi2, gj);
         final rawC = data.zAt(gi2, gj2), rawD = data.zAt(gi, gj2);
         final za = rz(rawA), zb = rz(rawB), zc = rz(rawC), zd = rz(rawD);
@@ -742,12 +855,7 @@ class _ZGridPainter extends CustomPainter {
           pb: proj(x1, y0, zb),
           pc: proj(x1, y1, zc),
           pd: proj(x0, y1, zd),
-          color: Color.fromARGB(
-            255,
-            (200 * k).round().clamp(0, 255),
-            (158 * k).round().clamp(0, 255),
-            (110 * k).round().clamp(0, 255),
-          ),
+          color: _wood(k),
           z: rawAvg,
           depth: (depthOf(x0, y0, za) + depthOf(x1, y1, zc)) / 2,
         ));
@@ -772,12 +880,12 @@ class _ZGridPainter extends CustomPainter {
       canvas.drawPath(p, reliefEdge);
     }
 
-    // ---- 巡边定位外框（z=0 平面）----
+    // ---- 巡边定位外框（模型区，z=0 平面）----
     final rim = <Offset>[
-      proj(0, 0, 0),
-      proj(spanX, 0, 0),
-      proj(spanX, spanY, 0),
-      proj(0, spanY, 0),
+      proj(mx0, my0, 0),
+      proj(mx1, my0, 0),
+      proj(mx1, my1, 0),
+      proj(mx0, my1, 0),
     ];
     final rimPath = Path()
       ..moveTo(rim[0].dx, rim[0].dy)
@@ -802,5 +910,9 @@ class _ZGridPainter extends CustomPainter {
       old.zoom != zoom ||
       old.pan != pan ||
       old.zAmp != zAmp ||
-      old.circle != circle;
+      old.circle != circle ||
+      old.boardW != boardW ||
+      old.boardH != boardH ||
+      old.modelX != modelX ||
+      old.modelY != modelY;
 }
