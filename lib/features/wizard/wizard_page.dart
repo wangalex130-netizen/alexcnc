@@ -23,6 +23,7 @@ import 'job_launch_banner.dart';
 import 'job_monitor_page.dart';
 import 'zgrid_preview.dart';
 import 'origin_canvas.dart';
+import 'payload.dart';
 
 /// Core 2: 6-step foolproof processing wizard.
 ///
@@ -1330,15 +1331,60 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
   String? _noteMsg;
   bool _noteBad = false;
   DateTime? _frameAt; // N2：状态帧新鲜度（本地接收时刻）
-  OriginMeta? _meta;
+  Payload? _meta; // 载荷（两套字段形状都兼容，见 payload.dart）
+  List<double>? _grid; // 解码后的高程网格（行主序 mm；null = 载荷无网格体）
+
+  // —— 标定/G54/巡边 过程状态（对齐双模拟器 v2.0 的 App 侧状态机）——
+  bool _g54Written = false; // G54 已写入且绑定当前载荷
+  String _g54JobId = ''; // 写入时绑定的 jobId（P4 宁锁勿放）
+  bool _framingDone = false; // 业务巡边三锁通过并收到 framing_done
+  String? _framingFail; // 巡边被拒绝的原因清单（逐条，不静默）
 
   static const double _knifeR = 1.6; // 刀半径（围栏外扩）
-  static const double _clearBand = 10; // 压块安全隔离带 mm
 
-  bool get _wysiwyg => (widget.payloadUrl ?? '').isNotEmpty;
-  double get _w => _meta?.spanX ?? (widget.task?.widthMm ?? 0);
-  double get _h => _meta?.spanY ?? (widget.task?.heightMm ?? 0);
+  /// 压块安全隔离带（§4.3）：矩形料 8mm / 圆形料 6mm（对齐双模拟器 v2.0）。
+  double get _clearBand => widget.stockShape == StockShape.circle ? 6.0 : 8.0;
+
+  /// 有载荷即走所见即所得；载荷不可用则手动兜底。
+  bool get _wysiwyg => _meta != null;
+
+  double get _w => _meta?.designSize().w ?? (widget.task?.widthMm ?? 0);
+  double get _h => _meta?.designSize().h ?? (widget.task?.heightMm ?? 0);
+
   int get _needPts => widget.stockShape == StockShape.circle ? 3 : 2;
+
+  /// 标定是否已够点数（圆料须 3 点定圆）。
+  bool get _datumDone =>
+      widget.p0 != null &&
+      widget.p1 != null &&
+      (widget.stockShape != StockShape.circle || widget.p2 != null);
+
+  /// 基线长度 P0→P1（mm）。过短则 θ 不可信。
+  double get _baseMm {
+    final a = widget.p0, b = widget.p1;
+    if (a == null || b == null) return 0;
+    return (b - a).distance;
+  }
+
+  /// 材料在机床上的摆放方位角 θ（P0→P1，度）。
+  double get _theta {
+    final a = widget.p0, b = widget.p1;
+    if (a == null || b == null) return 0;
+    return atan2(b.dy - a.dy, b.dx - a.dx) * 180 / pi;
+  }
+
+  /// §4.1 G54（= 排版位置 − CAM 原点，允许负值）。
+  double get _g54x =>
+      _meta == null ? widget.origin.dx : _meta!.g54For(widget.origin.dx, widget.origin.dy).x;
+  double get _g54y =>
+      _meta == null ? widget.origin.dy : _meta!.g54For(widget.origin.dx, widget.origin.dy).y;
+
+  /// 穿透校验用板厚：优先载荷自报，其次模型推荐值。
+  double get _matThickness {
+    final mm = _meta?.minMaterialThickness ?? 0;
+    if (mm > 0) return mm;
+    return widget.task?.boardThicknessMm ?? 0;
+  }
 
   @override
   void initState() {
@@ -1357,6 +1403,11 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
     });
   }
 
+  /// 拉取并解析轻量 JSON（Unified Payload v2.3.0，两套字段形状都兼容）。
+  ///
+  /// 收到载荷后依次做四件事（对齐双模拟器 v2.0 的 App 侧）：
+  /// ① 解码高程网格（供 2D 俯视伪彩 / 3D）；② **解除上一份载荷的 G54 绑定**
+  /// （P4 宁锁勿放：换载荷必须重写 G54）；③ 清空巡边结论；④ 按真实足迹居中排版。
   Future<void> _loadMeta() async {
     final url = widget.payloadUrl;
     if (url == null || url.isEmpty) return;
@@ -1364,16 +1415,46 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
       final resp =
           await http.get(Uri.parse(url)).timeout(const Duration(seconds: 8));
       if (!mounted) return;
-      OriginMeta? m;
+      Payload? m;
+      List<double>? grid;
       if (resp.statusCode == 200) {
         final j = jsonDecode(utf8.decode(resp.bodyBytes));
-        if (j is Map<String, dynamic>) m = OriginMeta.fromJson(j);
+        if (j is Map<String, dynamic>) {
+          m = Payload.fromJson(j, sourceBytes: resp.bodyBytes.length);
+          grid = m?.decodeGrid();
+        }
       }
-      setState(() => _meta = m);
-      if (m == null) _note('轻量 JSON 不可用：已回退手动定原点', bad: true);
+      if (!mounted) return;
+      setState(() {
+        _meta = m;
+        _grid = grid;
+        _g54Written = false;
+        _g54JobId = '';
+        _framingDone = false;
+        _framingFail = null;
+      });
+      if (m == null) {
+        _note('轻量 JSON 不可用（缺 bbox / camOriginOffset）：已回退手动定原点', bad: true);
+        return;
+      }
+      final c = m.centeredOnBed();
+      _setDesign(Offset(c.x, c.y), quiet: true);
+      final kb = (m.payloadBytes / 1024).toStringAsFixed(1);
+      if (!m.hasGrid) {
+        _note('已载入载荷 ${m.jobId}：${m.spanX.toStringAsFixed(1)}×'
+            '${m.spanY.toStringAsFixed(1)}mm · $kb KB。'
+            '该载荷无网格体（L0/L1 级）⇒ 无 3D / 俯视伪彩，定原点照常可用');
+      } else {
+        _note('已载入载荷 ${m.jobId}：${m.spanX.toStringAsFixed(1)}×'
+            '${m.spanY.toStringAsFixed(1)}mm · 网格 ${m.gridCols}×${m.gridRows} · '
+            '$kb KB${m.withinContract ? '' : '（超 45KB 契约上限）'}');
+      }
     } catch (_) {
       if (!mounted) return;
-      setState(() => _meta = null);
+      setState(() {
+        _meta = null;
+        _grid = null;
+      });
       _note('轻量 JSON 拉取失败：已回退手动定原点', bad: true);
     }
   }
@@ -1489,24 +1570,32 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
     final sy = pt.dy.toStringAsFixed(1);
     if (widget.p0 == null) {
       widget.onP0(pt);
-      _note('已取 P0 = ($sx, $sy)。请沿材料底边移到最右端远角再取 P1（建议基线 >50mm）');
+      _note('已取 P0 = ($sx, $sy)。请沿材料同一条边移到最远角再取 P1'
+          '（基线 >30mm 才可用，且越长 θ 越准）');
     } else if (widget.p1 == null) {
       widget.onP1(pt);
-      final base = (pt.dx - widget.p0!.dx).abs();
-      if (base < 50) {
-        _note('基线仅 ${base.toStringAsFixed(0)}mm（建议 >50mm）：角度误差会被放大，'
+      final base = (pt - widget.p0!).distance;
+      final th = atan2(pt.dy - widget.p0!.dy, pt.dx - widget.p0!.dx) * 180 / pi;
+      if (base < 30) {
+        _note('基线仅 ${base.toStringAsFixed(1)}mm（<30mm 不可用）：θ 误差会被放大，'
             '请退远一点重取 P1', bad: true);
+      } else if (base > 240) {
+        _note('基线 ${base.toStringAsFixed(1)}mm 偏长（>240mm）：请复核两点是否都落在'
+            '同一条料边上', bad: true);
       } else if (widget.stockShape == StockShape.circle) {
-        _note('已取 P1，基线 ${base.toStringAsFixed(0)}mm。请再取圆周上第 3 点（不与 P0/P1 相邻）');
+        _note('已取 P1，基线 ${base.toStringAsFixed(1)}mm · θ=${th.toStringAsFixed(2)}°。'
+            '请再取圆周上第 3 点（不与 P0/P1 相邻）');
       } else {
-        _note('已取 P1，基线 ${base.toStringAsFixed(0)}mm。可拖动绿框排版；也可再取 P2 定宽度');
+        _note('已取 P1，基线 ${base.toStringAsFixed(1)}mm · θ=${th.toStringAsFixed(2)}°。'
+            '标定完成，可拖动绿框排版；异形料可再取 P2');
       }
     } else if (widget.p2 == null) {
       widget.onP2(pt);
-      _note(widget.stockShape == StockShape.circle
-          ? '标定完成：圆形 3 点（外接圆）'
-          : '标定完成：矩形 2 点 + P2 定宽');
+      setState(() => _framingDone = false);
       _setDesign(widget.origin, quiet: true);
+      _note(widget.stockShape == StockShape.circle
+          ? '标定完成：圆形 3 点外接圆，可拖动绿框排版'
+          : '标定完成：矩形 2 点 + P2 定宽，可拖动绿框排版');
     } else {
       widget.onP0(pt);
       widget.onP1(null);
@@ -1521,7 +1610,13 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
     widget.onP2(null);
     widget.onOverflow(false);
     widget.onOriginSet(false);
-    _note('已清除标定点与原点锁定');
+    setState(() {
+      _g54Written = false;
+      _g54JobId = '';
+      _framingDone = false;
+      _framingFail = null;
+    });
+    _note('已清除标定点、G54 绑定与巡边结论（宁可重来，不带旧状态开切）');
   }
 
   void _jog(String axis, double dir) {
@@ -1543,10 +1638,39 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
         bad: !ok);
   }
 
+  /// 巡边三锁（开发文档 §6.2，App 侧前置裁决）。
+  ///
+  /// ① E_NOT_DATUMED 未完成标定；② E_ENVELOPE G54 未写入（包围盒未锚定）；
+  /// ③ E_LIMIT 机床坐标 = G54 + **原始 bbox** 越出台面；④ E_BUSY 指令进行中。
+  ///
+  /// 不通过时**逐条列出原因、绝不静默**（宁锁勿放）。双模拟器 v2.0 在拒绝时会
+  /// 切一段"走边框预览动画"——那是**无机器时的演示脚手架**；真机上巡边会让激光
+  /// 物理移动，再叠一层动画只会干扰目视判断，故 App 只保留明确的拒绝清单。
+  List<String> _framingLocks() {
+    final fails = <String>[];
+    if (!_datumDone) fails.add('未完成标定（需 $_needPts 点）');
+    final m = _meta;
+    if (m != null) {
+      if (!_g54Written) {
+        fails.add('G54 未写入，包围盒未锚定');
+      } else {
+        final v = m.limitViolation(_g54x, _g54y);
+        if (v != null) fails.add(v);
+      }
+    }
+    if (_busy) fails.add('指令进行中（busy）');
+    return fails;
+  }
+
   Future<void> _doFraming() async {
     if (_busy) return;
-    if (!widget.originSet) {
-      _note('请先完成标定并锁定原点，再走边框', bad: true);
+    final fails = _framingLocks();
+    if (fails.isNotEmpty) {
+      setState(() {
+        _framingDone = false;
+        _framingFail = fails.join('\n');
+      });
+      _note('走边框被拒绝（宁锁勿放）：\n${fails.join('\n')}', bad: true);
       return;
     }
     final o = widget.origin;
@@ -1560,33 +1684,84 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
     setState(() => _busy = true);
     final ok = await ref.read(hardwareServiceProvider).framing(points: pts);
     if (!mounted) return;
-    setState(() => _busy = false);
+    setState(() {
+      _busy = false;
+      _framingDone = ok;
+      _framingFail = ok ? null : '命令未受理（需与机器同网；固件 F2 交付前无响应）';
+    });
     _note(
       ok
-          ? '已下发走边框：机器抬 Z 至安全高度后巡边一圈，请目视确认激光框落在料上、避开夹具'
-          : '走边框被拦下（需与机器同网）',
+          ? '已下发走边框：机器抬 Z 至最高安全位后巡边一圈，请目视确认激光框落在料上、避开夹具'
+          : '走边框被拦下：需与机器同网（固件 F2 交付前该命令无响应）',
       bad: !ok,
     );
   }
 
   Future<void> _writeG54() async {
     if (_busy) return;
+    final m = _meta;
+    if (m == null) {
+      _note('当前没有载荷：手动模式请用【锁定原点】而不是写入 G54', bad: true);
+      return;
+    }
+    if (!_datumDone) {
+      _note('G54 拒绝写入：请先完成标定（$_needPts 点）', bad: true);
+      return;
+    }
     setState(() => _busy = true);
-    final cam = _meta?.camOriginOffset ?? Offset.zero;
     // §4.1：G54 = DesignPos − camOriginOffset。**允许为负**（严禁 max(0,·)）。
-    final gx = widget.origin.dx - cam.dx;
-    final gy = widget.origin.dy - cam.dy;
-    final ok = await ref.read(hardwareServiceProvider).setWcsOffset(x: gx, y: gy);
+    final g = m.g54For(widget.origin.dx, widget.origin.dy);
+    final ok = await ref.read(hardwareServiceProvider).setWcsOffset(x: g.x, y: g.y);
     if (!mounted) return;
-    setState(() => _busy = false);
+    setState(() {
+      _busy = false;
+      _g54Written = ok;
+      _g54JobId = ok ? m.jobId : '';
+      if (ok) _framingDone = false; // 原点变了 ⇒ 上一次巡边结论作废
+    });
     widget.onOriginSet(ok);
     _note(
       ok
-          ? '已写入 G54：X ${gx.toStringAsFixed(2)} / Y ${gy.toStringAsFixed(2)}'
-              '（Z 由机器在按键后对刀时写入，App 不写 Z）'
+          ? '已写入 G54：X ${g.x.toStringAsFixed(2)} / Y ${g.y.toStringAsFixed(2)}'
+              '，并绑定作业 ${m.jobId}（Z 由机器按键后对刀写入，App 不写 Z）'
           : 'G54 写入被拦下（需同网；固件 F1 交付前该命令无响应）',
       bad: !ok,
     );
+  }
+
+  /// 安全 / 一致性提示（对齐双模拟器 v2.0 的安全审计条）。
+  List<Widget> _safetyBanners() {
+    final m = _meta;
+    if (m == null) return const [];
+    final out = <Widget>[];
+    final thick = _matThickness;
+    // ① 穿透底板：最大切深超过板厚（报大=漏检穿底，报小=起探撞料）
+    if (thick > 0 && m.maxCutDepth.abs() > thick + 1e-6) {
+      out.add(const SizedBox(height: 8));
+      out.add(_banner(
+          '穿透底板预警：最大切削深度 ${m.maxCutDepth.toStringAsFixed(2)}mm 超过板厚 '
+          '${thick.toStringAsFixed(1)}mm（超出 ${(m.maxCutDepth.abs() - thick).toStringAsFixed(2)}mm）'
+          '，请垫废料保护板或换更厚的料',
+          bad: true));
+    } else if (m.cutThroughRisk) {
+      out.add(const SizedBox(height: 8));
+      out.add(_banner('载荷自报 cutThroughRisk=true：请确认已垫废料保护板', bad: true));
+    }
+    // ② P4 宁锁勿放：G54 绑定的是"别的"载荷
+    if (_g54Written && _g54JobId.isNotEmpty && _g54JobId != m.jobId) {
+      out.add(const SizedBox(height: 8));
+      out.add(_banner('G54 绑定的作业（$_g54JobId）与当前载荷（${m.jobId}）不一致：'
+          '更换载荷后必须重新写入 G54，否则起点会整体偏移', bad: true));
+    }
+    // ③ 契约上限 45KB
+    if (!m.withinContract) {
+      out.add(const SizedBox(height: 8));
+      out.add(_banner(
+          '载荷 ${(m.payloadBytes / 1024).toStringAsFixed(1)}KB 超出 45KB 契约上限：'
+          '请让生产端降级为 L0/L1 或复核解析',
+          bad: true));
+    }
+    return out;
   }
 
   void _manualSet() {
@@ -1721,6 +1896,9 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
             _chip(homed == true ? '已回零' : (homed == null ? '回零状态未上报' : '未回零'),
                 homed == true),
             _chip('坐标实时', fresh),
+            if (_meta != null) _chip('契约 ≤45KB', _meta!.withinContract),
+            if (_meta != null) _chip(_g54Written ? 'G54 已写入' : 'G54 未写入', _g54Written),
+            if (_meta != null) _chip(_framingDone ? '已巡边' : '未巡边', _framingDone),
           ]),
         ),
         const SizedBox(height: 10),
@@ -1731,16 +1909,28 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
         const SizedBox(height: 10),
 
         // ---- 画框 / 3D ----
-        if (_show3D && _wysiwyg)
+        // 3D 需要网格体（Full 级载荷）；L0/L1 只有定位字段 ⇒ 退回 2D 画框。
+        if (_show3D && _grid != null && _meta != null)
           ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: Container(
               color: const Color(0xFFF5F7FA),
-              child: ZGridPreview(
-                url: widget.payloadUrl,
-                fallbackWidthMm: _w,
-                fallbackHeightMm: _h,
-                fallbackThicknessMm: widget.task?.boardThicknessMm ?? 0,
+              child: ZGridSurface(
+                data: ZGridData(
+                  // ZGridData 的 resX/resY 是"格数"，载荷给的是"点数"
+                  resX: (_meta!.gridCols - 1).clamp(1, 4096),
+                  resY: (_meta!.gridRows - 1).clamp(1, 4096),
+                  zScale: _meta!.zScale,
+                  spanX: _meta!.spanX,
+                  spanY: _meta!.spanY,
+                  spanZ: _meta!.spanZ,
+                  thicknessMm: _matThickness > 0 ? _matThickness : 10,
+                  z: _grid!,
+                ),
+                fallbackWidthMm: _meta!.spanX,
+                fallbackHeightMm: _meta!.spanY,
+                fallbackThicknessMm: _matThickness > 0 ? _matThickness : 10,
+                height: 320,
               ),
             ),
           )
@@ -1762,6 +1952,11 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
               overflow: widget.overflow,
               laserMm: laserMm,
               hasPayload: _wysiwyg,
+              zGrid: _grid,
+              gridCols: _meta?.gridCols ?? 0,
+              gridRows: _meta?.gridRows ?? 0,
+              baseMm: _baseMm,
+              thetaDeg: _theta,
               onDesignDrag: (d) {
                 if (_busy) return;
                 _setDesign(widget.origin + d, quiet: true);
@@ -1772,11 +1967,19 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
         Row(children: [
           _pill('2D', !_show3D, () => setState(() => _show3D = false)),
           const SizedBox(width: 6),
-          _pill('3D', _show3D, _wysiwyg ? () => setState(() => _show3D = true) : null),
+          _pill('3D', _show3D,
+              (_wysiwyg && _grid != null) ? () => setState(() => _show3D = true) : null),
           const SizedBox(width: 8),
-          if (_wysiwyg)
-            Text('拖动绿框排版 · 【3D】看减材效果',
-                style: const TextStyle(fontSize: 11, color: CncColors.textSub)),
+          Expanded(
+            child: Text(
+              !_wysiwyg
+                  ? '手动模式：Jog 对齐 + 激光十字'
+                  : (_grid == null
+                      ? '该载荷无网格体（L0/L1）：无 3D，定原点不受影响'
+                      : '拖动绿框排版 · 【3D】看减材效果'),
+              style: const TextStyle(fontSize: 11, color: CncColors.textSub),
+            ),
+          ),
         ]),
         const SizedBox(height: 10),
 
@@ -1790,21 +1993,41 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
           ),
           child: Column(children: [
             _kv(
-              '${_wysiwyg ? 'G54（设计左下角 − CAM 原点）' : '雕刻原点（手动）'}',
+              _meta == null ? '雕刻原点（手动）' : '排版位置（设计左下角）',
               'X ${widget.origin.dx.toStringAsFixed(1)}　Y ${widget.origin.dy.toStringAsFixed(1)} mm',
               strong: true,
             ),
-            if (_wysiwyg && _meta != null)
+            if (_meta != null) ...[
+              _kv('G54 = 排版位置 − CAM 原点',
+                  'X ${_g54x.toStringAsFixed(2)}　Y ${_g54y.toStringAsFixed(2)} mm'),
               _kv('CAM 原点偏移',
-                  'X ${_meta!.camOriginOffset.dx.toStringAsFixed(1)}　Y ${_meta!.camOriginOffset.dy.toStringAsFixed(1)}'),
-            _kv('图形尺寸', '${_w.toStringAsFixed(1)} × ${_h.toStringAsFixed(1)} mm'),
-            if (_meta != null)
-              _kv('最大切深', '${_meta!.maxCutDepth.toStringAsFixed(2)} mm'),
+                  'X ${_meta!.camX.toStringAsFixed(1)}　Y ${_meta!.camY.toStringAsFixed(1)}'),
+              _kv('基线 / θ',
+                  '${_baseMm.toStringAsFixed(1)} mm　θ ${_theta.toStringAsFixed(2)}°'),
+              _kv('图形足迹',
+                  '${_w.toStringAsFixed(1)} × ${_h.toStringAsFixed(1)} mm（真实 bbox '
+                  '${_meta!.spanX.toStringAsFixed(1)}×${_meta!.spanY.toStringAsFixed(1)}）'),
+              _kv('最大切深 / 抬刀',
+                  '${_meta!.maxCutDepth.toStringAsFixed(2)} / '
+                  '${_meta!.retractHeightZ.toStringAsFixed(1)} mm'),
+              _kv('作业 / 契约',
+                  '${_meta!.jobId}　${(_meta!.payloadBytes / 1024).toStringAsFixed(1)} KB'
+                  '${_meta!.withinContract ? '' : '（超限）'}'),
+              _kv('G54 绑定', _g54Written ? '已写入（$_g54JobId）' : '未写入'),
+            ],
           ]),
         ),
         if (widget.overflow) ...[
           const SizedBox(height: 8),
-          _banner('图案已超出可用安全区（标定区域 − 10mm 隔离带 − 刀径）：请调整位置或换大料', bad: true),
+          _banner(
+              '图案已超出可用安全区（标定区域 − ${_clearBand.toStringAsFixed(0)}mm 隔离带 '
+              '− 刀径 ${_knifeR.toStringAsFixed(1)}mm）：请调整位置或换大料',
+              bad: true),
+        ],
+        ..._safetyBanners(),
+        if (_framingFail != null) ...[
+          const SizedBox(height: 8),
+          _banner('巡边三锁未通过：\n$_framingFail', bad: true),
         ],
         if (_noteMsg != null) ...[
           const SizedBox(height: 8),

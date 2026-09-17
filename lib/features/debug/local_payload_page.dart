@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import '../../app/theme.dart';
+import '../wizard/payload.dart';
 import '../wizard/zgrid_preview.dart';
 
 /// 本地轻量 JSON 解析（临时调试口）。
@@ -28,6 +29,7 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
   int _bytes = 0;
   String? _error;
   Map<String, dynamic>? _raw;
+  Payload? _pl;
   ZGridData? _grid;
   bool _picking = false;
 
@@ -72,6 +74,7 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
   void _analyze(String name, Uint8List bytes) {
     String? err;
     Map<String, dynamic>? raw;
+    Payload? pl;
     ZGridData? grid;
     try {
       final txt = utf8.decode(bytes, allowMalformed: true);
@@ -80,11 +83,16 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
         err = '根节点不是 JSON 对象（读到 ${decoded.runtimeType}）。';
       } else {
         raw = decoded;
+        pl = Payload.fromJson(decoded, sourceBytes: bytes.length);
         grid = ZGridData.fromJson(decoded);
-        if (grid == null) {
-          err = '不是可用的 Unified Payload v2.3.0：缺少 detail.gridResX / '
-              'gridResY / zGridBase64，或 Base64 解码后字节数不足 '
-              '(gridResX+1)×(gridResY+1)×2。';
+        if (pl == null) {
+          err = '不是可用的 Unified Payload v2.3.0：取不到包围盒。'
+              '需 bbox:{x:[min,max],y:[min,max]} 或 modelBBox:{spanX,spanY}。';
+        } else if (grid == null) {
+          // L0/L1 级载荷本就没有网格体 —— 这不是错误，但要如实说明
+          err = '已解析到定位字段（可定原点），但**没有网格体** ⇒ 无 3D 预览。'
+              '若需 3D，请用 Full 级载荷（含 zGrid.base64 / detail.zGridBase64），'
+              '且 Base64 解码字节数 ≥ 点数×2。';
         }
       }
     } catch (e) {
@@ -96,6 +104,7 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
       _fileName = name;
       _bytes = bytes.length;
       _raw = raw;
+      _pl = pl;
       _grid = grid;
       _error = err;
     });
@@ -166,51 +175,51 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
       rows.add([
         '台面',
         '${_v(ms['bedWidth'])} × ${_v(ms['bedHeight'])}　零点 ${_v(ms['physicalZero'])}'
+        '　${_v(ms['controller'])}'
       ]);
     }
 
-    final bb = asMap(r['modelBBox']);
-    if (bb != null) {
+    // 依赖解析后的统一模型（两套字段形状都在这里被归一）
+    final pl = _pl;
+    if (pl != null) {
       rows.add([
-        '模型 span',
-        'X ${_v(bb['spanX'])}　Y ${_v(bb['spanY'])}　Z ${_v(bb['spanZ'])}'
+        '包围盒 bbox',
+        'X[${pl.minX.toStringAsFixed(1)},${pl.maxX.toStringAsFixed(1)}] '
+            'Y[${pl.minY.toStringAsFixed(1)},${pl.maxY.toStringAsFixed(1)}] '
+            'Z[${pl.minZ.toStringAsFixed(2)},${pl.maxZ.toStringAsFixed(2)}]'
       ]);
-      rows.add(['模型 Z 范围', '${_v(bb['minZ'])} ~ ${_v(bb['maxZ'])}']);
-    }
-
-    final co = asMap(r['camOriginOffset']);
-    if (co != null) {
-      rows.add(['CAM 原点偏移', 'X ${_v(co['x'])}　Y ${_v(co['y'])}']);
+      rows.add(['图形足迹 span',
+        'X ${pl.spanX.toStringAsFixed(1)}　Y ${pl.spanY.toStringAsFixed(1)} mm']);
+      rows.add(['CAM 原点偏移',
+        'X ${pl.camX.toStringAsFixed(2)}　Y ${pl.camY.toStringAsFixed(2)}']);
+      rows.add(['G54（若居中排版）',
+        'X ${(pl.centeredOnBed().x - pl.camX).toStringAsFixed(2)}　'
+            'Y ${(pl.centeredOnBed().y - pl.camY).toStringAsFixed(2)}']);
+      rows.add(['最大切深 / 抬刀',
+        '${pl.maxCutDepth.toStringAsFixed(2)} / ${pl.retractHeightZ.toStringAsFixed(1)} mm']);
+      rows.add(['最小板厚 / 预估', '${pl.minMaterialThickness.toStringAsFixed(1)} mm　'
+          '${pl.estMin} min']);
+      rows.add(['剥离行 / 字节',
+        '${pl.stripLines} 行　${(pl.stripBytes / 1024).toStringAsFixed(1)} KB']);
+      rows.add(['穿透风险自报', pl.cutThroughRisk ? 'true（需垫废料板）' : 'false']);
+      rows.add(['网格', pl.hasGrid
+          ? '${pl.gridCols} × ${pl.gridRows} 点 · zScale ${pl.zScale}'
+          : '无（L0/L1 级载荷）']);
+      rows.add(['载荷大小 / 契约',
+        '${(pl.payloadBytes / 1024).toStringAsFixed(2)} KB　'
+            '${pl.withinContract ? '≤45KB 通过' : '超 45KB 上限！'}']);
     }
 
     final fo = r['framingOutline'];
-    if (fo is List) rows.add(['巡边外框', '${fo.length} 个点']);
-
-    final st = asMap(r['stats']);
-    if (st != null) {
-      rows.add(['最大切深', _v(st['maxCutDepth'])]);
-      rows.add(['最小板厚', _v(st['minMaterialThickness'])]);
-      rows.add(['抬刀高度', _v(st['retractHeightZ'])]);
-      rows.add(['预估耗时(min)', _v(st['estTimeMin'])]);
-    }
-
-    final dt = asMap(r['detail']);
-    if (dt != null) {
-      rows.add(['网格 resX × resY', '${_v(dt['gridResX'])} × ${_v(dt['gridResY'])}']);
-      rows.add(['zScale', _v(dt['zScale'])]);
-      rows.add(['编码', _v(dt['zGridEncoding'])]);
-      final b64 = dt['zGridBase64'];
-      rows.add(['zGridBase64', b64 is String ? '${b64.length} 字符' : '—']);
-    }
+    if (fo is List) rows.add(['巡边外框(framingOutline)', '${fo.length} 个点']);
 
     final g = _grid;
     if (g != null) {
       rows.add(['解码格点', '${g.pointCount} 点（${g.resX + 1} × ${g.resY + 1}）']);
       rows.add([
-        '实际 Z 范围',
+        '解码后 Z 范围',
         '${g.minZ.toStringAsFixed(2)} ~ ${g.maxZ.toStringAsFixed(2)} mm'
       ]);
-      rows.add(['解析板厚', '${g.thicknessMm.toStringAsFixed(2)} mm']);
     }
 
     return rows;
@@ -222,10 +231,15 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
     if (r == null) return '';
     try {
       final copy = jsonDecode(jsonEncode(r)) as Map<String, dynamic>;
+      // 两套字段形状都要掩码（否则一屏几万字符卡顿）
       final dt = copy['detail'];
       if (dt is Map && dt['zGridBase64'] is String) {
         dt['zGridBase64'] =
             '<base64 已省略，共 ${(dt['zGridBase64'] as String).length} 字符>';
+      }
+      final zg = copy['zGrid'];
+      if (zg is Map && zg['base64'] is String) {
+        zg['base64'] = '<base64 已省略，共 ${(zg['base64'] as String).length} 字符>';
       }
       return const JsonEncoder.withIndent('  ').convert(copy);
     } catch (_) {
@@ -313,7 +327,10 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      _error ?? '解析成功：已是可用 Payload，可在下方 3D 预览。',
+                      _error ??
+                          '解析成功：已是可用 Payload（${(_pl?.payloadBytes ?? 0) ~/ 1024} KB'
+                              '${(_pl?.withinContract ?? false) ? '，契约通过' : '，注意超限'}），'
+                              '可在下方 3D 预览。',
                       style: TextStyle(
                         fontSize: 12,
                         height: 1.4,

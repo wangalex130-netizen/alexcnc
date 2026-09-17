@@ -1,12 +1,12 @@
 import 'dart:convert';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import '../../app/theme.dart';
+import 'payload.dart';
 
 /// 轻量 JSON（Unified Payload v2.3.0）的高程网格解析 + 3D 预览。
 ///
@@ -66,50 +66,23 @@ class ZGridData {
   }
 
   /// 解析 Payload JSON；结构不符 / 网格缺失返回 null（调用方显示占位，不报错）。
+  ///
+  /// 解析交给 [Payload]（同时兼容 `bbox`+`zGrid` 与 `modelBBox`+`detail` 两套
+  /// 字段形状），本方法只把结果投影成渲染用的网格。
   static ZGridData? fromJson(Map<String, dynamic> j) {
-    final detail = j['detail'];
-    if (detail is! Map) return null;
-    final resX = (detail['gridResX'] as num?)?.toInt() ?? 0;
-    final resY = (detail['gridResY'] as num?)?.toInt() ?? 0;
-    final zScale = (detail['zScale'] as num?)?.toDouble() ?? 0.01;
-    final b64 = detail['zGridBase64']?.toString() ?? '';
-    if (resX <= 0 || resY <= 0 || b64.isEmpty) return null;
-
-    Uint8List raw;
-    try {
-      raw = base64Decode(b64);
-    } catch (_) {
-      return null;
-    }
-    final count = (resX + 1) * (resY + 1);
-    if (raw.length < count * 2) return null;
-    final bd = ByteData.sublistView(raw);
-    final vals = List<double>.filled(count, 0);
-    for (var i = 0; i < count; i++) {
-      // 显式小端（契约硬要求，禁止依赖平台默认）
-      vals[i] = bd.getInt16(i * 2, Endian.little) * zScale;
-    }
-
-    var sx = 0.0, sy = 0.0, sz = 0.0;
-    final bbox = j['modelBBox'];
-    if (bbox is Map) {
-      sx = (bbox['spanX'] as num?)?.toDouble() ?? 0;
-      sy = (bbox['spanY'] as num?)?.toDouble() ?? 0;
-      sz = (bbox['spanZ'] as num?)?.toDouble() ?? 0;
-    }
-    var thick = 0.0;
-    final stats = j['stats'];
-    if (stats is Map) {
-      thick = (stats['minMaterialThickness'] as num?)?.toDouble() ?? 0;
-    }
+    final p = Payload.fromJson(j);
+    if (p == null || !p.hasGrid) return null;
+    final vals = p.decodeGrid();
+    if (vals == null) return null;
     return ZGridData(
-      resX: resX,
-      resY: resY,
-      zScale: zScale,
-      spanX: sx,
-      spanY: sy,
-      spanZ: sz,
-      thicknessMm: thick,
+      // ZGridData 的 resX/resY 是"格数"；Payload 给的是"点数"
+      resX: (p.gridCols - 1).clamp(1, 4096),
+      resY: (p.gridRows - 1).clamp(1, 4096),
+      zScale: p.zScale,
+      spanX: p.spanX,
+      spanY: p.spanY,
+      spanZ: p.spanZ,
+      thicknessMm: p.minMaterialThickness,
       z: vals,
     );
   }

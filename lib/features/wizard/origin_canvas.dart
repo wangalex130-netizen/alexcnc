@@ -32,6 +32,15 @@ class OriginCanvas extends StatefulWidget {
   final Offset? laserMm; // 激光十字位置（mpos）
   final bool hasPayload; // 有轻量 JSON 才显示设计框与拖动
 
+  /// 高程网格（行主序，mm；null = 载荷无网格体，如 L0/L1）——框内俯视伪彩用。
+  final List<double>? zGrid;
+  final int gridCols;
+  final int gridRows;
+
+  /// 基线长度与方向（P0→P1）：用于现场判断点是否取得够开、方位对不对。
+  final double baseMm;
+  final double thetaDeg;
+
   /// 拖动回调：只回吐 mm 位移（dy 已按屏幕 Y 翻转）。
   final void Function(Offset deltaMm) onDesignDrag;
 
@@ -51,6 +60,11 @@ class OriginCanvas extends StatefulWidget {
     this.overflow = false,
     this.laserMm,
     this.hasPayload = false,
+    this.zGrid,
+    this.gridCols = 0,
+    this.gridRows = 0,
+    this.baseMm = 0,
+    this.thetaDeg = 0,
     required this.onDesignDrag,
   });
 
@@ -101,6 +115,11 @@ class _OriginCanvasState extends State<OriginCanvas> {
               overflow: widget.overflow,
               laserMm: widget.laserMm,
               hasPayload: widget.hasPayload,
+              zGrid: widget.zGrid,
+              gridCols: widget.gridCols,
+              gridRows: widget.gridRows,
+              baseMm: widget.baseMm,
+              thetaDeg: widget.thetaDeg,
               dragging: _dragging,
             ),
           ),
@@ -159,6 +178,11 @@ class _OriginPainter extends CustomPainter {
   final bool overflow;
   final Offset? laserMm;
   final bool hasPayload;
+  final List<double>? zGrid;
+  final int gridCols;
+  final int gridRows;
+  final double baseMm;
+  final double thetaDeg;
   final bool dragging;
 
   const _OriginPainter({
@@ -176,6 +200,11 @@ class _OriginPainter extends CustomPainter {
     required this.overflow,
     required this.laserMm,
     required this.hasPayload,
+    required this.zGrid,
+    required this.gridCols,
+    required this.gridRows,
+    required this.baseMm,
+    required this.thetaDeg,
     required this.dragging,
   });
 
@@ -261,6 +290,15 @@ class _OriginPainter extends CustomPainter {
     if (hasPayload) {
       final r = g.rectPx(designPos, designW, designH);
       final col = overflow ? _redDeep : _green;
+
+      // ⑤-0 框内俯视浮雕伪彩（与 3D 同源 zGrid；无网格体则留空）
+      if (zGrid != null && gridCols > 0 && gridRows > 0) {
+        canvas.save();
+        canvas.clipRect(r);
+        _paintGridTop(canvas, r);
+        canvas.restore();
+      }
+
       canvas.drawRect(r, Paint()..color = col.withOpacity(0.12));
       canvas.drawRect(
         r,
@@ -304,6 +342,68 @@ class _OriginPainter extends CustomPainter {
     }
   }
 
+  /// 框内俯视伪彩：与双模拟器 v2.0 同一配色（浅蓝→深蓝，越深越暗）。
+  /// 按步长抽稀到 ≤ ~1600 个色块，保证拖动时仍能 60FPS。
+  void _paintGridTop(Canvas canvas, Rect r) {
+    final grid = zGrid;
+    if (grid == null || gridCols <= 1 || gridRows <= 1) return;
+    final want = gridCols * gridRows;
+    if (grid.length < want) return;
+
+    var stride = 1;
+    while ((gridCols ~/ stride + 1) * (gridRows ~/ stride + 1) > 1600) {
+      stride++;
+      if (stride >= 32) break;
+    }
+
+    // 深度范围：只统计 ≤0 的切削值
+    var zMin = 0.0, zMax = -1e9;
+    for (final v in grid) {
+      if (v < zMin) zMin = v;
+      if (v <= 0 && v > zMax) zMax = v;
+    }
+    if (zMax <= -1e8) zMax = 0;
+    final range = zMax - zMin;
+    if (zMin >= 0) return; // 无切削，不画
+
+    final cellW = r.width / gridCols * stride;
+    final cellH = r.height / gridRows * stride;
+    final paint = Paint()..style = PaintingStyle.fill;
+
+    for (var j = 0; j < gridRows; j += stride) {
+      for (var i = 0; i < gridCols; i += stride) {
+        // 块内取最深点，保证沟槽不被平均掉
+        var zr = 0.0;
+        for (var dj = 0; dj < stride && j + dj < gridRows; dj++) {
+          for (var di = 0; di < stride && i + di < gridCols; di++) {
+            final v = grid[(j + dj) * gridCols + (i + di)];
+            if (v < zr) zr = v;
+          }
+        }
+        if (zr >= -1e-6) continue;
+        final dep = range > 0.05
+            ? ((zMax - zr) / range).clamp(0.0, 1.0)
+            : 1.0; // 单一深度平面 → 最深色，形状始终可见
+        paint.color = Color.fromARGB(
+          255,
+          (150 - dep * 135).round().clamp(0, 255),
+          (205 - dep * 160).round().clamp(0, 255),
+          (255 - dep * 165).round().clamp(0, 255),
+        );
+        // 屏幕 Y 向下 ⇒ 网格第 0 行画在矩形底边（与机器坐标一致）
+        canvas.drawRect(
+          Rect.fromLTWH(
+            r.left + i / gridCols * r.width,
+            r.top + (gridRows - 1 - j) / gridRows * r.height,
+            cellW + 0.6,
+            cellH + 0.6,
+          ),
+          paint,
+        );
+      }
+    }
+  }
+
   void _paintStock(Canvas canvas, _Geom g) {
     final p0v = p0;
     if (p0v == null) {
@@ -331,6 +431,7 @@ class _OriginPainter extends CustomPainter {
       final inner = rp - clearBand * g.scale;
       if (inner > 0) _dashedCircle(canvas, cp, inner);
       _text(canvas, '材料（圆形 3 点标定）', cp + Offset(-rp, -rp - 6), const Color(0xFF633806), 11);
+      _paintBase(canvas, g);
     } else {
       final r = _stockRect();
       if (r == null) return;
@@ -350,6 +451,36 @@ class _OriginPainter extends CustomPainter {
       _text(canvas, '材料（矩形 2 点标定）',
           rp.topLeft + const Offset(6, -6), const Color(0xFF633806), 11);
     }
+    _paintBase(canvas, g);
+  }
+
+  /// P0→P1 基线虚线 + 基线长度/θ 标签（现场判断取点质量）。
+  void _paintBase(Canvas canvas, _Geom g) {
+    final a = p0, b = p1;
+    if (a == null || b == null) return;
+    final pa = g.toPx(a), pb = g.toPx(b);
+    _dashLine(canvas, pa, pb);
+    final mid = Offset((pa.dx + pb.dx) / 2, (pa.dy + pb.dy) / 2);
+    final col = baseMm < 30
+        ? _redDeep
+        : (baseMm > 240 ? const Color(0xFF633806) : _greenDeep);
+    _text(
+        canvas,
+        '基线 ${baseMm.toStringAsFixed(1)}mm · θ=${thetaDeg.toStringAsFixed(2)}°'
+            '${baseMm < 30 ? '（过短）' : (baseMm > 240 ? '（过长，请复核）' : '')}',
+        mid + const Offset(6, -6),
+        col,
+        11);
+  }
+
+  void _dashLine(Canvas canvas, Offset a, Offset b) {
+    final p = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..color = _sub.withOpacity(0.9);
+    _dashPath(canvas, Path()
+      ..moveTo(a.dx, a.dy)
+      ..lineTo(b.dx, b.dy), p);
   }
 
   /// 矩形：P0 左下 + P1 底边右端 → 宽度由 P2（对边点）或 P0→P1 距离推定。
@@ -430,57 +561,9 @@ class _OriginPainter extends CustomPainter {
       old.p1 != p1 ||
       old.p2 != p2 ||
       old.dragging != dragging ||
-      old.hasPayload != hasPayload;
+      old.hasPayload != hasPayload ||
+      old.zGrid != zGrid ||
+      old.baseMm != baseMm ||
+      old.thetaDeg != thetaDeg;
 }
 
-/// 轻量 JSON（Unified Payload v2.3.0）里「定原点页」真正需要的几何量。
-///
-/// 与 [ZGridData] 分开：本页不渲染高程网格，只需要 G54 换算（§4.1）与巡边
-/// （§6.1）所需的字段。解析失败返回 null，调用方退回手动模式、不报错。
-class OriginMeta {
-  /// CAM 原点 → 包围盒左下角的矢量（G54 换算核心，§4.1）。
-  final Offset camOriginOffset;
-  final double spanX;
-  final double spanY;
-  final double maxCutDepth; // 负值
-  final List<List<double>> framingOutline;
-
-  const OriginMeta({
-    required this.camOriginOffset,
-    required this.spanX,
-    required this.spanY,
-    required this.maxCutDepth,
-    required this.framingOutline,
-  });
-
-  static OriginMeta? fromJson(Map<String, dynamic> j) {
-    final co = j['camOriginOffset'];
-    final bb = j['modelBBox'];
-    if (co is! Map || bb is! Map) return null;
-    var depth = 0.0;
-    final st = j['stats'];
-    if (st is Map) depth = (st['maxCutDepth'] as num?)?.toDouble() ?? 0;
-    final outline = <List<double>>[];
-    final fo = j['framingOutline'];
-    if (fo is List) {
-      for (final e in fo) {
-        if (e is List && e.length >= 2) {
-          outline.add([
-            (e[0] as num?)?.toDouble() ?? 0,
-            (e[1] as num?)?.toDouble() ?? 0,
-          ]);
-        }
-      }
-    }
-    return OriginMeta(
-      camOriginOffset: Offset(
-        (co['x'] as num?)?.toDouble() ?? 0,
-        (co['y'] as num?)?.toDouble() ?? 0,
-      ),
-      spanX: (bb['spanX'] as num?)?.toDouble() ?? 0,
-      spanY: (bb['spanY'] as num?)?.toDouble() ?? 0,
-      maxCutDepth: depth,
-      framingOutline: outline,
-    );
-  }
-}
