@@ -14,6 +14,16 @@ enum StockShape { rect, circle }
 /// 图层顺序：画框内衬 → 台面网格 → 机床零点 → 材料（矩形/圆）→ 压块隔离带
 ///          → 设计框（可拖）→ 激光十字 → 溢出红态。
 class OriginCanvas extends StatefulWidget {
+  /// 放正判定：偏差 ≤ 此值视为"已放正"（不提示）。
+  static const double skewOkDeg = 1.0;
+
+  /// 放正硬阈值：偏差 > 此值 ⇒ 判定"未放正"，拦截写入 G54 / 走边框。
+  ///
+  /// 依据（开发文档 §4.2 数值验算）：料 200×100、skew=3° 时，轴对齐标定矩形
+  /// 比实际料大约 8mm(宽)/17mm(高) = 料高的 17% ⇒ 软围栏失真，
+  /// 图形可能被判为"在料内"而实际落在料外。
+  static const double skewMaxDeg = 3.0;
+
   final double bedW;
   final double bedH;
   final StockShape shape;
@@ -40,6 +50,9 @@ class OriginCanvas extends StatefulWidget {
   /// 基线长度与方向（P0→P1）：用于现场判断点是否取得够开、方位对不对。
   final double baseMm;
   final double thetaDeg;
+
+  /// **放正偏差**（度，0~45）：θ 到最近直角轴的夹角。§4.2 判定用（不旋转视图）。
+  final double skewDeg;
 
   /// 拖动回调：只回吐 mm 位移（dy 已按屏幕 Y 翻转）。
   final void Function(Offset deltaMm) onDesignDrag;
@@ -71,6 +84,7 @@ class OriginCanvas extends StatefulWidget {
     this.gridRows = 0,
     this.baseMm = 0,
     this.thetaDeg = 0,
+    this.skewDeg = 0,
     required this.onDesignDrag,
     this.laserDraggable = false,
     this.onLaserDrag,
@@ -153,6 +167,7 @@ class _OriginCanvasState extends State<OriginCanvas> {
               gridRows: widget.gridRows,
               baseMm: widget.baseMm,
               thetaDeg: widget.thetaDeg,
+              skewDeg: widget.skewDeg,
               dragging: _dragging,
             ),
           ),
@@ -220,6 +235,7 @@ class _OriginPainter extends CustomPainter {
   final int gridRows;
   final double baseMm;
   final double thetaDeg;
+  final double skewDeg;
   final bool dragging;
 
   const _OriginPainter({
@@ -242,6 +258,7 @@ class _OriginPainter extends CustomPainter {
     required this.gridRows,
     required this.baseMm,
     required this.thetaDeg,
+    required this.skewDeg,
     required this.dragging,
   });
 
@@ -491,20 +508,34 @@ class _OriginPainter extends CustomPainter {
     _paintBase(canvas, g);
   }
 
-  /// P0→P1 基线虚线 + 基线长度/θ 标签（现场判断取点质量）。
+  /// P0→P1 基线虚线 + 基线长度 / **放正偏差** 标签（现场判断取点质量）。
+  ///
+  /// 标注的是 **skew**（到最近直角轴的夹角）而不是 θ 本身 —— 客户沿长边或短边取点
+  /// θ 会差 90°，但"有没有放正"是同一个数（§4.2）。
   void _paintBase(Canvas canvas, _Geom g) {
     final a = p0, b = p1;
     if (a == null || b == null) return;
     final pa = g.toPx(a), pb = g.toPx(b);
     _dashLine(canvas, pa, pb);
     final mid = Offset((pa.dx + pb.dx) / 2, (pa.dy + pb.dy) / 2);
-    final col = baseMm < 30
+    final tooShort = baseMm < 30;
+    final tooLong = baseMm > 240;
+    final skewBad = skewDeg > OriginCanvas.skewMaxDeg;
+    final skewWarn = skewDeg > OriginCanvas.skewOkDeg;
+    final col = (tooShort || skewBad)
         ? _redDeep
-        : (baseMm > 240 ? const Color(0xFF633806) : _greenDeep);
+        : ((tooLong || skewWarn) ? const Color(0xFF633806) : _greenDeep);
+    final tail = tooShort
+        ? '（过短）'
+        : (tooLong
+            ? '（过长，请复核）'
+            : (skewBad
+                ? '（未放正，请摆正后重取）'
+                : (skewWarn ? '（略偏，建议摆正）' : '')));
     _text(
         canvas,
-        '基线 ${baseMm.toStringAsFixed(1)}mm · θ=${thetaDeg.toStringAsFixed(2)}°'
-            '${baseMm < 30 ? '（过短）' : (baseMm > 240 ? '（过长，请复核）' : '')}',
+        '基线 ${baseMm.toStringAsFixed(1)}mm · 放正偏差 '
+            '${skewDeg.toStringAsFixed(1)}°$tail',
         mid + const Offset(6, -6),
         col,
         11);
@@ -601,6 +632,7 @@ class _OriginPainter extends CustomPainter {
       old.hasPayload != hasPayload ||
       old.zGrid != zGrid ||
       old.baseMm != baseMm ||
-      old.thetaDeg != thetaDeg;
+      old.thetaDeg != thetaDeg ||
+      old.skewDeg != skewDeg;
 }
 

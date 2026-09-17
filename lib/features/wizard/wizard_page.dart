@@ -1375,6 +1375,22 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
     return atan2(b.dy - a.dy, b.dx - a.dx) * 180 / pi;
   }
 
+  /// θ → 到最近直角轴（0/90/180/−90）的夹角，0~45°。
+  static double _skewOf(double thetaDeg) {
+    final m = ((thetaDeg % 90) + 90) % 90;
+    return m > 45 ? 90 - m : m;
+  }
+
+  /// **放正偏差**（度）：开发文档 §4.2。
+  ///
+  /// 2026-09-17 昊总裁定：**要求客户把料放正，不做倾斜补偿（不旋转视图）**。
+  /// 两点标定的前提就是正放；θ 只用来看"有没有放正"。放斜时轴对齐的标定矩形
+  /// 会比实际料大（Δ = base·sin(skew)），软围栏随之失真 ⇒ 可能把图形放到料外。
+  double get _skewDeg => _skewOf(_theta);
+
+  /// 圆料无料边可对齐，不参与放正判定（§5.2 形态分支）。
+  bool get _skewApplies => widget.stockShape == StockShape.rect;
+
   /// §4.1 G54（= 排版位置 − CAM 原点，允许负值）。
   double get _g54x =>
       _meta == null ? widget.origin.dx : _meta!.g54For(widget.origin.dx, widget.origin.dy).x;
@@ -1633,11 +1649,30 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
         _note('基线 ${base.toStringAsFixed(1)}mm 偏长（>240mm）：请复核两点是否都落在'
             '同一条料边上', bad: true);
       } else if (widget.stockShape == StockShape.circle) {
-        _note('已取 P1，基线 ${base.toStringAsFixed(1)}mm · θ=${th.toStringAsFixed(2)}°。'
+        // 圆料无料边可对齐 ⇒ 不算 θ、不做放正判定（§5.2）
+        _note('已取 P1，基线 ${base.toStringAsFixed(1)}mm。'
             '请再取圆周上第 3 点（不与 P0/P1 相邻）');
       } else {
-        _note('已取 P1，基线 ${base.toStringAsFixed(1)}mm · θ=${th.toStringAsFixed(2)}°。'
-            '标定完成，可拖动绿框排版；异形料可再取 P2');
+        final skew = _skewOf(th);
+        final delta = (base * sin(skew * pi / 180)).abs();
+        if (skew > OriginCanvas.skewMaxDeg) {
+          _note('材料未放正：料边相对机床轴偏了 ${skew.toStringAsFixed(1)}°'
+              '（要求放正，上限 ${OriginCanvas.skewMaxDeg.toStringAsFixed(0)}°）。'
+              '轴对齐的标定区域会比实际料大约 ${delta.toStringAsFixed(0)}mm，'
+              '图形可能被判"在料内"而实际落在料外。请把料摆正后重取两点；'
+              '若料本身不方正（自然边/异形），请改用手动脉冲定原点。',
+              bad: true);
+        } else if (skew > OriginCanvas.skewOkDeg) {
+          _note('已取 P1，基线 ${base.toStringAsFixed(1)}mm。'
+              '材料略偏 ${skew.toStringAsFixed(1)}°（≤${OriginCanvas.skewMaxDeg.toStringAsFixed(0)}° 可用，'
+              '但标定区域会比实际料大约 ${delta.toStringAsFixed(0)}mm）：'
+              '能摆正就摆正，摆正后重取两点最准。标定完成，可拖动绿框排版',
+              bad: false);
+        } else {
+          _note('已取 P1，基线 ${base.toStringAsFixed(1)}mm，放置方向正常'
+              '（偏差 ${skew.toStringAsFixed(1)}°）。标定完成，可拖动绿框排版',
+              bad: false);
+        }
       }
     } else if (widget.p2 == null) {
       widget.onP2(pt);
@@ -1707,6 +1742,11 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
   List<String> _framingLocks() {
     final fails = <String>[];
     if (!_datumDone) fails.add('未完成标定（需 $_needPts 点）');
+    if (_datumDone && _skewApplies && _skewDeg > OriginCanvas.skewMaxDeg) {
+      fails.add('材料未放正（偏差 ${_skewDeg.toStringAsFixed(1)}° > '
+          '${OriginCanvas.skewMaxDeg.toStringAsFixed(0)}°）：请摆正后重取两点，'
+          '否则标定区域比实际料大、软围栏失真');
+    }
     final m = _meta;
     if (m != null) {
       if (!_g54Written) {
@@ -1773,6 +1813,14 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
     }
     if (!_datumDone) {
       _note('G54 拒绝写入：请先完成标定（$_needPts 点）', bad: true);
+      return;
+    }
+    // §4.2：未放正时轴对齐的标定区域比实际料大，软围栏失真 ⇒ 宁锁勿放
+    if (_skewApplies && _skewDeg > OriginCanvas.skewMaxDeg) {
+      _note('G54 拒绝写入：材料未放正（偏差 ${_skewDeg.toStringAsFixed(1)}°，'
+          '上限 ${OriginCanvas.skewMaxDeg.toStringAsFixed(0)}°）。'
+          '请摆正后重取两点；若料本身不方正，请改用手动脉冲定原点',
+          bad: true);
       return;
     }
     setState(() => _busy = true);
@@ -2044,6 +2092,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
               gridRows: _meta?.gridRows ?? 0,
               baseMm: _baseMm,
               thetaDeg: _theta,
+              skewDeg: _skewDeg,
               onDesignDrag: (d) {
                 if (_busy) return;
                 _setDesign(widget.origin + d, quiet: true);
@@ -2089,8 +2138,9 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
                   'X ${_g54x.toStringAsFixed(2)}　Y ${_g54y.toStringAsFixed(2)} mm'),
               _kv('CAM 原点偏移',
                   'X ${_meta!.camX.toStringAsFixed(1)}　Y ${_meta!.camY.toStringAsFixed(1)}'),
-              _kv('基线 / θ',
-                  '${_baseMm.toStringAsFixed(1)} mm　θ ${_theta.toStringAsFixed(2)}°'),
+              _kv('基线 / 放正偏差',
+                  '${_baseMm.toStringAsFixed(1)} mm　偏差 ${_skewDeg.toStringAsFixed(1)}°'
+                  '${_skewApplies ? '' : '（圆料不参与）'}'),
               _kv('图形足迹',
                   '${_w.toStringAsFixed(1)} × ${_h.toStringAsFixed(1)} mm（真实 bbox '
                   '${_meta!.spanX.toStringAsFixed(1)}×${_meta!.spanY.toStringAsFixed(1)}）'),
