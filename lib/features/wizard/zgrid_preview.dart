@@ -103,14 +103,25 @@ class ZGridData {
 
 /// 数据驱动的 3D 减材实体视图（**不依赖网络**）。
 ///
-/// 供两处共用：① 网络轻量 JSON 预览（[ZGridPreview]）；② 本地文件调试解析
-/// （`LocalPayloadPage`）。交互：单指拖动旋转、双指缩放/平移、双击复位。
+/// 三处共用：① 向导 Step1 的轻量 JSON 预览（[ZGridPreview]）；
+/// ② 向导 Step3 定原点页；③ 本地文件调试解析（`LocalPayloadPage`）。
+///
+/// 渲染管线（与《定原点双模拟器 v2.0》的 3D 视角同源）：
+///   材料毛坯外壁（矩形四壁 / 圆料 24 边形；按法线做**背面剔除** + 朗伯明暗）
+///   → 浮雕面片（法线叉乘 → **朗伯漫反射** + **深度压暗** → 画家算法由远及近）
+///   → **Z 放大**（把 mm 级凹凸拉到肉眼可见，上限保证不视觉切穿板厚）
+///   → 巡边定位外框（z=0 平面）。
+///
+/// 交互：单指拖动旋转 · 双指缩放/平移 · 双击复位 · 预设视角 · Z 放大滑块。
 class ZGridSurface extends StatefulWidget {
   final ZGridData data;
   final double fallbackWidthMm;
   final double fallbackHeightMm;
   final double fallbackThicknessMm;
   final double height;
+
+  /// 板料形态：true = 圆料（毛坯画 24 边形），false = 矩形。
+  final bool circleBoard;
 
   const ZGridSurface({
     super.key,
@@ -119,6 +130,7 @@ class ZGridSurface extends StatefulWidget {
     this.fallbackHeightMm = 0,
     this.fallbackThicknessMm = 0,
     this.height = 220,
+    this.circleBoard = false,
   });
 
   @override
@@ -126,19 +138,35 @@ class ZGridSurface extends StatefulWidget {
 }
 
 class _ZGridSurfaceState extends State<ZGridSurface> {
+  static const _isoRotX = 0.62;
+  static const _isoRotZ = -0.35;
+  static const _sideRotX = 0.16;
+  static const _topRotX = math.pi / 2 - 0.03;
+
   // 相机：绕 Z / 绕 X 旋转（弧度）、缩放、平移
-  double _rotX = 0.62;
-  double _rotZ = -0.35;
+  double _rotX = _isoRotX;
+  double _rotZ = _isoRotZ;
   double _zoom = 1.0;
   Offset _pan = Offset.zero;
   Offset? _focal;
   double? _baseScale;
 
+  /// Z 放大倍数（1~20，默认 4）：浅浮雕按真实比例几乎看不出层次。
+  int _zAmp = 4;
+
   void _reset() {
     setState(() {
-      _rotX = 0.62;
-      _rotZ = -0.35;
+      _rotX = _isoRotX;
+      _rotZ = _isoRotZ;
       _zoom = 1.0;
+      _pan = Offset.zero;
+    });
+  }
+
+  void _preset(double rx, double rz) {
+    setState(() {
+      _rotX = rx.clamp(0.06, math.pi / 2 - 0.03);
+      _rotZ = rz;
       _pan = Offset.zero;
     });
   }
@@ -199,34 +227,101 @@ class _ZGridSurfaceState extends State<ZGridSurface> {
                   fallbackW: widget.fallbackWidthMm,
                   fallbackH: widget.fallbackHeightMm,
                   fallbackT: widget.fallbackThicknessMm,
+                  zAmp: _zAmp,
+                  circle: widget.circleBoard,
                 ),
-              ),
-            ),
-          ),
-          Positioned(
-            top: 6,
-            right: 6,
-            child: GestureDetector(
-              onTap: _reset,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.85),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: CncColors.border),
-                ),
-                child: const Text('复位',
-                    style: TextStyle(fontSize: 10, color: CncColors.textSub)),
               ),
             ),
           ),
           const Positioned(
             left: 8,
-            bottom: 6,
+            top: 6,
             child: Text('拖动旋转 · 双指缩放',
-                style: TextStyle(fontSize: 10, color: CncColors.textSub)),
+                style: TextStyle(fontSize: 9, color: CncColors.textSub)),
           ),
+          Positioned(top: 6, right: 6, child: _resetButton()),
+          Positioned(left: 0, right: 0, bottom: 0, child: _controlBar()),
         ],
+      ),
+    );
+  }
+
+  Widget _resetButton() {
+    return GestureDetector(
+      onTap: _reset,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.9),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: CncColors.border),
+        ),
+        child: const Text('复位',
+            style: TextStyle(fontSize: 10, color: CncColors.textSub)),
+      ),
+    );
+  }
+
+  Widget _controlBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      color: Colors.white.withOpacity(0.94),
+      child: Row(
+        children: [
+          _presetChip('等轴测', _rotX == _isoRotX && _rotZ == _isoRotZ,
+              () => _preset(_isoRotX, _isoRotZ)),
+          const SizedBox(width: 4),
+          _presetChip(
+              '俯视', _rotX > _topRotX - 0.08, () => _preset(_topRotX, 0)),
+          const SizedBox(width: 4),
+          _presetChip('侧视', _rotX < _sideRotX + 0.09, () => _preset(_sideRotX, 0)),
+          const SizedBox(width: 6),
+          const Text('Z放大',
+              style: TextStyle(fontSize: 10, color: CncColors.textSub)),
+          Expanded(
+            child: SizedBox(
+              height: 24,
+              child: SliderTheme(
+                data: SliderThemeData(
+                  trackHeight: 2,
+                  overlayShape: SliderComponentShape.noOverlay,
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+                  activeTrackColor: CncColors.primary,
+                  inactiveTrackColor: CncColors.border,
+                  thumbColor: CncColors.primary,
+                ),
+                child: Slider(
+                  value: _zAmp.toDouble(),
+                  min: 1,
+                  max: 20,
+                  divisions: 19,
+                  onChanged: (v) => setState(() => _zAmp = v.round()),
+                ),
+              ),
+            ),
+          ),
+          Text('${_zAmp}x',
+              style: const TextStyle(fontSize: 10, color: CncColors.textSub)),
+        ],
+      ),
+    );
+  }
+
+  Widget _presetChip(String label, bool active, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: active ? CncColors.primary.withOpacity(0.12) : Colors.transparent,
+          borderRadius: BorderRadius.circular(5),
+          border:
+              Border.all(color: active ? CncColors.primary : CncColors.border),
+        ),
+        child: Text(label,
+            style: TextStyle(
+                fontSize: 9,
+                color: active ? CncColors.primaryInk : CncColors.textSub)),
       ),
     );
   }
@@ -407,12 +502,13 @@ class _ZGridPreviewState extends State<ZGridPreview> {
   }
 }
 
-/// 一个投影后的顶面面片（画家算法排序单元）。
+/// 一个投影后的面片（画家算法排序单元）。
 class _Quad {
   final Offset pa;
   final Offset pb;
   final Offset pc;
   final Offset pd;
+  final Color color;
   final double z;
   final double depth;
 
@@ -421,6 +517,7 @@ class _Quad {
     required this.pb,
     required this.pc,
     required this.pd,
+    required this.color,
     required this.z,
     required this.depth,
   });
@@ -436,6 +533,8 @@ class _ZGridPainter extends CustomPainter {
   final double fallbackW;
   final double fallbackH;
   final double fallbackT;
+  final int zAmp;
+  final bool circle;
 
   const _ZGridPainter({
     required this.data,
@@ -446,9 +545,19 @@ class _ZGridPainter extends CustomPainter {
     required this.fallbackW,
     required this.fallbackH,
     required this.fallbackT,
+    required this.zAmp,
+    required this.circle,
   });
 
-  /// 采样步长：把面片数压到 ~1600 以内（弱机也能 60FPS 拖动）。
+  /// 底部控制条占位（画布避让，避免实体被控件盖住）。
+  static const _ctrlH = 26.0;
+
+  /// 平行光向量（左上前方，与双模拟器一致，已归一化）。
+  static const _lx = -0.4206;
+  static const _ly = -0.5508;
+  static const _lz = 0.7210;
+
+  /// 采样步长：把面片数压到 ~1600 以内（弱机也能流畅拖动）。
   static int _stride(int resX, int resY) {
     var s = 1;
     while ((resX ~/ s + 1) * (resY ~/ s + 1) > 1600) {
@@ -458,9 +567,13 @@ class _ZGridPainter extends CustomPainter {
     return s;
   }
 
+  /// 立壁分段步长：单边最多 ~48 段。
+  static int _wallStride(int res) => res <= 48 ? 1 : (res / 48).ceil();
+
   @override
   void paint(Canvas canvas, Size size) {
     if (data.isEmpty || size.width <= 0 || size.height <= 0) return;
+    if (data.resX < 1 || data.resY < 1) return;
 
     final spanX =
         data.spanX > 0 ? data.spanX : (fallbackW > 0 ? fallbackW : 60.0);
@@ -470,113 +583,196 @@ class _ZGridPainter extends CustomPainter {
         ? data.thicknessMm
         : (fallbackT > 0 ? fallbackT : 10.0);
 
+    // Z 放大：浅浮雕（1~5mm）按真实比例几乎看不出层次；上限保证
+    // 「最深切入 × 放大」不超过所画板厚的 80%，避免视觉上切穿板料。
+    final gMin = data.minZ;
+    final gMax = data.maxZ;
+    final gRange = math.max(0.001, gMax - gMin);
+    final zFactor = math.min(zAmp * 0.7, (thick * 0.8) / math.max(gRange, 0.1));
+
     final cosZ = math.cos(rotZ), sinZ = math.sin(rotZ);
     final cosX = math.cos(rotX), sinX = math.sin(rotX);
-    final cx = spanX / 2, cy = spanY / 2;
+    final bcx = spanX / 2, bcy = spanY / 2;
 
-    final fit = math.min(size.width, size.height) /
-        (math.max(spanX, spanY) + thick * 0.8) *
-        0.66;
+    final usableH = math.max(40.0, size.height - _ctrlH);
+    final fit = math.min(size.width, usableH) /
+        (math.max(spanX, spanY) + thick * 0.9) *
+        0.68;
     final scale = fit * zoom;
     final ox = size.width / 2 + pan.dx;
-    final oy = size.height / 2 + pan.dy;
+    final oy = usableH / 2 + pan.dy;
 
     Offset proj(double x, double y, double z) {
-      final dx = x - cx, dy = y - cy;
+      final dx = x - bcx, dy = y - bcy;
       final rx = dx * cosZ - dy * sinZ;
       final ry = dx * sinZ + dy * cosZ;
       return Offset(ox + rx * scale, oy - (ry * sinX + z * cosX) * scale);
     }
 
-    // 深度：越大越远（用于画家算法排序）
+    // 深度：越大越远（画家算法排序 + 背面剔除的视线方向）
     double depthOf(double x, double y, double z) {
-      final dx = x - cx, dy = y - cy;
+      final dx = x - bcx, dy = y - bcy;
       final ry = dx * sinZ + dy * cosZ;
       return ry * cosX - z * sinX;
     }
 
-    // 1) 材料实体四侧（远 → 近）
-    final corners = <List<double>>[
-      [0, 0],
-      [spanX, 0],
-      [spanX, spanY],
-      [0, spanY],
-    ];
-    final sides = <List<Offset>>[];
-    final sideDepth = <double>[];
-    for (var i = 0; i < 4; i++) {
-      final a = corners[i];
-      final b = corners[(i + 1) % 4];
-      sides.add([
-        proj(a[0], a[1], 0),
-        proj(b[0], b[1], 0),
-        proj(b[0], b[1], -thick),
-        proj(a[0], a[1], -thick),
-      ]);
-      sideDepth.add((depthOf(a[0], a[1], 0) + depthOf(b[0], b[1], 0)) / 2);
-    }
-    final sideOrder = List<int>.generate(4, (i) => i)
-      ..sort((i, j) => sideDepth[j].compareTo(sideDepth[i]));
-    final sideFill = Paint()..color = const Color(0xFF5B3F28);
-    final sideEdge = Paint()
+    double rz(double z) => z * zFactor;
+
+    // ---- 立壁：背面剔除 + 朗伯明暗 ----
+    final wallFill = Paint();
+    final wallEdge = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.8
-      ..color = const Color(0xFF3A2617);
-    for (final i in sideOrder) {
-      final q = sides[i];
+      ..strokeWidth = 0.7
+      ..color = const Color(0x33000000);
+
+    void wall(List<Offset> quad, double nx, double ny) {
+      // 视线方向（XY 平面投影）：法线背向观察者的立壁不画，否则会盖住浮雕
+      if (nx * (-sinZ) + ny * (-cosZ) <= 0) return;
+      final diff = math.max(0.0, nx * _lx + ny * _ly);
+      final k = 0.35 + 0.65 * diff;
       final p = Path()
-        ..moveTo(q[0].dx, q[0].dy)
-        ..lineTo(q[1].dx, q[1].dy)
-        ..lineTo(q[2].dx, q[2].dy)
-        ..lineTo(q[3].dx, q[3].dy)
+        ..moveTo(quad[0].dx, quad[0].dy)
+        ..lineTo(quad[1].dx, quad[1].dy)
+        ..lineTo(quad[2].dx, quad[2].dy)
+        ..lineTo(quad[3].dx, quad[3].dy)
         ..close();
-      canvas.drawPath(p, sideFill);
-      canvas.drawPath(p, sideEdge);
+      wallFill.color = Color.fromARGB(
+        255,
+        (176 * k).round().clamp(0, 255),
+        (136 * k).round().clamp(0, 255),
+        (92 * k).round().clamp(0, 255),
+      );
+      canvas.drawPath(p, wallFill);
+      canvas.drawPath(p, wallEdge);
     }
 
-    // 2) 顶面高程网格（远 → 近，画家算法）
+    if (!circle) {
+      // 矩形毛坯：四壁顶面**跟随浮雕边缘高度** ⇒ 切口到边也有真实侧壁
+      final strideX = _wallStride(data.resX);
+      for (final near in [true, false]) {
+        final gj = near ? 0 : data.resY;
+        final ny = near ? -1.0 : 1.0;
+        final y = near ? 0.0 : spanY;
+        for (var gi = 0; gi < data.resX; gi += strideX) {
+          final gi2 = math.min(gi + strideX, data.resX);
+          final x0 = spanX * gi / data.resX;
+          final x1 = spanX * gi2 / data.resX;
+          wall([
+            proj(x0, y, rz(data.zAt(gi, gj))),
+            proj(x1, y, rz(data.zAt(gi2, gj))),
+            proj(x1, y, -thick),
+            proj(x0, y, -thick),
+          ], 0, ny);
+        }
+      }
+      final strideY = _wallStride(data.resY);
+      for (final left in [true, false]) {
+        final gi = left ? 0 : data.resX;
+        final nx = left ? -1.0 : 1.0;
+        final x = left ? 0.0 : spanX;
+        for (var gj = 0; gj < data.resY; gj += strideY) {
+          final gj2 = math.min(gj + strideY, data.resY);
+          final y0 = spanY * gj / data.resY;
+          final y1 = spanY * gj2 / data.resY;
+          wall([
+            proj(x, y0, rz(data.zAt(gi, gj))),
+            proj(x, y1, rz(data.zAt(gi, gj2))),
+            proj(x, y1, -thick),
+            proj(x, y0, -thick),
+          ], nx, 0);
+        }
+      }
+    } else {
+      // 圆料：24 边形毛坯外壁（顶面按 z=0；网格不强行裁圆——已知简化）
+      const n = 24;
+      final r = math.min(spanX, spanY) / 2;
+      for (var i = 0; i < n; i++) {
+        final a0 = i / n * math.pi * 2;
+        final a1 = (i + 1) / n * math.pi * 2;
+        final am = (a0 + a1) / 2;
+        final x0 = bcx + r * math.cos(a0), y0 = bcy + r * math.sin(a0);
+        final x1 = bcx + r * math.cos(a1), y1 = bcy + r * math.sin(a1);
+        wall([
+          proj(x0, y0, 0),
+          proj(x1, y1, 0),
+          proj(x1, y1, -thick),
+          proj(x0, y0, -thick),
+        ], math.cos(am), math.sin(am));
+      }
+    }
+
+    // ---- 浮雕顶面：法线叉乘 → 朗伯漫反射 + 深度压暗 → 画家算法 ----
     final stride = _stride(data.resX, data.resY);
-    final minZ = data.minZ;
+    final ux = spanX / data.resX;
+    final uy = spanY / data.resY;
     final cells = <_Quad>[];
     for (var gj = 0; gj < data.resY; gj += stride) {
       for (var gi = 0; gi < data.resX; gi += stride) {
         final gi2 = math.min(gi + stride, data.resX);
         final gj2 = math.min(gj + stride, data.resY);
-        final x0 = spanX * gi / data.resX;
-        final x1 = spanX * gi2 / data.resX;
-        final y0 = spanY * gj / data.resY;
-        final y1 = spanY * gj2 / data.resY;
-        final za = data.zAt(gi, gj);
-        final zb = data.zAt(gi2, gj);
-        final zc = data.zAt(gi2, gj2);
-        final zd = data.zAt(gi, gj2);
+        final x0 = ux * gi, x1 = ux * gi2;
+        final y0 = uy * gj, y1 = uy * gj2;
+        final rawA = data.zAt(gi, gj), rawB = data.zAt(gi2, gj);
+        final rawC = data.zAt(gi2, gj2), rawD = data.zAt(gi, gj2);
+        final za = rz(rawA), zb = rz(rawB), zc = rz(rawC), zd = rz(rawD);
+
+        // a = v2-v1, b = v4-v1 ⇒ n = a×b = (-dzx*dy, -dx*dzy, dx*dy)，nz>0 即朝上
+        final dx = x1 - x0, dy = y1 - y0;
+        var nx = -(zb - za) * dy;
+        var ny = -dx * (zd - za);
+        var nz = dx * dy;
+        final nl = math.sqrt(nx * nx + ny * ny + nz * nz);
+        if (nl > 1e-9) {
+          nx /= nl;
+          ny /= nl;
+          nz /= nl;
+        }
+        // 朗伯漫反射（0.35 环境光 + 0.65 漫反射）
+        final diff = math.max(0.0, nx * _lx + ny * _ly + nz * _lz);
+        final light = 0.35 + 0.65 * diff;
+        // 深度压暗：越深吸收越明显，凸显凹槽层次
+        final rawAvg = (rawA + rawB + rawC + rawD) / 4;
+        final depRatio = gRange > 0.05
+            ? ((gMax - rawAvg) / gRange).clamp(0.0, 1.0)
+            : 0.0;
+        final depthDim = 1.0 - depRatio * 0.35;
+        final k = (0.40 + 0.60 * light) * depthDim;
         cells.add(_Quad(
           pa: proj(x0, y0, za),
           pb: proj(x1, y0, zb),
           pc: proj(x1, y1, zc),
           pd: proj(x0, y1, zd),
-          z: (za + zb + zc + zd) / 4,
+          color: Color.fromARGB(
+            255,
+            (200 * k).round().clamp(0, 255),
+            (158 * k).round().clamp(0, 255),
+            (110 * k).round().clamp(0, 255),
+          ),
+          z: rawAvg,
           depth: (depthOf(x0, y0, za) + depthOf(x1, y1, zc)) / 2,
         ));
       }
     }
     cells.sort((a, b) => b.depth.compareTo(a.depth));
 
-    final span = 0 - minZ;
+    final reliefFill = Paint();
+    final reliefEdge = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.3
+      ..color = const Color(0x14000000);
     for (final c in cells) {
-      final t = span > 0.001 ? ((c.z - minZ) / span).clamp(0.0, 1.0) : 1.0;
-      final col =
-          Color.lerp(const Color(0xFF3A2515), const Color(0xFFC9A468), t)!;
       final p = Path()
         ..moveTo(c.pa.dx, c.pa.dy)
         ..lineTo(c.pb.dx, c.pb.dy)
         ..lineTo(c.pc.dx, c.pc.dy)
         ..lineTo(c.pd.dx, c.pd.dy)
         ..close();
-      canvas.drawPath(p, Paint()..color = col);
+      reliefFill.color = c.color;
+      canvas.drawPath(p, reliefFill);
+      canvas.drawPath(p, reliefEdge);
     }
 
-    // 3) 巡边定位外框（z=0 平面，绿色）——与 framing 区域一致
+    // ---- 巡边定位外框（z=0 平面）----
     final rim = <Offset>[
       proj(0, 0, 0),
       proj(spanX, 0, 0),
@@ -604,5 +800,7 @@ class _ZGridPainter extends CustomPainter {
       old.rotX != rotX ||
       old.rotZ != rotZ ||
       old.zoom != zoom ||
-      old.pan != pan;
+      old.pan != pan ||
+      old.zAmp != zAmp ||
+      old.circle != circle;
 }

@@ -1963,6 +1963,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin> {
                 fallbackHeightMm: _meta!.spanY,
                 fallbackThicknessMm: _matThickness > 0 ? _matThickness : 10,
                 height: 320,
+                // 圆料标定 ⇒ 3D 里画 24 边形毛坯（与画框形态一致）
+                circleBoard: widget.stockShape == StockShape.circle,
               ),
             ),
           )
