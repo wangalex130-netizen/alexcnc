@@ -3,7 +3,10 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 /// 材料/标定区域形态（开发文档 §5.2 形态分支）。
-/// 矩形料 = 两点对角标定；圆形料 = 三点定圆。
+///
+/// **两种形态都是「两点定形」**（昊总 2026-09-18 第 2 条）：
+/// 矩形料 = 两点对角（[stockRectOf]）；圆形料 = 两点直径（[circleOf]）。
+/// 圆**不需要**第 3 点 —— 而且两点定圆比三点定圆更安全，理由见 [circleOf]。
 enum StockShape { rect, circle }
 
 /// 两点标定的材料矩形 —— **不区分取点顺序**（开发文档 §5.2）。
@@ -21,13 +24,37 @@ Rect? stockRectOf(Offset? p0, Offset? p1) {
       math.min(p0.dx, p1.dx), math.min(p0.dy, p1.dy), w, h);
 }
 
+/// **圆形料 = 两点定圆**（昊总 2026-09-18 第 2 条：圆不需要三个点）。
+///
+/// [p0]、[p1] 取圆周上**正对面**的两点（连线过圆心）⇒ 圆心 = 两点中点、
+/// 半径 = 两点距离的一半（即直径 = 两点距离）。
+///
+/// **为什么两点比原来的三点更该用**（不只是「少点一下」）：
+///   ① **保守**：两点连线是圆的**弦**，弦长恒 ≤ 直径 ⇒ 客户点得不准只会让圆
+///      **偏小**（圆仍在料内，最坏是少用一点边角料）；而三点定圆**过三个点**，
+///      任何一点的误差都可能把圆弧**撑到料外** —— 客户以为框在料内、实际已出料。
+///   ② **简单**：不必再要求"圆周上互不相邻的三点"这种反直觉条件；矩形找对角、
+///      圆找对面，本质是同一类动作，客户学一套就够。
+///   ③ 全页只有这一份圆周算法 —— 画布、可用区、3D 板、归中共用，不会各算各的。
+///
+/// 退化情形：两点重合（或近到 < 1µm）返回 null，调用方按"还没框好"处理。
+({Offset center, double radius})? circleOf(Offset? p0, Offset? p1) {
+  if (p0 == null || p1 == null) return null;
+  final d = (p1 - p0).distance;
+  if (d <= 1e-6) return null;
+  return (
+    center: Offset((p0.dx + p1.dx) / 2, (p0.dy + p1.dy) / 2),
+    radius: d / 2,
+  );
+}
+
 /// 定原点页的「大画框」画布（2D 自绘，机器坐标 mm → 屏幕 px）。
 ///
 /// 只负责画与"拖"，**不拥有状态**：拖动只回吐 mm 位置，软围栏/溢出判定由
 /// 调用方（`_StepOrigin`）按开发文档 §4.3 统一裁决。
 ///
 /// 图层顺序：台面网格 + 刻度 → 机床零点 → 材料 + 夹具隔离带 → 模型（伪彩）
-///          → 标定点 ①②③ → 激光十字 → 巡边光点。
+///          → 标定点 ①②（两种形态都只两点）→ 激光十字 → 巡边光点。
 ///
 /// 昊总 2026-09-18 修订：
 ///  ① 去掉画框内外两层衬框（台面因此更大）；
@@ -35,14 +62,14 @@ Rect? stockRectOf(Offset? p0, Offset? p1) {
 ///  ③ 取一个点就画一个点（旧版要两点齐了才画）；
 ///  ④ 去掉"拖动"胶囊与全部随动文字（拖动时互相干涉）；
 ///  ⑤ 激光不可移出台面；
-///  ⑥ 巡边期间同步模拟光点走边框（[framingProgress]）。
+///  ⑥ 巡边期间同步模拟光点走边框（[framingProgress]）；
+///  ⑦ **圆与矩形合并为「两点定形」**：删掉三点定圆与 p2 通道（第 2 条）。
 class OriginCanvas extends StatefulWidget {
   final double bedW;
   final double bedH;
   final StockShape shape;
   final Offset? p0;
   final Offset? p1;
-  final Offset? p2;
 
   /// 材料矩形（机器坐标 mm，由调用方用 [stockRectOf] 算好传入）——单一真源。
   final Rect? stockRect;
@@ -101,7 +128,6 @@ class OriginCanvas extends StatefulWidget {
     required this.shape,
     this.p0,
     this.p1,
-    this.p2,
     this.stockRect,
     required this.designPos,
     required this.designW,
@@ -240,7 +266,6 @@ class _OriginCanvasState extends State<OriginCanvas> {
               shape: widget.shape,
               p0: widget.p0,
               p1: widget.p1,
-              p2: widget.p2,
               stockRect: widget.stockRect,
               designPos: widget.designPos,
               designW: widget.designW,
@@ -310,7 +335,6 @@ class _OriginPainter extends CustomPainter {
   final StockShape shape;
   final Offset? p0;
   final Offset? p1;
-  final Offset? p2;
   final Rect? stockRect;
   final Offset designPos;
   final double designW;
@@ -334,7 +358,6 @@ class _OriginPainter extends CustomPainter {
     required this.shape,
     required this.p0,
     required this.p1,
-    required this.p2,
     required this.stockRect,
     required this.designPos,
     required this.designW,
@@ -422,7 +445,6 @@ class _OriginPainter extends CustomPainter {
     // ⑤ 标定点：**取一个画一个**（不分先后）
     if (p0 != null) _paintPoint(canvas, g, p0!, 1);
     if (p1 != null) _paintPoint(canvas, g, p1!, 2);
-    if (p2 != null) _paintPoint(canvas, g, p2!, 3);
 
     // ⑥ 激光十字
     final lp = laserMm == null ? null : g.toPx(laserMm!);
@@ -593,11 +615,10 @@ class _OriginPainter extends CustomPainter {
   /// 材料（矩形/圆）+ 夹具隔离带。**不写任何文字**（文字随内容移动会互相干涉）。
   void _paintStock(Canvas canvas, _Geom g) {
     if (shape == StockShape.circle) {
-      final c = _circleCenter();
-      final r = _circleRadius();
-      if (c == null || r == null || r <= 0) return;
-      final cp = g.toPx(c);
-      final rp = r * g.scale;
+      final c = _circle();
+      if (c == null || c.radius <= 0) return;
+      final cp = g.toPx(c.center);
+      final rp = c.radius * g.scale;
       canvas.drawCircle(cp, rp, Paint()..color = _wood.withOpacity(0.32));
       canvas.drawCircle(
         cp,
@@ -630,7 +651,8 @@ class _OriginPainter extends CustomPainter {
 
   /// 标定点：白底蓝环 + 实心点 + 右上角编号徽标。
   ///
-  /// 编号只表示"第几个记下的点"，**不代表方位**（两点任取对角，顺序无所谓）。
+  /// 编号只表示"第几个记下的点"，**不代表方位**：
+  /// 矩形两点任取对角、圆两点任取直径两端，顺序都无所谓。
   void _paintPoint(Canvas canvas, _Geom g, Offset mm, int index) {
     final p = g.toPx(mm);
     canvas.drawCircle(p, 8, Paint()..color = Colors.white);
@@ -648,28 +670,8 @@ class _OriginPainter extends CustomPainter {
     _textC(canvas, '$index', bc, Colors.white, 10);
   }
 
-  /// 圆：三点外接圆（圆周上互不相邻三点），返回圆心（机器 mm）。
-  Offset? _circleCenter() {
-    final a = p0, b = p1, c = p2;
-    if (a == null || b == null || c == null) return null;
-    final d =
-        2 * (a.dx * (b.dy - c.dy) + b.dx * (c.dy - a.dy) + c.dx * (a.dy - b.dy));
-    if (d.abs() < 1e-6) return null;
-    final a2 = a.dx * a.dx + a.dy * a.dy;
-    final b2 = b.dx * b.dx + b.dy * b.dy;
-    final c2 = c.dx * c.dx + c.dy * c.dy;
-    return Offset(
-      (a2 * (b.dy - c.dy) + b2 * (c.dy - a.dy) + c2 * (a.dy - b.dy)) / d,
-      (a2 * (c.dx - b.dx) + b2 * (a.dx - c.dx) + c2 * (b.dx - a.dx)) / d,
-    );
-  }
-
-  double? _circleRadius() {
-    final c = _circleCenter();
-    final a = p0;
-    if (c == null || a == null) return null;
-    return (a - c).distance;
-  }
+  /// 圆料几何（两点定圆）—— 唯一算法见顶层 [circleOf]。
+  ({Offset center, double radius})? _circle() => circleOf(p0, p1);
 
   void _dashedRect(Canvas canvas, Rect r) {
     final p = Paint()
@@ -734,7 +736,6 @@ class _OriginPainter extends CustomPainter {
       old.laserMm != laserMm ||
       old.p0 != p0 ||
       old.p1 != p1 ||
-      old.p2 != p2 ||
       old.stockRect != stockRect ||
       old.dragging != dragging ||
       old.hasPayload != hasPayload ||

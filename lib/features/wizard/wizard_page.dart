@@ -85,7 +85,6 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   // ---- Step3 定原点：标定点 + 材料形态（放父级 ⇒ 来回切步/预览循环都不丢，§5.8 V2）----
   Offset? _p0;
   Offset? _p1;
-  Offset? _p2;
   StockShape _stockShape = StockShape.rect;
 
   static const _titles = [
@@ -463,7 +462,6 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           safetyChecked: _safetyChecked,
           p0: _p0,
           p1: _p1,
-          p2: _p2,
           stockShape: _stockShape,
           onOrigin: (o) => setState(() => _origin = o),
           onOriginSet: (v) => setState(() => _originSet = v),
@@ -471,8 +469,16 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           onSafety: (v) => setState(() => _safetyChecked = v),
           onP0: (v) => setState(() => _p0 = v),
           onP1: (v) => setState(() => _p1 = v),
-          onP2: (v) => setState(() => _p2 = v),
-          onShape: (v) => setState(() => _stockShape = v),
+          onShape: (v) => setState(() {
+            // 换形态即作废标定点：同一对点在矩形下是「对角」、在圆下是「直径」，
+            // 复用同两点会算出一个客户没预期的图形（2026-09-18 第 2 条合并）。
+            _stockShape = v;
+            _p0 = null;
+            _p1 = null;
+            _originSet = false;
+            _originOverflow = false;
+            _safetyChecked = false;
+          }),
           onNext: _next,
           onPrev: _prev,
         );
@@ -1437,7 +1443,6 @@ class _StepOrigin extends ConsumerStatefulWidget {
   final bool safetyChecked;
   final Offset? p0;
   final Offset? p1;
-  final Offset? p2;
   final StockShape stockShape;
   final void Function(Offset) onOrigin;
   final void Function(bool) onOriginSet;
@@ -1445,7 +1450,6 @@ class _StepOrigin extends ConsumerStatefulWidget {
   final void Function(bool) onSafety;
   final void Function(Offset?) onP0;
   final void Function(Offset?) onP1;
-  final void Function(Offset?) onP2;
   final void Function(StockShape) onShape;
 
   /// 完成后进入下一步（由父级向导提供）。
@@ -1464,7 +1468,6 @@ class _StepOrigin extends ConsumerStatefulWidget {
     required this.safetyChecked,
     required this.p0,
     required this.p1,
-    required this.p2,
     required this.stockShape,
     required this.onOrigin,
     required this.onOriginSet,
@@ -1472,7 +1475,6 @@ class _StepOrigin extends ConsumerStatefulWidget {
     required this.onSafety,
     required this.onP0,
     required this.onP1,
-    required this.onP2,
     required this.onShape,
     this.onNext,
     this.onPrev,
@@ -1526,13 +1528,12 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   double get _w => _meta?.designSize().w ?? (widget.task?.widthMm ?? 0);
   double get _h => _meta?.designSize().h ?? (widget.task?.heightMm ?? 0);
 
-  int get _needPts => widget.stockShape == StockShape.circle ? 3 : 2;
+  /// **两种形态都只要 2 点**（矩形 = 对角，圆 = 直径）—— 昊总 2026-09-18 第 2 条。
+  /// 保留为常量而不是删掉：UI 的「取点 x/2」计数仍要用它。
+  static const int _needPts = 2;
 
-  /// 标定是否已够点数（圆料须 3 点定圆）。
-  bool get _datumDone =>
-      widget.p0 != null &&
-      widget.p1 != null &&
-      (widget.stockShape != StockShape.circle || widget.p2 != null);
+  /// 标定是否已够点数（矩形/圆同为 2 点）。
+  bool get _datumDone => widget.p0 != null && widget.p1 != null;
 
   /// §4.1 G54（= 排版位置 − CAM 原点，允许负值）。
   double get _g54x =>
@@ -1703,35 +1704,23 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     return r;
   }
 
-  /// 圆形料：三点外接圆圆心（机器 mm）。
-  Offset? _circleCenter() {
-    final a = widget.p0;
-    final b = widget.p1;
-    final c = widget.p2;
-    if (a == null || b == null || c == null) return null;
-    final d = 2 *
-        (a.dx * (b.dy - c.dy) + b.dx * (c.dy - a.dy) + c.dx * (a.dy - b.dy));
-    if (d.abs() < 1e-6) return null;
-    final a2 = a.dx * a.dx + a.dy * a.dy;
-    final b2 = b.dx * b.dx + b.dy * b.dy;
-    final c2 = c.dx * c.dx + c.dy * c.dy;
-    return Offset(
-      (a2 * (b.dy - c.dy) + b2 * (c.dy - a.dy) + c2 * (a.dy - b.dy)) / d,
-      (a2 * (c.dx - b.dx) + b2 * (a.dx - c.dx) + c2 * (b.dx - a.dx)) / d,
-    );
-  }
+  /// 圆料几何（两点定圆）—— 唯一算法见 [circleOf]。
+  ({Offset center, double radius})? _circle() =>
+      circleOf(widget.p0, widget.p1);
 
   /// 可用区（§4.3）= 标定区域 − 压块隔离带 − 刀径；未标定返回 null（走行程兜底）。
   ({Offset min, Offset max})? _avail() {
     if (widget.p0 == null) return null;
     final band = _clearBand + _knifeR;
     if (widget.stockShape == StockShape.circle) {
-      final c = _circleCenter();
-      final a = widget.p0;
-      if (c == null || a == null) return null;
-      final r = (a - c).distance - band;
+      final c = _circle();
+      if (c == null) return null;
+      final r = c.radius - band;
       if (r <= 0) return null;
-      return (min: Offset(c.dx - r, c.dy - r), max: Offset(c.dx + r, c.dy + r));
+      return (
+        min: Offset(c.center.dx - r, c.center.dy - r),
+        max: Offset(c.center.dx + r, c.center.dy + r),
+      );
     }
     final s = stockRectOf(widget.p0, widget.p1);
     if (s == null || s.width <= band * 2 || s.height <= band * 2) return null;
@@ -1805,17 +1794,30 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     }
     final sx = pt.dx.toStringAsFixed(1);
     final sy = pt.dy.toStringAsFixed(1);
+    final circle = widget.stockShape == StockShape.circle;
     if (widget.p0 == null) {
       widget.onP0(pt);
-      _note('已记下第 1 点 ($sx, $sy)。移到材料的对角另一端，再按【取点】');
+      _note(circle
+          ? '已记下圆周第 1 点 ($sx, $sy)。转到圆周「正对面」那点（连线过圆心），再按【取点】'
+          : '已记下第 1 点 ($sx, $sy)。移到材料的对角另一端，再按【取点】');
     } else if (widget.p1 == null) {
       widget.onP1(pt);
-      // 两点任取对角：材料矩形由两点围成的横平竖直区域决定，与先后无关
+      // 两点即完成标定（矩形 = 两点围出的横平竖直矩形，与先后无关；圆 = 两点连线为直径）。
+      // 收尾动作与旧版「圆料第 3 点」一致：作废巡边结果 + 把模型夹回新的可用区。
+      setState(() => _framingDone = false);
+      _setDesign(widget.origin, quiet: true);
+      final c = _circle();
       final r = stockRectOf(widget.p0, pt);
       final w = r?.width ?? 0;
       final h = r?.height ?? 0;
-      if (widget.stockShape == StockShape.circle) {
-        _note('已记下第 2 点。请再取圆周上第 3 点（不与前两点相邻）');
+      if (circle) {
+        if ((c?.radius ?? 0) * 2 < 10) {
+          _note('两点太近（直径 ${((c?.radius ?? 0) * 2).toStringAsFixed(0)} mm）：'
+              '请取圆周正对面的两点', bad: true);
+        } else {
+          _note('圆料已确认：直径 ${((c?.radius ?? 0) * 2).toStringAsFixed(1)} mm'
+              '（圆心已定）。拖动模型摆好位置，按【确认原点】锁定');
+        }
       } else if (w < 10 || h < 10) {
         _note('两点太近（${w.toStringAsFixed(0)} × ${h.toStringAsFixed(0)} mm）：'
             '请取到材料的两个对角', bad: true);
@@ -1823,15 +1825,11 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         _note('材料已确认 ${w.toStringAsFixed(1)} × ${h.toStringAsFixed(1)} mm。'
             '拖动模型摆好位置，按【确认原点】锁定');
       }
-    } else if (widget.p2 == null) {
-      widget.onP2(pt);
-      setState(() => _framingDone = false);
-      _setDesign(widget.origin, quiet: true);
-      _note('标定完成：拖动模型摆好位置，按【确认原点】锁定');
     } else {
+      // 第 3 下 = 重取（两种形态都只 2 点）：客户点错了直接再点一下即可，不必去找清除按钮。
       widget.onP0(pt);
       widget.onP1(null);
-      widget.onP2(null);
+      setState(() => _framingDone = false);
       _note('已重新开始标定：P0 = ($sx, $sy)');
     }
   }
@@ -1839,7 +1837,6 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   void _clearPts() {
     widget.onP0(null);
     widget.onP1(null);
-    widget.onP2(null);
     widget.onOverflow(false);
     widget.onOriginSet(false);
     setState(() {
@@ -2299,7 +2296,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   // 昊总 2026-09-17 / 09-18 定稿：
   //  ① 横屏；② **上下不放任何按键**（全给画框）；③ 全部功能收进左右两条手柄条；
   //  ④ 两个大十字盘与拇指同高；⑤ 上留白 = 操作引导（异常时替换），下留白 = 进度；
-  //  ⑥ 取点 = 两点对角（任取、不区分顺序）⇒ 材料宽高都实测；
+  //  ⑥ 取点 = 两点定形（矩形=对角 / 圆=直径，都任取、不区分顺序）⇒ 尺寸全实测；
+  //  ⭐ 2026-09-18 第 2 条：圆与矩形**合并**，圆不再需要 3 点（见 [circleOf]）；
   //  ⑦ 手柄条**固定不滚动**：中间十字盘吃剩余高度 ⇒ 任何屏都不需要上下滑。
   //  文案原则：一行说完、动词开头、只出现客户能懂的词、每条指向真实按钮。
 
@@ -2453,7 +2451,6 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         shape: widget.stockShape,
         p0: widget.p0,
         p1: widget.p1,
-        p2: widget.p2,
         stockRect: _stockRectMm,
         designPos: widget.origin,
         designW: _w,
@@ -2527,7 +2524,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     final homed = sim ? true : st?.homed;
     final idle = sim || (st?.canControl ?? false);
     final allOk = linked && homed == true && (fresh || sim) && idle;
-    final got = [widget.p0, widget.p1, widget.p2].where((e) => e != null).length;
+    final got = [widget.p0, widget.p1].where((e) => e != null).length;
     // 快速走位可用的前提：空闲 + 已回零（绝对定位须已知机械坐标）。
     final canMove = sim || (st?.canControl == true && st?.homed == true);
 
@@ -2865,21 +2862,20 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     final m = _meta;
     final stock = _stockRectMm; // 客户标定的材料矩形（机器 mm）
 
-    // 3D 材料板：矩形料 = 标定矩形；圆料 = **按外接圆直径的正方形板**
+    // 3D 材料板：矩形料 = 标定矩形；圆料 = **按直径的正方形板**
     //（3D 用正方形板 + 内切圆表现圆料，这样圆一定铺满板，不会偏小）。
+    // 圆的直径 = 标定两点距离（[circleOf]）。
     double boardW = stock?.width ?? 0;
     double boardH = stock?.height ?? 0;
     double boardLeft = stock?.left ?? 0;
     double boardBottom = stock?.top ?? 0;
     if (widget.stockShape == StockShape.circle) {
-      final c = _circleCenter();
-      final a0 = widget.p0;
-      final rad = (c != null && a0 != null) ? (a0 - c).distance : 0.0;
-      if (c != null && rad > 0) {
-        boardW = rad * 2;
-        boardH = rad * 2;
-        boardLeft = c.dx - rad;
-        boardBottom = c.dy - rad;
+      final c = _circle();
+      if (c != null && c.radius > 0) {
+        boardW = c.radius * 2;
+        boardH = c.radius * 2;
+        boardLeft = c.center.dx - c.radius;
+        boardBottom = c.center.dy - c.radius;
       }
     }
     if (_show3D && _grid != null && m != null) {
@@ -2926,7 +2922,6 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         shape: widget.stockShape,
         p0: widget.p0,
         p1: widget.p1,
-        p2: widget.p2,
         stockRect: stock,
         designPos: widget.origin,
         designW: _w,
@@ -2968,12 +2963,17 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
 
   /// 下留白：做到哪了（纯事实 + 数字）。
   String _statusText() {
-    final got = [widget.p0, widget.p1, widget.p2].where((e) => e != null).length;
+    final got = [widget.p0, widget.p1].where((e) => e != null).length;
+    final circle = widget.stockShape == StockShape.circle;
+    final c = _circle();
     final r = _stockRectMm;
-    if (!_datumDone) return '已取 $got / $_needPts 点';
-    if (r == null) return '已取 $got / $_needPts 点';
-    final size =
-        '材料 ${r.width.toStringAsFixed(1)} × ${r.height.toStringAsFixed(1)} mm';
+    if (!_datumDone || (circle ? c == null : r == null)) {
+      return '已取 $got / $_needPts 点';
+    }
+    // 圆料报**直径**（客户量的是直径，不是外接矩形）；矩形料照旧报宽×高。
+    final size = circle
+        ? '圆料 直径 ${(c!.radius * 2).toStringAsFixed(1)} mm'
+        : '材料 ${r!.width.toStringAsFixed(1)} × ${r!.height.toStringAsFixed(1)} mm';
     if (!_g54Written) return '$size · 标定完成';
     if (!_framingDone) return '$size · 原点已锁定';
     return '$size · 落点已确认';
@@ -2986,14 +2986,22 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     if (!_wysiwyg) {
       return (text: '用左手盘把激光对准雕刻起点，按【设原点】', level: 0);
     }
+    final circle = widget.stockShape == StockShape.circle;
     if (widget.p0 == null) {
-      return (text: '打开激光，移到材料任一个角，按【取点】', level: 0);
+      return (
+        text: circle
+            ? '打开激光，移到圆周上一点，按【取点】'
+            : '打开激光，移到材料任一个角，按【取点】',
+        level: 0
+      );
     }
     if (widget.p1 == null) {
-      return (text: '移到材料的对角另一端，再按【取点】', level: 0);
-    }
-    if (widget.stockShape == StockShape.circle && widget.p2 == null) {
-      return (text: '再取圆周上第 3 点', level: 0);
+      return (
+        text: circle
+            ? '移到圆周「正对面」那点（连线过圆心），再按【取点】'
+            : '移到材料的对角另一端，再按【取点】',
+        level: 0
+      );
     }
     if (!_g54Written) {
       return (text: '拖动模型摆好位置，按【确认原点】锁定', level: 0);
@@ -3046,12 +3054,12 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   /// 归中：把模型摆到材料（或台面）正中。
   void _centerModel() {
     if (_busy) return;
-    // 圆料：居**圆心**（三点外接圆），不是居外接矩形的中心
-    // —— 昊总 2026-09-18：圆形 3 点后归中没落在圆心上。
+    // 圆料：居**圆心**（两点定圆），不是居外接矩形的中心
+    // —— 昊总 2026-09-18：圆形归中没落在圆心上（旧的 3 点定圆口径已合并为 2 点）。
     if (widget.stockShape == StockShape.circle) {
-      final c = _circleCenter();
+      final c = _circle();
       if (c != null) {
-        _setDesign(Offset(c.dx - _w / 2, c.dy - _h / 2));
+        _setDesign(Offset(c.center.dx - _w / 2, c.center.dy - _h / 2));
         return;
       }
     }
@@ -3783,7 +3791,6 @@ class _OriginFullscreen extends ConsumerStatefulWidget {
   final StockShape shape;
   final Offset? p0;
   final Offset? p1;
-  final Offset? p2;
   final Rect? stockRect;
   final Offset designPos;
   final double designW;
@@ -3806,7 +3813,6 @@ class _OriginFullscreen extends ConsumerStatefulWidget {
     required this.shape,
     required this.p0,
     required this.p1,
-    required this.p2,
     required this.stockRect,
     required this.designPos,
     required this.designW,
@@ -3884,7 +3890,6 @@ class _OriginFullscreenState extends ConsumerState<_OriginFullscreen> {
                     shape: widget.shape,
                     p0: widget.p0,
                     p1: widget.p1,
-                    p2: widget.p2,
                     stockRect: widget.stockRect,
                     designPos: _pos,
                     designW: widget.designW,

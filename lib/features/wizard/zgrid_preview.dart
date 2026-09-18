@@ -736,92 +736,123 @@ class _ZGridPainter extends CustomPainter {
     }
 
     // ---- 立壁 / 板面：背面剔除 + 朗伯明暗（与浮雕同基色） ----
+    // ⚠️ 立壁与板面**一律不描边** —— 昊总 2026-09-18 第 1 条：
+    //   「耗材边缘侧面现在是很竖线组成的面，把这些竖线取消掉」。
+    // 原实现给每个小面片的轮廓都画了一条 0.7px 半透明黑描边（0x33000000），
+    // 相邻面片**共用的那条边被画了两遍** ⇒ 侧面出现一圈等距竖线；板面分块的接缝同理。
+    // 竖线其实有**两种**成因，都要治：
+    //   ① **深色细线** = 上面这条描边（已删除）；
+    //   ② **浅色细线** = 相邻面片**分开 drawPath** 时，公共边两侧各自抗锯齿，盖不满
+    //      ⇒ 露出 ~1px 容器底色（圆料渐变的 64 片最明显）。
+    //      治法：同色片合到一个 Path（[flats]/[wallStrip]）；异色片让相邻片**重叠**。
     final wallFill = Paint();
-    final wallEdge = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.7
-      ..color = const Color(0x33000000);
     final flatFill = Paint()..color = _shade(_flatK);
 
+    /// 单块立壁（矩形料每侧一块）。
     void wall(List<Offset> quad, double nx, double ny) {
       // 视线方向（XY 平面投影）：法线背向观察者的立壁不画，否则会盖住浮雕
       if (nx * (-sinZ) + ny * (-cosZ) <= 0) return;
       final diff = math.max(0.0, nx * _lx + ny * _ly);
-      final k = 0.35 + 0.65 * diff;
       final p = Path()
         ..moveTo(quad[0].dx, quad[0].dy)
         ..lineTo(quad[1].dx, quad[1].dy)
         ..lineTo(quad[2].dx, quad[2].dy)
         ..lineTo(quad[3].dx, quad[3].dy)
         ..close();
-      wallFill.color = _shade(k);
+      wallFill.color = _shade(0.35 + 0.65 * diff);
       canvas.drawPath(p, wallFill);
-      canvas.drawPath(p, wallEdge);
     }
 
-    /// 一块水平面：默认 z=0（材料顶面，与未切削的浮雕面同高 ⇒ 视觉连续）；
-    /// 传 [z] 可放到任意高度（如模型区底板放在最深 z），[k] 可覆盖明暗。
-    void flat(double x0, double y0, double x1, double y1,
-        {double z = 0, double? k}) {
-      if (x1 - x0 <= 1e-6 || y1 - y0 <= 1e-6) return;
-      final a = proj(x0, y0, z);
-      final b = proj(x1, y0, z);
-      final c = proj(x1, y1, z);
-      final d = proj(x0, y1, z);
-      final p = Path()
-        ..moveTo(a.dx, a.dy)
-        ..lineTo(b.dx, b.dy)
-        ..lineTo(c.dx, c.dy)
-        ..lineTo(d.dx, d.dy)
-        ..close();
+    /// 同一侧**多片同色立壁**：合到一个 Path 里**一次** drawPath。
+    ///
+    /// 为什么不逐片 drawPath：Skia 只在**同一次调用**内合并子路径的覆盖，分开调用时
+    /// 每片边缘各自抗锯齿 ⇒ 片与片之间留下一条 ~1px 的浅色缝（露出容器底色）——
+    /// 这就是昊总 09-18 截图里圆料侧面那排**浅色**竖线的成因（深色竖线是描边，已删）。
+    /// 同色片合并后连缝都不会有；顺带比逐片调用更快。
+    void wallStrip(List<List<Offset>> quads, double nx, double ny) {
+      if (nx * (-sinZ) + ny * (-cosZ) <= 0) return;
+      final diff = math.max(0.0, nx * _lx + ny * _ly);
+      final p = Path();
+      for (final q in quads) {
+        p.moveTo(q[0].dx, q[0].dy);
+        p.lineTo(q[1].dx, q[1].dy);
+        p.lineTo(q[2].dx, q[2].dy);
+        p.lineTo(q[3].dx, q[3].dy);
+        p.close();
+      }
+      wallFill.color = _shade(0.35 + 0.65 * diff);
+      canvas.drawPath(p, wallFill);
+    }
+
+    /// 若干块**同色**水平面（默认 z=0 = 材料顶面，与未切削的浮雕面同高 ⇒ 视觉连续）：
+    /// **合成一个 Path 一次填充**。
+    ///
+    /// 板面的四条留边就是四块同色面 —— 逐块 drawPath 时四块的公共边会各自抗锯齿，
+    /// 留下浅色缝（板面上那条横线）。合并后同一 Path 内互相抵消，缝消失。
+    /// [z] 可放到任意高度，[k] 可覆盖明暗。
+    void flats(List<List<double>> rects, {double z = 0, double? k}) {
+      final p = Path();
+      var any = false;
+      for (final r in rects) {
+        if (r[2] - r[0] <= 1e-6 || r[3] - r[1] <= 1e-6) continue;
+        any = true;
+        final a = proj(r[0], r[1], z);
+        final b = proj(r[2], r[1], z);
+        final c = proj(r[2], r[3], z);
+        final d = proj(r[0], r[3], z);
+        p.moveTo(a.dx, a.dy);
+        p.lineTo(b.dx, b.dy);
+        p.lineTo(c.dx, c.dy);
+        p.lineTo(d.dx, d.dy);
+        p.close();
+      }
+      if (!any) return;
       flatFill.color = k == null ? _shade(_flatK) : _shade(k);
       canvas.drawPath(p, flatFill);
-      canvas.drawPath(p, wallEdge);
     }
 
     if (!circle) {
-      // 材料板四壁：顶面 z=0（板边是未切削的料面），分 8 段让明暗过渡自然
-      const seg = 8;
-      for (var i = 0; i < seg; i++) {
-        final t0 = i / seg, t1 = (i + 1) / seg;
-        // 下边 y=0（法线 -Y）
-        wall([
-          proj(spanX * t0, 0, 0),
-          proj(spanX * t1, 0, 0),
-          proj(spanX * t1, 0, -thick),
-          proj(spanX * t0, 0, -thick),
-        ], 0, -1);
-        // 右边 x=spanX（法线 +X）
-        wall([
-          proj(spanX, spanY * t0, 0),
-          proj(spanX, spanY * t1, 0),
-          proj(spanX, spanY * t1, -thick),
-          proj(spanX, spanY * t0, -thick),
-        ], 1, 0);
-        // 上边 y=spanY（法线 +Y）
-        wall([
-          proj(spanX * (1 - t0), spanY, 0),
-          proj(spanX * (1 - t1), spanY, 0),
-          proj(spanX * (1 - t1), spanY, -thick),
-          proj(spanX * (1 - t0), spanY, -thick),
-        ], 0, 1);
-        // 左边 x=0（法线 -X）
-        wall([
-          proj(0, spanY * (1 - t0), 0),
-          proj(0, spanY * (1 - t1), 0),
-          proj(0, spanY * (1 - t1), -thick),
-          proj(0, spanY * (1 - t0), -thick),
-        ], -1, 0);
-      }
+      // 材料板四壁：顶面 z=0（板边是未切削的料面）。每侧**整块一个四边形**。
+      //
+      // 旧实现把每侧分成 8 段，注释说是"让明暗过渡自然"—— 错的：同一侧各段法线相同、
+      // k 公式只吃法线 ⇒ 8 段颜色**完全一致**，分段唯一的效果就是产生 8 组描边接缝
+      // （就是昊总 09-18 截图里那排竖线）。现在每侧一块，且不描边。
+      wall([
+        proj(0, 0, 0),
+        proj(spanX, 0, 0),
+        proj(spanX, 0, -thick),
+        proj(0, 0, -thick),
+      ], 0, -1); // 下边 y=0（法线 -Y）
+      wall([
+        proj(spanX, 0, 0),
+        proj(spanX, spanY, 0),
+        proj(spanX, spanY, -thick),
+        proj(spanX, 0, -thick),
+      ], 1, 0); // 右边 x=spanX（法线 +X）
+      wall([
+        proj(spanX, spanY, 0),
+        proj(0, spanY, 0),
+        proj(0, spanY, -thick),
+        proj(spanX, spanY, -thick),
+      ], 0, 1); // 上边 y=spanY（法线 +Y）
+      wall([
+        proj(0, spanY, 0),
+        proj(0, 0, 0),
+        proj(0, 0, -thick),
+        proj(0, spanY, -thick),
+      ], -1, 0); // 左边 x=0（法线 -X）
 
       if (hasBoard) {
         // 板面 = 整板挖去模型区域（四条留边）。
         // 模型区「坑」的兜底不再在这里画 —— 统一挪到下面的「开口裁剪」块里，
         // 否则整块坑底会越界过涂近侧留边（2026-09-18 修的第二个毛病）。
-        flat(0, 0, spanX, my0); // 下留边
-        flat(0, my1, spanX, spanY); // 上留边
-        flat(0, my0, mx0, my1); // 左留边
-        flat(mx1, my0, spanX, my1); // 右留边
+        // 四条留边同色 ⇒ 一次填充（逐块画会留缝）
+        flats([
+          [0, 0, spanX, my0], // 下留边
+          [0, my1, spanX, spanY], // 上留边
+          [0, my0, mx0, my1], // 左留边
+          [mx1, my0, spanX, my1], // 右留边
+        ]);
       } else {
         // 无标定尺寸：模型即整板 ⇒ 四壁顶面跟随浮雕边缘（切口到边也有侧壁）
         final strideX = _wallStride(data.resX);
@@ -829,46 +860,56 @@ class _ZGridPainter extends CustomPainter {
           final gj = near ? 0 : data.resY;
           final ny = near ? -1.0 : 1.0;
           final y = near ? 0.0 : spanY;
+          final quads = <List<Offset>>[];
           for (var gi = 0; gi < data.resX; gi += strideX) {
             final gi2 = math.min(gi + strideX, data.resX);
             final x0 = spanX * gi / data.resX;
             final x1 = spanX * gi2 / data.resX;
-            wall([
+            quads.add([
               proj(x0, y, rz(data.zAt(gi, gj))),
               proj(x1, y, rz(data.zAt(gi2, gj))),
               proj(x1, y, -thick),
               proj(x0, y, -thick),
-            ], 0, ny);
+            ]);
           }
+          wallStrip(quads, 0, ny); // 同侧同色 ⇒ 一次填充
         }
         final strideY = _wallStride(data.resY);
         for (final left in [true, false]) {
           final gi = left ? 0 : data.resX;
           final nx = left ? -1.0 : 1.0;
           final x = left ? 0.0 : spanX;
+          final quads = <List<Offset>>[];
           for (var gj = 0; gj < data.resY; gj += strideY) {
             final gj2 = math.min(gj + strideY, data.resY);
             final y0 = spanY * gj / data.resY;
             final y1 = spanY * gj2 / data.resY;
-            wall([
+            quads.add([
               proj(x, y0, rz(data.zAt(gi, gj))),
               proj(x, y1, rz(data.zAt(gi, gj2))),
               proj(x, y1, -thick),
               proj(x, y0, -thick),
-            ], nx, 0);
+            ]);
           }
+          wallStrip(quads, nx, 0); // 同侧同色 ⇒ 一次填充
         }
       }
     } else {
-      // 圆料：**64 边形**毛坯外壁（昊总 09-18：24 边形看着不够圆）
+      // 圆料：**64 边形**毛坯外壁（昊总 09-18：24 边形看着不够圆）。
+      //
+      // 这里必须**逐片**画：每片法线不同、明暗是渐变，合并成一块会丢渐变。
+      // 但逐片 drawPath 时片与片的公共边会被各自抗锯齿 ⇒ 留下 1px 浅色缝
+      // （圆料侧面那排浅色竖线）。所以让相邻片**重叠**：每片角度范围两端各外扩
+      // [ov] 格，后画的片完整盖住前一片的边。外轮廓顶点仍落在圆周上 ⇒ 形状不变。
       const n = 64;
+      const ov = 0.6; // 每端外扩 0.6 格 ⇒ 相邻片重叠 1.2 格（约 0.5~1px）
       final r = math.min(spanX, spanY) / 2;
       final cxx = hasBoard ? spanX / 2 : bcx;
       final cyy = hasBoard ? spanY / 2 : bcy;
       for (var i = 0; i < n; i++) {
-        final a0 = i / n * math.pi * 2;
-        final a1 = (i + 1) / n * math.pi * 2;
-        final am = (a0 + a1) / 2;
+        final a0 = (i - ov) / n * math.pi * 2;
+        final a1 = (i + 1 + ov) / n * math.pi * 2;
+        final am = (i + 0.5) / n * math.pi * 2; // 法线仍取本片正中的角度
         final x0 = cxx + r * math.cos(a0), y0 = cyy + r * math.sin(a0);
         final x1 = cxx + r * math.cos(a1), y1 = cyy + r * math.sin(a1);
         wall([
@@ -894,10 +935,12 @@ class _ZGridPainter extends CustomPainter {
       clipC.close();
       canvas.save();
       canvas.clipPath(clipC);
-      flat(0, 0, spanX, my0); // 下留边
-      flat(0, my1, spanX, spanY); // 上留边
-      flat(0, my0, mx0, my1); // 左留边
-      flat(mx1, my0, spanX, my1); // 右留边
+      flats([
+        [0, 0, spanX, my0], // 下留边
+        [0, my1, spanX, spanY], // 上留边
+        [0, my0, mx0, my1], // 左留边
+        [mx1, my0, spanX, my1], // 右留边
+      ]); // 四条留边同色 ⇒ 一次填充（逐块画会留缝）
       canvas.restore();
     }
 
