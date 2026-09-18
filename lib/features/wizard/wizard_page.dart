@@ -2427,6 +2427,24 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   Widget _canvasOr3D(Offset? laserMm, bool sim) {
     final m = _meta;
     final stock = _stockRectMm; // 客户标定的材料矩形（机器 mm）
+
+    // 3D 材料板：矩形料 = 标定矩形；圆料 = **按外接圆直径的正方形板**
+    //（3D 用正方形板 + 内切圆表现圆料，这样圆一定铺满板，不会偏小）。
+    double boardW = stock?.width ?? 0;
+    double boardH = stock?.height ?? 0;
+    double boardLeft = stock?.left ?? 0;
+    double boardBottom = stock?.top ?? 0;
+    if (widget.stockShape == StockShape.circle) {
+      final c = _circleCenter();
+      final a0 = widget.p0;
+      final rad = (c != null && a0 != null) ? (a0 - c).distance : 0.0;
+      if (c != null && rad > 0) {
+        boardW = rad * 2;
+        boardH = rad * 2;
+        boardLeft = c.dx - rad;
+        boardBottom = c.dy - rad;
+      }
+    }
     if (_show3D && _grid != null && m != null) {
       return ClipRRect(
         borderRadius: BorderRadius.circular(10),
@@ -2451,10 +2469,10 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
               circleBoard: widget.stockShape == StockShape.circle,
               // 材料 + 模型合体：材料板 = 客户标定的那块料，
               // 模型按排版位置刻在板上 ⇒ 这才是真正雕出来的样子
-              boardWidthMm: stock?.width ?? 0,
-              boardHeightMm: stock?.height ?? 0,
-              modelOffsetX: stock == null ? 0 : widget.origin.dx - stock.left,
-              modelOffsetY: stock == null ? 0 : widget.origin.dy - stock.top,
+              boardWidthMm: boardW,
+              boardHeightMm: boardH,
+              modelOffsetX: boardW > 0 ? widget.origin.dx - boardLeft : 0,
+              modelOffsetY: boardH > 0 ? widget.origin.dy - boardBottom : 0,
             ),
           ),
         ),
@@ -2582,6 +2600,15 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   /// 归中：把模型摆到材料（或台面）正中。
   void _centerModel() {
     if (_busy) return;
+    // 圆料：居**圆心**（三点外接圆），不是居外接矩形的中心
+    // —— 昊总 2026-09-18：圆形 3 点后归中没落在圆心上。
+    if (widget.stockShape == StockShape.circle) {
+      final c = _circleCenter();
+      if (c != null) {
+        _setDesign(Offset(c.dx - _w / 2, c.dy - _h / 2));
+        return;
+      }
+    }
     final r = _stockRectMm;
     if (r == null) {
       _setDesign(Offset((_bedW - _w) / 2, (_bedH - _h) / 2));

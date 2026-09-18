@@ -703,19 +703,22 @@ class _ZGridPainter extends CustomPainter {
       canvas.drawPath(p, wallEdge);
     }
 
-    /// 材料板顶面的一块（z = 0 平面，与未切削的浮雕面同高 ⇒ 视觉连续）。
-    void flat(double x0, double y0, double x1, double y1) {
+    /// 一块水平面：默认 z=0（材料顶面，与未切削的浮雕面同高 ⇒ 视觉连续）；
+    /// 传 [z] 可放到任意高度（如模型区底板放在最深 z），[k] 可覆盖明暗。
+    void flat(double x0, double y0, double x1, double y1,
+        {double z = 0, double? k}) {
       if (x1 - x0 <= 1e-6 || y1 - y0 <= 1e-6) return;
-      final a = proj(x0, y0, 0);
-      final b = proj(x1, y0, 0);
-      final c = proj(x1, y1, 0);
-      final d = proj(x0, y1, 0);
+      final a = proj(x0, y0, z);
+      final b = proj(x1, y0, z);
+      final c = proj(x1, y1, z);
+      final d = proj(x0, y1, z);
       final p = Path()
         ..moveTo(a.dx, a.dy)
         ..lineTo(b.dx, b.dy)
         ..lineTo(c.dx, c.dy)
         ..lineTo(d.dx, d.dy)
         ..close();
+      flatFill.color = k == null ? _wood(_flatK) : _wood(k);
       canvas.drawPath(p, flatFill);
       canvas.drawPath(p, wallEdge);
     }
@@ -761,6 +764,10 @@ class _ZGridPainter extends CustomPainter {
         flat(0, my1, spanX, spanY); // 上留边
         flat(0, my0, mx0, my1); // 左留边
         flat(mx1, my0, spanX, my1); // 右留边
+        // 模型区**底板**（放在最深 z）：浮雕只画顶面面片，陡峭台阶的垂直内壁
+        // 没有面片覆盖，会露出画布背景 —— 昊总 09-18「结合处内部面是白色的」。
+        // 铺一层与顶面同基色、暗一档的水平面兜底 ⇒ 看起来就是凹槽内壁与槽底。
+        flat(mx0, my0, mx1, my1, z: rz(gMin), k: _flatK * 0.5);
       } else {
         // 无标定尺寸：模型即整板 ⇒ 四壁顶面跟随浮雕边缘（切口到边也有侧壁）
         final strideX = _wallStride(data.resX);
@@ -817,6 +824,28 @@ class _ZGridPainter extends CustomPainter {
           proj(x0, y0, -thick),
         ], math.cos(am), math.sin(am));
       }
+      // 圆料顶面：以**投影后的 24 边形**为裁剪域画板面（圆外不画）。
+      // 昊总 09-18：圆料选了之后 3D 看不到圆形料 —— 旧实现只画了外壁、没有顶面，
+      // 中间是空的（露出背景）。
+      final clipC = Path();
+      for (var i = 0; i < n; i++) {
+        final a = i / n * math.pi * 2;
+        final p = proj(cxx + r * math.cos(a), cyy + r * math.sin(a), 0);
+        if (i == 0) {
+          clipC.moveTo(p.dx, p.dy);
+        } else {
+          clipC.lineTo(p.dx, p.dy);
+        }
+      }
+      clipC.close();
+      canvas.save();
+      canvas.clipPath(clipC);
+      flat(0, 0, spanX, my0); // 下留边
+      flat(0, my1, spanX, spanY); // 上留边
+      flat(0, my0, mx0, my1); // 左留边
+      flat(mx1, my0, spanX, my1); // 右留边
+      flat(mx0, my0, mx1, my1, z: rz(gMin), k: _flatK * 0.5); // 模型区底板
+      canvas.restore();
     }
 
     // ---- 浮雕顶面：法线叉乘 → 朗伯漫反射 + 深度压暗 → 画家算法 ----
