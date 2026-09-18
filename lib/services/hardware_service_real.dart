@@ -1740,17 +1740,28 @@ class RealHardwareService implements HardwareService {
       'G58': 5,
       'G59': 6,
     }[wcs.toUpperCase()] ?? 1;
-    final line = 'G10 L2 P$g54 X${x.toStringAsFixed(3)} '
-        'Y${y.toStringAsFixed(3)}';
-    final cmd = <String, dynamic>{
-      'cmd': 'manual_gcode',
-      'line': line,
-      // ts 仅作诊断，不参与跨端比较（固件时钟是开机毫秒，见 jog 注释）。
-      'ts': DateTime.now().millisecondsSinceEpoch,
-    };
-    if (jobId != null && jobId.isNotEmpty) cmd['jobId'] = jobId;
+    // 两条，与固件工单 **F1** 的实现口径一致（F1 = setWcsOffset 正式指令，
+    // 开发文档 §8 计划内部串行执行 `G92.1` + `G10 L2 P1 …`）：
+    //   ① `G92.1` = 清掉 G92 临时偏移。若此前用过 set_work_zero（它发的就是
+    //      `G92 X0 Y0`），不清就会**叠加两份偏移** ⇒ 整体跑偏；
+    //   ② `G10 L2 Pn X.. Y..` = 写工件坐标系偏置（P1=G54 … P6=G59）。
+    // 两条都走 manual_gcode（固件 idle-only，逐条排队执行）。
+    final lines = <String>[
+      'G92.1',
+      'G10 L2 P$g54 X${x.toStringAsFixed(3)} Y${y.toStringAsFixed(3)}',
+    ];
+    var sent = true;
+    for (final line in lines) {
+      final one = _publish(<String, dynamic>{
+        'cmd': 'manual_gcode',
+        'line': line,
+        // ts 仅作诊断，不参与跨端比较（固件时钟是开机毫秒，见 jog 注释）。
+        'ts': DateTime.now().millisecondsSinceEpoch,
+      });
+      sent = sent && one;
+    }
     // 如实返回「是否真的发出」：未连接 MQTT ⇒ false，App 不得报成功
-    return _publish(cmd);
+    return sent;
   }
 
   @override
