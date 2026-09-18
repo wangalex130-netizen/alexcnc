@@ -135,12 +135,22 @@ class ZGridSurface extends StatefulWidget {
   final double modelOffsetX;
   final double modelOffsetY;
 
+  /// **客户填写的实际材料厚度**（mm），>0 时**压过**载荷自报的 `minMaterialThickness`。
+  ///
+  /// 昊总 2026-09-18：Step1 让客户填真实料厚，定原点页 3D 就要按这个真实尺寸画耗材，
+  /// 这样「材料 + 模型」合起来才真的是"雕完之后的样子"。
+  /// 载荷里带的是**模型要求的最小厚度**（下限），不是客户手上的料 —— 两者可能不同，
+  /// 所以必须由调用方显式覆盖，不能只靠 [fallbackThicknessMm] 兜底
+  /// （后者仅在 `data.thicknessMm <= 0` 时才生效，有载荷时永远轮不到）。
+  final double thicknessMmOverride;
+
   const ZGridSurface({
     super.key,
     required this.data,
     this.fallbackWidthMm = 0,
     this.fallbackHeightMm = 0,
     this.fallbackThicknessMm = 0,
+    this.thicknessMmOverride = 0,
     this.height = 220,
     this.circleBoard = false,
     this.boardWidthMm = 0,
@@ -243,6 +253,7 @@ class _ZGridSurfaceState extends State<ZGridSurface> {
                   fallbackW: widget.fallbackWidthMm,
                   fallbackH: widget.fallbackHeightMm,
                   fallbackT: widget.fallbackThicknessMm,
+                  thickOverride: widget.thicknessMmOverride,
                   zAmp: _zAmp,
                   circle: widget.circleBoard,
                   boardW: widget.boardWidthMm,
@@ -356,12 +367,16 @@ class ZGridPreview extends StatefulWidget {
   final double fallbackHeightMm;
   final double fallbackThicknessMm;
 
+  /// 客户填写的实际材料厚度（mm），>0 时压过载荷自报厚度（见 [ZGridSurface]）。
+  final double thicknessMmOverride;
+
   const ZGridPreview({
     super.key,
     required this.url,
     this.fallbackWidthMm = 0,
     this.fallbackHeightMm = 0,
     this.fallbackThicknessMm = 0,
+    this.thicknessMmOverride = 0,
   });
 
   @override
@@ -508,6 +523,7 @@ class _ZGridPreviewState extends State<ZGridPreview> {
           fallbackWidthMm: widget.fallbackWidthMm,
           fallbackHeightMm: widget.fallbackHeightMm,
           fallbackThicknessMm: widget.fallbackThicknessMm,
+          thicknessMmOverride: widget.thicknessMmOverride,
           // 外层 SizedBox 是 220 ⇒ 给来源文字留出高度，避免 RenderFlex 溢出
           height: 184,
         ),
@@ -553,6 +569,7 @@ class _ZGridPainter extends CustomPainter {
   final double fallbackW;
   final double fallbackH;
   final double fallbackT;
+  final double thickOverride;
   final int zAmp;
   final bool circle;
   final double boardW;
@@ -569,6 +586,7 @@ class _ZGridPainter extends CustomPainter {
     required this.fallbackW,
     required this.fallbackH,
     required this.fallbackT,
+    required this.thickOverride,
     required this.zAmp,
     required this.circle,
     required this.boardW,
@@ -605,7 +623,12 @@ class _ZGridPainter extends CustomPainter {
   static const _matG = 205.0;
   static const _matB = 255.0;
 
-  /// 朝上平面（n = +Z）的朗伯系数 —— 板面与未切削处同值 ⇒ 无缝衔接。
+  /// 朝上平面（n = +Z）的朗伯系数 —— 板面、留边、浮雕的**未切削面**必须**同值**。
+  ///
+  /// ⚠️ 铁律：凡「朝上平面」的 k 一律用 `0.40 + 0.60 * (n·L)` 这一条公式算出，
+  /// **不得**再套一层环境光/漫反射拆分（否则同一平面算出两个 k，接缝处就是一整圈白边）。
+  /// 2026-09-18 实证：浮雕面片曾写成 `0.40 + 0.60*(0.35 + 0.65*n·L)`，与板面
+  /// `_flatK` 相差 ΔRGB≈(9,12,15)，肉眼即"模型外圈白边"。
   static const _flatK = 0.40 + 0.60 * _lz;
 
   static Color _shade(num k) => Color.fromARGB(
@@ -642,9 +665,11 @@ class _ZGridPainter extends CustomPainter {
     final double mx1 = mx0 + modelSpanX;
     final double my1 = my0 + modelSpanY;
 
-    final thick = data.thicknessMm > 0
-        ? data.thicknessMm
-        : (fallbackT > 0 ? fallbackT : 10.0);
+    final thick = thickOverride > 0
+        ? thickOverride
+        : (data.thicknessMm > 0
+            ? data.thicknessMm
+            : (fallbackT > 0 ? fallbackT : 10.0));
 
     // Z 放大：浅浮雕（1~5mm）按真实比例几乎看不出层次；上限保证
     // 「最深切入 × 放大」不超过所画板厚的 80%，避免视觉上切穿板料。
@@ -790,15 +815,13 @@ class _ZGridPainter extends CustomPainter {
       }
 
       if (hasBoard) {
-        // 板面 = 整板挖去模型区域（四条留边）
+        // 板面 = 整板挖去模型区域（四条留边）。
+        // 模型区「坑」的兜底不再在这里画 —— 统一挪到下面的「开口裁剪」块里，
+        // 否则整块坑底会越界过涂近侧留边（2026-09-18 修的第二个毛病）。
         flat(0, 0, spanX, my0); // 下留边
         flat(0, my1, spanX, spanY); // 上留边
         flat(0, my0, mx0, my1); // 左留边
         flat(mx1, my0, spanX, my1); // 右留边
-        // 模型区**底板**（放在最深 z）：浮雕只画顶面面片，陡峭台阶的垂直内壁
-        // 没有面片覆盖，会露出画布背景 —— 昊总 09-18「结合处内部面是白色的」。
-        // 铺一层与顶面同基色、暗一档的水平面兜底 ⇒ 看起来就是凹槽内壁与槽底。
-        flat(mx0, my0, mx1, my1, z: rz(gMin), k: _flatK * 0.5);
       } else {
         // 无标定尺寸：模型即整板 ⇒ 四壁顶面跟随浮雕边缘（切口到边也有侧壁）
         final strideX = _wallStride(data.resX);
@@ -855,7 +878,7 @@ class _ZGridPainter extends CustomPainter {
           proj(x0, y0, -thick),
         ], math.cos(am), math.sin(am));
       }
-      // 圆料顶面：以**投影后的 24 边形**为裁剪域画板面（圆外不画）。
+      // 圆料顶面：以**投影后的圆多边形**为裁剪域画板面（圆外不画）。
       // 昊总 09-18：圆料选了之后 3D 看不到圆形料 —— 旧实现只画了外壁、没有顶面，
       // 中间是空的（露出背景）。
       final clipC = Path();
@@ -875,9 +898,37 @@ class _ZGridPainter extends CustomPainter {
       flat(0, my1, spanX, spanY); // 上留边
       flat(0, my0, mx0, my1); // 左留边
       flat(mx1, my0, spanX, my1); // 右留边
-      flat(mx0, my0, mx1, my1, z: rz(gMin), k: _flatK * 0.5); // 模型区底板
       canvas.restore();
     }
+
+    // ---- 模型区「坑」：坑内一切内容裁剪到「开口的投影」----
+    //
+    // 昊总 2026-09-18：「两者结合处还是白边」。等效投影复算后确认根因有两条：
+    //   ① **光照公式两套**：板面留边用 `_flatK = 0.40+0.60*lz`，而浮雕面片多套了一层
+    //      `light = 0.35+0.65*diff` 再算 `0.40+0.60*light` ⇒ 同一个"朝上平面"算出两个 k，
+    //      未切削的模型边带比板面亮约 7%（ΔRGB≈9/12/15）⇒ 看着就是一圈白边。
+    //   ② **坑壁没有面片**：浮雕只画顶面，坑的垂直内壁无人覆盖 ⇒ 远侧露出容器底色
+    //      #F5F7FA（近白）。旧实现想用一张「坑底」兜底，但坑底整块画上去又会**过涂**
+    //      近侧的板面留边（把板面盖成暗色）。
+    //
+    // 修法：屏幕上"坑内可见区域"必然等于"开口的投影"（只能透过开口看到坑内），于是把
+    // 坑内内容整体裁剪到开口多边形，并先用坑内暗色铺满开口 ⇒
+    //   ① 未切削面带与板面完全同色（配合上面 k 公式统一）
+    //   ② 未被浮雕面片覆盖的像素一律落在坑内暗色上：不再露底色，也不越界过涂留边
+    final Offset o0 = proj(mx0, my0, 0);
+    final Offset o1 = proj(mx1, my0, 0);
+    final Offset o2 = proj(mx1, my1, 0);
+    final Offset o3 = proj(mx0, my1, 0);
+    final open = Path()
+      ..moveTo(o0.dx, o0.dy)
+      ..lineTo(o1.dx, o1.dy)
+      ..lineTo(o2.dx, o2.dy)
+      ..lineTo(o3.dx, o3.dy)
+      ..close();
+    canvas.save();
+    canvas.clipPath(open);
+    // 坑内兜底：与旧「坑底」同色（顶面基色暗一档），但铺满整个开口 ⇒ 顺带覆盖坑壁
+    canvas.drawPath(open, Paint()..color = _shade(_flatK * 0.5));
 
     // ---- 浮雕顶面：法线叉乘 → 朗伯漫反射 + 深度压暗 → 画家算法 ----
     final stride = _stride(data.resX, data.resY);
@@ -905,16 +956,17 @@ class _ZGridPainter extends CustomPainter {
           ny /= nl;
           nz /= nl;
         }
-        // 朗伯漫反射（0.35 环境光 + 0.65 漫反射）
+        // 朗伯漫反射。⚠️ 必须与板面/留边**同一条公式** k = 0.40 + 0.60*(n·L)：
+        // 曾在此多套一层 `light = 0.35 + 0.65*diff`，导致同一"朝上平面"
+        // 算出比板面亮一档的 k ⇒ 模型外圈一整圈白边（2026-09-18 实证）。
         final diff = math.max(0.0, nx * _lx + ny * _ly + nz * _lz);
-        final light = 0.35 + 0.65 * diff;
         // 深度压暗：越深吸收越明显，凸显凹槽层次
         final rawAvg = (rawA + rawB + rawC + rawD) / 4;
         final depRatio = gRange > 0.05
             ? math.min(math.max((gMax - rawAvg) / gRange, 0.0), 1.0)
             : 0.0;
         final depthDim = 1.0 - depRatio * 0.35;
-        final k = (0.40 + 0.60 * light) * depthDim;
+        final k = (0.40 + 0.60 * diff) * depthDim;
         cells.add(_Quad(
           pa: proj(x0, y0, za),
           pb: proj(x1, y0, zb),
@@ -944,6 +996,8 @@ class _ZGridPainter extends CustomPainter {
       canvas.drawPath(p, reliefFill);
       canvas.drawPath(p, reliefEdge);
     }
+    // 退出「开口裁剪」：巡边外框与坑无关，要按 z=0 平面正常画（不能被裁）
+    canvas.restore();
 
     // ---- 巡边定位外框（模型区，z=0 平面）----
     final rim = <Offset>[
@@ -974,6 +1028,7 @@ class _ZGridPainter extends CustomPainter {
       old.rotZ != rotZ ||
       old.zoom != zoom ||
       old.pan != pan ||
+      old.thickOverride != thickOverride ||
       old.zAmp != zAmp ||
       old.circle != circle ||
       old.boardW != boardW ||

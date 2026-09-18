@@ -71,9 +71,16 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   Map<int, int> _procSlot = {};
   Set<int> _procConfirmed = {};
   bool _syncedToMachine = false; // Step3：必须点「确认映射并同步到机器」
-  bool _chkThick = false; // 实物厚度已确认 ≥ 模型要求（Z 由探针实测，此处仅目视确认）
   bool _chkSize = false; // 实物板材平面尺寸 ≥ 雕刻图形尺寸
   bool _chkFixture = false; // 材料已平放，夹具固定在雕刻区域外
+  // ---- Step1 材料厚度：客户填写的**实际**厚度（昊总 2026-09-18 改回输入模式）----
+  // 基准 = 解析出的模型厚度 _minThickness，客户填的值必须 ≥ 它。
+  // 用途：定原点页 3D 预览按真实料厚模拟耗材 ⇒ 结合模型就是"真实雕完之后的状态"。
+  // 用 String 存（而非 double）以便输入过程中自由编辑/删除，不因中间态被强制改写。
+  String _thickness = '';
+  late TextEditingController _thicknessCtl;
+  late FocusNode _thicknessFocus;
+  bool _thickCtlReady = false; // controller 建好前不得触碰（_load 完成前）
   bool _safetyChecked = false; // Step4 轨迹落在耗材内且避开压板
   // ---- Step3 定原点：标定点 + 材料形态（放父级 ⇒ 来回切步/预览循环都不丢，§5.8 V2）----
   Offset? _p0;
@@ -93,13 +100,37 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   void initState() {
     super.initState();
     _step = widget.initialStep;
+    // 厚度输入框：输入过程中**不做强制吸附/改写**（否则客户敲 "1" 准备输 "18" 时
+    // 会被判成"小于下限"并回写，光标乱跳），只在失焦/提交时吸附到下限 ——
+    // 沿用历史上验证过的做法（`_thicknessFocus`）。
+    _thicknessFocus = FocusNode();
+    _thicknessFocus.addListener(_snapThicknessOnBlur);
     _load();
+  }
+
+  /// 失焦时把厚度吸附到合法范围：空 或 < 下限 ⇒ 取模型厚度（下限）。
+  void _snapThicknessOnBlur() {
+    if (_thicknessFocus.hasFocus) return;
+    if (!mounted || !_thickCtlReady) return;
+    final v = _thicknessVal;
+    if (v >= _minThickness) return;
+    final s = _minThickness.toStringAsFixed(1);
+    _thicknessCtl.text = s;
+    setState(() => _thickness = s);
   }
 
   Future<void> _load() async {
     // 模型库 5 接口返回的 LibraryItem 已含加工参数、材质、刀具等全部字段，
     // 直接转 TaskMetadata，不再依赖旧的 /api/v1/tasks/{id} 接口（该接口后端未实现）。
     final task = widget.item.toTaskMetadata();
+    // 厚度输入框默认值 = **解析出的模型厚度**（下限），客户可改成自己那块料的真实厚度。
+    // controller 只建一次（稳定实例），避免 Step 来回切时丢失已输入内容。
+    if (!_thickCtlReady) {
+      _thickness = (task.boardThicknessMm > 0 ? task.boardThicknessMm : 3.0)
+          .toStringAsFixed(1);
+      _thicknessCtl = TextEditingController(text: _thickness);
+      _thickCtlReady = true;
+    }
     // 进入向导即强制拉取服务器最新刀仓（用户要求：打开即真实最新状态，Step2 同步）。
     await ref.read(toolMagazineProvider.notifier).refresh(force: true);
     if (!mounted) return;
@@ -126,9 +157,18 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     });
   }
 
-  /// 模型要求的最小材料厚度（mm）：材料厚度须 ≥ 该值，否则切穿板材、伤及台面。
-  /// 定稿口径：Z 原点一律由主轴探针实测，App 不采集厚度、也不由厚度推算 Z0。
+  /// 模型要求的最小材料厚度（mm）= Step1 客户填写厚度的**基准/下限**。
+  ///
+  /// 口径：Z 原点一律由主轴探针实测，App 不采集厚度推算 Z0；这里的厚度只用于
+  /// ① 校验客户手上的料是否够厚（薄于此值会切穿板材、伤及台面）
+  /// ② 定原点页 3D 预览按客户填的真实厚度模拟耗材。
   double get _minThickness => _task?.boardThicknessMm ?? 3.0;
+
+  /// 客户填写的实际材料厚度（mm）；空/非法 ⇒ 0（视作未填，门禁拦住）。
+  double get _thicknessVal => double.tryParse(_thickness) ?? 0;
+
+  /// 厚度是否达标：已填 且 ≥ 模型要求的下限。
+  bool get _thickOk => _thicknessVal >= _minThickness;
 
   /// 刀仓映射是否就绪：每把工序刀都分配到不同刀兜、逐兜实物确认完成、
   /// 且已点「确认映射并同步到机器」。
@@ -178,8 +218,9 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   bool get _canProceed {
     switch (_step) {
       case 0:
-        // 三项目视确认：厚度下限、平面尺寸、装夹。厚度不再由客户输入数值。
-        return _chkThick && _chkSize && _chkFixture;
+        // 客户填写实际料厚（必须 ≥ 模型厚度）+ 平面尺寸核验 + 装夹确认。
+        // 厚度填写本身即"对照实物确认"，不再额外要求勾选（昊总 2026-09-18 改回输入模式）。
+        return _thickOk && _chkSize && _chkFixture;
       case 1:
         return _atcReady;
       case 2:
@@ -235,6 +276,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
 
   @override
   void dispose() {
+    _thicknessFocus.dispose();
+    if (_thickCtlReady) _thicknessCtl.dispose();
     super.dispose();
   }
 
@@ -327,8 +370,14 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   Widget _guardHint(TextTheme t) {
     String msg;
     if (_step == 0) {
-      msg = '请逐项确认：实物尺寸 ≥ 图形尺寸、材料厚度 ≥ '
-          '${_minThickness.toStringAsFixed(1)}mm、且材料已用夹具固定。';
+      if (!_thickOk) {
+        msg = _thicknessVal <= 0
+            ? '请填写实物材料厚度（必须 ≥ ${_minThickness.toStringAsFixed(1)}mm）。'
+            : '材料厚度需 ≥ ${_minThickness.toStringAsFixed(1)}mm（模型厚度），'
+                '否则会切穿板材、伤及台面。';
+      } else {
+        msg = '请逐项确认：实物尺寸 ≥ 图形尺寸、且材料已用夹具固定。';
+      }
     } else if (_step == 1) {
       final req = _task?.requiredTools ?? [];
       final dup = _procSlot.values.length != _procSlot.values.toSet().length;
@@ -374,10 +423,12 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           modelHeightMm: _task?.heightMm ?? 0,
           minThicknessMm: _minThickness,
           payloadUrl: widget.item.payloadUrl,
-          chkThick: _chkThick,
+          thickness: _thickness,
+          thicknessCtl: _thicknessCtl,
+          thicknessFocus: _thicknessFocus,
           chkSize: _chkSize,
           chkFixture: _chkFixture,
-          onChkThick: (v) => setState(() => _chkThick = v),
+          onThickness: (v) => setState(() => _thickness = v),
           onChkSize: (v) => setState(() => _chkSize = v),
           onChkFixture: (v) => setState(() => _chkFixture = v),
         );
@@ -405,6 +456,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
         return _StepOrigin(
           task: _task,
           payloadUrl: widget.item.payloadUrl,
+          materialThicknessMm: _thicknessVal,
           origin: _origin,
           originSet: _originSet,
           overflow: _originOverflow,
@@ -484,22 +536,25 @@ class _Progress extends StatelessWidget {
 // ===================== Step 1 · 材料确认与装夹 =====================
 /// 材质由模型固定：G-code 的雕刻工艺参数在云端生成时已写死，App 侧改不了，
 /// 因此本步取消材质选择下拉，只做「确认实物与模型预置一致」：
-///   ① 材质只读（按模型指定备料）
-///   ② 平面尺寸 ≥ 雕刻图形尺寸（图形尺寸来自模型库；将来轻量 JSON 的
+///   ① **3D 预览置顶**（昊总 2026-09-18：客户一进页面就要看到模型效果）
+///   ② 材质只读（按模型指定备料）
+///   ③ 平面尺寸 ≥ 雕刻图形尺寸（图形尺寸来自模型库；将来轻量 JSON 的
 ///      modelBBox.spanX/spanY 与此同源）
-///   ③ 材料厚度 ≥ 模型要求（红线提醒；Z 原点由主轴探针实测，App 不采集厚度）
-///   ④ 装夹确认（材料平放 + 夹具只夹在雕刻区域外）
-///   ⑤ 轻量 JSON（Unified Payload v2.3.0）3D 预览，数据未就绪时显示占位
+///   ④ **材料厚度由客户填写**（昊总 2026-09-18 改回输入模式）：基准 = 解析出的
+///      模型厚度，必须 ≥ 该值；填写的真实厚度会传给定原点页，3D 按真实耗材模拟
+///   ⑤ 装夹确认（材料平放 + 夹具只夹在雕刻区域外）
 class _StepMaterial extends StatelessWidget {
   final String materialKey; // 模型指定材质 key（只读，不再可选）
   final double modelWidthMm; // 雕刻图形宽（mm）
   final double modelHeightMm; // 雕刻图形高（mm）
-  final double minThicknessMm; // 材料厚度下限（mm）
+  final double minThicknessMm; // 材料厚度下限 = 模型厚度（mm）
   final String? payloadUrl; // 轻量 JSON 地址 → 3D 预览数据源
-  final bool chkThick;
+  final String thickness; // 客户填写的实际厚度（原始文本）
+  final TextEditingController thicknessCtl;
+  final FocusNode thicknessFocus;
   final bool chkSize;
   final bool chkFixture;
-  final void Function(bool) onChkThick;
+  final void Function(String) onThickness;
   final void Function(bool) onChkSize;
   final void Function(bool) onChkFixture;
 
@@ -509,10 +564,12 @@ class _StepMaterial extends StatelessWidget {
     required this.modelHeightMm,
     required this.minThicknessMm,
     required this.payloadUrl,
-    required this.chkThick,
+    required this.thickness,
+    required this.thicknessCtl,
+    required this.thicknessFocus,
     required this.chkSize,
     required this.chkFixture,
-    required this.onChkThick,
+    required this.onThickness,
     required this.onChkSize,
     required this.onChkFixture,
   });
@@ -574,6 +631,14 @@ class _StepMaterial extends StatelessWidget {
         ? '${_mm(modelWidthMm)} × ${_mm(modelHeightMm)} mm'
         : '以模型标注为准';
     final minT = minThicknessMm.toStringAsFixed(1);
+    final thVal = double.tryParse(thickness) ?? 0;
+    final tooThin = thVal > 0 && thVal < minThicknessMm;
+    final thickOk = thVal >= minThicknessMm;
+    // 达标提示里的"厚了多少"：相等时不显示"+0.0"，改成一句话，避免读数困惑。
+    final delta = thVal - minThicknessMm;
+    final thickDelta = delta < 0.05
+        ? '等于模型厚度'
+        : '比模型厚 ${delta.toStringAsFixed(1)} mm';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -583,6 +648,35 @@ class _StepMaterial extends StatelessWidget {
         const SizedBox(height: 6),
         const Text('请对照实物逐项确认。材质与刀路参数由模型预设，App 无法更改。',
             style: TextStyle(fontSize: 12, color: CncColors.textSub)),
+        const SizedBox(height: 12),
+
+        // ⓪ 3D 预览（**置顶**）：昊总 2026-09-18「客户一进入页面就能看到模型效果」。
+        // 客户改厚度即时重画 ⇒ 直接看到自己那块料的真实厚度下、雕完是什么样。
+        _card(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _title(Symbols.visibility, '3D 预览'),
+              const SizedBox(height: 8),
+              ZGridPreview(
+                url: payloadUrl,
+                fallbackWidthMm: modelWidthMm,
+                fallbackHeightMm: modelHeightMm,
+                fallbackThicknessMm: minThicknessMm,
+                // 按客户填写的**真实料厚**画耗材（空/非法 ⇒ 0 = 退回模型厚度）
+                thicknessMmOverride: thVal,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                  thVal > 0
+                      ? '按你填写的耗材厚度 ${thVal.toStringAsFixed(1)} mm 模拟雕完状态。'
+                          '预览来自云端轻量 JSON（高程网格），并非 G-code。'
+                      : '预览来自云端轻量 JSON（高程网格），并非 G-code；'
+                          '填写材料厚度后将按真实耗材模拟。',
+                  style: const TextStyle(fontSize: 10, color: CncColors.textSub)),
+            ],
+          ),
+        ),
         const SizedBox(height: 12),
 
         // ① 材质（只读：不再提供选择）
@@ -652,42 +746,95 @@ class _StepMaterial extends StatelessWidget {
         ),
         const SizedBox(height: 12),
 
-        // ③ 厚度下限（只读红线，取消输入框）
+        // ④ 材料厚度：**客户填写实际厚度**（昊总 2026-09-18 改回输入模式）。
+        // 基准 = 解析出的模型厚度（下限红线），必须 ≥ 该值。
         _card(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _title(Symbols.priority_high, '厚度要求'),
+              // 图标用已验证白名单内的（Symbols.straighten 更贴题，但仓库里没别的文件
+              // 用过它 ⇒ 无法证明其存在，静态自检会拦；本卡仍以红线提示为主，够用）
+              _title(Symbols.priority_high, '材料厚度'),
               const SizedBox(height: 8),
               Row(
                 children: [
                   const Icon(Symbols.error, size: 15, color: CncColors.danger),
                   const SizedBox(width: 6),
                   Expanded(
-                    child: Text('材料厚度必须 ≥ $minT mm',
+                    child: Text('模型厚度 $minT mm（不可低于此值）',
                         style: const TextStyle(
-                            fontSize: 14,
+                            fontSize: 13,
                             fontWeight: FontWeight.bold,
                             color: CncColors.danger)),
                   ),
                 ],
               ),
-              const SizedBox(height: 4),
-              const Text(
-                  'Z 原点由主轴探针实测，App 不采集厚度；薄于此值会切穿板材、伤及台面。',
-                  style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+              const SizedBox(height: 8),
+              TextField(
+                controller: thicknessCtl,
+                focusNode: thicknessFocus,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                // 输入过程中只记录、不做吸附/回写（避免敲 "18" 时 "1" 被判太薄），
+                // 真正吸附在失焦/提交时由父级完成。
+                onChanged: onThickness,
+                onSubmitted: (_) => thicknessFocus.unfocus(),
+                style: const TextStyle(color: CncColors.textMain),
+                decoration: InputDecoration(
+                  labelText: '实测材料厚度 (mm)',
+                  hintText: '须 ≥ $minT',
+                  labelStyle: const TextStyle(color: CncColors.textSub),
+                  hintStyle: const TextStyle(color: CncColors.textSub),
+                  suffixText: 'mm',
+                  suffixStyle: const TextStyle(color: CncColors.textSub),
+                  errorText:
+                      tooThin ? '太薄：必须 ≥ $minT mm（模型厚度），否则会切穿板材、伤及台面' : null,
+                  filled: true,
+                  fillColor: CncColors.bg,
+                  isDense: true,
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: CncColors.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: CncColors.primary),
+                  ),
+                ),
+              ),
               const SizedBox(height: 6),
-              _CheckTile(
-                value: chkThick,
-                onChanged: onChkThick,
-                label: '实物厚度已确认 ≥ $minT mm',
+              Row(
+                children: [
+                  Icon(
+                    thickOk
+                        ? Symbols.check_circle
+                        : Symbols.info,
+                    size: 14,
+                    color: thickOk
+                        ? CncColors.primaryInk
+                        : CncColors.textSub,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      thickOk
+                          ? '已按 ${thVal.toStringAsFixed(1)} mm 真实耗材模拟（$thickDelta）'
+                          : '填写你手上这块料的实测厚度；定原点页 3D 预览会按它模拟真实耗材。',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: thickOk
+                              ? CncColors.primaryInk
+                              : CncColors.textSub),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
         ),
         const SizedBox(height: 12),
 
-        // ④ 装夹确认
+        // ⑤ 装夹确认
         _card(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -702,28 +849,6 @@ class _StepMaterial extends StatelessWidget {
                 onChanged: onChkFixture,
                 label: '材料已平放，夹具固定在雕刻区域外',
               ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-
-        // ⑤ 轻量 JSON 3D 预览
-        _card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _title(Symbols.visibility, '3D 预览'),
-              const SizedBox(height: 8),
-              ZGridPreview(
-                url: payloadUrl,
-                fallbackWidthMm: modelWidthMm,
-                fallbackHeightMm: modelHeightMm,
-                fallbackThicknessMm: minThicknessMm,
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                  '预览来自云端轻量 JSON（高程网格），并非 G-code；数据未就绪时显示占位。',
-                  style: TextStyle(fontSize: 10, color: CncColors.textSub)),
             ],
           ),
         ),
@@ -1299,6 +1424,13 @@ class _Slot extends StatelessWidget {
 class _StepOrigin extends ConsumerStatefulWidget {
   final TaskMetadata? task;
   final String? payloadUrl; // 有轻量 JSON → 所见即所得；空 → 手动定原点
+
+  /// **客户在 Step1 填写的实际材料厚度**（mm）。0 = 未填。
+  ///
+  /// 昊总 2026-09-18：3D 预览要按客户手上的真实料厚画耗材，这样"材料 + 模型"
+  /// 合起来才是真正雕完的样子；同时穿透校验用真实厚度判断也更准。
+  /// 优先级最高 —— 载荷自报的 `minMaterialThickness` 只是**模型要求的下限**，不是客户那块料。
+  final double materialThicknessMm;
   final Offset origin; // 设计/原点左下角（机器 mm）
   final bool originSet;
   final bool overflow; // 软围栏溢出
@@ -1325,6 +1457,7 @@ class _StepOrigin extends ConsumerStatefulWidget {
   const _StepOrigin({
     required this.task,
     required this.payloadUrl,
+    required this.materialThicknessMm,
     required this.origin,
     required this.originSet,
     required this.overflow,
@@ -1407,8 +1540,13 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   double get _g54y =>
       _meta == null ? widget.origin.dy : _meta!.g54For(widget.origin.dx, widget.origin.dy).y;
 
-  /// 穿透校验用板厚：优先载荷自报，其次模型推荐值。
+  /// 穿透校验 + 3D 预览用板厚：**客户填写值优先**，其次载荷自报，最后模型推荐值。
+  ///
+  /// 昊总 2026-09-18：客户填的是"手上这块料"的真实厚度，比模型要求的下限更贴近事实，
+  /// 因此放在最高优先级（Step1 已强制 ≥ 模型下限，不会因此放宽校验）。
   double get _matThickness {
+    final c = widget.materialThicknessMm;
+    if (c > 0) return c;
     final mm = _meta?.minMaterialThickness ?? 0;
     if (mm > 0) return mm;
     return widget.task?.boardThicknessMm ?? 0;
@@ -2764,6 +2902,9 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
               fallbackWidthMm: m.spanX,
               fallbackHeightMm: m.spanY,
               fallbackThicknessMm: _matThickness > 0 ? _matThickness : 10,
+              // 客户填写的真实料厚要**压过**载荷自报的 minMaterialThickness，
+              // 否则 3D 永远按"模型要求的下限"画，看不出客户那块料的真实厚度。
+              thicknessMmOverride: _matThickness,
               height: c.maxHeight,
               circleBoard: widget.stockShape == StockShape.circle,
               // 材料 + 模型合体：材料板 = 客户标定的那块料，
