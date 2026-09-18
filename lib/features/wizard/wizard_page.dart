@@ -1920,10 +1920,17 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         _note('机器当前不可控制（${st.state.name}），不能快速走位', bad: true);
         return;
       }
-      if (st.homed != true) {
-        // 绝对定位的前提是**已知机械坐标**；未回零时坐标不可信，
-        // 走过去可能直接撞到台面外或撞料 —— 宁锁勿放。
-        _note('机器未回零，绝对定位不可用（先回零，或改用 Jog 步进）', bad: true);
+      // v11(homed-未上报放行)：本判据原为 `st.homed != true`，会把
+      // 「未上报（null）」当成「未回零」硬锁 —— 而小屏固件状态帧**没有 homed
+      // 字段**（2026-09-18 核实 pingMu-3020/main/cnc_net.c build_status_json
+      // 全字段），于是本功能在现网 100% 不可用（真机联调「回不到轨道」的
+      // 直接原因之一）。现改为**仅「明确未回零」才锁**，与
+      // MachineStatus.homed 的既有口径（未上报只提示不硬拦）一致。
+      // 放行依据：未回零且开启限位（$22=1）时 GRBL 处于 Alarm、state 不会是
+      // idle，上一条 canControl 已拦住；能走到这里 ⇒ 机器可运动、mpos 自洽。
+      if (st.homed == false) {
+        _note('机器未回零，绝对定位不可用（先在屏幕上回零，或改用 Jog 步进）',
+            bad: true);
         return;
       }
     }
@@ -2116,9 +2123,13 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     });
     if (ok) _frameAnim.forward(from: 0);
     _note(
+      // v11：原来这里写「机器抬 Z 至最高安全位后激光巡边一圈」—— 
+      // 那是**未经核实的承诺**：小屏固件尚未实现 framing（会回 E400
+      // unknown cmd），App 只能确认「指令已发出」，确认不了机器执行。
+      // 无条件宣称成功会让联调时把「固件没做」误判成「App 做完了」。
       ok
-          ? '已下发雕刻预览：机器抬 Z 至最高安全位后激光巡边一圈，'
-              '画面里同步显示巡边位置，请目视确认激光落在料上、避开夹具'
+          ? '已下发雕刻预览，画面里同步显示巡边位置，请目视确认激光落在料上、'
+              '避开夹具。若机器没有动作，说明当前小屏固件版本还不支持巡边'
               '${sim ? "〔调试模式：未下发指令，此处仅推进流程〕" : ""}'
           : '雕刻预览未发出：MQTT 未连接（机器不在线 / 网络断开），'
               '或固件尚未支持 framing（F2 未交付）',
@@ -2522,11 +2533,13 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         DateTime.now().difference(_frameAt!) < const Duration(seconds: 2);
     final linked = sim || st != null;
     final homed = sim ? true : st?.homed;
+    // v11：未上报（null）**不等于**未回零（见 _confirmMove 注释）。
+    final homedBlocked = !sim && st?.homed == false;
     final idle = sim || (st?.canControl ?? false);
-    final allOk = linked && homed == true && (fresh || sim) && idle;
+    final allOk = linked && !homedBlocked && (fresh || sim) && idle;
     final got = [widget.p0, widget.p1].where((e) => e != null).length;
-    // 快速走位可用的前提：空闲 + 已回零（绝对定位须已知机械坐标）。
-    final canMove = sim || (st?.canControl == true && st?.homed == true);
+    // 快速走位可用的前提：空闲 + **非明确未回零**（绝对定位须已知机械坐标）。
+    final canMove = sim || (st?.canControl == true && st?.homed != false);
 
     Widget dot(bool on) => Container(
           width: 8,
@@ -2546,7 +2559,11 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         const SizedBox(width: 4),
         Flexible(
           child: Text(
-            sim ? '模拟机器位' : (allOk ? '机器就绪' : (linked ? '检查机器' : '未连接')),
+            sim
+                ? '模拟机器位'
+                : (allOk
+                    ? (homed == null ? '就绪·回零未上报' : '机器就绪')
+                    : (linked ? '检查机器' : '未连接')),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontSize: 10.5, color: CncColors.textSub),

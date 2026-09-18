@@ -1719,16 +1719,38 @@ class RealHardwareService implements HardwareService {
   }) async {
     // 无感定原点（开发文档 §5.4）：契约未列 → 同网限定（偏置写错会整体跑偏）。
     if (!await _allowLocalOnly()) return false;
+    // v11(G54-过渡通道)：小屏固件**未实现** `setWcsOffset` —— 命令清单
+    //（《小屏幕支持命令完整清单》§4）里只有 `set_work_zero`（内部发 G92 =
+    // 把**当前位置**设为工件零点），**没有「写入任意偏置」的能力** ⇒ 原样
+    // 下发会命中未知命令分支（回 E400 `unknown cmd`），而 App 端仍报「已写入」
+    //（假阳性成功）。GRBL 原生 `G10 L2 Pn X.. Y..` 正是「写工件坐标系偏置」，
+    // 与本方法的 (x,y) 语义**逐字对应**：payload.g54For() 给出的就是偏置值
+    //（DesignPos − camOriginOffset，允许为负）。⇒ 走 `manual_gcode` 发一行
+    // G10，今天即可在真机跑通「无感定原点」，与 moveTo 是同一过渡套路。
+    // 切回时机：固件实现 setWcsOffset 后，把下面几行换回 _dispatch(cmd)。
+    //
+    // **不带 Z**：App 拿不到 Z 行程/零点方向数据，凭空写 Z 偏置会依赖
+    //「Z 零点在最高位」这一未经核实的机型前提 ⇒ 不介入 Z（Z 铁律，见 moveTo）。
+    // 故 `z` 入参在过渡期不参与下发，仅保留签名兼容。
+    final g54 = <String, int>{
+      'G54': 1,
+      'G55': 2,
+      'G56': 3,
+      'G57': 4,
+      'G58': 5,
+      'G59': 6,
+    }[wcs.toUpperCase()] ?? 1;
+    final line = 'G10 L2 P$g54 X${x.toStringAsFixed(3)} '
+        'Y${y.toStringAsFixed(3)}';
     final cmd = <String, dynamic>{
-      'cmd': 'setWcsOffset',
-      'wcs': wcs,
-      'x': x,
-      'y': y,
-      'z': z,
+      'cmd': 'manual_gcode',
+      'line': line,
+      // ts 仅作诊断，不参与跨端比较（固件时钟是开机毫秒，见 jog 注释）。
+      'ts': DateTime.now().millisecondsSinceEpoch,
     };
     if (jobId != null && jobId.isNotEmpty) cmd['jobId'] = jobId;
     // 如实返回「是否真的发出」：未连接 MQTT ⇒ false，App 不得报成功
-    return _dispatch(cmd);
+    return _publish(cmd);
   }
 
   @override
