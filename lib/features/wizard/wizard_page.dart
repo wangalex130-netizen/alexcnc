@@ -1764,7 +1764,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     return false;
   }
 
-  /// 确认移动：下发绝对定位（固件 F3）→ 不支持则降级为**分轴点动**。
+  /// 确认移动：下发一行 G0（manual_gcode，固件**已实现**）→ 不支持则降级为**分轴点动**。
   ///
   /// 降级路径存在的理由：`move_to` 是新增命令，固件未交付前若直接报错，
   /// 这个功能在真机上一天都用不了。分轴点动走的是**已在真机验证过的 jog**，
@@ -1809,7 +1809,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       _busy = true;
       _moving = true;
     });
-    _note('正在移动：${d.toStringAsFixed(0)}mm @ F${feed.toStringAsFixed(0)}');
+    _note('正在移动：${d.toStringAsFixed(0)}mm @ F${feed.toStringAsFixed(0)}'
+        '（请确认主轴/激光已抬离料面）');
 
     if (sim) {
       await Future<void>.delayed(const Duration(milliseconds: 420));
@@ -1835,7 +1836,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         ok = await _awaitArrival(t, timeoutMs);
       }
       if (!ok && mounted) {
-        // 下发失败或未到位 ⇒ 降级分轴点动（固件 F3 未交付时的兜底）
+        // 下发失败或未到位 ⇒ 降级分轴点动（manual_gcode 不可用时的兜底）
         degraded = true;
         _note('直线走位不可用，改用分轴走位…');
         ok = await _moveByAxisJog(t, feed);
@@ -1854,7 +1855,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           '（可点【取点】）${degraded ? ' · 分轴走位' : ''}');
     } else {
       _note('移动未确认到位：请检查机器状态后手动核对坐标'
-          '（固件 F3 的 move_to 未交付时会走分轴点动）', bad: true);
+          '（manual_gcode 不可用时会自动改走分轴点动）', bad: true);
     }
   }
 

@@ -116,8 +116,16 @@
   },
   "move_to": {
     "owner": "App 任务（alexcnc）—— 2026-09-18 昊总裁定，App 侧已实现并下发",
-    "status": "App 已实现；固件待交付（工单 F3，与 F1 setWcsOffset / F2 framing 同期口径）",
+    "status": "App 已实现且当前可用（走 manual_gcode 过渡通道）；move_to 正式指令待固件交付（F6）",
     "purpose": "「拖动十字 → 移动到此」：把取点从按 ~15 次 jog 变成 拖一次 + 点一次",
+    "app_channel_now": {
+      "cmd": "manual_gcode",
+      "line": "G0 X<mm> Y<mm> F<mm/min>",
+      "why": "固件已实现 manual_gcode（pingMu-3020/main/cnc_net.c:1503），无需等 F6 即可走直线；与 setWcsOffset/framing 的正式指令+过渡通道双轨同一惯例（开发文档 5.4）",
+      "firmware_constraints": ["line 1~120 字符", "无换行/控制字符", "G-code 发送器 idle-only", "LAN only：is_wan_forbidden 含 manual_gcode（cnc_net.c:1382）"],
+      "switch_back": "F6 交付后把 real service 内的 cmd 换成 move_to 即可，App 其余不动",
+      "no_z_command": "App 无 Z 行程/零点方向数据，最保守假设=不假设 ⇒ 不发任何 Z 指令；Z 安全靠调用方限速 + UI 提示"
+    },
     "frame": {"cmd": "move_to", "x": "number(mm, 绝对)", "y": "number(mm, 绝对)",
               "feed": "number(mm/min)", "safe_z": "bool(true=固件必须先抬 Z)"},
     "firmware_must": [

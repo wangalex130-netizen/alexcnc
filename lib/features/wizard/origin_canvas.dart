@@ -56,6 +56,16 @@ class OriginCanvas extends StatefulWidget {
   final double clearBand; // 夹具安全隔离带 mm（§4.3）
   final bool overflow; // 软围栏溢出（红态）
   final Offset? laserMm; // 激光十字位置（mpos）
+
+  /// 拟移动目标（mm）——「拖动十字 → 移动到此」（2026-09-18 昊总第 10 条）。
+  ///
+  /// 与 [laserMm] **语义严格分离**：laserMm = 主轴**现在在哪**（只读，来自 mpos）；
+  /// moveTargetMm = 客户想让主轴**去哪**（待确认，松手后需再点一次才下发）。
+  ///
+  /// 只做 B 方案（拖到位 + 点确认），**不做 A 方案（拖动时主轴实时跟手）**：
+  /// App→MQTT→屏幕→UART→GRBL 四跳端到端 100~500ms，跟手必然「手指停了机器还在跑」，
+  /// 客户反向拖就是震荡 + 撞机 —— 架构性上限，优化不掉。
+  final Offset? moveTargetMm;
   final bool hasPayload; // 有轻量 JSON 才显示设计框与拖动
 
   /// 高程网格（行主序，mm；null = 载荷无网格体，如 L0/L1）——框内俯视伪彩用。
@@ -309,16 +319,6 @@ class _OriginPainter extends CustomPainter {
   final double clearBand;
   final bool overflow;
   final Offset? laserMm;
-
-  /// 拟移动目标（mm）——「拖动十字 → 移动到此」（2026-09-18 昊总第 10 条）。
-  ///
-  /// 与 [laserMm] **语义严格分离**：laserMm = 主轴**现在在哪**（只读，来自 mpos）；
-  /// moveTargetMm = 客户想让主轴**去哪**（待确认，松手后需再点一次才下发）。
-  ///
-  /// 只做 B 方案（拖到位 + 点确认），**不做 A 方案（拖动时主轴实时跟手）**：
-  /// App→MQTT→屏幕→UART→GRBL 四跳端到端 100~500ms，跟手必然「手指停了机器还在跑」，
-  /// 客户反向拖就是震荡 + 撞机 —— 架构性上限，优化不掉。
-  final Offset? moveTargetMm;
   final bool hasPayload;
   final List<double>? zGrid;
   final int gridCols;

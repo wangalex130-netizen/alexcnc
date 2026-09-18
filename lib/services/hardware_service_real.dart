@@ -1556,12 +1556,27 @@ class RealHardwareService implements HardwareService {
   /// 门禁与 [jog] 完全一致（同网限定）——绝对定位是全行程快速移动，
   /// 外网误触即撞机，比单步点动更危险。
   ///
-  /// `safe_z: true` 是**硬要求**：客户在画布上拖的是激光点，机器实际移动的是
-  /// 刀具；Z 停在料面附近时快速 G0 会直接撞料/撞夹具 ⇒ 固件必须先抬 Z
-  /// 到最高安全位再走 XY，App 不参与 Z 决策。
+  /// **走 manual_gcode 过渡通道**（不是 move_to）：`move_to` 是**正式指令**
+  /// （契约 `move_to` 段 / 固件工单 **F6**），尚未交付；而 manual_gcode
+  /// **固件已实现且可用**（`pingMu-3020/main/cnc_net.c:1503`）——
+  /// 帧 `{"cmd":"manual_gcode","line":"G0 X.. Y.. F.."}`，固件约束：
+  /// line 1~120 字符、无控制字符、G-code 发送器 idle-only、LAN only
+  /// （`cnc_net.c:1382` 的 is_wan_forbidden 含 manual_gcode，与本方法门禁一致）。
+  /// 这与 setWcsOffset/framing 的「正式指令 + 过渡通道」双轨是同一惯例
+  /// （开发文档 §5.4 已把 manual_gcode 定为过渡通道）。
+  /// 切回时机：F6 交付后把本方法内换成 _publish({'cmd':'move_to',...}) 即可。
+  ///
+  /// 一行 `G0` 即走直线：加减速全部交给 GRBL planner（两端自然减速，最平滑），
+  /// App 不做 S 曲线、不逐帧改 F —— 那是重复实现 planner，还会与其打架产生震荡。
   ///
   /// QoS1（不是 jog 的 QoS0）：绝对定位**必须到达**，丢一帧就是没走到；
-  /// 同一目标重发完全幂等（走到同一坐标），无需额外去重。
+  /// 同一 goal 重发完全幂等（走到同一坐标），无需额外去重。
+  ///
+  /// `safeZ` 当前**不产生任何 Z 指令**：App 没有 Z 行程与零点方向数据，
+  /// 凭空发 Z 指令（如 G53 G0 Z0）会依赖「Z 零点在最高位」这一未经核实的
+  /// 机型前提，最保守假设就是**不假设** ⇒ 不介入 Z。
+  /// Z 安全由两件事兜住：① 调用方按作业类型限制进给率；② UI 明确提示
+  /// 「确认主轴/激光已抬离料面」。F6 交付后固件可真正抬 Z，此处参数才生效。
   @override
   Future<bool> moveTo({
     required double x,
@@ -1570,13 +1585,13 @@ class RealHardwareService implements HardwareService {
     bool safeZ = true,
   }) async {
     if (!await _confirmLan()) return false;
+    // 3 位小数足够（1µm 分辨率的 1000 倍）；整行远小于固件 120 字符上限。
+    final line = 'G0 X${x.toStringAsFixed(3)} Y${y.toStringAsFixed(3)}'
+        ' F${feed.toStringAsFixed(0)}';
     final cmd = {
-      'cmd': 'move_to',
-      'x': x,
-      'y': y,
-      'feed': feed,
-      'safe_z': safeZ,
-      // ts/seq 仅作诊断，不参与任何跨端比较（固件时钟是开机毫秒，见 jog 注释）。
+      'cmd': 'manual_gcode',
+      'line': line,
+      // ts 仅作诊断，不参与任何跨端比较（固件时钟是开机毫秒，见 jog 注释）。
       'ts': DateTime.now().millisecondsSinceEpoch,
     };
     return _publish(cmd);
