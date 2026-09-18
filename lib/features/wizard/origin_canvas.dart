@@ -304,6 +304,9 @@ class _OriginPainter extends CustomPainter {
   static const _red = Color(0xFFE24B4A);
   static const _redDeep = Color(0xFFA32D2D);
   static const _wood = Color(0xFFB07D54);
+  /// 「未切削的料面」色 = 材料块半透明叠在浅底上的实际观感色。
+  /// 模型区内未被伪彩覆盖的地方一律铺它 —— 昊总 09-18：框内/模型边界露白边。
+  static const _woodLight = Color(0xFFD9CABF);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -408,15 +411,15 @@ class _OriginPainter extends CustomPainter {
     final r = g.rectPx(designPos, designW, designH);
     final col = overflow ? _redDeep : _green;
 
+    // 先铺一层「料面底色」：模型区内凡伪彩没盖到的地方（网格外的边、
+    // 未切削的平坦区）都应当是料面，不能露出画布背景（白边）。
+    canvas.drawRect(r, Paint()..color = _woodLight);
     final hasGrid = zGrid != null && gridCols > 0 && gridRows > 0;
     if (hasGrid) {
       canvas.save();
       canvas.clipRect(r);
       _paintGridTop(canvas, r);
       canvas.restore();
-    } else {
-      // 无网格体（L0/L1）时才用淡填充提示范围，有网格时不填、免得压暗浮雕
-      canvas.drawRect(r, Paint()..color = col.withOpacity(0.10));
     }
     canvas.drawRect(
       r,
@@ -465,16 +468,20 @@ class _OriginPainter extends CustomPainter {
             if (v < zr) zr = v;
           }
         }
-        if (zr >= -1e-6) continue;
-        final dep = range > 0.05
-            ? ((zMax - zr) / range).clamp(0.0, 1.0)
-            : 1.0; // 单一深度平面 → 最深色，形状始终可见
-        paint.color = Color.fromARGB(
-          255,
-          (150 - dep * 135).round().clamp(0, 255),
-          (205 - dep * 160).round().clamp(0, 255),
-          (255 - dep * 165).round().clamp(0, 255),
-        );
+        // 未切削（z ≈ 0）的块 = 料面本色，**不再跳过**（跳过就会露白底）
+        if (zr >= -1e-6) {
+          paint.color = _woodLight;
+        } else {
+          final dep = range > 0.05
+              ? ((zMax - zr) / range).clamp(0.0, 1.0)
+              : 1.0; // 单一深度平面 → 最深色，形状始终可见
+          paint.color = Color.fromARGB(
+            255,
+            (150 - dep * 135).round().clamp(0, 255),
+            (205 - dep * 160).round().clamp(0, 255),
+            (255 - dep * 165).round().clamp(0, 255),
+          );
+        }
         // 屏幕 Y 向下 ⇒ 网格第 0 行画在矩形底边（与机器坐标一致）
         canvas.drawRect(
           Rect.fromLTWH(

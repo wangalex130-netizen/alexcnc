@@ -598,20 +598,21 @@ class _ZGridPainter extends CustomPainter {
   /// 立壁分段步长：单边最多 ~48 段。
   static int _wallStride(int res) => res <= 48 ? 1 : (res / 48).ceil();
 
-  /// 木料基色：材料板与模型**同一个基色**，只靠光照/深度区分。
-  /// 昊总 2026-09-18：「模型和材料的展示颜色要一样」。
-  static const _woodR = 200.0;
-  static const _woodG = 158.0;
-  static const _woodB = 110.0;
+  /// 材质基色：**淡蓝**（与 2D 俯视伪彩同族）—— 昊总 2026-09-18：
+  /// 「3D 全是木纹色会给人都在做木雕的错觉，换成 2D 那样的淡蓝色更有科技感」。
+  /// 材料板与模型**同一个基色**，只靠光照/深度区分。
+  static const _matR = 150.0;
+  static const _matG = 205.0;
+  static const _matB = 255.0;
 
   /// 朝上平面（n = +Z）的朗伯系数 —— 板面与未切削处同值 ⇒ 无缝衔接。
   static const _flatK = 0.40 + 0.60 * _lz;
 
-  static Color _wood(num k) => Color.fromARGB(
+  static Color _shade(num k) => Color.fromARGB(
         255,
-        (_woodR * k).round().clamp(0, 255),
-        (_woodG * k).round().clamp(0, 255),
-        (_woodB * k).round().clamp(0, 255),
+        (_matR * k).round().clamp(0, 255),
+        (_matG * k).round().clamp(0, 255),
+        (_matB * k).round().clamp(0, 255),
       );
 
   @override
@@ -656,12 +657,44 @@ class _ZGridPainter extends CustomPainter {
     final cosX = math.cos(rotX), sinX = math.sin(rotX);
     final bcx = spanX / 2, bcy = spanY / 2;
 
+    double rz(double z) => z * zFactor;
+
+    final usableW = size.width;
     final usableH = math.max(40.0, size.height - _ctrlH);
-    final fit =
-        math.min(size.width, usableH) / (math.max(spanX, spanY) + thick * 0.9) * 0.68;
+
+    /// 自适应取景（昊总 09-18：「3D 太小、每次都要手动放大」）：
+    /// 取板 8 个角 + 模型区最深点，先以 scale=1 求投影包围盒，再一次性缩放
+    /// 到容器内（留 6% 边距）并居中 ⇒ 打开就是填满的，无需手动放大。
+    var minPx = 1e18, maxPx = -1e18, minPy = 1e18, maxPy = -1e18;
+    void acc(double x, double y, double z) {
+      final ddx = x - bcx, ddy = y - bcy;
+      final rx = ddx * cosZ - ddy * sinZ;
+      final ry = ddx * sinZ + ddy * cosZ;
+      final px = rx;
+      final py = -(ry * sinX + z * cosX);
+      if (px < minPx) minPx = px;
+      if (px > maxPx) maxPx = px;
+      if (py < minPy) minPy = py;
+      if (py > maxPy) maxPy = py;
+    }
+
+    acc(0, 0, 0);
+    acc(spanX, 0, 0);
+    acc(spanX, spanY, 0);
+    acc(0, spanY, 0);
+    acc(0, 0, -thick);
+    acc(spanX, 0, -thick);
+    acc(spanX, spanY, -thick);
+    acc(0, spanY, -thick);
+    acc(mx0, my0, rz(gMin));
+    acc(mx1, my1, rz(gMin));
+
+    final bw = math.max(1e-6, maxPx - minPx);
+    final bh = math.max(1e-6, maxPy - minPy);
+    final fit = math.min(usableW / bw, usableH / bh) * 0.94;
     final scale = fit * zoom;
-    final ox = size.width / 2 + pan.dx;
-    final oy = usableH / 2 + pan.dy;
+    final ox = usableW / 2 + pan.dx - (minPx + maxPx) / 2 * scale;
+    final oy = usableH / 2 + pan.dy - (minPy + maxPy) / 2 * scale;
 
     Offset proj(double x, double y, double z) {
       final dx = x - bcx, dy = y - bcy;
@@ -677,15 +710,13 @@ class _ZGridPainter extends CustomPainter {
       return ry * cosX - z * sinX;
     }
 
-    double rz(double z) => z * zFactor;
-
     // ---- 立壁 / 板面：背面剔除 + 朗伯明暗（与浮雕同基色） ----
     final wallFill = Paint();
     final wallEdge = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 0.7
       ..color = const Color(0x33000000);
-    final flatFill = Paint()..color = _wood(_flatK);
+    final flatFill = Paint()..color = _shade(_flatK);
 
     void wall(List<Offset> quad, double nx, double ny) {
       // 视线方向（XY 平面投影）：法线背向观察者的立壁不画，否则会盖住浮雕
@@ -698,7 +729,7 @@ class _ZGridPainter extends CustomPainter {
         ..lineTo(quad[2].dx, quad[2].dy)
         ..lineTo(quad[3].dx, quad[3].dy)
         ..close();
-      wallFill.color = _wood(k);
+      wallFill.color = _shade(k);
       canvas.drawPath(p, wallFill);
       canvas.drawPath(p, wallEdge);
     }
@@ -718,7 +749,7 @@ class _ZGridPainter extends CustomPainter {
         ..lineTo(c.dx, c.dy)
         ..lineTo(d.dx, d.dy)
         ..close();
-      flatFill.color = k == null ? _wood(_flatK) : _wood(k);
+      flatFill.color = k == null ? _shade(_flatK) : _shade(k);
       canvas.drawPath(p, flatFill);
       canvas.drawPath(p, wallEdge);
     }
@@ -806,8 +837,8 @@ class _ZGridPainter extends CustomPainter {
         }
       }
     } else {
-      // 圆料：24 边形毛坯外壁（顶面按 z=0；网格不强行裁圆——已知简化）
-      const n = 24;
+      // 圆料：**64 边形**毛坯外壁（昊总 09-18：24 边形看着不够圆）
+      const n = 64;
       final r = math.min(spanX, spanY) / 2;
       final cxx = hasBoard ? spanX / 2 : bcx;
       final cyy = hasBoard ? spanY / 2 : bcy;
@@ -889,7 +920,7 @@ class _ZGridPainter extends CustomPainter {
           pb: proj(x1, y0, zb),
           pc: proj(x1, y1, zc),
           pd: proj(x0, y1, zd),
-          color: _wood(k),
+          color: _shade(k),
           z: rawAvg,
           depth: (depthOf(x0, y0, za) + depthOf(x1, y1, zc)) / 2,
         ));

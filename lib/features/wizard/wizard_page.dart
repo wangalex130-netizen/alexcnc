@@ -219,6 +219,12 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     setState(() => _step++);
   }
 
+  /// 回上一步（定原点页的【上一步】，昊总 2026-09-18）。
+  void _prev() {
+    if (_step <= 0) return;
+    setState(() => _step--);
+  }
+
   /// P0-04 扩展（2026-09-10）：动作被「必须与机器同网」门禁拦下时的统一提示。
   /// 说清原因，避免客户以为"点了没反应"。
   void _toastWanBlocked(String what) {
@@ -264,7 +270,9 @@ class _WizardPageState extends ConsumerState<WizardPage> {
         ],
       ),
       body: _step == 2
-          ? SafeArea(child: _stepContent())
+          // 定原点页：横屏沉浸 —— **顶部不留白**（昊总 09-18：顶部还有一条白边），
+          // 左右仍避让刘海/挖孔；配合 immersiveSticky 隐藏系统栏，内容按分辨率铺满。
+          ? SafeArea(top: false, bottom: false, child: _stepContent())
           : ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -414,6 +422,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           onP2: (v) => setState(() => _p2 = v),
           onShape: (v) => setState(() => _stockShape = v),
           onNext: _next,
+          onPrev: _prev,
         );
       case 3:
         return _StepLeveling(
@@ -1310,6 +1319,9 @@ class _StepOrigin extends ConsumerStatefulWidget {
   /// 完成后进入下一步（由父级向导提供）。
   final VoidCallback? onNext;
 
+  /// 回上一步（由父级向导提供）。
+  final VoidCallback? onPrev;
+
   const _StepOrigin({
     required this.task,
     required this.payloadUrl,
@@ -1330,6 +1342,7 @@ class _StepOrigin extends ConsumerStatefulWidget {
     required this.onP2,
     required this.onShape,
     this.onNext,
+    this.onPrev,
   });
 
   @override
@@ -1399,11 +1412,13 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     _loadWorkArea();
     LocalPayloadStore.instance.addListener(_onLocalPayload);
     DebugSim.instance.addListener(_onSim);
-    // 定原点页强制横屏（离开即恢复竖屏）
+    // 定原点页强制横屏 + **沉浸全屏**（离开即恢复竖屏与系统栏）。
+    // 昊总 09-18：横屏时顶部还有一条状态栏白边，要按屏幕分辨率铺满。
     SystemChrome.setPreferredOrientations(const [
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     _frameAnim = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2600),
@@ -1426,6 +1441,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     DebugSim.instance.removeListener(_onSim);
     SystemChrome.setPreferredOrientations(
         const [DeviceOrientation.portraitUp]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
 
@@ -1580,7 +1596,9 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   }
 
   /// §4.3 软围栏：夹进可用区；图案比可用区还大 → overflow（**禁静默截断**）。
-  void _setDesign(Offset raw, {bool quiet = false}) {
+  ///
+  /// **返回实际生效的位置**（全屏精调页需要回读夹取结果）。
+  Offset _setDesign(Offset raw, {bool quiet = false}) {
     var p = raw;
     var of = false;
     final av = _avail();
@@ -1615,6 +1633,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       _note('图案尺寸超出当前耗材可用安全区：请换大料或缩小设计（禁止静默截断）',
           bad: true);
     }
+    return p;
   }
 
   // ---------- 交互 ----------
@@ -2112,6 +2131,33 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         ),
       );
 
+  /// 全屏精调：把大画框放大到整屏，手机上拖拽更准（昊总 09-18 补入口）。
+  void _openFullscreen() {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => _OriginFullscreen(
+        bedW: _bedW,
+        bedH: _bedH,
+        shape: widget.stockShape,
+        p0: widget.p0,
+        p1: widget.p1,
+        p2: widget.p2,
+        stockRect: _stockRectMm,
+        designPos: widget.origin,
+        designW: _w,
+        designH: _h,
+        knifeRadius: _knifeR,
+        clearBand: _clearBand,
+        overflow: widget.overflow,
+        hasPayload: _wysiwyg,
+        zGrid: _grid,
+        gridCols: _meta?.gridCols ?? 0,
+        gridRows: _meta?.gridRows ?? 0,
+        framingProgress: _framePlaying ? _frameAnim.value : null,
+        onDrag: (mm) => _setDesign(mm, quiet: true),
+      ),
+    ));
+  }
+
   // ---------- 手柄条内容 ----------
 
   List<Widget> _leftDeck() {
@@ -2186,7 +2232,12 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   }
 
   List<Widget> _rightDeck() {
+    final sim = DebugSim.instance.enabled;
     final canPreview = !_busy && !_framePlaying && _datumDone;
+    // 【下一步】门禁：原点已锁定 + 未溢出 + （已按【雕刻预览】目视确认 **或** 调试模拟态）。
+    // 昊总 09-18：模拟调试时要能直接往下走 —— 模拟态本来就没有真机、不存在物理风险，
+    // 生产路径（开关关）门禁一条不少。
+    final canNext = !widget.overflow && (widget.safetyChecked || sim);
     return [
       Row(children: [
         _deckChip('2D', !_show3D, () => setState(() => _show3D = false)),
@@ -2194,7 +2245,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
             (_wysiwyg && _grid != null)
                 ? () => setState(() => _show3D = true)
                 : null),
-        const SizedBox(width: 5),
+        _deckChip('放大', false, _busy ? null : _openFullscreen),
+        const SizedBox(width: 4),
         GestureDetector(
           onTap: () => Navigator.of(context).pop(),
           child: Container(
@@ -2209,7 +2261,13 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         ),
       ]),
       const SizedBox(height: 5),
-      _deckBtn('重标定', _busy ? null : _clearPts, icon: Symbols.refresh),
+      Row(children: [
+        Expanded(child: _deckBtn('上一步', _busy ? null : widget.onPrev)),
+        const SizedBox(width: 5),
+        Expanded(
+            child: _deckBtn('重标定', _busy ? null : _clearPts,
+                icon: Symbols.refresh)),
+      ]),
       const SizedBox(height: 5),
       Expanded(
         child: _cross(
@@ -2234,15 +2292,11 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       _deckBtn(_framePlaying ? '预览中…' : '雕刻预览', canPreview ? _doFraming : null,
           icon: Symbols.play_arrow),
       const SizedBox(height: 5),
-      // 「下一步」必须等：原点已锁定 + 已按【雕刻预览】目视确认 + 未溢出
+      // 「下一步」必须等：原点已锁定 + 未溢出 + 已按【雕刻预览】目视确认
+      //（调试模拟态可跳过目视确认 —— 没有真机、无物理风险）
       widget.originSet
-          ? _deckBtn(
-              '下一步',
-              (!widget.overflow && widget.safetyChecked)
-                  ? widget.onNext
-                  : null,
-              icon: Symbols.chevron_right,
-              primary: true)
+          ? _deckBtn('下一步', canNext ? widget.onNext : null,
+              icon: Symbols.chevron_right, primary: true)
           : _deckBtn('确认原点', _busy ? null : _writeG54,
               icon: Symbols.check_circle, primary: true),
     ];
@@ -3318,6 +3372,151 @@ class _ReadyPhase extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+
+/// 定原点页的「**全屏精调**」：把大画框放大到整屏，手机上拖模型更准。
+///
+/// 昊总 2026-09-18：「你说的全屏精调，我没看见在哪里？」—— 本次补上入口
+/// （右上手柄条【放大】）。这里只做一件事：**更大的画布 + 拖动模型**；
+/// 标定 / 雕刻预览 / 确认原点仍在主页面做。
+///
+/// 拖动走主页面同一个 [onDrag] 回调（软围栏在那边统一裁决），并**回读实际生效位置**
+/// —— 被围栏夹住时全屏页显示的就是夹取后的真值，不会出现"手指在这、框在那"。
+class _OriginFullscreen extends ConsumerStatefulWidget {
+  final double bedW;
+  final double bedH;
+  final StockShape shape;
+  final Offset? p0;
+  final Offset? p1;
+  final Offset? p2;
+  final Rect? stockRect;
+  final Offset designPos;
+  final double designW;
+  final double designH;
+  final double knifeRadius;
+  final double clearBand;
+  final bool overflow;
+  final bool hasPayload;
+  final List<double>? zGrid;
+  final int gridCols;
+  final int gridRows;
+  final double? framingProgress;
+
+  /// 拖动回调：交给主页面做软围栏裁决，**返回实际生效的位置**。
+  final Offset Function(Offset raw) onDrag;
+
+  const _OriginFullscreen({
+    required this.bedW,
+    required this.bedH,
+    required this.shape,
+    required this.p0,
+    required this.p1,
+    required this.p2,
+    required this.stockRect,
+    required this.designPos,
+    required this.designW,
+    required this.designH,
+    required this.knifeRadius,
+    required this.clearBand,
+    required this.overflow,
+    required this.hasPayload,
+    required this.zGrid,
+    required this.gridCols,
+    required this.gridRows,
+    required this.framingProgress,
+    required this.onDrag,
+  });
+
+  @override
+  ConsumerState<_OriginFullscreen> createState() => _OriginFullscreenState();
+}
+
+class _OriginFullscreenState extends ConsumerState<_OriginFullscreen> {
+  late Offset _pos = widget.designPos;
+
+  @override
+  Widget build(BuildContext context) {
+    final sim = DebugSim.instance.enabled;
+    final mp = ref.watch(machineStatusProvider).valueOrNull?.machinePosition;
+    final laserMm =
+        sim ? DebugSim.instance.pos : (mp == null ? null : Offset(mp.x, mp.y));
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FA),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 6, 8, 5),
+              child: Row(
+                children: [
+                  const Text('全屏精调 · 拖动模型摆位',
+                      style:
+                          TextStyle(fontSize: 12.5, color: CncColors.textSub)),
+                  const Spacer(),
+                  Text(
+                    'X ${_pos.dx.toStringAsFixed(1)}   Y ${_pos.dy.toStringAsFixed(1)} mm',
+                    style: const TextStyle(
+                        fontSize: 12, color: CncColors.textMain),
+                  ),
+                  const SizedBox(width: 12),
+                  Material(
+                    color: CncColors.primary,
+                    borderRadius: BorderRadius.circular(8),
+                    child: InkWell(
+                      onTap: () => Navigator.of(context).pop(),
+                      borderRadius: BorderRadius.circular(8),
+                      child: const Padding(
+                        padding:
+                            EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                        child: Text('完成',
+                            style:
+                                TextStyle(fontSize: 12.5, color: Colors.white)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: OriginCanvas(
+                    bedW: widget.bedW,
+                    bedH: widget.bedH,
+                    shape: widget.shape,
+                    p0: widget.p0,
+                    p1: widget.p1,
+                    p2: widget.p2,
+                    stockRect: widget.stockRect,
+                    designPos: _pos,
+                    designW: widget.designW,
+                    designH: widget.designH,
+                    knifeRadius: widget.knifeRadius,
+                    clearBand: widget.clearBand,
+                    overflow: widget.overflow,
+                    laserMm: laserMm,
+                    hasPayload: widget.hasPayload,
+                    zGrid: widget.zGrid,
+                    gridCols: widget.gridCols,
+                    gridRows: widget.gridRows,
+                    framingProgress: widget.framingProgress,
+                    onDesignDragTo: (mm) {
+                      final actual = widget.onDrag(mm);
+                      if (mounted) setState(() => _pos = actual);
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
