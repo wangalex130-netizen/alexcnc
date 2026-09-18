@@ -1374,6 +1374,14 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   late final AnimationController _frameAnim;
   bool _framePlaying = false;
 
+  // —— 「拖动十字 → 移动到此」过程状态（昊总 09-18 第 10 条，B 方案）——
+  /// 画布上拖出的拟移动目标（mm，绝对台面坐标）。null = 无待确认目标。
+  /// **拖动期间只改这个值、绝不下发指令** —— 松手后必须再点【移动到此】才动。
+  /// 理由：手滑拖到台面另一头就猛跑，必须在「松手」与「运动」之间隔一次明确意图。
+  Offset? _moveTarget;
+  /// 移动指令已下发、正在等待到位。控制按钮文案与画布目标十字的灰度。
+  bool _moving = false;
+
   static const double _knifeR = 1.6; // 刀半径（围栏外扩）
 
   /// 压块安全隔离带（§4.3）：矩形料 8mm / 圆形料 6mm（对齐双模拟器 v2.0）。
@@ -1703,6 +1711,172 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       _framingFail = null;
     });
     _note('已清除标定点、G54 绑定与巡边结论（宁可重来，不带旧状态开切）');
+  }
+
+  // ---------- 拖动十字驱动主轴（第 10 条 B 方案）----------
+
+  /// 当前主轴位置（mm）：模拟态取虚拟位，真机取状态帧 mpos。
+  /// 与画布红十字**同源** —— 十字画在哪，这里就是哪，不存在第二套换算。
+  Offset? _curMpos() {
+    if (DebugSim.instance.enabled) return DebugSim.instance.pos;
+    final mp = ref.read(machineStatusProvider).valueOrNull?.machinePosition;
+    return mp == null ? null : Offset(mp.x, mp.y);
+  }
+
+  /// 距离自适应进给率（mm/min）。
+  ///
+  /// **刻意不做 S 曲线、不逐帧改 F**（昊总 09-18 问「变速还是常速」）：
+  /// App 侧算加减速等于重复实现固件 planner，且频繁改 F 会与 planner 打架、
+  /// 产生加减速震荡 —— 越「用心」越抖。正确做法是**一条指令 + 常速**，
+  /// 两端减速交给固件 planner（它天然减速，最平滑）。
+  /// 分档只为两件事：短距离慢到看得清激光点，长距离别磨蹭。
+  double _feedForMove(double d) {
+    if (d < 5) return 200; // 精调：慢到能看清激光落在哪
+    if (d <= 50) return 1000; // 常规取点
+    return 3000; // 大跨距：0.5s 走 25mm
+  }
+
+  /// 拖动中回调：只更新目标，**不下发任何指令**。
+  void _onMoveTargetDrag(Offset mm) {
+    if (_moving) return;
+    setState(() => _moveTarget = Offset(
+          min(max(mm.dx, 0.0), _bedW),
+          min(max(mm.dy, 0.0), _bedH),
+        ));
+  }
+
+  void _cancelMove() {
+    if (_moving) return;
+    setState(() => _moveTarget = null);
+  }
+
+  /// 等待主轴到位（轮询 mpos），超时即放弃等待（指令已下发，机器自己会走完）。
+  /// 返回是否确认识别到位。
+  Future<bool> _awaitArrival(Offset target, int timeoutMs) async {
+    final end = DateTime.now().add(Duration(milliseconds: timeoutMs));
+    while (DateTime.now().isBefore(end)) {
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      if (!mounted) return false;
+      final now = _curMpos();
+      if (now == null) continue;
+      if ((now - target).distance < 0.3) return true;
+    }
+    return false;
+  }
+
+  /// 确认移动：下发绝对定位（固件 F3）→ 不支持则降级为**分轴点动**。
+  ///
+  /// 降级路径存在的理由：`move_to` 是新增命令，固件未交付前若直接报错，
+  /// 这个功能在真机上一天都用不了。分轴点动走的是**已在真机验证过的 jog**，
+  /// 今天就能用；代价是 L 形路径（先 X 后 Y）——取点场景只看终点，路径无所谓。
+  Future<void> _confirmMove() async {
+    final t = _moveTarget;
+    if (t == null || _busy || _moving) return;
+    final sim = DebugSim.instance.enabled;
+    final st = ref.read(machineStatusProvider).valueOrNull;
+
+    // 门禁（生产路径一条不少；模拟态无真机、无物理风险，只走虚拟位）
+    if (!sim) {
+      if (st == null) {
+        _note('未连接机器，不能驱动主轴', bad: true);
+        return;
+      }
+      if (!st.canControl) {
+        _note('机器当前不可控制（${st.state.name}），不能快速走位', bad: true);
+        return;
+      }
+      if (st.homed != true) {
+        // 绝对定位的前提是**已知机械坐标**；未回零时坐标不可信，
+        // 走过去可能直接撞到台面外或撞料 —— 宁锁勿放。
+        _note('机器未回零，绝对定位不可用（先回零，或改用 Jog 步进）', bad: true);
+        return;
+      }
+    }
+
+    final from = _curMpos();
+    final d = from == null ? 0.0 : (t - from).distance;
+    if (from != null && d < 0.2) {
+      _note('已经在目标位置附近');
+      setState(() => _moveTarget = null);
+      return;
+    }
+
+    // 手动模式：主轴即雕刻原点 ⇒ 走多少，设计位置同步平移多少（与 _jog 同语义）
+    if (!_wysiwyg && from != null) _setDesign(widget.origin + (t - from));
+
+    final feed = _feedForMove(d);
+    setState(() {
+      _busy = true;
+      _moving = true;
+    });
+    _note('正在移动：${d.toStringAsFixed(0)}mm @ F${feed.toStringAsFixed(0)}');
+
+    if (sim) {
+      await Future<void>.delayed(const Duration(milliseconds: 420));
+      if (!mounted) return;
+      DebugSim.instance.moveTo(t);
+      setState(() {
+        _busy = false;
+        _moving = false;
+      });
+      _note('模拟已到位：X${t.dx.toStringAsFixed(1)} '
+          'Y${t.dy.toStringAsFixed(1)}（可点【取点】）');
+      return;
+    }
+
+    final hw = ref.read(hardwareServiceProvider);
+    final timeoutMs =
+        (d / max(feed, 1) * 60000).round() + 4000; // 理论耗时 + 4s 余量
+    var ok = false;
+    var degraded = false;
+    try {
+      ok = await hw.moveTo(x: t.dx, y: t.dy, feed: feed);
+      if (ok) {
+        ok = await _awaitArrival(t, timeoutMs);
+      }
+      if (!ok && mounted) {
+        // 下发失败或未到位 ⇒ 降级分轴点动（固件 F3 未交付时的兜底）
+        degraded = true;
+        _note('直线走位不可用，改用分轴走位…');
+        ok = await _moveByAxisJog(t, feed);
+      }
+    } catch (_) {
+      ok = false;
+    }
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _moving = false;
+      if (ok) _moveTarget = null; // 到位即清目标（避免客户重复点同一目标）
+    });
+    if (ok) {
+      _note('已到位：X${t.dx.toStringAsFixed(1)} Y${t.dy.toStringAsFixed(1)}'
+          '（可点【取点】）${degraded ? ' · 分轴走位' : ''}');
+    } else {
+      _note('移动未确认到位：请检查机器状态后手动核对坐标'
+          '（固件 F3 的 move_to 未交付时会走分轴点动）', bad: true);
+    }
+  }
+
+  /// 降级：用**两次单轴点动**走 L 形（先 X 后 Y）。
+  ///
+  /// 必须**串行**并逐轴等到位：jog 是相对点动，两轴同时发会各自进 GRBL 队列，
+  /// 交替执行 ⇒ 实际走斜线，且第二轴的起点不再等于下发时的 mpos，到位判定失效。
+  Future<bool> _moveByAxisJog(Offset target, double feed) async {
+    final hw = ref.read(hardwareServiceProvider);
+    for (final ax in const ['x', 'y']) {
+      if (!mounted) return false;
+      final now = _curMpos();
+      if (now == null) return false;
+      final delta = ax == 'x' ? target.dx - now.dx : target.dy - now.dy;
+      if (delta.abs() < 0.05) continue;
+      await hw.jog(ax, delta, feed: feed);
+      final axisTarget = ax == 'x' ? Offset(target.dx, now.dy) : target;
+      final ms = (delta.abs() / max(feed, 1) * 60000).round() + 2500;
+      final reached = await _awaitArrival(axisTarget, ms);
+      if (!reached) return false;
+    }
+    return true;
   }
 
   void _jog(String axis, double dir) {
@@ -2158,6 +2332,51 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     ));
   }
 
+  /// 手柄条坐标行：有待确认目标时显示**目标 + 距离**（当前操作焦点），
+  /// 否则显示**主轴机械坐标（mpos）**—— 第 9 条的「可观测」落点。
+  ///
+  /// 只让 App 内部读对不够：客户/工程师必须能把这里的数字与屏幕上的数字
+  /// 直接对上，才能一眼判断是 App 解析错、还是屏幕端上报错。
+  Widget _mposLine() {
+    final sim = DebugSim.instance.enabled;
+    final st = ref.read(machineStatusProvider).valueOrNull;
+    final mp = st?.machinePosition;
+    final t = _moveTarget;
+    String s;
+    Color c;
+    if (t != null) {
+      final from = _curMpos();
+      final d = from == null ? null : (t - from).distance;
+      final ds = d == null ? '' : ' · ${d.toStringAsFixed(1)}mm';
+      s = '目标 X${t.dx.toStringAsFixed(1)} Y${t.dy.toStringAsFixed(1)}$ds';
+      c = const Color(0xFFB8730C);
+    } else if (sim) {
+      final p = DebugSim.instance.pos;
+      s = '模拟位 X${p.dx.toStringAsFixed(1)} Y${p.dy.toStringAsFixed(1)}';
+      c = CncColors.textSub;
+    } else if (st == null) {
+      s = '主轴坐标：未连接';
+      c = CncColors.textSub;
+    } else if (mp == null) {
+      // 状态帧没带 mpos ⇒ 红十字无处可画。必须**明说**，不静默：
+      // 这是屏幕端该补的字段，不是 App 能兜的。
+      s = '状态帧缺 mpos';
+      c = const Color(0xFFEF9F27);
+    } else {
+      s = '主轴 X${mp.x.toStringAsFixed(1)} Y${mp.y.toStringAsFixed(1)}';
+      c = CncColors.textMain;
+    }
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Text(
+        s,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(fontSize: 10, color: c),
+      ),
+    );
+  }
+
   // ---------- 手柄条内容 ----------
 
   List<Widget> _leftDeck() {
@@ -2170,6 +2389,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     final idle = sim || (st?.canControl ?? false);
     final allOk = linked && homed == true && (fresh || sim) && idle;
     final got = [widget.p0, widget.p1, widget.p2].where((e) => e != null).length;
+    // 快速走位可用的前提：空闲 + 已回零（绝对定位须已知机械坐标）。
+    final canMove = sim || (st?.canControl == true && st?.homed == true);
 
     Widget dot(bool on) => Container(
           width: 8,
@@ -2197,6 +2418,11 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         ),
       ]),
       const SizedBox(height: 5),
+      // 主轴机械坐标实时读数 —— 第 9 条的「可观测」落点。
+      // 只让 App 内部读对不够：客户/工程师必须能把这里的数字与屏幕上的
+      // 数字直接对上，才能一眼判断是 App 解析错、还是屏幕上报错。
+      _mposLine(),
+      const SizedBox(height: 5),
       if (_wysiwyg) ...[
         Row(children: [
           _deckChip('矩形', widget.stockShape == StockShape.rect,
@@ -2218,7 +2444,25 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           onCenter: _busy ? null : (_wysiwyg ? _take : _manualSet),
         ),
       ),
-      _deckRuler('移动主轴'),
+      // 有待确认目标时，这一行换成【移动到此 / 取消】——
+      // 复用手柄条既有行位，**不增加任何高度**（第 9 条：不要上下滑）。
+      if (_moveTarget == null)
+        _deckRuler('移动主轴')
+      else
+        Row(children: [
+          Expanded(
+            child: _deckBtn(
+              _moving ? '移动中…' : '移动到此',
+              (_moving || _busy || !canMove) ? null : _confirmMove,
+              icon: Symbols.play_arrow,
+              primary: true,
+            ),
+          ),
+          const SizedBox(width: 5),
+          Expanded(
+            child: _deckBtn('取消', (_moving || _busy) ? null : _cancelMove),
+          ),
+        ]),
       const SizedBox(height: 5),
       Row(children: [
         _deckChip('0.1', _jogStep == 0.1, () => setState(() => _jogStep = 0.1)),
@@ -2550,6 +2794,12 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         overflow: widget.overflow,
         laserMm: laserMm,
         laserDraggable: sim,
+        // 只有**非模拟**态才允许拖动画布驱动真机：模拟态的整个意义就是
+        // 「不发任何指令」，绝不能从这里漏出真机运动。反过来模拟态可拖激光
+        // 虚拟位（laserDraggable: sim）—— 两者互补，不会同时生效。
+        moveTargetMm: _moveTarget,
+        onMoveTargetDrag: sim ? null : _onMoveTargetDrag,
+        moveBusy: _moving,
         onLaserDrag: (p) => DebugSim.instance.moveTo(p),
         hasPayload: _wysiwyg,
         zGrid: _grid,

@@ -190,7 +190,7 @@ class MockHardwareService implements HardwareService {
   }
 
   @override
-  Future<bool> jog(String axis, double distanceMm) async {
+  Future<bool> jog(String axis, double distanceMm, {double? feed}) async {
     final p = _current.position;
     _current = _current.copyWith(
       position: axis == 'x'
@@ -200,6 +200,24 @@ class MockHardwareService implements HardwareService {
               : p.copyWith(z: p.z + distanceMm),
     );
     _emit();
+    return true; // 模拟器无网络门禁，恒为已发出
+  }
+
+  @override
+  Future<bool> moveTo({
+    required double x,
+    required double y,
+    double feed = 1000,
+    bool safeZ = true,
+  }) async {
+    // 模拟器无真实运动：直接吸附到目标（真机由固件走直线 + 抬 Z）。
+    // 工作坐标与机械坐标同步吸附，保持 wpos/mpos 的一致关系（与 jog 的处理一致）。
+    _current = _current.copyWith(
+      position: _current.position.copyWith(x: x, y: y),
+      machinePosition: _current.machinePosition.copyWith(x: x, y: y),
+    );
+    _emit();
+    _emitTelemetry();
     return true; // 模拟器无网络门禁，恒为已发出
   }
 

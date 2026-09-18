@@ -1523,7 +1523,7 @@ class RealHardwareService implements HardwareService {
   Future<bool> _allowLocalOnly() => _confirmLan();
 
   @override
-  Future<bool> jog(String axis, double distanceMm) async {
+  Future<bool> jog(String axis, double distanceMm, {double? feed}) async {
     // 🔴 W-10（D-DEC-1）：外网（未确认与机器同网）**禁止点动**。
     // 门禁做在服务层而非仅 UI 置灰，避免被绕过；开切 / 暂停 / 停止 / 急停不受此限。
     if (!await _confirmLan()) return false;
@@ -1537,7 +1537,7 @@ class RealHardwareService implements HardwareService {
       // 10mm 档在 F600 下要走 1000ms，而旧连发是 180ms/帧 —— 到达速度是
       // 消耗速度的 5.5 倍，GRBL 运动队列必然堆积。按档位匹配进给后，
       // 「走完一步」与「下一帧到达」量级相当，从源头消除堆积。
-      'feed': jogFeedForStep(distanceMm),
+      'feed': feed ?? jogFeedForStep(distanceMm),
       // ⚠️ 2026-09-11 共识修订：**不再**用 `ts` 做超龄丢弃。
       // 固件时钟是「开机以来毫秒」（cnc_net.c:505，全工程无 SNTP），而 App 发的是
       // Unix 毫秒，两者相差 56 年 —— 固件若按 `now - ts > 500` 丢弃，会把**所有**
@@ -1549,6 +1549,37 @@ class RealHardwareService implements HardwareService {
     // jog 属"尽力而为、绝不重发"类（与 _dispatch 的该分支等价）：用 QoS0 ——
     // 丢一帧只是"少走一步"的手感问题，而 QoS1 重传产生的迟到帧会让松手后继续移动。
     return _publish(cmd, qos: MqttQos.atMostOnce);
+  }
+
+  /// 「拖动十字 → 移动到此」（2026-09-18 昊总第 10 条）。
+  ///
+  /// 门禁与 [jog] 完全一致（同网限定）——绝对定位是全行程快速移动，
+  /// 外网误触即撞机，比单步点动更危险。
+  ///
+  /// `safe_z: true` 是**硬要求**：客户在画布上拖的是激光点，机器实际移动的是
+  /// 刀具；Z 停在料面附近时快速 G0 会直接撞料/撞夹具 ⇒ 固件必须先抬 Z
+  /// 到最高安全位再走 XY，App 不参与 Z 决策。
+  ///
+  /// QoS1（不是 jog 的 QoS0）：绝对定位**必须到达**，丢一帧就是没走到；
+  /// 同一目标重发完全幂等（走到同一坐标），无需额外去重。
+  @override
+  Future<bool> moveTo({
+    required double x,
+    required double y,
+    double feed = 1000,
+    bool safeZ = true,
+  }) async {
+    if (!await _confirmLan()) return false;
+    final cmd = {
+      'cmd': 'move_to',
+      'x': x,
+      'y': y,
+      'feed': feed,
+      'safe_z': safeZ,
+      // ts/seq 仅作诊断，不参与任何跨端比较（固件时钟是开机毫秒，见 jog 注释）。
+      'ts': DateTime.now().millisecondsSinceEpoch,
+    };
+    return _publish(cmd);
   }
 
   @override

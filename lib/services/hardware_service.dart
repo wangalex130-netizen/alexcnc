@@ -127,7 +127,31 @@ abstract class HardwareService {
   ///
   /// 返回值语义统一为「是否**已发出**」：false = 被门禁拦下或未送达，
   /// UI 必须给出明确提示（不再静默失败）。
-  Future<bool> jog(String axis, double distanceMm); // axis: x | y | z
+  /// [feed] 可选：指定进给（mm/min）。缺省用档位表 [jogFeedForStep] —— 单步点动
+  /// 必须走档位表，否则 10mm 档在 F600 下耗时 1000ms 会堆积队列（A1-2）。
+  /// 仅**大距离分轴走位**（见 [moveTo] 的降级路径）才显式指定。
+  Future<bool> jog(String axis, double distanceMm, {double? feed});
+
+  /// 主轴移动到台面**绝对坐标**（2026-09-18 昊总裁定：「拖动十字 → 移动到此」）。
+  ///
+  /// 动机：取一个角点常要移 100~200mm，10mm 档 ≈ 15 次按键；两点含找方向 ≈ 40 次
+  /// 操作。改成「画布拖一下 + 点一次确认」≈ 2 次操作。省下的不只是手速，
+  /// 更是判断负担 —— 按键是「我推它往哪走」，拖动是「我告诉它去哪」。
+  ///
+  /// 与 [jog] 的差别：一次下发**两轴绝对目标**，固件先抬 Z 到安全位、再走直线、
+  /// 到位回执；App 不做分轴累加，不受 GRBL 相对点动的队列堆积影响。
+  ///（**不做 App 侧 S 曲线**：那是重复实现固件 planner，且频繁改 F 会与 planner
+  ///  打架产生加减速震荡 —— 加减速交给固件 planner 两端自然减速最平滑。）
+  ///
+  /// 🔴 运动类（契约 `wan_whitelist.forbidden`）⇒ **仅同网可执行**。
+  /// 目标必须由调用方夹在台面内；**绝不允许**让本方法自行推断安全位置。
+  /// ⚠️ 固件工单 F3 交付前该命令无响应（与 F1/F2 同期口径，调用方须自备兜底）。
+  Future<bool> moveTo({
+    required double x,
+    required double y,
+    double feed = 1000,
+    bool safeZ = true,
+  });
 
   /// 长按连续点动（2026-09-11 三方共识 S1）：**只发一次** `mode:"continuous"`，
   /// 由固件转成一条长距离 `$J` 持续运动。松手必须调用 [jogCancel]。

@@ -75,6 +75,12 @@ class OriginCanvas extends StatefulWidget {
   /// **调试用**：拖动激光十字时回吐新的机床坐标（mm，已在台面内）。
   final void Function(Offset mm)? onLaserDrag;
 
+  /// 拖动移动目标中回调（每次手指移动都回调；**页面只 setState 改目标，不下发指令**）。
+  final void Function(Offset mm)? onMoveTargetDrag;
+
+  /// 移动指令已下发、正在等待到位 —— 目标十字转灰、且禁止再拖。
+  final bool moveBusy;
+
   /// 巡边动画进度 0~1（null = 不显示）。与机器激光巡边同步模拟。
   final double? framingProgress;
 
@@ -102,6 +108,9 @@ class OriginCanvas extends StatefulWidget {
     this.laserDraggable = false,
     this.onLaserDrag,
     this.framingProgress,
+    this.moveTargetMm,
+    this.onMoveTargetDrag,
+    this.moveBusy = false,
   });
 
   @override
@@ -111,11 +120,13 @@ class OriginCanvas extends StatefulWidget {
 class _OriginCanvasState extends State<OriginCanvas> {
   bool _dragging = false;
   bool _draggingLaser = false;
+  bool _draggingMove = false;
 
   /// panStart 时的触点与当时的对象位置 —— 绝对映射的基准。
   Offset? _grabLocal;
   Offset? _grabDesign;
   Offset? _grabLaser;
+  Offset? _grabMoveTarget;
 
   @override
   Widget build(BuildContext context) {
@@ -128,17 +139,22 @@ class _OriginCanvasState extends State<OriginCanvas> {
         final laserPx = (widget.laserDraggable && widget.laserMm != null)
             ? g.toPx(widget.laserMm!)
             : null;
-        final dragEnabled = canDrag || laserPx != null;
+        // 移动目标可拖：需页面接回调，且**移动中禁止再拖**（防下发途中改目标）。
+        final moveEnabled =
+            widget.onMoveTargetDrag != null && !widget.moveBusy;
+        final dragEnabled = canDrag || laserPx != null || moveEnabled;
 
         void endDrag() {
-          if (!_dragging && !_draggingLaser) return;
+          if (!_dragging && !_draggingLaser && !_draggingMove) return;
           setState(() {
             _dragging = false;
             _draggingLaser = false;
+            _draggingMove = false;
           });
           _grabLocal = null;
           _grabDesign = null;
           _grabLaser = null;
+          _grabMoveTarget = null;
         }
 
         return GestureDetector(
@@ -155,11 +171,35 @@ class _OriginCanvasState extends State<OriginCanvas> {
                     setState(() => _dragging = true);
                     _grabLocal = d.localPosition;
                     _grabDesign = widget.designPos;
+                  } else if (moveEnabled) {
+                    // 画布空白处按下 = 拖动主轴移动目标（**零模式切换**）。
+                    // 优先级最低：先让模型（画布主角）、再让激光（抓十字要 24px 内）。
+                    // 按下即把目标**吸附到手指**，省掉「先找目标再抓」的二次瞄准。
+                    final mm = g.toMm(d.localPosition);
+                    setState(() {
+                      _draggingMove = true;
+                      _grabLocal = null; // 目标走绝对映射：不记起点
+                      _grabMoveTarget = mm;
+                    });
+                    widget.onMoveTargetDrag?.call(Offset(
+                      math.min(math.max(mm.dx, 0.0), widget.bedW),
+                      math.min(math.max(mm.dy, 0.0), widget.bedH),
+                    ));
                   }
                 }
               : null,
           onPanUpdate: dragEnabled
               ? (d) {
+                  if (_draggingMove) {
+                    // 目标用**手指绝对位置**映射（不是起点+增量）：拖到哪就是哪。
+                    // 与 mm↔px 唯一比例 scale 同源 ⇒ 无累积漂移；照样夹在台面内。
+                    final mm = g.toMm(d.localPosition);
+                    widget.onMoveTargetDrag?.call(Offset(
+                      math.min(math.max(mm.dx, 0.0), widget.bedW),
+                      math.min(math.max(mm.dy, 0.0), widget.bedH),
+                    ));
+                    return;
+                  }
                   final base = _grabLocal;
                   if (base == null) return;
                   // 本次手势的累计位移（px）→ mm，一次性映射，不做逐帧累加
@@ -205,6 +245,8 @@ class _OriginCanvasState extends State<OriginCanvas> {
               gridRows: widget.gridRows,
               dragging: _dragging,
               framingProgress: widget.framingProgress,
+              moveTargetMm: widget.moveTargetMm,
+              moveBusy: widget.moveBusy,
             ),
           ),
         );
@@ -267,12 +309,24 @@ class _OriginPainter extends CustomPainter {
   final double clearBand;
   final bool overflow;
   final Offset? laserMm;
+
+  /// 拟移动目标（mm）——「拖动十字 → 移动到此」（2026-09-18 昊总第 10 条）。
+  ///
+  /// 与 [laserMm] **语义严格分离**：laserMm = 主轴**现在在哪**（只读，来自 mpos）；
+  /// moveTargetMm = 客户想让主轴**去哪**（待确认，松手后需再点一次才下发）。
+  ///
+  /// 只做 B 方案（拖到位 + 点确认），**不做 A 方案（拖动时主轴实时跟手）**：
+  /// App→MQTT→屏幕→UART→GRBL 四跳端到端 100~500ms，跟手必然「手指停了机器还在跑」，
+  /// 客户反向拖就是震荡 + 撞机 —— 架构性上限，优化不掉。
+  final Offset? moveTargetMm;
   final bool hasPayload;
   final List<double>? zGrid;
   final int gridCols;
   final int gridRows;
   final bool dragging;
   final double? framingProgress;
+  final Offset? moveTargetMm;
+  final bool moveBusy;
 
   const _OriginPainter({
     required this.bedW,
@@ -295,6 +349,8 @@ class _OriginPainter extends CustomPainter {
     required this.gridRows,
     required this.dragging,
     required this.framingProgress,
+    required this.moveTargetMm,
+    required this.moveBusy,
   });
 
   static const _sub = Color(0xFF888780);
@@ -304,6 +360,10 @@ class _OriginPainter extends CustomPainter {
   static const _red = Color(0xFFE24B4A);
   static const _redDeep = Color(0xFFA32D2D);
   static const _wood = Color(0xFFB07D54);
+  /// 移动目标色（琥珀）：与红（当前位）、蓝（标定点）**三方独立**，
+  /// 客户一眼分清「现在在哪 / 要去哪 / 已取的点」。
+  static const _amber = Color(0xFFEF9F27);
+  static const _amberDim = Color(0xFF9CA3AF);
   /// 「未切削的料面」色 = 材料块半透明叠在浅底上的实际观感色。
   /// 模型区内未被伪彩覆盖的地方一律铺它 —— 昊总 09-18：框内/模型边界露白边。
   static const _woodLight = Color(0xFFD9CABF);
@@ -373,6 +433,40 @@ class _OriginPainter extends CustomPainter {
       canvas.drawLine(lp + const Offset(-18, 0), lp + const Offset(18, 0), pc);
       canvas.drawLine(lp + const Offset(0, -18), lp + const Offset(0, 18), pc);
       canvas.drawCircle(lp, 3, Paint()..color = _red);
+    }
+
+    // ⑥.5 拟移动目标（拖到哪 → 点一下走）：当前位置到目标的虚线 + 目标十字。
+    // 目标十字臂 24px、带外圈 —— 比红十字更大更醒目，绝不让客户混淆两者。
+    // 只画「要去哪」，不画路径：固件走直线，中间过程由机器自己走。
+    final mt = moveTargetMm;
+    if (mt != null) {
+      final tp = g.toPx(mt);
+      final mc = moveBusy ? _amberDim : _amber;
+      if (lp != null) {
+        _dashPath(
+          canvas,
+          Path()
+            ..moveTo(lp.dx, lp.dy)
+            ..lineTo(tp.dx, tp.dy),
+          Paint()
+            ..strokeWidth = 1.6
+            ..color = mc.withOpacity(0.8),
+        );
+      }
+      final mpc = Paint()
+        ..strokeWidth = 2.0
+        ..color = mc;
+      canvas.drawLine(tp + const Offset(-24, 0), tp + const Offset(24, 0), mpc);
+      canvas.drawLine(tp + const Offset(0, -24), tp + const Offset(0, 24), mpc);
+      canvas.drawCircle(
+        tp,
+        7,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0
+          ..color = mc,
+      );
+      if (moveBusy) canvas.drawCircle(tp, 3, Paint()..color = mc);
     }
 
     // ⑦ 巡边光点：沿模型框走一圈（与机器激光巡边同步）
@@ -647,5 +741,7 @@ class _OriginPainter extends CustomPainter {
       old.zGrid != zGrid ||
       old.gridCols != gridCols ||
       old.gridRows != gridRows ||
-      old.framingProgress != framingProgress;
+      old.framingProgress != framingProgress ||
+      old.moveTargetMm != moveTargetMm ||
+      old.moveBusy != moveBusy;
 }
