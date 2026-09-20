@@ -1479,6 +1479,21 @@ class RealHardwareService implements HardwareService {
     }
     var ok = false;
     try {
+      // 🟠 P0-3-①（2026-09-18）：**手填地址优先探测**。
+      // 原实现把 `_tcpHost`（联调设置 / DHCP 绑定里手填的机器地址）放在
+      // discover 失败之后的“最后验证”，于是每次都要先白等 2s 的发现超时；
+      // 更糟的是鸿蒙等机型发现链**整体不通**时，discover 拿不到 host，
+      // 连兜底分支都进不去 —— 手填地址形同虚设，客户被永久锁死。
+      // 手填地址是**用户显式声明的事实**，可信度高于广播发现 ⇒ 提到第一优先。
+      if (_tcpHost.isNotEmpty) {
+        ok = await NetworkProbe.probe(_tcpHost, tcpPort,
+            timeout: const Duration(seconds: 2));
+      }
+      if (ok) {
+        _lanOk = true;
+        _lanCheckedAt = now;
+        return true;
+      }
       final host = await DeviceDiscovery.discover(
         timeout: const Duration(seconds: 2),
         expectedDeviceId: deviceId,
