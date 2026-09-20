@@ -60,11 +60,18 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          KEEP_ARTIFACTS: '3'
+          KEEP_ARTIFACTS: '1'
         run: |
           set +e
           REPO="${{ github.repository }}"
-          KEEP="${KEEP_ARTIFACTS:-3}"
+          KEEP="${KEEP_ARTIFACTS:-1}"
+
+          # 诊断（2026-09-20）：先如实报出「本仓库」的 artifact 占用，
+          # 便于区分「仓库级配额」与「账号级配额」——实测仓库仅 130MB
+          # 却报配额满，说明被算的是账号级总量，清仓库救不了。
+          gh api "/repos/$REPO/actions/artifacts?per_page=100" \
+            --jq '"### PRUNE_DIAG count=\(.total_count) bytes=\([.artifacts[].size_in_bytes] | add // 0)"' 2>/dev/null \
+            || echo "### PRUNE_DIAG unavailable"
           # jq 只负责「按创建时间倒序输出所有 id」（新→旧），
           # 再交给 tail 砍掉前 KEEP 个 —— 纯 shell，避免在 run: 里写裸 `%`
           # （Actions 把 % 当表达式转义符），也不依赖 gh 的 -f 传参语义。
@@ -400,6 +407,15 @@ jobs:
         # （失败被吞、步骤仍 exit 0）。真正可信的是 build 步骤写出的
         # outputs.code（echo "code=$BUILD" >> $GITHUB_OUTPUT）。
         if: steps.build.outputs.code == '0'
+
+        # 2026-09-20 修（关键）：**artifact 上传不是交付通道，Release 才是。**
+        # 事故复盘：账号级 artifact 存储配额满时（本仓库实测仅占 130MB，
+        # 却报 "storage quota has been hit" ⇒ 占用在别处/账号级），
+        # 这一步失败会把 job 标红，并**连锁 skip 掉后面的 Publish APK release**
+        # ⇒ 明明编好了、Release 通道也完全可用（Release 资产不占 artifact 配额），
+        # 却因为一个「备份用途」的步骤失败而拿不到包。
+        # 故：artifact 上传降级为 best-effort —— 失败只记日志，不阻断交付、不标红。
+        continue-on-error: true
 
         uses: actions/upload-artifact@v5
 
