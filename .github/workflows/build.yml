@@ -51,13 +51,44 @@ jobs:
 
     steps:
 
-      - uses: actions/checkout@v4
+      # 2026-09-20 新增：构建前先回收历史 artifact。
+      # 私有库 artifact 存储 = 500MB 免费；一个 APK 约 65MB ⇒ 约 7 个就满。
+      # 满了之后**每个后续 run 都会死在第一个 upload-artifact 步骤**（已踩过）。
+      # 这里保留最近 3 个 alexcnc-app，其余（含全部日志）删掉，做到自愈。
+      # 非阻塞：清理失败不应影响本次构建。
+      - name: Prune old artifacts
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP_ARTIFACTS: '3'
+        run: |
+          set +e
+          REPO="${{ github.repository }}"
+          KEEP="${KEEP_ARTIFACTS:-3}"
+          # jq 只负责「按创建时间倒序输出所有 id」（新→旧），
+          # 再交给 tail 砍掉前 KEEP 个 —— 纯 shell，避免在 run: 里写裸 `%`
+          # （Actions 把 % 当表达式转义符），也不依赖 gh 的 -f 传参语义。
+          IDS=$(gh api "/repos/$REPO/actions/artifacts?per_page=100" \
+                  --jq '.artifacts | sort_by(.created_at) | reverse | .[].id' 2>/dev/null \
+                | tail -n "+$((KEEP + 1))")
+          if [ -z "$IDS" ]; then
+            echo "### PRUNE nothing to remove (<= $KEEP artifacts)"
+          else
+            N=0
+            for aid in $IDS; do
+              gh api -X DELETE "/repos/$REPO/actions/artifacts/$aid" >/dev/null 2>&1 && N=$((N+1))
+            done
+            echo "### PRUNE deleted=$N (kept newest $KEEP)"
+          fi
+          exit 0
+
+      - uses: actions/checkout@v5
 
 
 
       - name: Setup Java (Zulu 17)
 
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
 
         with:
 
@@ -345,13 +376,21 @@ jobs:
 
       # ------------------------------------------------------------------
 
+      # 2026-09-20 修（关键）：这一步**必须是非阻塞**的。
+      # 事故复盘：仓库 artifact 存储超配额（20.3GB / 免费仅 500MB）时，
+      # 本步骤拿一个 8KB 的 ci-log.txt 去上传 → 失败 → 因为它是 job 里第一个
+      # 失败的步骤，导致后面 `Upload APK artifact` / `Publish APK release` 被
+      # **连锁 skip** ⇒ 编译明明成功（BUILD SUCCESSFUL），却打包不出来。
+      # 一个诊断用的日志文件，不该有资格卡死交付物。
       - name: Upload build log artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        uses: actions/upload-artifact@v5
         with:
           name: ci-build-log
           path: ci-log.txt
           if-no-files-found: warn
+          retention-days: 7
 
 
 
@@ -362,7 +401,7 @@ jobs:
         # outputs.code（echo "code=$BUILD" >> $GITHUB_OUTPUT）。
         if: steps.build.outputs.code == '0'
 
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
 
         with:
 
@@ -370,10 +409,19 @@ jobs:
 
           path: build/app/outputs/flutter-apk/app-release.apk
 
+          # 私有库免费 artifact 存储只有 500MB，单个 APK 约 65MB。
+
+          # 7 天足够覆盖「最近几轮联调」，过期自动回收，避免再次撑爆配额。
+
+          retention-days: 7
+
 
 
       - name: Publish APK release
 
+        # 2026-09-20 核对：这个 if 只依赖 build 步骤的 output，与上面的
+        # artifact 上传步骤无关 ⇒ 即使 artifact 上传失败，Release 仍会照常发布。
+        # （真正的病根是 upload build log 步骤失败导致链式 skip，已在该步骤修掉。）
         if: steps.build.outputs.code == '0'
 
         run: |
