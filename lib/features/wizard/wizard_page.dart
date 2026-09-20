@@ -1485,7 +1485,7 @@ class _StepOrigin extends ConsumerStatefulWidget {
 }
 
 class _StepOriginState extends ConsumerState<_StepOrigin>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   double _bedW = 300;
   double _bedH = 200;
   bool _areaLoading = true;
@@ -1556,16 +1556,15 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   @override
   void initState() {
     super.initState();
+    // 生命周期兜底：切后台再回前台时，系统可能已重置窗口尺寸 / inset，
+    // 若不重新下发横屏沉浸，本页会残留状态栏或直接退回竖屏（P0-2）。
+    WidgetsBinding.instance.addObserver(this);
     _loadWorkArea();
     LocalPayloadStore.instance.addListener(_onLocalPayload);
     DebugSim.instance.addListener(_onSim);
     // 定原点页强制横屏 + **沉浸全屏**（离开即恢复竖屏与系统栏）。
     // 昊总 09-18：横屏时顶部还有一条状态栏白边，要按屏幕分辨率铺满。
-    SystemChrome.setPreferredOrientations(const [
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    _enterChrome();
     _frameAnim = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2600),
@@ -1581,14 +1580,49 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     _loadMeta();
   }
 
+  /// 恢复竖屏与系统 UI。**务必最先执行**，且不依赖任何可能抛错的清理，
+  /// 否则一旦下方异常，竖屏恢复会被跳过，客户退出后界面仍卡在横屏。
+  ///
+  /// 写法对齐 fullscreen_preview_page.dart:360-368 的既有正确实现：
+  /// 用 manual + SystemUiOverlay.values 而不是 edgeToEdge，
+  /// 同为「系统栏全显示」但不触发 edge-to-edge 的 inset 重算。
+  void _restoreChrome() {
+    SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
+        overlays: SystemUiOverlay.values);
+  }
+
+  /// 进入横屏沉浸（首次进入与 resume 兜底共用，避免两处写法漂移）。
+  void _enterChrome() {
+    SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // 仅 resumed 需要补下发；其余状态不做系统 UI 操作，避免与系统抢控制权。
+    if (state == AppLifecycleState.resumed && mounted) {
+      _enterChrome();
+    }
+  }
+
   @override
   void dispose() {
-    _frameAnim.dispose();
-    LocalPayloadStore.instance.removeListener(_onLocalPayload);
-    DebugSim.instance.removeListener(_onSim);
-    SystemChrome.setPreferredOrientations(
-        const [DeviceOrientation.portraitUp]);
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    // 1) 先恢复竖屏与系统 UI（最早、且不会因后续异常被跳过）。
+    _restoreChrome();
+    WidgetsBinding.instance.removeObserver(this);
+    // 2) 业务清理包 try/catch：清理失败不影响「竖屏已恢复」这一事实。
+    try {
+      _frameAnim.dispose();
+      LocalPayloadStore.instance.removeListener(_onLocalPayload);
+      DebugSim.instance.removeListener(_onSim);
+    } catch (_) {
+      // 忽略清理异常：竖屏与系统栏已在第 1 步恢复完毕。
+    }
     super.dispose();
   }
 
@@ -2340,26 +2374,36 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         min(max(MediaQuery.of(context).size.width * 0.20, 118.0), 184.0);
     final guide = _guideText();
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SizedBox(width: deckW, child: _deck(_leftDeck(), left: true)),
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
-            child: Column(
-              children: [
-                _strip(guide.text, guide.level, dots: true),
-                const SizedBox(height: 3),
-                Expanded(child: _canvasOr3D(laserMm, sim)),
-                const SizedBox(height: 3),
-                _strip(_statusText(), 0, center: true),
-              ],
+    return PopScope(
+      // 返回/侧滑时，在路由真正弹出**之前**恢复竖屏：
+      // 时序上比 dispose 更稳（鸿蒙等机型实测更可靠），
+      // 亦是 fullscreen_preview_page.dart:570-582 的既有正确写法。
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        _restoreChrome();
+        Navigator.of(context).pop();
+      },
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(width: deckW, child: _deck(_leftDeck(), left: true)),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
+              child: Column(
+                children: [
+                  _strip(guide.text, guide.level, dots: true),
+                  const SizedBox(height: 3),
+                  Expanded(child: _canvasOr3D(laserMm, sim)),
+                  const SizedBox(height: 3),
+                  _strip(_statusText(), 0, center: true),
+                ],
+              ),
             ),
           ),
-        ),
-        SizedBox(width: deckW, child: _deck(_rightDeck(), left: false)),
-      ],
+          SizedBox(width: deckW, child: _deck(_rightDeck(), left: false)),
+        ],
+      ),
     );
   }
 
