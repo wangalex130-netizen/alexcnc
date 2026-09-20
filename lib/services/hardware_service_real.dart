@@ -1512,12 +1512,9 @@ class RealHardwareService implements HardwareService {
           // 原实现缓存**永不过期**且 discover 命中即返回 ⇒ Jog/回零/开切等
           // 会被**永久锁死**且 App 不会自恢复。此处失效缓存，使下一次重新发信标发现。
           await DeviceDiscovery.invalidateCache(deviceId);
-          // 🟠 2026-09-15：联调设置/DHCP 绑定里手填的机器地址做最后验证 ——
-          // 发现链可能在鸿蒙上全断，但用户手填的地址仍可能可达。
-          if (_tcpHost.isNotEmpty && _tcpHost != host) {
-            ok = await NetworkProbe.probe(_tcpHost, tcpPort,
-                timeout: const Duration(seconds: 2));
-          }
+          // 🟠 P0-3-①（2026-09-18）：原“最后验证”分支已删除 ——
+          // 手填地址已在本方法**开头**第一优先探测，能走到这里就说明它已探过且失败。
+          // 保留会让同一地址在一次判定里被探两次（2s 超时×2），且语义重复。
         }
       }
     } catch (_) {
