@@ -9,11 +9,26 @@ Future<void> main() async {
   // 让内容全屏绘制到系统栏下方，状态栏透明、图标白色；
   // 各页面自行用 SafeArea 避开状态栏/手势条，避免顶部图标遮挡 APP。
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+  // 状态栏图标颜色**不能在此硬编码**：硬编码为 dark 时，一旦切到深色主题，
+  // 深色底 + 深色图标 => 状态栏时间/电量看不见（客户可见缺陷 F-03）。
+  // 改为「亮底用深色图标、暗底用浅色图标」，由 AlexCncApp 在 MaterialApp 的
+  // builder 里按**当前实际生效的 Brightness** 下发（见 app/app.dart）。
+  applySystemBars(Brightness.light);
+}
+
+/// 按当前亮度下发系统栏图标颜色：浅色主题用深色图标，深色主题用浅色图标。
+///
+/// 抽成独立公开函数并在 MaterialApp.builder 里反复调用，是因为主题可在运行中
+/// 切换（ThemeMode.system 或「我的→外观」三选一）；若只在启动时下发一次，
+/// 切换后状态栏图标颜色即失真。
+void applySystemBars(Brightness brightness) {
+  final iconBrightness =
+      brightness == Brightness.dark ? Brightness.light : Brightness.dark;
+  SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     systemNavigationBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.dark,
-    systemNavigationBarIconBrightness: Brightness.dark,
+    statusBarIconBrightness: iconBrightness,
+    systemNavigationBarIconBrightness: iconBrightness,
   ));
   // 字体策略：完全依赖系统默认字体，不预加载、不指定具名字体族。
   // 之前显式指定 `fontFamily: 'sans-serif'` 并在启动时用 FontLoader 预加载字体，

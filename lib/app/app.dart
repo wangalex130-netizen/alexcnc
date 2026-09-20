@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../main.dart' show applySystemBars;
 import 'theme.dart';
 import 'theme_mode_controller.dart';
 import '../features/settings/privacy_consent_gate.dart';
@@ -57,6 +58,12 @@ class AlexCncApp extends ConsumerWidget {
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: mode,
+      // F-03：状态栏/导航栏图标颜色必须跟随**当前实际生效**的 Brightness。
+      // ThemeMode.system 下 mode 可能是 system，需用 Theme.of 解析后的亮度，不能只看 mode。
+      builder: (context, child) {
+        applySystemBars(Theme.of(context).brightness);
+        return child ?? const SizedBox.shrink();
+      },
       // 首次启动隐私政策同意门控（合规 + 推送初始化的正式入口）。
       home: const PrivacyConsentGate(child: AppShell()),
     );
