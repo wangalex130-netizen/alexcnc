@@ -518,11 +518,11 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
         backgroundColor: CncColors.card,
 
-        title: const Text('开始升级',
+        title: Text('开始升级',
 
             style: TextStyle(color: CncColors.textMain)),
 
-        content: const Text('升级期间设备会短暂离线（约 1-2 分钟），请勿断电，是否继续？',
+        content: Text('升级期间设备会短暂离线（约 1-2 分钟），请勿断电，是否继续？',
 
             style: TextStyle(color: CncColors.textSub)),
 
@@ -540,7 +540,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
             onPressed: () => Navigator.pop(context, true),
 
-            child: const Text('继续',
+            child: Text('继续',
 
                 style: TextStyle(color: CncColors.primaryInk)),
 
@@ -574,7 +574,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
       builder: (_) => Container(
 
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
 
           color: CncColors.card,
 
@@ -596,7 +596,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
               children: [
 
-                const Icon(Symbols.system_update,
+                Icon(Symbols.system_update,
 
                     size: 22, color: CncColors.primaryInk),
 
@@ -606,7 +606,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
                   ver != null ? '新版本 v$ver' : '发现新版本',
 
-                  style: const TextStyle(
+                  style: TextStyle(
 
                       fontSize: 16,
 
@@ -624,7 +624,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
               const SizedBox(height: 14),
 
-              const Text('更新内容',
+              Text('更新内容',
 
                   style: TextStyle(
 
@@ -638,7 +638,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
               Text(log,
 
-                  style: const TextStyle(
+                  style: TextStyle(
 
                       fontSize: 13,
 
@@ -714,7 +714,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
             child: Text(_checking ? '检查中…' : '检查更新',
 
-                style: const TextStyle(color: CncColors.primaryInk)),
+                style: TextStyle(color: CncColors.primaryInk)),
 
           ),
 
@@ -750,7 +750,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
                 children: [
 
-                  const Icon(Symbols.precision_manufacturing,
+                  Icon(Symbols.precision_manufacturing,
 
                       size: 20, color: CncColors.primaryInk),
 
@@ -760,7 +760,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
                     child: Text(sn,
 
-                        style: const TextStyle(
+                        style: TextStyle(
 
                             fontSize: 14,
 
@@ -812,7 +812,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
               ),
 
-              child: const Row(
+              child: Row(
 
                 children: [
 
@@ -844,7 +844,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
             if (_cameraIp == null)
 
-              const Padding(
+              Padding(
 
                 padding: EdgeInsets.only(top: 10),
 
@@ -928,7 +928,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
     if (_checking) {
 
-      return const _StatusCard(
+      return _StatusCard(
 
         icon: Symbols.sync,
 
@@ -1158,7 +1158,7 @@ class _StatusCard extends StatelessWidget {
 
               if (loading)
 
-                const SizedBox(
+                SizedBox(
 
                   width: 40,
 
@@ -1194,7 +1194,7 @@ class _StatusCard extends StatelessWidget {
 
               Text(title,
 
-                  style: const TextStyle(
+                  style: TextStyle(
 
                       fontSize: 16,
 
@@ -1206,7 +1206,7 @@ class _StatusCard extends StatelessWidget {
 
               Text(subtitle,
 
-                  style: const TextStyle(
+                  style: TextStyle(
 
                       fontSize: 12, color: CncColors.textSub)),
 
@@ -1216,7 +1216,7 @@ class _StatusCard extends StatelessWidget {
 
                 Text(actionLabel!,
 
-                    style: const TextStyle(
+                    style: TextStyle(
 
                         fontSize: 13,
 

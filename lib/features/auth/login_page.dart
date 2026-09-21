@@ -115,11 +115,11 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
             children: [
 
-              const Icon(Symbols.precision_manufacturing, size: 56, color: CncColors.primaryInk),
+              Icon(Symbols.precision_manufacturing, size: 56, color: CncColors.primaryInk),
 
               const SizedBox(height: 8),
 
-              const Text(
+              Text(
 
                 '登录 Smart CNC Pro',
 
@@ -131,7 +131,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
               const SizedBox(height: 4),
 
-              const Text(
+              Text(
 
                 '登录后可扫码绑定你的雕刻机',
 
@@ -185,7 +185,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
                 Text(_error!,
 
-                    style: const TextStyle(fontSize: 12, color: CncColors.danger)),
+                    style: TextStyle(fontSize: 12, color: CncColors.danger)),
 
               ],
 
@@ -313,13 +313,13 @@ class _Field extends StatelessWidget {
 
                 keyboardType: keyboardType,
 
-                style: const TextStyle(color: CncColors.textMain, fontSize: 14),
+                style: TextStyle(color: CncColors.textMain, fontSize: 14),
 
                 decoration: InputDecoration(
 
                   hintText: hint,
 
-                  hintStyle: const TextStyle(color: CncColors.textSub),
+                  hintStyle: TextStyle(color: CncColors.textSub),
 
                   border: InputBorder.none,
 

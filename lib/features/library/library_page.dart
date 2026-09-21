@@ -499,7 +499,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
                         ? SliverToBoxAdapter(child: _ErrorState(onRetry: _refreshHome))
 
-                        : const SliverToBoxAdapter(
+                        : SliverToBoxAdapter(
 
                             child: Center(
 
@@ -549,7 +549,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
                       if (snap.connectionState != ConnectionState.done) {
 
-                        return const SliverToBoxAdapter(
+                        return SliverToBoxAdapter(
 
                           child: Center(
 
@@ -635,11 +635,11 @@ class _ErrorState extends StatelessWidget {
 
             children: [
 
-              const Icon(Symbols.cloud_off, size: 42, color: CncColors.textSub),
+              Icon(Symbols.cloud_off, size: 42, color: CncColors.textSub),
 
               const SizedBox(height: 14),
 
-              const Text('网络好像开小差了',
+              Text('网络好像开小差了',
 
                   style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold,
 
@@ -647,7 +647,7 @@ class _ErrorState extends StatelessWidget {
 
               const SizedBox(height: 6),
 
-              const Text('下拉页面即可刷新，或点击下方按钮重试',
+              Text('下拉页面即可刷新，或点击下方按钮重试',
 
                   style: TextStyle(fontSize: 12, color: CncColors.textSub)),
 
@@ -671,7 +671,7 @@ class _ErrorState extends StatelessWidget {
 
                   ),
 
-                  child: const Text('重新加载',
+                  child: Text('重新加载',
 
                       style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold,
 
@@ -995,13 +995,13 @@ class _InspirationSliver extends StatelessWidget {
 
                   onChanged: onKeyword,
 
-                  style: const TextStyle(fontSize: 13, color: CncColors.textMain),
+                  style: TextStyle(fontSize: 13, color: CncColors.textMain),
 
                   decoration: InputDecoration(
 
                     hintText: '搜索模型名称或标签',
 
-                    hintStyle: const TextStyle(
+                    hintStyle: TextStyle(
 
                         fontSize: 13, color: CncColors.textSub),
 
@@ -1023,7 +1023,7 @@ class _InspirationSliver extends StatelessWidget {
 
                             onTap: () => onKeyword(''),
 
-                            child: const Padding(
+                            child: Padding(
 
                               padding: EdgeInsets.only(left: 8),
 
@@ -1143,7 +1143,7 @@ class _InspirationSliver extends StatelessWidget {
 
         if (grid.isEmpty)
 
-          const Padding(
+          Padding(
 
             padding: EdgeInsets.only(top: 32),
 
@@ -1167,7 +1167,7 @@ class _InspirationSliver extends StatelessWidget {
 
               child: loadingMore
 
-                  ? const SizedBox(
+                  ? SizedBox(
 
                       width: 20,
 
@@ -1197,7 +1197,7 @@ class _InspirationSliver extends StatelessWidget {
 
                         ),
 
-                        child: const Text('加载更多',
+                        child: Text('加载更多',
 
                             style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.primaryInk)),
 
@@ -1391,7 +1391,7 @@ class _ModelCard extends StatelessWidget {
 
                     Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis,
 
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
 
                     const SizedBox(height: 4),
 
@@ -1479,7 +1479,7 @@ class _MySpaceSliver extends StatelessWidget {
 
                   crossAxisAlignment: CrossAxisAlignment.start,
 
-                  children: const [
+                  children: [
 
                     Text('账号：User_9527', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
 
@@ -1519,7 +1519,7 @@ class _MySpaceSliver extends StatelessWidget {
 
           ),
 
-          child: const Text(
+          child: Text(
 
             '如何创建我的专属工程？\n请在电脑端下载并使用 Smart CNC Studio 软件，完成图纸导入、参数设置与切片后，'
 
@@ -1739,13 +1739,13 @@ class _ProjectItem extends StatelessWidget {
 
                     Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis,
 
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: CncColors.textMain)),
 
                     const SizedBox(height: 4),
 
                     Text('${item.materialPreset ?? ''}  |  ${item.syncTime ?? item.duration ?? ''}',
 
-                        style: const TextStyle(fontSize: 10, color: CncColors.textSub)),
+                        style: TextStyle(fontSize: 10, color: CncColors.textSub)),
 
                   ],
 
@@ -1801,7 +1801,7 @@ class _ProjectItem extends StatelessWidget {
 
                     ),
 
-                    child: const Icon(Symbols.delete,
+                    child: Icon(Symbols.delete,
 
                         size: 15, color: CncColors.danger),
 
@@ -1875,7 +1875,7 @@ Widget _thumb(String? url) {
 
 Widget _gradient() => Container(
 
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
 
         gradient: LinearGradient(
 

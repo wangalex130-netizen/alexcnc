@@ -232,13 +232,13 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
             children: [
 
-              const Icon(Symbols.sensors,
+              Icon(Symbols.sensors,
 
                   size: 48, color: CncColors.textSub),
 
               const SizedBox(height: 12),
 
-              const Text('登录后查看我的机器',
+              Text('登录后查看我的机器',
 
                   style:
 
@@ -288,7 +288,7 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
           IconButton(
 
-            icon: const Icon(Symbols.add, color: CncColors.textMain),
+            icon: Icon(Symbols.add, color: CncColors.textMain),
 
             tooltip: '扫码绑定机器',
 
@@ -318,7 +318,7 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
             ? ListView(
 
-                children: const [
+                children: [
 
                   SizedBox(height: 120),
 
@@ -342,7 +342,7 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
                       const SizedBox(height: 120),
 
-                      const Icon(Symbols.add_to_queue,
+                      Icon(Symbols.add_to_queue,
 
                           size: 48,
 
@@ -352,7 +352,7 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
                       const SizedBox(height: 12),
 
-                      const Center(
+                      Center(
 
                         child: Text('还没有绑定的机器',
 
@@ -366,7 +366,7 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
                       const SizedBox(height: 4),
 
-                      const Center(
+                      Center(
 
                         child: Text('点右上角 + 扫码绑定',
 
@@ -766,7 +766,7 @@ class _MachineCard extends StatelessWidget {
 
                             machine.name.isEmpty ? machine.sn : machine.name,
 
-                            style: const TextStyle(
+                            style: TextStyle(
 
                                 fontSize: 15,
 
@@ -790,7 +790,7 @@ class _MachineCard extends StatelessWidget {
 
                             ),
 
-                            child: const Text('当前控制',
+                            child: Text('当前控制',
 
                                 style: TextStyle(
 
@@ -858,7 +858,7 @@ class _MachineCard extends StatelessWidget {
 
                             machine.sn.isEmpty ? '未配置机器码' : machine.sn,
 
-                            style: const TextStyle(
+                            style: TextStyle(
 
                               fontSize: 12,
 
@@ -884,7 +884,7 @@ class _MachineCard extends StatelessWidget {
 
                         child: Text('绑定于 ${machine.boundAt}',
 
-                            style: const TextStyle(
+                            style: TextStyle(
 
                                 fontSize: 10,
 
@@ -900,7 +900,7 @@ class _MachineCard extends StatelessWidget {
 
               IconButton(
 
-                icon: const Icon(Symbols.storage,
+                icon: Icon(Symbols.storage,
 
                     color: CncColors.primaryInk, size: 20),
 
@@ -912,7 +912,7 @@ class _MachineCard extends StatelessWidget {
 
               IconButton(
 
-                icon: const Icon(Symbols.videocam,
+                icon: Icon(Symbols.videocam,
 
                     color: CncColors.textSub, size: 20),
 
@@ -922,7 +922,7 @@ class _MachineCard extends StatelessWidget {
 
               ),
 
-              const Icon(Symbols.chevron_right,
+              Icon(Symbols.chevron_right,
 
                   color: CncColors.textSub, size: 20),
 

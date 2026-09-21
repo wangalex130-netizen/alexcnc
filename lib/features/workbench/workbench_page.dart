@@ -311,7 +311,7 @@ class _MachineCard extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Smart 3020',
+                      Text('Smart 3020',
                           style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
@@ -321,7 +321,7 @@ class _MachineCard extends ConsumerWidget {
                         busy
                             ? '加工中 · ${(status.progress.clamp(0, 1) * 100).round()}%'
                             : '主轴待机 · 状态正常',
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: 11, color: CncColors.textSub),
                       ),
                     ],
@@ -475,10 +475,10 @@ class _Chip extends StatelessWidget {
           Icon(icon, size: 13, color: CncColors.textSub),
           const SizedBox(width: 5),
           Text(label,
-              style: const TextStyle(fontSize: 11, color: CncColors.textSub)),
+              style: TextStyle(fontSize: 11, color: CncColors.textSub)),
           const SizedBox(width: 4),
           Text(value!,
-              style: const TextStyle(
+              style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
                   color: CncColors.textMain)),
@@ -601,7 +601,7 @@ class _AwaitConfirmBanner extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: CncColors.warning.withOpacity(0.5)),
       ),
-      child: const Row(
+      child: Row(
         children: [
           Icon(Symbols.front_hand, size: 16, color: CncColors.warning),
           SizedBox(width: 8),
@@ -650,13 +650,13 @@ class _CurrentWorkCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('当前作品',
+            Text('当前作品',
                 style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.bold,
                     color: CncColors.textMain)),
             const SizedBox(height: 6),
-            const Text('还没有进行中的作品，从模型库挑一个开始吧。',
+            Text('还没有进行中的作品，从模型库挑一个开始吧。',
                 style: TextStyle(fontSize: 12, color: CncColors.textSub)),
             const SizedBox(height: 14),
             SizedBox(
@@ -706,7 +706,7 @@ class _CurrentWorkCard extends StatelessWidget {
                 Icon(Symbols.play_circle, size: 20, color: CncColors.warning),
                 const SizedBox(width: 8),
                 Text('正在雕刻（其他端发起）· $p%',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
                         color: CncColors.textMain)),
@@ -777,7 +777,7 @@ class _CurrentWorkCard extends StatelessWidget {
                     Text(job!.item.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
                             color: CncColors.textMain)),
@@ -848,7 +848,7 @@ class _FlowCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('雕刻流程（傻瓜 6 步）',
+              Text('雕刻流程（傻瓜 6 步）',
                   style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.bold,
@@ -919,7 +919,7 @@ class _FlowCard extends StatelessWidget {
             ],
           ),
           if (running)
-            const Padding(
+            Padding(
               padding: EdgeInsets.only(top: 10),
               child: Text('加工进行中，可在「当前作品」查看实时监控',
                   style: TextStyle(fontSize: 11, color: CncColors.primaryInk)),
@@ -954,7 +954,7 @@ class _RecentCardState extends ConsumerState<_RecentCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
+          Padding(
             padding: EdgeInsets.only(left: 4, bottom: 10),
             child: Text('最近作品',
                 style: TextStyle(
@@ -966,7 +966,7 @@ class _RecentCardState extends ConsumerState<_RecentCard> {
             future: _future,
             builder: (c, snap) {
               if (snap.connectionState != ConnectionState.done) {
-                return const SizedBox(
+                return SizedBox(
                   height: 96,
                   child: Center(
                     child: CircularProgressIndicator(color: CncColors.primary),
@@ -984,7 +984,7 @@ class _RecentCardState extends ConsumerState<_RecentCard> {
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: CncColors.border),
                   ),
-                  child: const Text('暂无加工记录',
+                  child: Text('暂无加工记录',
                       style: TextStyle(fontSize: 12, color: CncColors.textSub)),
                 );
               }
@@ -1023,7 +1023,7 @@ class _RecentCardState extends ConsumerState<_RecentCard> {
                             Text(it.title,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
+                                style: TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.bold,
                                     color: CncColors.textMain)),

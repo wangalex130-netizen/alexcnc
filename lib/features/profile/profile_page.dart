@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/config.dart';
 import '../../app/theme.dart';
+import '../../app/theme_mode_controller.dart';
 import '../../models/app_update_info.dart';
 import '../../services/app_update_service.dart';
 
@@ -143,7 +144,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
               if (info.downloadUrl.isNotEmpty) ...[
 
-                const Text('下载地址（长按可复制）:',
+                Text('下载地址（长按可复制）:',
 
                     style: TextStyle(fontSize: 12, color: CncColors.textSub)),
 
@@ -349,7 +350,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
                           : '登录后可扫码绑定你的雕刻机',
 
-                      style: const TextStyle(
+                      style: TextStyle(
 
                           fontSize: 11, color: CncColors.textSub),
 
@@ -367,7 +368,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
                   onPressed: _goLogin,
 
-                  child: const Text('登录',
+                  child: Text('登录',
 
                       style: TextStyle(
 
@@ -415,7 +416,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
               title: '我的机器',
 
-              trailing: const Text('扫码绑定机器',
+              trailing: Text('扫码绑定机器',
 
                   style: TextStyle(fontSize: 12, color: CncColors.primaryInk)),
 
@@ -430,7 +431,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
               title: '固件升级',
               badge: const _FwUpdateDot(),
 
-              trailing: const Text('摄像头/控制屏幕/主板',
+              trailing: Text('摄像头/控制屏幕/主板',
 
                   style: TextStyle(fontSize: 12, color: CncColors.textSub)),
 
@@ -443,6 +444,26 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                     builder: (_) => const FirmwarePage()),
 
               ),
+
+            ),
+
+            _MenuItem(
+
+              icon: Symbols.dark_mode,
+
+              title: '外观',
+
+              trailing: Consumer(
+
+                builder: (context, ref, _) => Text(
+
+                    _themeModeLabel(ref.watch(themeModeProvider)),
+
+                    style: TextStyle(fontSize: 12, color: CncColors.textSub)),
+
+              ),
+
+              onTap: () => _openSheet(const _AppearanceSheet()),
 
             ),
 
@@ -478,11 +499,11 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
                         list.isEmpty ? '暂无记录' : '${list.length} 条历史',
 
-                        style: const TextStyle(
+                        style: TextStyle(
 
                             fontSize: 12, color: CncColors.textSub)),
 
-                    loading: () => const SizedBox(
+                    loading: () => SizedBox(
 
                       width: 14,
 
@@ -657,7 +678,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
               trailing: Text('v${AppConfig.appVersion}',
 
-                  style: const TextStyle(
+                  style: TextStyle(
 
                       fontSize: 12, color: CncColors.textSub)),
 
@@ -751,11 +772,11 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
                       backgroundColor: CncColors.card,
 
-                      title: const Text('退出登录',
+                      title: Text('退出登录',
 
                           style: TextStyle(color: CncColors.textMain)),
 
-                      content: const Text('确定要退出当前账号吗？',
+                      content: Text('确定要退出当前账号吗？',
 
                           style: TextStyle(color: CncColors.textSub)),
 
@@ -773,7 +794,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
                           onPressed: () => Navigator.pop(context, true),
 
-                          child: const Text('退出',
+                          child: Text('退出',
 
                               style: TextStyle(color: CncColors.danger)),
 
@@ -831,7 +852,7 @@ class _SectionTitle extends StatelessWidget {
 
         child: Text(text.toUpperCase(),
 
-            style: const TextStyle(
+            style: TextStyle(
 
                 fontSize: 11, color: CncColors.textSub, letterSpacing: 0.5)),
 
@@ -881,7 +902,7 @@ class _FwUpdateDot extends ConsumerWidget {
     return Container(
       width: 8,
       height: 8,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: CncColors.primary,
         shape: BoxShape.circle,
       ),
@@ -951,7 +972,7 @@ class _MenuItem extends StatelessWidget {
 
                   child: Text(title,
 
-                      style: const TextStyle(
+                      style: TextStyle(
 
                           fontSize: 14,
 
@@ -973,7 +994,7 @@ class _MenuItem extends StatelessWidget {
 
                   if (onTap != null)
 
-                    const Icon(Symbols.chevron_right,
+                    Icon(Symbols.chevron_right,
 
                         color: CncColors.textSub),
 
@@ -1109,7 +1130,7 @@ class _SheetFrame extends StatelessWidget {
 
                   Text(title,
 
-                      style: const TextStyle(
+                      style: TextStyle(
 
                           fontSize: 16,
 
@@ -1119,7 +1140,7 @@ class _SheetFrame extends StatelessWidget {
 
                   IconButton(
 
-                    icon: const Icon(Symbols.close,
+                    icon: Icon(Symbols.close,
 
                         color: CncColors.textSub, size: 22),
 
@@ -1133,7 +1154,7 @@ class _SheetFrame extends StatelessWidget {
 
             ),
 
-            const Divider(height: 1, color: CncColors.border),
+            Divider(height: 1, color: CncColors.border),
 
             Flexible(
 
@@ -1253,7 +1274,7 @@ class _MessagesSheetState extends ConsumerState<_MessagesSheet> {
 
           : _msgs.isEmpty
 
-              ? const Padding(
+              ? Padding(
 
                   padding: EdgeInsets.all(24),
 
@@ -1351,7 +1372,7 @@ class _MessagesSheetState extends ConsumerState<_MessagesSheet> {
 
                 child: Text(m.title.isEmpty ? m.type : m.title,
 
-                    style: const TextStyle(
+                    style: TextStyle(
 
                         fontSize: 13,
 
@@ -1371,13 +1392,13 @@ class _MessagesSheetState extends ConsumerState<_MessagesSheet> {
 
               style:
 
-                  const TextStyle(fontSize: 10, color: CncColors.textSub)),
+                  TextStyle(fontSize: 10, color: CncColors.textSub)),
 
           const SizedBox(height: 6),
 
           Text(m.body,
 
-              style: const TextStyle(
+              style: TextStyle(
 
                   fontSize: 11, color: CncColors.textSub, height: 1.4)),
 
@@ -1435,7 +1456,7 @@ class _DiagSheet extends StatelessWidget {
 
           children: [
 
-            const Text(
+            Text(
 
               '当机器出现不可恢复的异常（如异响、持续报错）时，可一键提取主板底层运行日志'
 
@@ -1585,7 +1606,7 @@ class _DiagProgressButtonState extends State<_DiagProgressButton> {
 
                     if (!_running)
 
-                      const Icon(Symbols.archive, size: 18, color: CncColors.primary),
+                      Icon(Symbols.archive, size: 18, color: CncColors.primary),
 
                     if (!_running) const SizedBox(width: 8),
 
@@ -1610,3 +1631,68 @@ class _DiagProgressButtonState extends State<_DiagProgressButton> {
 }
 
 
+
+
+/// P1-2（2026-09-21）：外观三选一 —— 跟随系统 / 浅色 / 深色。
+String _themeModeLabel(ThemeMode m) {
+  switch (m) {
+    case ThemeMode.system:
+      return '跟随系统';
+    case ThemeMode.light:
+      return '浅色';
+    case ThemeMode.dark:
+      return '深色';
+  }
+}
+
+class _AppearanceSheet extends ConsumerWidget {
+  const _AppearanceSheet();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mode = ref.watch(themeModeProvider);
+    return Container(
+      decoration: BoxDecoration(
+        color: CncColors.panel,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 16),
+            Text('外观',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: CncColors.textMain)),
+            const SizedBox(height: 4),
+            for (final m in const [
+              ThemeMode.system,
+              ThemeMode.light,
+              ThemeMode.dark,
+            ])
+              _MenuItem(
+                icon: m == ThemeMode.system
+                    ? Symbols.brightness_auto
+                    : m == ThemeMode.light
+                        ? Symbols.light_mode
+                        : Symbols.dark_mode,
+                title: _themeModeLabel(m),
+                trailing: mode == m
+                    ? Icon(Symbols.check_circle,
+                        size: 20, color: CncColors.primaryInk)
+                    : null,
+                onTap: () {
+                  ref.read(themeModeProvider.notifier).set(m);
+                  Navigator.of(context).pop();
+                },
+              ),
+            const SizedBox(height: 10),
+          ],
+        ),
+      ),
+    );
+  }
+}

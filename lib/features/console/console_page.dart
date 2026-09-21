@@ -1604,7 +1604,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                                 height: 6,
 
-                                decoration: const BoxDecoration(color: CncColors.danger, shape: BoxShape.circle),
+                                decoration: BoxDecoration(color: CncColors.danger, shape: BoxShape.circle),
 
                               ),
 
@@ -1690,7 +1690,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                           overflow: TextOverflow.ellipsis,
 
-                          style: const TextStyle(
+                          style: TextStyle(
 
                               fontSize: 13,
 
@@ -1810,7 +1810,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                         Row(
 
-                          children: const [
+                          children: [
 
                             Icon(Symbols.science, size: 16, color: CncColors.warning),
 
@@ -1836,7 +1836,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                         const SizedBox(height: 4),
 
-                        const Text(
+                        Text(
 
                             '当前未连接真实设备，画面与状态仅供演示，'
 
@@ -1926,11 +1926,11 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                           children: [
 
-                            const Icon(Symbols.sensors, size: 16, color: CncColors.blue),
+                            Icon(Symbols.sensors, size: 16, color: CncColors.blue),
 
                             const SizedBox(width: 6),
 
-                            const Expanded(
+                            Expanded(
 
                               child: Text('请先选择要控制的机器',
 
@@ -1950,7 +1950,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                         const SizedBox(height: 4),
 
-                        const Text('未选择机器前，移动 / 主轴 / 换刀等操作已锁定，仅可查看画面与状态。',
+                        Text('未选择机器前，移动 / 主轴 / 换刀等操作已锁定，仅可查看画面与状态。',
 
                             style: TextStyle(fontSize: 11, color: CncColors.textSub)),
 
@@ -2030,7 +2030,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                       children: [
 
-                        const Icon(Symbols.priority_high, size: 16, color: CncColors.warning),
+                        Icon(Symbols.priority_high, size: 16, color: CncColors.warning),
 
                         const SizedBox(width: 6),
 
@@ -2038,7 +2038,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                           child: Text('等待机旁确认：请在机器面板按下确认键后继续加工。',
 
-                              style: const TextStyle(fontSize: 11, color: CncColors.warning)),
+                              style: TextStyle(fontSize: 11, color: CncColors.warning)),
 
                         ),
 
@@ -2074,7 +2074,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                       children: [
 
-                        const Icon(Symbols.wifi_off, size: 16, color: CncColors.danger),
+                        Icon(Symbols.wifi_off, size: 16, color: CncColors.danger),
 
                         const SizedBox(width: 6),
 
@@ -2082,7 +2082,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                           child: Text('与机器断开连接：命令与状态无法同步，请检查网络后重连。',
 
-                              style: const TextStyle(fontSize: 11, color: CncColors.danger)),
+                              style: TextStyle(fontSize: 11, color: CncColors.danger)),
 
                         ),
 
@@ -2264,7 +2264,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                                       overflow: TextOverflow.ellipsis,
 
-                                      style: const TextStyle(
+                                      style: TextStyle(
 
                                           fontSize: 13,
 
@@ -2302,7 +2302,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                                   ),
 
-                                  child: const Icon(Symbols.close,
+                                  child: Icon(Symbols.close,
 
                                       size: 16, color: CncColors.primaryInk),
 
@@ -2310,7 +2310,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                               ),
 
-                            const Icon(Symbols.chevron_right,
+                            Icon(Symbols.chevron_right,
 
                                 color: CncColors.textSub),
 
@@ -2573,11 +2573,11 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                           backgroundColor: CncColors.card,
 
-                          title: const Text('确认停止雕刻吗？',
+                          title: Text('确认停止雕刻吗？',
 
                               style: TextStyle(color: CncColors.danger)),
 
-                          content: const Text('停止后主轴将刹停，本次加工会中断。',
+                          content: Text('停止后主轴将刹停，本次加工会中断。',
 
                               style: TextStyle(color: CncColors.textMain)),
 
@@ -2587,7 +2587,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                               onPressed: () => Navigator.of(context).pop(),
 
-                              child: const Text('取消',
+                              child: Text('取消',
 
                                   style: TextStyle(color: CncColors.textMain)),
 
@@ -2605,7 +2605,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                               },
 
-                              child: const Text('确认停止',
+                              child: Text('确认停止',
 
                                   style: TextStyle(color: CncColors.danger)),
 
@@ -2985,7 +2985,7 @@ class _ConnStatusChip extends ConsumerWidget {
 
             Text(machineName,
 
-                style: const TextStyle(
+                style: TextStyle(
 
                     fontSize: 12,
 
@@ -3209,7 +3209,7 @@ class _DroAxis extends StatelessWidget {
 
               Text(value.toStringAsFixed(3),
 
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: CncColors.textMain)),
 
             ],
 
@@ -3241,7 +3241,7 @@ class _SectionTitle extends StatelessWidget {
 
         child: Text(text,
 
-            style: const TextStyle(fontSize: 11, color: CncColors.textSub, letterSpacing: 0.5)),
+            style: TextStyle(fontSize: 11, color: CncColors.textSub, letterSpacing: 0.5)),
 
       );
 
@@ -3268,7 +3268,7 @@ class _JogEntry extends StatelessWidget {
               children: [
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
+                  children: [
                     Text('手动移动',
                         style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
                     SizedBox(height: 2),
@@ -3283,7 +3283,7 @@ class _JogEntry extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: CncColors.border),
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text('打开', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: CncColors.blue)),
@@ -3343,7 +3343,7 @@ class _SpindleCard extends StatelessWidget {
 
                   Text('目标转速: ${rpm.toString()} RPM',
 
-                      style: const TextStyle(fontSize: 12, color: CncColors.textSub)),
+                      style: TextStyle(fontSize: 12, color: CncColors.textSub)),
 
                   GestureDetector(
 
@@ -3497,7 +3497,7 @@ class _AtcEntry extends ConsumerWidget {
 
                 children: [
 
-                  const Text('ATC 自动换刀系统', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                  Text('ATC 自动换刀系统', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
 
                   const SizedBox(height: 2),
 
@@ -3525,7 +3525,7 @@ class _AtcEntry extends ConsumerWidget {
 
                   mainAxisSize: MainAxisSize.min,
 
-                  children: const [
+                  children: [
 
                     Text('管理刀仓', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: CncColors.blue)),
 
@@ -3612,7 +3612,7 @@ class _AtcSheetState extends ConsumerState<_AtcSheet> {
 
         height: 460,
 
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
 
           color: Color(0xFFE0E3E8),
 
@@ -3636,7 +3636,7 @@ class _AtcSheetState extends ConsumerState<_AtcSheet> {
 
                 children: [
 
-                  Text('选择刀具 → T$_pickerSlot', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                  Text('选择刀具 → T$_pickerSlot', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: CncColors.textMain)),
 
                   GestureDetector(
 
@@ -3684,7 +3684,7 @@ class _AtcSheetState extends ConsumerState<_AtcSheet> {
 
                                 children: [
 
-                                  Text(def.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                                  Text(def.name, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: CncColors.textMain)),
 
                                   const SizedBox(height: 2),
 
@@ -3694,7 +3694,7 @@ class _AtcSheetState extends ConsumerState<_AtcSheet> {
 
                                   const SizedBox(height: 2),
 
-                                  Text(def.desc, style: const TextStyle(fontSize: 9, color: CncColors.textSub)),
+                                  Text(def.desc, style: TextStyle(fontSize: 9, color: CncColors.textSub)),
 
                                 ],
 
@@ -3726,7 +3726,7 @@ class _AtcSheetState extends ConsumerState<_AtcSheet> {
 
                                 ),
 
-                                child: const Text('填入', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.primaryInk)),
+                                child: Text('填入', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.primaryInk)),
 
                               ),
 
@@ -3764,7 +3764,7 @@ class _AtcSheetState extends ConsumerState<_AtcSheet> {
 
                       ),
 
-                      child: const Center(
+                      child: Center(
 
                         child: Text('清空此刀位 (空)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.danger)),
 
@@ -3796,7 +3796,7 @@ class _AtcSheetState extends ConsumerState<_AtcSheet> {
 
       height: 460,
 
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
 
         color: Color(0xFFE0E3E8),
 
@@ -3823,12 +3823,12 @@ class _AtcSheetState extends ConsumerState<_AtcSheet> {
                 Expanded(
                   child: Row(
                     children: [
-                      const Text('配置 ATC 刀具映射表', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                      Text('配置 ATC 刀具映射表', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: CncColors.textMain)),
                       const SizedBox(width: 8),
                       IconButton(
                         icon: _refreshing
                             ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: CncColors.primaryInk))
-                            : const Icon(Symbols.refresh, size: 18, color: CncColors.primaryInk),
+                            : Icon(Symbols.refresh, size: 18, color: CncColors.primaryInk),
                         tooltip: '刷新服务器最新刀仓',
                         onPressed: _refreshing ? null : _refresh,
                         padding: EdgeInsets.zero,
@@ -3854,7 +3854,7 @@ class _AtcSheetState extends ConsumerState<_AtcSheet> {
 
               children: [
 
-                const Text('选择物理卡槽对应的实际刀具（刀库与向导共用，任一处修改自动同步）。',
+                Text('选择物理卡槽对应的实际刀具（刀库与向导共用，任一处修改自动同步）。',
 
                     style: TextStyle(fontSize: 10, color: CncColors.textSub)),
 
@@ -3900,7 +3900,7 @@ class _AtcSheetState extends ConsumerState<_AtcSheet> {
 
                                 Text(def != null ? 'T$slot · ${def.name}' : 'T$slot · 未挂载刀具 (空位)',
 
-                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: CncColors.textMain)),
 
                                 const SizedBox(height: 2),
 
@@ -4186,7 +4186,7 @@ class _TimeLapseStatusCard extends StatelessWidget {
 
               const SizedBox(width: 6),
 
-              const Text('延时摄影',
+              Text('延时摄影',
 
                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: CncColors.textMain)),
 
@@ -4204,7 +4204,7 @@ class _TimeLapseStatusCard extends StatelessWidget {
 
                         : '采集中 $count/$target',
 
-                    style: const TextStyle(fontSize: 11, color: CncColors.blue)),
+                    style: TextStyle(fontSize: 11, color: CncColors.blue)),
 
             ],
 
@@ -4214,7 +4214,7 @@ class _TimeLapseStatusCard extends StatelessWidget {
 
           if (st == 'running')
 
-            const Text('服务器正自动抽样拍照，结束后拼接成最长 20 秒的回顾视频。',
+            Text('服务器正自动抽样拍照，结束后拼接成最长 20 秒的回顾视频。',
 
                 style: TextStyle(fontSize: 11, color: CncColors.textSub))
 
@@ -4236,9 +4236,9 @@ class _TimeLapseStatusCard extends StatelessWidget {
 
                   children: [
 
-                    TextButton(onPressed: onView, child: const Text('查看', style: TextStyle(color: CncColors.primary))),
+                    TextButton(onPressed: onView, child: Text('查看', style: TextStyle(color: CncColors.primary))),
 
-                    TextButton(onPressed: onDownload, child: const Text('下载', style: TextStyle(color: CncColors.blue))),
+                    TextButton(onPressed: onDownload, child: Text('下载', style: TextStyle(color: CncColors.blue))),
 
                     // 「完成」而不是「再录一次」：对客户来说每次延时摄影都是唯一的一次，
 
@@ -4254,7 +4254,7 @@ class _TimeLapseStatusCard extends StatelessWidget {
 
                         onPressed: onDone,
 
-                        child: const Text('完成',
+                        child: Text('完成',
 
                             style: TextStyle(color: CncColors.textSub)),
 
@@ -4280,7 +4280,7 @@ class _TimeLapseStatusCard extends StatelessWidget {
 
                 Text('生成失败：${status?['error'] ?? ''}',
 
-                    style: const TextStyle(fontSize: 11, color: CncColors.danger)),
+                    style: TextStyle(fontSize: 11, color: CncColors.danger)),
 
                 const SizedBox(height: 6),
 
@@ -4290,7 +4290,7 @@ class _TimeLapseStatusCard extends StatelessWidget {
 
                     onPressed: onDone,
 
-                    child: const Text('知道了', style: TextStyle(color: CncColors.primary)),
+                    child: Text('知道了', style: TextStyle(color: CncColors.primary)),
 
                   ),
 
@@ -4300,7 +4300,7 @@ class _TimeLapseStatusCard extends StatelessWidget {
 
           else
 
-            const Text('处理中…', style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+            Text('处理中…', style: TextStyle(fontSize: 11, color: CncColors.textSub)),
 
         ],
 
@@ -4338,13 +4338,13 @@ class _ConsoleGate extends StatelessWidget {
           Icon(icon, size: 48, color: CncColors.textSub),
           const SizedBox(height: 14),
           Text(title,
-              style: const TextStyle(fontSize: 15, color: CncColors.textMain)),
+              style: TextStyle(fontSize: 15, color: CncColors.textMain)),
           const SizedBox(height: 6),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 40),
             child: Text(subtitle,
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 12, color: CncColors.textSub)),
+                style: TextStyle(fontSize: 12, color: CncColors.textSub)),
           ),
           const SizedBox(height: 20),
           FilledButton(

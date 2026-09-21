@@ -228,11 +228,11 @@ class _BitConfigDialogState extends ConsumerState<BitConfigDialog> {
 
         children: [
 
-          const Icon(Symbols.widgets, color: CncColors.primaryInk, size: 22),
+          Icon(Symbols.widgets, color: CncColors.primaryInk, size: 22),
 
           const SizedBox(width: 8),
 
-          const Text('刀仓配置', style: TextStyle(color: CncColors.textMain)),
+          Text('刀仓配置', style: TextStyle(color: CncColors.textMain)),
 
         ],
 
@@ -244,7 +244,7 @@ class _BitConfigDialogState extends ConsumerState<BitConfigDialog> {
 
         child: _loading
 
-            ? const SizedBox(
+            ? SizedBox(
 
                 height: 120,
 
@@ -264,7 +264,7 @@ class _BitConfigDialogState extends ConsumerState<BitConfigDialog> {
 
                   Text('机器码：${widget.deviceCode}',
 
-                      style: const TextStyle(
+                      style: TextStyle(
 
                           fontSize: 12, color: CncColors.textSub)),
 
@@ -290,7 +290,7 @@ class _BitConfigDialogState extends ConsumerState<BitConfigDialog> {
 
                         children: [
 
-                          const Icon(Symbols.check_circle,
+                          Icon(Symbols.check_circle,
 
                               color: CncColors.primaryInk, size: 16),
 
@@ -298,7 +298,7 @@ class _BitConfigDialogState extends ConsumerState<BitConfigDialog> {
 
                           Text(_mqttStatus!,
 
-                              style: const TextStyle(
+                              style: TextStyle(
 
                                   fontSize: 12,
 
@@ -318,7 +318,7 @@ class _BitConfigDialogState extends ConsumerState<BitConfigDialog> {
 
                       child: Text(_error!,
 
-                        style: const TextStyle(
+                        style: TextStyle(
 
                             fontSize: 12, color: CncColors.danger)),
 
@@ -336,7 +336,7 @@ class _BitConfigDialogState extends ConsumerState<BitConfigDialog> {
 
           onPressed: _saving ? null : () => Navigator.of(context).pop(),
 
-          child: const Text('关闭', style: TextStyle(color: CncColors.textSub)),
+          child: Text('关闭', style: TextStyle(color: CncColors.textSub)),
 
         ),
 
@@ -383,7 +383,7 @@ class _BitConfigDialogState extends ConsumerState<BitConfigDialog> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text('${index + 1}号',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 12, color: CncColors.primaryInk)),
               ),
               const SizedBox(height: 8),
@@ -415,21 +415,21 @@ class _BitConfigDialogState extends ConsumerState<BitConfigDialog> {
                   hasTool
                       ? '${tool.type} · ⌀${tool.diameterMm}mm · ${ringEmoji(tool.ring)}环 · ${tool.material}'
                       : '该刀位未挂载刀具，留空即可',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 11, color: CncColors.textSub),
                 ),
                 const SizedBox(height: 8),
                 TextField(
                   controller: _controllers[index],
                   keyboardType: TextInputType.number,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 13, color: CncColors.textMain),
                   decoration: InputDecoration(
                     labelText: '刀头系统 ID',
                     hintText: '留空表示未配置',
-                    hintStyle: const TextStyle(color: CncColors.textSub),
+                    hintStyle: TextStyle(color: CncColors.textSub),
                     labelStyle:
-                        const TextStyle(fontSize: 12, color: CncColors.textSub),
+                        TextStyle(fontSize: 12, color: CncColors.textSub),
                     isDense: true,
                     border: const OutlineInputBorder(),
                     contentPadding:
@@ -437,7 +437,7 @@ class _BitConfigDialogState extends ConsumerState<BitConfigDialog> {
                     helperText: hasTool
                         ? '已映射为：${tool.name}'
                         : (id != null ? '未识别 ID：$id' : null),
-                    helperStyle: const TextStyle(
+                    helperStyle: TextStyle(
                         fontSize: 11, color: CncColors.primaryInk),
                   ),
                 ),

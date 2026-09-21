@@ -173,7 +173,7 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
           Icon(icon, size: 15, color: CncColors.textSub),
           const SizedBox(width: 6),
           Text(text,
-              style: const TextStyle(
+              style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
                   color: CncColors.textSub)),
@@ -189,11 +189,11 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
               width: 118,
               child: Text(k,
                   style:
-                      const TextStyle(fontSize: 12, color: CncColors.textSub)),
+                      TextStyle(fontSize: 12, color: CncColors.textSub)),
             ),
             Expanded(
               child: Text(v,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 12, color: CncColors.textMain)),
             ),
           ],
@@ -301,8 +301,8 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
       appBar: AppBar(
         backgroundColor: CncColors.card,
         elevation: 0,
-        iconTheme: const IconThemeData(color: CncColors.textMain),
-        title: const Text('本地轻量 JSON（调试）',
+        iconTheme: IconThemeData(color: CncColors.textMain),
+        title: Text('本地轻量 JSON（调试）',
             style: TextStyle(fontSize: 16, color: CncColors.textMain)),
       ),
       body: ListView(
@@ -316,7 +316,7 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: CncColors.warning.withOpacity(0.45)),
             ),
-            child: const Row(
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(Symbols.info, size: 16, color: CncColors.warning),
@@ -363,17 +363,17 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
           ),
           const SizedBox(height: 6),
           Text('当前构建 ${AppConfig.buildTag}',
-              style: const TextStyle(fontSize: 10, color: CncColors.textSub)),
+              style: TextStyle(fontSize: 10, color: CncColors.textSub)),
           const SizedBox(height: 14),
 
           // 虚拟机器位：定原点页取点需要机器实时坐标，没真机时用它兜底
           _card(
             child: Row(
               children: [
-                const Icon(Symbols.precision_manufacturing,
+                Icon(Symbols.precision_manufacturing,
                     size: 16, color: CncColors.textSub),
                 const SizedBox(width: 8),
-                const Expanded(
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -406,7 +406,7 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
           if (_fileName != null) ...[
             const SizedBox(height: 8),
             Text('文件：$_fileName　($_bytes 字节)',
-                style: const TextStyle(fontSize: 12, color: CncColors.textSub)),
+                style: TextStyle(fontSize: 12, color: CncColors.textSub)),
           ],
           const SizedBox(height: 12),
 
@@ -489,7 +489,7 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
             _card(
               child: SelectableText(
                 _prettyRaw(),
-                style: const TextStyle(fontSize: 10, color: CncColors.textMain),
+                style: TextStyle(fontSize: 10, color: CncColors.textMain),
               ),
             ),
           ],

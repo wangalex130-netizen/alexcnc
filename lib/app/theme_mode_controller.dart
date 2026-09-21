@@ -20,9 +20,12 @@ class ThemeModeController extends StateNotifier<ThemeMode> {
     final prefs = await SharedPreferences.getInstance();
     final v = prefs.getString(_key);
     if (!mounted) return;
-    state = v == 'dark'
-        ? ThemeMode.dark
-        : ThemeMode.light; // 默认浅色
+    // 三态：system / dark / light。未设置或值不可识别时默认浅色（历史行为不变）。
+    state = v == 'system'
+        ? ThemeMode.system
+        : v == 'dark'
+            ? ThemeMode.dark
+            : ThemeMode.light; // 默认浅色
   }
 
   Future<void> set(ThemeMode mode) async {

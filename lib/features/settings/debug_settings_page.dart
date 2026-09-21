@@ -294,13 +294,13 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
 
         leading: IconButton(
 
-          icon: const Icon(Symbols.arrow_back, color: CncColors.textMain),
+          icon: Icon(Symbols.arrow_back, color: CncColors.textMain),
 
           onPressed: () => Navigator.pop(context),
 
         ),
 
-        title: const Text('连接调试',
+        title: Text('连接调试',
 
             style: TextStyle(color: CncColors.textMain, fontSize: 17)),
 
@@ -334,7 +334,7 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
 
               children: [
 
-                const Icon(Symbols.sync,
+                Icon(Symbols.sync,
 
                     color: CncColors.primary, size: 22),
 
@@ -348,7 +348,7 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
 
                     children: [
 
-                      const Text('启用真实设备连接',
+                      Text('启用真实设备连接',
 
                           style: TextStyle(
 
@@ -356,7 +356,7 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
 
                       const SizedBox(height: 2),
 
-                      const Text('关闭则只演示：命令不会下发给机器',
+                      Text('关闭则只演示：命令不会下发给机器',
 
                           style: TextStyle(
 
@@ -420,7 +420,7 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
 
             children: [
 
-              const Padding(
+              Padding(
 
                 padding: EdgeInsets.only(left: 2, bottom: 6),
 
@@ -654,10 +654,10 @@ class _PushDebugCardState extends State<_PushDebugCard> {
         children: [
           Row(
             children: [
-              const Icon(Symbols.notifications_active,
+              Icon(Symbols.notifications_active,
                   color: CncColors.primaryInk, size: 20),
               const SizedBox(width: 8),
-              const Expanded(
+              Expanded(
                 child: Text('推送联调（个推）',
                     style: TextStyle(
                         color: CncColors.textMain,
@@ -665,7 +665,7 @@ class _PushDebugCardState extends State<_PushDebugCard> {
                         fontWeight: FontWeight.w600)),
               ),
               IconButton(
-                icon: const Icon(Symbols.refresh,
+                icon: Icon(Symbols.refresh,
                     color: CncColors.textSub, size: 20),
                 onPressed: _busy ? null : _refresh,
                 tooltip: '刷新',
@@ -744,7 +744,7 @@ class _PushDebugCardState extends State<_PushDebugCard> {
             SizedBox(
               width: 62,
               child: Text(k,
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: CncColors.textSub, fontSize: 12)),
             ),
             Expanded(
@@ -821,7 +821,7 @@ class _DiagnosticCard extends ConsumerWidget {
 
               Text('连接诊断',
 
-                  style: const TextStyle(
+                  style: TextStyle(
 
                       color: CncColors.textMain,
 
@@ -863,11 +863,11 @@ class _DiagnosticCard extends ConsumerWidget {
 
           Text('模式：${hw.isCloudMode ? '云端连接' : '局域网直连'}',
 
-              style: const TextStyle(color: CncColors.textSub, fontSize: 12)),
+              style: TextStyle(color: CncColors.textSub, fontSize: 12)),
 
           Text('MQTT：${hw.isMqttConnected ? '已连' : '未连'} ｜ TCP：${hw.isTcpConnected ? '已连' : '未连'}',
 
-              style: const TextStyle(color: CncColors.textSub, fontSize: 12)),
+              style: TextStyle(color: CncColors.textSub, fontSize: 12)),
 
           const SizedBox(height: 6),
 
@@ -917,7 +917,7 @@ class _DiagnosticCard extends ConsumerWidget {
 
                   style:
 
-                      const TextStyle(color: CncColors.textSub, fontSize: 12)),
+                      TextStyle(color: CncColors.textSub, fontSize: 12)),
 
                 Text(
 
@@ -925,7 +925,7 @@ class _DiagnosticCard extends ConsumerWidget {
 
                   style:
 
-                      const TextStyle(color: CncColors.textSub, fontSize: 12)),
+                      TextStyle(color: CncColors.textSub, fontSize: 12)),
 
               ],
 
@@ -1085,7 +1085,7 @@ class _CameraPreset extends StatelessWidget {
 
             Text(sub,
 
-                style: const TextStyle(
+                style: TextStyle(
 
                     fontSize: 10, color: CncColors.textSub)),
 
@@ -1141,7 +1141,7 @@ class _Field extends StatelessWidget {
 
               child: Text(label,
 
-                  style: const TextStyle(
+                  style: TextStyle(
 
                       color: CncColors.textSub, fontSize: 12)),
 
@@ -1155,13 +1155,13 @@ class _Field extends StatelessWidget {
 
               keyboardType: num ? TextInputType.number : TextInputType.url,
 
-              style: const TextStyle(color: CncColors.textMain, fontSize: 14),
+              style: TextStyle(color: CncColors.textMain, fontSize: 14),
 
               decoration: InputDecoration(
 
                 hintText: hint,
 
-                hintStyle: const TextStyle(color: CncColors.textSub, fontSize: 13),
+                hintStyle: TextStyle(color: CncColors.textSub, fontSize: 13),
 
                 filled: true,
 
@@ -1223,13 +1223,13 @@ class _DebugDisabledPage extends StatelessWidget {
         backgroundColor: CncColors.bg,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Symbols.arrow_back, color: CncColors.textMain),
+          icon: Icon(Symbols.arrow_back, color: CncColors.textMain),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text('连接调试',
+        title: Text('连接调试',
             style: TextStyle(color: CncColors.textMain, fontSize: 17)),
       ),
-      body: const Center(
+      body: Center(
         child: Padding(
           padding: EdgeInsets.symmetric(horizontal: 32),
           child: Text(

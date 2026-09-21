@@ -19,7 +19,7 @@ class PrivacyPolicyPage extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
           child: Text(
             kPrivacyPolicyText,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13.5,
               height: 1.75,
               color: CncColors.textMain,

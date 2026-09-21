@@ -294,7 +294,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
         leading: IconButton(
 
-          icon: const Icon(Symbols.close, color: CncColors.textMain),
+          icon: Icon(Symbols.close, color: CncColors.textMain),
 
           tooltip: '关闭监控页（加工继续）',
 
@@ -314,7 +314,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
         ),
 
-        title: const Text('实时加工监控',
+        title: Text('实时加工监控',
 
             style: TextStyle(color: CncColors.textMain)),
 
@@ -332,7 +332,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                 _stateLabel(status.state, completed),
 
-                style: const TextStyle(
+                style: TextStyle(
 
                     fontSize: 12,
 
@@ -376,7 +376,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
               children: [
 
-                const Icon(Symbols.memory, color: CncColors.primary, size: 20),
+                Icon(Symbols.memory, color: CncColors.primary, size: 20),
 
                 const SizedBox(width: 10),
 
@@ -388,7 +388,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                     children: [
 
-                      const Text('当前作业',
+                      Text('当前作业',
 
                           style:
 
@@ -400,7 +400,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                           overflow: TextOverflow.ellipsis,
 
-                          style: const TextStyle(
+                          style: TextStyle(
 
                               fontSize: 14,
 
@@ -416,7 +416,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                 Text('${job?.task.widthMm.toInt()} × ${job?.task.heightMm.toInt()} mm',
 
-                    style: const TextStyle(
+                    style: TextStyle(
 
                         fontSize: 11,
 
@@ -456,7 +456,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
               children: [
 
-                const Text('2D 刀路实时预览',
+                Text('2D 刀路实时预览',
 
                     style: TextStyle(fontSize: 11, color: CncColors.textSub)),
 
@@ -484,7 +484,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                             child: _pathLoading
 
-                                ? const SizedBox(
+                                ? SizedBox(
 
                                     width: 20,
 
@@ -504,7 +504,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                                         : '刀路预览将于后续版本支持',
 
-                                    style: const TextStyle(
+                                    style: TextStyle(
 
                                         fontSize: 12,
 
@@ -604,7 +604,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                     Text('已用 ${_fmt(_elapsed)}',
 
-                        style: const TextStyle(
+                        style: TextStyle(
 
                             fontSize: 10, color: CncColors.textSub)),
 
@@ -616,7 +616,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                           : '剩余 ${_fmt(remain)}',
 
-                      style: const TextStyle(
+                      style: TextStyle(
 
                           fontSize: 10,
 
@@ -730,7 +730,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                             Text(paused ? '继续' : '暂停',
 
-                                style: const TextStyle(
+                                style: TextStyle(
 
                                     fontSize: 13,
 
@@ -786,7 +786,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                             const SizedBox(width: 6),
 
-                            const Text('停止',
+                            Text('停止',
 
                                 style: TextStyle(
 
@@ -828,7 +828,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
             ),
 
-            child: const Text(
+            child: Text(
 
               '提示：关闭本页不会停止雕刻。如需重新查看，请进入控制台「当前加工中」入口。',
 
@@ -971,11 +971,11 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
         backgroundColor: CncColors.card,
 
-        title: const Text('确认停止雕刻吗？',
+        title: Text('确认停止雕刻吗？',
 
             style: TextStyle(color: CncColors.danger)),
 
-        content: const Text('停止后主轴将刹停，本次加工会中断。',
+        content: Text('停止后主轴将刹停，本次加工会中断。',
 
             style: TextStyle(color: CncColors.textMain)),
 
@@ -985,7 +985,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
             onPressed: () => Navigator.of(context).pop(),
 
-            child: const Text('取消', style: TextStyle(color: CncColors.textMain)),
+            child: Text('取消', style: TextStyle(color: CncColors.textMain)),
 
           ),
 
@@ -1017,7 +1017,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
             },
 
-            child: const Text('确认停止', style: TextStyle(color: CncColors.danger)),
+            child: Text('确认停止', style: TextStyle(color: CncColors.danger)),
 
           ),
 
@@ -1059,13 +1059,13 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                 const SizedBox(width: 8),
 
-                const Text('加工完成', style: TextStyle(color: CncColors.primaryInk)),
+                Text('加工完成', style: TextStyle(color: CncColors.primaryInk)),
 
               ],
 
             ),
 
-        content: const Text('本次作业已加工完成。',
+        content: Text('本次作业已加工完成。',
 
             style: TextStyle(color: CncColors.textMain)),
 
@@ -1093,7 +1093,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
             },
 
-            child: const Text('好', style: TextStyle(color: CncColors.primaryInk)),
+            child: Text('好', style: TextStyle(color: CncColors.primaryInk)),
 
           ),
 
@@ -1157,7 +1157,7 @@ class _Telem extends StatelessWidget {
 
             Text(label,
 
-                style: const TextStyle(fontSize: 10, color: CncColors.textSub)),
+                style: TextStyle(fontSize: 10, color: CncColors.textSub)),
 
             const SizedBox(height: 2),
 

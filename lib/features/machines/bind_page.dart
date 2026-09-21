@@ -265,11 +265,11 @@ class _BindPageState extends ConsumerState<BindPage> {
 
             children: [
 
-              const Icon(Symbols.lock, size: 48, color: CncColors.textSub),
+              Icon(Symbols.lock, size: 48, color: CncColors.textSub),
 
               const SizedBox(height: 12),
 
-              const Text('请先登录后再绑定机器',
+              Text('请先登录后再绑定机器',
 
                   style: TextStyle(fontSize: 14, color: CncColors.textMain)),
 
@@ -391,7 +391,7 @@ class _BindPageState extends ConsumerState<BindPage> {
 
                     setState(() => _showManual = !_showManual),
 
-                icon: const Icon(Symbols.keyboard,
+                icon: Icon(Symbols.keyboard,
 
                     size: 18, color: CncColors.primaryInk),
 
@@ -399,7 +399,7 @@ class _BindPageState extends ConsumerState<BindPage> {
 
                     style:
 
-                        const TextStyle(color: CncColors.primaryInk)),
+                        TextStyle(color: CncColors.primaryInk)),
 
               ),
 
@@ -415,7 +415,7 @@ class _BindPageState extends ConsumerState<BindPage> {
 
                   controller: _manual,
 
-                  style: const TextStyle(color: CncColors.textMain),
+                  style: TextStyle(color: CncColors.textMain),
 
                   decoration: InputDecoration(
 
@@ -423,7 +423,7 @@ class _BindPageState extends ConsumerState<BindPage> {
 
                     hintStyle:
 
-                        const TextStyle(color: CncColors.textSub),
+                        TextStyle(color: CncColors.textSub),
 
                     filled: true,
 
@@ -439,7 +439,7 @@ class _BindPageState extends ConsumerState<BindPage> {
 
                       borderSide:
 
-                          const BorderSide(color: CncColors.border),
+                          BorderSide(color: CncColors.border),
 
                     ),
 
@@ -461,7 +461,7 @@ class _BindPageState extends ConsumerState<BindPage> {
 
                 child: Text(_error!,
 
-                    style: const TextStyle(
+                    style: TextStyle(
 
                         fontSize: 12, color: CncColors.danger)),
 

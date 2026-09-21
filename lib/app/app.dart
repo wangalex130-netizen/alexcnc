@@ -61,6 +61,9 @@ class AlexCncApp extends ConsumerWidget {
       // F-03：状态栏/导航栏图标颜色必须跟随**当前实际生效**的 Brightness。
       // ThemeMode.system 下 mode 可能是 system，需用 Theme.of 解析后的亮度，不能只看 mode。
       builder: (context, child) {
+        // P1-1：同步全局亮度状态，CncColors 令牌 getter 据此在深浅色板间解析。
+        // builder 在每次主题/系统亮度变化时重建，保证整棵子树重新求值。
+        CncColors.brightness = Theme.of(context).brightness;
         applySystemBars(Theme.of(context).brightness);
         return child ?? const SizedBox.shrink();
       },

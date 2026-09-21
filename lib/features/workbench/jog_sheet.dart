@@ -176,7 +176,7 @@ class _JogSheetState extends ConsumerState<JogSheet>
                       child: const Text('取消')),
                   TextButton(
                       onPressed: () => Navigator.pop(ctx, true),
-                      child: const Text('确定软复位',
+                      child: Text('确定软复位',
                           style: TextStyle(color: CncColors.danger))),
                 ],
               ),
@@ -196,7 +196,7 @@ class _JogSheetState extends ConsumerState<JogSheet>
     }
 
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: CncColors.card,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         border: Border(top: BorderSide(color: CncColors.border)),
@@ -208,7 +208,7 @@ class _JogSheetState extends ConsumerState<JogSheet>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('手动移动（Jog）',
+              Text('手动移动（Jog）',
                   style: TextStyle(
                       fontSize: 16, fontWeight: FontWeight.bold, color: CncColors.textMain)),
               if (!canControl)
@@ -219,7 +219,7 @@ class _JogSheetState extends ConsumerState<JogSheet>
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(lockLabel,
-                      style: const TextStyle(fontSize: 10, color: CncColors.warning)),
+                      style: TextStyle(fontSize: 10, color: CncColors.warning)),
                 ),
             ],
           ),
@@ -227,7 +227,7 @@ class _JogSheetState extends ConsumerState<JogSheet>
           // 步进档位
           Row(
             children: [
-              const Text('步进',
+              Text('步进',
                   style: TextStyle(fontSize: 12, color: CncColors.textSub)),
               const SizedBox(width: 12),
               ...[0.1, 1.0, 10.0].map((v) {
@@ -294,7 +294,7 @@ class _JogSheetState extends ConsumerState<JogSheet>
                         color: CncColors.bg,
                         borderRadius: BorderRadius.circular(6),
                       ),
-                      child: const Center(
+                      child: Center(
                         child: Text('XY',
                             style: TextStyle(fontSize: 11, color: CncColors.textSub)),
                       ),
@@ -363,7 +363,7 @@ class _JogSheetState extends ConsumerState<JogSheet>
           ),
           const SizedBox(height: 10),
           Text('步进 ${step.toStringAsFixed(1)} mm · 长按可连续移动',
-              style: const TextStyle(fontSize: 11, color: CncColors.textSub)),
+              style: TextStyle(fontSize: 11, color: CncColors.textSub)),
         ],
       ),
     );

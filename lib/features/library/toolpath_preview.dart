@@ -134,7 +134,7 @@ class _ToolpathPreviewState extends State<ToolpathPreview> {
     if (_loading) {
       return Container(
         color: const Color(0xFFF5F7FA),
-        child: const Center(
+        child: Center(
           child: SizedBox(
             width: 20,
             height: 20,
@@ -147,7 +147,7 @@ class _ToolpathPreviewState extends State<ToolpathPreview> {
     if (_error || _data == null || _data!.isEmpty) {
       return Container(
         color: const Color(0xFFF5F7FA),
-        child: const Center(
+        child: Center(
           child: Text('暂无刀路预览',
               style: TextStyle(fontSize: 12, color: CncColors.textSub)),
         ),

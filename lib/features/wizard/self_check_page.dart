@@ -87,7 +87,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
     if (st?.state == MachineState.alarm) {
 
-      return const _CarveView(
+      return _CarveView(
 
         icon: Symbols.error,
 
@@ -107,7 +107,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
     if (carve?.stage == CarveStage.running || st?.state == MachineState.busy) {
 
-      return const _CarveView(
+      return _CarveView(
 
         icon: Symbols.play_circle,
 
@@ -157,7 +157,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
         carve?.stage == CarveStage.confirming) {
 
-      return const _CarveView(
+      return _CarveView(
 
         icon: Symbols.front_hand,
 
@@ -201,7 +201,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
     // ⑥ 默认：等待机器响应
 
-    return const _CarveView(
+    return _CarveView(
 
       icon: Symbols.hourglass_empty,
 
@@ -245,11 +245,11 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
         backgroundColor: CncColors.card,
 
-        title: const Text('返回控制台？',
+        title: Text('返回控制台？',
 
             style: TextStyle(color: CncColors.textMain)),
 
-        content: const Text(
+        content: Text(
 
           '加工不会中断。你可以随时从控制台「当前加工中」返回查看实时进度。',
 
@@ -263,7 +263,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
             onPressed: () => Navigator.of(ctx).pop(),
 
-            child: const Text('留在本页', style: TextStyle(color: CncColors.textSub)),
+            child: Text('留在本页', style: TextStyle(color: CncColors.textSub)),
 
           ),
 
@@ -347,7 +347,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
         leading: IconButton(
 
-          icon: const Icon(Symbols.close, color: CncColors.textMain),
+          icon: Icon(Symbols.close, color: CncColors.textMain),
 
           tooltip: '返回控制台',
 
@@ -357,7 +357,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
         title: Text(running ? '雕刻中' : '准备中',
 
-            style: const TextStyle(color: CncColors.textMain)),
+            style: TextStyle(color: CncColors.textMain)),
 
         centerTitle: false,
 
@@ -391,7 +391,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
               children: [
 
-                const Icon(Symbols.fact_check,
+                Icon(Symbols.fact_check,
 
                     color: CncColors.primary, size: 20),
 
@@ -405,7 +405,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
                     children: [
 
-                      const Text('加工参数',
+                      Text('加工参数',
 
                           style: TextStyle(
 
@@ -417,7 +417,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
                           overflow: TextOverflow.ellipsis,
 
-                          style: const TextStyle(
+                          style: TextStyle(
 
                               fontSize: 13,
 
@@ -459,7 +459,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
             ),
 
-            child: const Text(
+            child: Text(
 
               '关闭本页不会停止加工。你可以随时从控制台「当前加工中」返回查看实时进度。',
 
@@ -595,7 +595,7 @@ class _StatusCard extends StatelessWidget {
 
                 Text(view.detail,
 
-                    style: const TextStyle(
+                    style: TextStyle(
 
                         fontSize: 12,
 

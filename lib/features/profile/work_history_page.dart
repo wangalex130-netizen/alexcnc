@@ -237,7 +237,7 @@ class _WorkHistoryPageState extends ConsumerState<WorkHistoryPage> {
                 padding: const EdgeInsets.fromLTRB(4, 12, 4, 6),
                 child: Text(
                   g.header,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
                       color: CncColors.textSub),
@@ -337,12 +337,12 @@ class _DisabledView extends StatelessWidget {
           children: [
             Icon(Symbols.visibility_off, size: 48, color: CncColors.textSub),
             const SizedBox(height: 14),
-            const Text(
+            Text(
               '雕刻历史已关闭',
               style: TextStyle(fontSize: 15, color: CncColors.textMain),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               '关闭期间不会展示任何加工记录。'
               '需要查看时，打开右上角开关即可。',
               textAlign: TextAlign.center,
@@ -480,18 +480,18 @@ class _RecordCard extends StatelessWidget {
           color: CncColors.danger.withOpacity(0.12),
           borderRadius: BorderRadius.circular(12),
         ),
-        child: const Icon(Symbols.delete, color: CncColors.danger, size: 20),
+        child: Icon(Symbols.delete, color: CncColors.danger, size: 20),
       ),
       confirmDismiss: (_) async {
         return await showDialog<bool>(
               context: context,
               builder: (_) => AlertDialog(
                 backgroundColor: CncColors.card,
-                title: const Text('删除记录',
+                title: Text('删除记录',
                     style: TextStyle(color: CncColors.textMain)),
                 content: Text(
                     '确定删除「${record.fileName.isEmpty ? '未命名任务' : record.fileName}」这条记录吗？',
-                    style: const TextStyle(color: CncColors.textSub)),
+                    style: TextStyle(color: CncColors.textSub)),
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.pop(context, false),
@@ -499,7 +499,7 @@ class _RecordCard extends StatelessWidget {
                   ),
                   TextButton(
                     onPressed: () => Navigator.pop(context, true),
-                    child: const Text('删除',
+                    child: Text('删除',
                         style: TextStyle(color: CncColors.danger)),
                   ),
                 ],
@@ -524,7 +524,7 @@ class _RecordCard extends StatelessWidget {
                 children: [
                   Text(
                     record.fileName.isEmpty ? '未命名任务' : record.fileName,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
                         color: CncColors.textMain),
@@ -535,7 +535,7 @@ class _RecordCard extends StatelessWidget {
                     const SizedBox(height: 5),
                     Text(
                       parts.join(' · '),
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 12, color: CncColors.textSub),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -551,7 +551,7 @@ class _RecordCard extends StatelessWidget {
                 if (record.createTime != null)
                   Text(
                     _hhmm(record.createTime!),
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 12, color: CncColors.textSub),
                   ),
                 const SizedBox(height: 4),
@@ -637,12 +637,12 @@ class _Empty extends StatelessWidget {
           Icon(icon, size: 48, color: CncColors.textSub),
           const SizedBox(height: 12),
           Text(text,
-              style: const TextStyle(color: CncColors.textSub, fontSize: 14)),
+              style: TextStyle(color: CncColors.textSub, fontSize: 14)),
           const SizedBox(height: 14),
           TextButton(
             onPressed: onAction,
             child: Text(actionText,
-                style: const TextStyle(color: CncColors.primaryInk)),
+                style: TextStyle(color: CncColors.primaryInk)),
           ),
         ],
       ),

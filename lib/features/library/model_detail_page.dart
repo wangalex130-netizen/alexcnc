@@ -85,7 +85,7 @@ class ModelDetailPage extends ConsumerWidget {
 
             overflow: TextOverflow.ellipsis,
 
-            style: const TextStyle(
+            style: TextStyle(
 
                 fontSize: 15,
 
@@ -97,7 +97,7 @@ class ModelDetailPage extends ConsumerWidget {
 
         leading: IconButton(
 
-          icon: const Icon(Symbols.arrow_back_ios_new, size: 18, color: CncColors.textMain),
+          icon: Icon(Symbols.arrow_back_ios_new, size: 18, color: CncColors.textMain),
 
           onPressed: () => Navigator.of(context).maybePop(),
 
@@ -137,7 +137,7 @@ class ModelDetailPage extends ConsumerWidget {
 
                             child: Text(item.title,
 
-                                style: const TextStyle(
+                                style: TextStyle(
 
                                     fontSize: 17,
 
@@ -165,7 +165,7 @@ class ModelDetailPage extends ConsumerWidget {
 
                       Text(item.author.isEmpty ? '官方模型' : 'by ${item.author}',
 
-                          style: const TextStyle(
+                          style: TextStyle(
 
                               fontSize: 11, color: CncColors.textSub)),
 
@@ -199,7 +199,7 @@ class ModelDetailPage extends ConsumerWidget {
 
                         const SizedBox(height: 8),
 
-                        const Text('该模型尚未切片，需先在电脑端生成刀路',
+                        Text('该模型尚未切片，需先在电脑端生成刀路',
 
                             style: TextStyle(
 
@@ -225,7 +225,7 @@ class ModelDetailPage extends ConsumerWidget {
 
                         Text(item.description!,
 
-                            style: const TextStyle(
+                            style: TextStyle(
 
                                 fontSize: 12,
 
@@ -491,7 +491,7 @@ class _ParamCell extends StatelessWidget {
 
           Text(label,
 
-              style: const TextStyle(fontSize: 10, color: CncColors.textSub)),
+              style: TextStyle(fontSize: 10, color: CncColors.textSub)),
 
           const SizedBox(height: 3),
 
@@ -501,7 +501,7 @@ class _ParamCell extends StatelessWidget {
 
               overflow: TextOverflow.ellipsis,
 
-              style: const TextStyle(
+              style: TextStyle(
 
                   fontSize: 12,
 
@@ -567,7 +567,7 @@ class _ToolCard extends StatelessWidget {
 
         children: [
 
-          const Text('默认刀具',
+          Text('默认刀具',
 
               style: TextStyle(fontSize: 10, color: CncColors.textSub)),
 
@@ -577,7 +577,7 @@ class _ToolCard extends StatelessWidget {
 
             display,
 
-            style: const TextStyle(
+            style: TextStyle(
 
                 fontSize: 12,
 
@@ -653,7 +653,7 @@ class _BottomBar extends StatelessWidget {
 
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
 
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
 
         color: CncColors.card,
 
@@ -699,7 +699,7 @@ class _BottomBar extends StatelessWidget {
 
               sliced ? '开始雕刻' : '查看并开始雕刻',
 
-              style: const TextStyle(
+              style: TextStyle(
 
                   fontSize: 14,
 

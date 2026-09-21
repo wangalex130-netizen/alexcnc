@@ -48,7 +48,7 @@ class SysBitsPage extends ConsumerWidget {
           const SizedBox(height: 100),
           Center(
             child: Text(msg,
-                style: const TextStyle(color: CncColors.textSub, fontSize: 14)),
+                style: TextStyle(color: CncColors.textSub, fontSize: 14)),
           ),
         ],
       );
@@ -98,7 +98,7 @@ class _BitCard extends StatelessWidget {
                       child: Text(bit.name,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
                               color: CncColors.textMain)),
@@ -111,7 +111,7 @@ class _BitCard extends StatelessWidget {
                           color: CncColors.primary.withOpacity(0.14),
                           borderRadius: BorderRadius.circular(6),
                         ),
-                        child: const Text('本机适配',
+                        child: Text('本机适配',
                             style: TextStyle(
                                 fontSize: 10, color: CncColors.primaryInk)),
                       ),
@@ -119,7 +119,7 @@ class _BitCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(bit.displaySpec,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 12, color: CncColors.textSub)),
               ],
             ),

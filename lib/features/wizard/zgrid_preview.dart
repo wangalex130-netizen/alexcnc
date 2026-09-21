@@ -264,7 +264,7 @@ class _ZGridSurfaceState extends State<ZGridSurface> {
               ),
             ),
           ),
-          const Positioned(
+          Positioned(
             left: 8,
             top: 6,
             child: Text('拖动旋转 · 双指缩放',
@@ -287,7 +287,7 @@ class _ZGridSurfaceState extends State<ZGridSurface> {
           borderRadius: BorderRadius.circular(6),
           border: Border.all(color: CncColors.border),
         ),
-        child: const Text('复位',
+        child: Text('复位',
             style: TextStyle(fontSize: 10, color: CncColors.textSub)),
       ),
     );
@@ -307,7 +307,7 @@ class _ZGridSurfaceState extends State<ZGridSurface> {
           const SizedBox(width: 4),
           _presetChip('侧视', _rotX < _sideRotX + 0.09, () => _preset(_sideRotX, 0)),
           const SizedBox(width: 6),
-          const Text('Z放大',
+          Text('Z放大',
               style: TextStyle(fontSize: 10, color: CncColors.textSub)),
           Expanded(
             child: SizedBox(
@@ -332,7 +332,7 @@ class _ZGridSurfaceState extends State<ZGridSurface> {
             ),
           ),
           Text('${_zAmp}x',
-              style: const TextStyle(fontSize: 10, color: CncColors.textSub)),
+              style: TextStyle(fontSize: 10, color: CncColors.textSub)),
         ],
       ),
     );
@@ -481,7 +481,7 @@ class _ZGridPreviewState extends State<ZGridPreview> {
 
   Widget _body() {
     if (_loading) {
-      return const Center(
+      return Center(
         child: SizedBox(
           width: 20,
           height: 20,
@@ -492,7 +492,7 @@ class _ZGridPreviewState extends State<ZGridPreview> {
     }
     final d = _data;
     if (d == null || d.isEmpty) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -531,7 +531,7 @@ class _ZGridPreviewState extends State<ZGridPreview> {
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text('数据来源：$_source',
-                style: const TextStyle(fontSize: 10, color: CncColors.textSub)),
+                style: TextStyle(fontSize: 10, color: CncColors.textSub)),
           ),
       ],
     );

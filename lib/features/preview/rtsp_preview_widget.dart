@@ -1127,7 +1127,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
                   ),
 
-                  child: const Icon(
+                  child: Icon(
 
                     Symbols.play_arrow,
 
@@ -1141,7 +1141,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
                 const SizedBox(height: 10),
 
-                const Text(
+                Text(
 
                   '点击开始预览',
 
@@ -1195,7 +1195,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
           // 无地址或页面被切走：纯黑屏 + 加载圈。
 
-          content = const Center(
+          content = Center(
 
             child: CircularProgressIndicator(color: CncColors.primary),
 
@@ -1259,7 +1259,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
         if (_state == _CamState.connecting)
 
-          const Positioned.fill(
+          Positioned.fill(
 
             child: ColoredBox(
 
@@ -1529,7 +1529,7 @@ class _Placeholder extends StatelessWidget {
 
               onPressed: onRetry,
 
-              icon: const Icon(Symbols.refresh, size: 26, color: CncColors.primary),
+              icon: Icon(Symbols.refresh, size: 26, color: CncColors.primary),
 
               tooltip: '重试',
 

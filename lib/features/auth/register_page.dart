@@ -137,13 +137,13 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
             children: [
 
-              const Icon(Symbols.qr_code_scanner,
+              Icon(Symbols.qr_code_scanner,
 
                   size: 56, color: CncColors.primaryInk),
 
               const SizedBox(height: 8),
 
-              const Text(
+              Text(
 
                 '创建账号',
 
@@ -161,7 +161,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
               const SizedBox(height: 4),
 
-              const Text(
+              Text(
 
                 '注册后可扫码绑定你的雕刻机',
 
@@ -217,7 +217,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
                 Text(_error!,
 
-                    style: const TextStyle(
+                    style: TextStyle(
 
                         fontSize: 12, color: CncColors.danger)),
 
@@ -309,7 +309,7 @@ class _Field extends StatelessWidget {
 
                 keyboardType: keyboardType,
 
-                style: const TextStyle(
+                style: TextStyle(
 
                     color: CncColors.textMain, fontSize: 14),
 
@@ -319,7 +319,7 @@ class _Field extends StatelessWidget {
 
                   hintStyle:
 
-                      const TextStyle(color: CncColors.textSub),
+                      TextStyle(color: CncColors.textSub),
 
                   border: InputBorder.none,
 

@@ -271,7 +271,7 @@ class _TimeLapseVideoPageState extends State<TimeLapseVideoPage> {
 
               child: Text(_toast!,
 
-                  style: const TextStyle(fontSize: 12, color: CncColors.textSub)),
+                  style: TextStyle(fontSize: 12, color: CncColors.textSub)),
 
             ),
 

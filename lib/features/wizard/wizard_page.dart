@@ -173,7 +173,11 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   /// 且已点「确认映射并同步到机器」。
   bool get _atcReady {
     final req = _task?.requiredTools ?? [];
-    if (req.isEmpty) return false;
+    // P1 修复（2026-09-21）：作业无任何工序刀具（req 为空）时，刀仓映射
+    // 无需执行 —— 原来直接 return false 会让客户永远卡在本步（点「下一步」
+    // 无反应、无报错的死锁）。空列表 = 直接放行。
+    // 按作业类型整屏跳过（激光作业）等云端作业类型字段落地后再做。
+    if (req.isEmpty) return true;
     if (_procSlot.length < req.length) return false;
     final usedSlots = _procSlot.values.toSet();
     if (usedSlots.length != req.length) return false; // 同一兜被两个工序占用
@@ -292,11 +296,11 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           : AppBar(
         backgroundColor: CncColors.panel,
         leading: IconButton(
-          icon: const Icon(Symbols.close, color: CncColors.textMain),
+          icon: Icon(Symbols.close, color: CncColors.textMain),
           tooltip: '取消',
           onPressed: () => Navigator.of(context).pop(),
         ),
-        title: const Text('雕刻向导',
+        title: Text('雕刻向导',
             style: TextStyle(color: CncColors.textMain)),
         centerTitle: false,
         actions: [
@@ -325,7 +329,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: _loading
-                  ? const Center(
+                  ? Center(
                       child: CircularProgressIndicator(
                           color: CncColors.primary))
                   : _stepContent(),
@@ -432,6 +436,30 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           onChkFixture: (v) => setState(() => _chkFixture = v),
         );
       case 1:
+        // P1 修复（2026-09-21）：无刀具作业（req 为空）显示空态说明，
+        // 不再渲染刀仓映射表；配合 _atcReady 放行，修复「下一步」无反应死锁。
+        if ((_task?.requiredTools ?? []).isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              children: [
+                Icon(Symbols.fact_check,
+                    size: 42, color: CncColors.textSub),
+                const SizedBox(height: 12),
+                Text('本作业无需刀具映射',
+                    style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: CncColors.textMain)),
+                const SizedBox(height: 6),
+                Text('该作业不包含换刀工序，可直接进入下一步。',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        fontSize: 12, color: CncColors.textSub)),
+              ],
+            ),
+          );
+        }
         return _StepAtc(
           requiredTools: _task?.requiredTools ?? [],
           procSlot: _procSlot,
@@ -601,7 +629,7 @@ class _StepMaterial extends StatelessWidget {
           Icon(icon, size: 15, color: CncColors.textSub),
           const SizedBox(width: 6),
           Text(text,
-              style: const TextStyle(
+              style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
                   color: CncColors.textSub)),
@@ -615,11 +643,11 @@ class _StepMaterial extends StatelessWidget {
           children: [
             Text(k,
                 style:
-                    const TextStyle(fontSize: 12, color: CncColors.textSub)),
+                    TextStyle(fontSize: 12, color: CncColors.textSub)),
             Flexible(
               child: Text(v,
                   textAlign: TextAlign.right,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.bold,
                       color: CncColors.textMain)),
@@ -652,7 +680,7 @@ class _StepMaterial extends StatelessWidget {
         Text('Step 1 · 材料确认与装夹',
             style: t.titleMedium?.copyWith(color: CncColors.textMain)),
         const SizedBox(height: 6),
-        const Text('请对照实物逐项确认。材质与刀路参数由模型预设，App 无法更改。',
+        Text('请对照实物逐项确认。材质与刀路参数由模型预设，App 无法更改。',
             style: TextStyle(fontSize: 12, color: CncColors.textSub)),
         const SizedBox(height: 12),
 
@@ -679,7 +707,7 @@ class _StepMaterial extends StatelessWidget {
                           '预览来自云端轻量 JSON（高程网格），并非 G-code。'
                       : '预览来自云端轻量 JSON（高程网格），并非 G-code；'
                           '填写材料厚度后将按真实耗材模拟。',
-                  style: const TextStyle(fontSize: 10, color: CncColors.textSub)),
+                  style: TextStyle(fontSize: 10, color: CncColors.textSub)),
             ],
           ),
         ),
@@ -699,7 +727,7 @@ class _StepMaterial extends StatelessWidget {
                       children: [
                         Flexible(
                           child: Text(def.name,
-                              style: const TextStyle(
+                              style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
                                   color: CncColors.textMain)),
@@ -721,7 +749,7 @@ class _StepMaterial extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 4),
-                    const Text('按此材质备料；更换材质不会改变加工参数。',
+                    Text('按此材质备料；更换材质不会改变加工参数。',
                         style: TextStyle(
                             fontSize: 11, color: CncColors.textSub)),
                   ],
@@ -764,11 +792,11 @@ class _StepMaterial extends StatelessWidget {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  const Icon(Symbols.error, size: 15, color: CncColors.danger),
+                  Icon(Symbols.error, size: 15, color: CncColors.danger),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text('模型厚度 $minT mm（不可低于此值）',
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.bold,
                             color: CncColors.danger)),
@@ -785,14 +813,14 @@ class _StepMaterial extends StatelessWidget {
                 // 真正吸附在失焦/提交时由父级完成。
                 onChanged: onThickness,
                 onSubmitted: (_) => thicknessFocus.unfocus(),
-                style: const TextStyle(color: CncColors.textMain),
+                style: TextStyle(color: CncColors.textMain),
                 decoration: InputDecoration(
                   labelText: '实测材料厚度 (mm)',
                   hintText: '须 ≥ $minT',
-                  labelStyle: const TextStyle(color: CncColors.textSub),
-                  hintStyle: const TextStyle(color: CncColors.textSub),
+                  labelStyle: TextStyle(color: CncColors.textSub),
+                  hintStyle: TextStyle(color: CncColors.textSub),
                   suffixText: 'mm',
-                  suffixStyle: const TextStyle(color: CncColors.textSub),
+                  suffixStyle: TextStyle(color: CncColors.textSub),
                   errorText:
                       tooThin ? '太薄：必须 ≥ $minT mm（模型厚度），否则会切穿板材、伤及台面' : null,
                   filled: true,
@@ -847,7 +875,7 @@ class _StepMaterial extends StatelessWidget {
             children: [
               _title(Symbols.construction, '装夹'),
               const SizedBox(height: 8),
-              const Text('材料平放于台面；夹具只夹在雕刻区域之外，不得伸入图形范围。',
+              Text('材料平放于台面；夹具只夹在雕刻区域之外，不得伸入图形范围。',
                   style: TextStyle(fontSize: 11, color: CncColors.textSub)),
               const SizedBox(height: 6),
               _CheckTile(
@@ -873,9 +901,9 @@ class _Param extends StatelessWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(k, style: const TextStyle(fontSize: 13, color: CncColors.textSub)),
+            Text(k, style: TextStyle(fontSize: 13, color: CncColors.textSub)),
             Text(v,
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
                     color: CncColors.primary)),
@@ -913,7 +941,7 @@ class _CheckTile extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(label,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 13, color: CncColors.textMain)),
               ),
             ],
@@ -983,14 +1011,14 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
         backgroundColor: CncColors.card,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: CncColors.border),
+          side: BorderSide(color: CncColors.border),
         ),
         title: Row(
           children: [
-            const Icon(Symbols.warning_amber, color: CncColors.danger),
+            Icon(Symbols.warning_amber, color: CncColors.danger),
             const SizedBox(width: 8),
             Text('T$slot 已占用',
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
                     color: CncColors.textMain)),
@@ -1001,12 +1029,12 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
           '与工序${p + 1} 所需刀具 ${ringEmoji(needed.ring)} ${needed.name} 不一致。\n\n'
           '若继续映射，请确认 T$slot 实物刀兜中的刀具已更换为 ${ringEmoji(needed.ring)} ${needed.name}，'
           '并核对环色无误。',
-          style: const TextStyle(fontSize: 13, color: CncColors.textSub),
+          style: TextStyle(fontSize: 13, color: CncColors.textSub),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('取消',
+            child: Text('取消',
                 style: TextStyle(color: CncColors.textSub)),
           ),
           FilledButton(
@@ -1050,14 +1078,14 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
             IconButton(
               icon: _refreshing
                   ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: CncColors.primaryInk))
-                  : const Icon(Symbols.refresh, size: 18, color: CncColors.primaryInk),
+                  : Icon(Symbols.refresh, size: 18, color: CncColors.primaryInk),
               tooltip: '刷新服务器最新刀仓',
               onPressed: _refreshing ? null : _refresh,
             ),
           ],
         ),
         const SizedBox(height: 6),
-        const Text('模型需按工序顺序使用以下刀具。已自动沿用控制台刀仓中已配置的刀位；'
+        Text('模型需按工序顺序使用以下刀具。已自动沿用控制台刀仓中已配置的刀位；'
             '未配置的工序刀请手动选择物理刀兜。机器按工序顺序自动换刀，而非固定 T1→T2。',
             style: TextStyle(fontSize: 12, color: CncColors.textSub)),
         const SizedBox(height: 14),
@@ -1110,7 +1138,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                           ringDot(defOrFallback.ring, size: 12),
                           const SizedBox(width: 4),
                           Text('工序 ${p + 1}',
-                              style: const TextStyle(
+                              style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.bold,
                                   color: CncColors.primary)),
@@ -1120,7 +1148,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text('${rt.role} · 模型推荐刀具',
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontSize: 12, color: CncColors.textSub)),
                     ),
                   ],
@@ -1135,13 +1163,13 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(defOrFallback.name,
-                              style: const TextStyle(
+                              style: TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold,
                                   color: CncColors.textMain)),
                           Text(
                               '${defOrFallback.type} · ${defOrFallback.diameterMm}mm · ${defOrFallback.desc}',
-                              style: const TextStyle(
+                              style: TextStyle(
                                   fontSize: 10, color: CncColors.textSub)),
                         ],
                       ),
@@ -1149,7 +1177,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                   ],
                 ),
                 const SizedBox(height: 10),
-                const Text('选择物理刀兜',
+                Text('选择物理刀兜',
                     style: TextStyle(fontSize: 11, color: CncColors.textSub)),
                 const SizedBox(height: 6),
                 Row(
@@ -1188,7 +1216,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                       Expanded(
                         child: Text(
                             'T$slot 被多个工序占用，请为每个工序选择不同刀兜',
-                            style: const TextStyle(
+                            style: TextStyle(
                                 fontSize: 11, color: CncColors.danger)),
                       ),
                     ],
@@ -1199,7 +1227,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
           );
         }).toList(),
         const SizedBox(height: 10),
-        const Text('当前刀表（刀兜 ↔ 刀具，与控制台同步）',
+        Text('当前刀表（刀兜 ↔ 刀具，与控制台同步）',
             style: TextStyle(fontSize: 11, color: CncColors.textSub)),
         const SizedBox(height: 8),
         Row(
@@ -1361,7 +1389,7 @@ class _Slot extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text('T$slot',
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 16,
                               color: CncColors.textMain)),
@@ -1412,7 +1440,7 @@ class _Slot extends StatelessWidget {
                   textAlign: TextAlign.center,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 9, color: CncColors.textSub)),
             ),
       ],
@@ -2292,7 +2320,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(k,
-                style: const TextStyle(fontSize: 12, color: CncColors.textSub)),
+                style: TextStyle(fontSize: 12, color: CncColors.textSub)),
             Flexible(
               child: Text(v,
                   textAlign: TextAlign.right,
@@ -2326,7 +2354,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
                     onPressed: onTap,
                     style: OutlinedButton.styleFrom(
                       padding: EdgeInsets.zero,
-                      side: const BorderSide(color: CncColors.border),
+                      side: BorderSide(color: CncColors.border),
                       foregroundColor: CncColors.textMain,
                     ),
                     child: Text(label, style: const TextStyle(fontSize: 12)),
@@ -2362,7 +2390,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         : (mp == null ? null : Offset(mp.x, mp.y));
 
     if (_areaLoading) {
-      return const Center(
+      return Center(
           child: Padding(
         padding: EdgeInsets.all(24),
         child: CircularProgressIndicator(color: CncColors.primary),
@@ -2493,7 +2521,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           textAlign: TextAlign.center,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 10, color: CncColors.textSub),
+          style: TextStyle(fontSize: 10, color: CncColors.textSub),
         ),
       );
 
@@ -2610,7 +2638,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
                     : (linked ? '检查机器' : '未连接')),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 10.5, color: CncColors.textSub),
+            style: TextStyle(fontSize: 10.5, color: CncColors.textSub),
           ),
         ),
       ]),
@@ -2697,7 +2725,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
               border: Border.all(color: CncColors.border),
             ),
             child:
-                const Icon(Symbols.close, size: 15, color: CncColors.textSub),
+                Icon(Symbols.close, size: 15, color: CncColors.textSub),
           ),
         ),
       ]),
@@ -3170,7 +3198,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
             const SizedBox(width: 8),
             Expanded(
               child: Text(s,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 11, color: CncColors.textMain, height: 1.4)),
             ),
           ],
@@ -3391,7 +3419,7 @@ class _StepLeveling extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
             border: Border.all(color: CncColors.warning.withOpacity(0.45)),
           ),
-          child: const Row(
+          child: Row(
             children: [
               Icon(Symbols.info, size: 16, color: CncColors.warning),
               SizedBox(width: 8),
@@ -3409,7 +3437,7 @@ class _StepLeveling extends StatelessWidget {
           mode == 0
               ? '本次雕刻将跳过调平，请手动确认台面平整、耗材已压紧。'
               : '基于加工面积自动匹配探测点。选择调平模式以平衡精度与耗时：',
-          style: const TextStyle(fontSize: 12, color: CncColors.textSub)),
+          style: TextStyle(fontSize: 12, color: CncColors.textSub)),
         const SizedBox(height: 12),
         Row(
           children: List.generate(modes.length, (i) {
@@ -3465,11 +3493,11 @@ class _StepLeveling extends StatelessWidget {
               _Param('基于图纸面积匹配阵列', grid),
               _Param('预估调平额外耗时', time),
               const SizedBox(height: 4),
-              const Text('执行方式：点击雕刻后自动完成，无需等待',
+              Text('执行方式：点击雕刻后自动完成，无需等待',
                   style: TextStyle(fontSize: 10, color: CncColors.textSub)),
               const SizedBox(height: 4),
               Text(modes[mode].$2,
-                  style: const TextStyle(fontSize: 11, color: CncColors.textSub)),
+                  style: TextStyle(fontSize: 11, color: CncColors.textSub)),
             ],
           ),
         ),
@@ -3763,7 +3791,7 @@ class _ReadyPhase extends StatelessWidget {
                 child: Text(
                     '加工文件由云端直接发送到机器，手机不会留存任何文件，更安全。'
                     '点击后设备将先执行自检流水线，完成后自动进入实时加工监控页。',
-                    style: const TextStyle(fontSize: 11, color: CncColors.textMain)),
+                    style: TextStyle(fontSize: 11, color: CncColors.textMain)),
               ),
             ],
           ),
@@ -3780,9 +3808,9 @@ class _ReadyPhase extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SwitchListTile(
-                title: const Text('延时摄影',
+                title: Text('延时摄影',
                     style: TextStyle(color: CncColors.textMain, fontSize: 13)),
-                subtitle: const Text('雕刻时服务器自动拍照，结束后生成 15 秒回顾视频',
+                subtitle: Text('雕刻时服务器自动拍照，结束后生成 15 秒回顾视频',
                     style: TextStyle(fontSize: 11, color: CncColors.textMain)),
                 value: timeLapse,
                 onChanged: onToggleTimeLapse,
@@ -3805,7 +3833,7 @@ class _ReadyPhase extends StatelessWidget {
                       contentPadding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 8),
                     ),
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 13, color: CncColors.textMain),
                   ),
                 ),
@@ -3912,13 +3940,13 @@ class _OriginFullscreenState extends ConsumerState<_OriginFullscreen> {
               padding: const EdgeInsets.fromLTRB(12, 6, 8, 5),
               child: Row(
                 children: [
-                  const Text('全屏精调 · 拖动模型摆位',
+                  Text('全屏精调 · 拖动模型摆位',
                       style:
                           TextStyle(fontSize: 12.5, color: CncColors.textSub)),
                   const Spacer(),
                   Text(
                     'X ${_pos.dx.toStringAsFixed(1)}   Y ${_pos.dy.toStringAsFixed(1)} mm',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 12, color: CncColors.textMain),
                   ),
                   const SizedBox(width: 12),
