@@ -205,16 +205,29 @@ class _MachineCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // P1-5（2026-09-21）：状态标签补全 7 态（原只认 busy/paused，其余一律
+    // 误显示为「空闲」——报警态此前也显示空闲）。报警态叠加人话文案；
+    // 颜色对齐设计系统 7 态表：报警=危险红。
     final stateColor = status.state == MachineState.busy
         ? CncColors.warning
         : status.state == MachineState.paused
             ? CncColors.blue
-            : CncColors.primary;
+            : status.state == MachineState.alarm
+                ? CncColors.danger
+                : CncColors.primary;
     final stateLabel = status.state == MachineState.busy
         ? '加工中'
         : status.state == MachineState.paused
             ? '已暂停'
-            : '空闲';
+            : status.state == MachineState.homing
+                ? '回零中'
+                : status.state == MachineState.alarm
+                    ? '报警 · ${status.alarmText ?? '报警'}'
+                    : status.state == MachineState.unknown
+                        ? '状态未知'
+                        : status.state == MachineState.disconnected
+                            ? '不在线'
+                            : '空闲';
     final busy = status.state == MachineState.busy;
 
     return Container(
@@ -429,9 +442,9 @@ class _MachineCard extends ConsumerWidget {
                 _Chip(
                   icon: Symbols.warning,
                   label: '报警',
-                  value: (status.alarmCode == null || status.alarmCode == 0)
-                      ? null
-                      : 'A${status.alarmCode}',
+                  // P1-5（2026-09-21）：裸码 A1 → 客户可读文案（报警文案映射表
+                  // v1.0）。alarmText 内含前置锁与未知码兜底，null 时 _Chip 自动隐藏。
+                  value: status.alarmText,
                 ),
                 // V1.1 §10.4 Tool 富最小集：高亮当前装夹刀（isCurrent）
                 _Chip(

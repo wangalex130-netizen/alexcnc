@@ -1293,7 +1293,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                         : status.state == MachineState.alarm
 
-                            ? '报警'
+                            // P1-5（2026-09-21）：报警态叠加客户可读文案
+                            // （报警文案映射表 v1.0）。
+                            ? '报警 · ${status.alarmText ?? '报警'}'
 
                             : '待机';
 

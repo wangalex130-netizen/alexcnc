@@ -251,6 +251,69 @@ class MachineStatus {
 
   /// 是否有激活的 GRBL 报警（alarm_code>0 或 state==alarm）。
   bool get hasAlarm => alarmCode > 0 || state == MachineState.alarm;
+
+  // --- P1-5 报警文案（2026-09-21）---
+  // 来源：《报警文案映射表 v1.0（设计方定稿）》，码语义 = GRBL 1.1f 标准集
+  // （固件 system.h:40-48 / report.h:68-76）。
+  // v1.0 相对 v0.1 改 6 处：code 4/5/8/9 处理动作改「重试+售后」两段式
+  // （探针/限位开关为内置件，客户接触不到）；code 7 与前置锁 2 统一「舱门」；
+  // code 1 保留「硬限位」；code 2/3/6 与前置锁 1 确认原稿。
+
+  /// 报警码 → 客户可读主文案（短版，进状态行/Chip；≤14 字）。
+  static const Map<int, String> _alarmCopy = {
+    1: '碰到了硬限位',
+    2: '超出了设定的加工范围',
+    3: '加工被中断',
+    4: '自动测高没准备好',
+    5: '没有测到材料高度',
+    6: '回零中途被打断',
+    7: '回零时舱门被打开',
+    8: '回零后离开限位失败',
+    9: '回零时找不到限位开关',
+  };
+
+  /// 报警码 → 处理动作（长版，进「查看怎么办」弹层；≤45 字）。
+  static const Map<int, String> _alarmAction = {
+    1: '机器撞到行程尽头了。请先「解除报警」，再用方向键把刀头移离边缘，然后重新回零。',
+    2: '加工程序超出了机器的允许范围。请回到电脑端检查这件作品的尺寸，重新生成刀路。',
+    3: '上一次加工没有正常走完（被停止或断电）。请重新开始一次加工。',
+    4: '请重新开始一次加工。若再次出现，请联系售后。',
+    5: '请确认材料已放好、放平，再重新开始。若多次出现，请联系售后。',
+    6: '回零过程被复位或断电中断了。请保持机器供电，重新回零。',
+    7: '舱门在回零过程中被打开了。请关好舱门，重新回零。',
+    8: '请重新回零一次。若再次出现，请联系售后。',
+    9: '请保持机器供电，重新回零。若多次出现，请联系售后。',
+  };
+
+  /// 报警场景主文案（兜底链见映射表 §3.2，不允许"什么都不显示"）：
+  /// 码 1~9 命中映射 → 前置锁（alarmCode==0 且 state=alarm，door 字段可区分
+  /// 安全门场景）→ 未知码回退 error 原文 → 最终「机器报警（代码 N）」。
+  /// 非报警态返回 null。
+  String? get alarmText {
+    if (state != MachineState.alarm) return null;
+    final c = alarmCode;
+    if (c >= 1 && c <= 9) return _alarmCopy[c];
+    if (c == 0) {
+      // 两个前置锁共享 alarmCode==0：安全门已开时按舱门场景显示。
+      return door ? '舱门没关好' : '机器还没回零，暂时不能动';
+    }
+    final e = error;
+    if (e != null && e.isNotEmpty) return e;
+    return '机器报警（代码 $c）';
+  }
+
+  /// 报警场景处理动作（弹层长文案）。未知码无定稿动作，返回 null。
+  String? get alarmActionText {
+    if (state != MachineState.alarm) return null;
+    final c = alarmCode;
+    if (c >= 1 && c <= 9) return _alarmAction[c];
+    if (c == 0) {
+      return door
+          ? '请关好舱门后继续。'
+          : '请先点「回零」。若回零不可用，可点「解除报警」后再重新回零。';
+    }
+    return null;
+  }
 }
 
 /// 安全解析辅助输出回显：仅保留已知的 4 个键（light/laser/fan/timelapse），
