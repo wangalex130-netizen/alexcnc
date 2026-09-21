@@ -422,6 +422,10 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
                         const SizedBox(height: 10),
 
+                    // 本页常被登录/绑定页覆盖后返回，关格子级离屏缓存防文字乱码（2026-09-22）。
+
+                    addRepaintBoundaries: false,
+
                     itemBuilder: (context, i) {
 
                       if (i == 0) {

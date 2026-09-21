@@ -1063,6 +1063,10 @@ class _InspirationSliver extends StatelessWidget {
 
             separatorBuilder: (_, __) => const SizedBox(width: 16),
 
+            // 关闭格子级离屏缓存：本页常被详情页覆盖后返回，缓存复用错位会花字（2026-09-22）。
+
+            addRepaintBoundaries: false,
+
             itemBuilder: (c, i) {
 
               final name = categories[i];
@@ -1122,6 +1126,10 @@ class _InspirationSliver extends StatelessWidget {
           shrinkWrap: true,
 
           physics: const NeverScrollableScrollPhysics(),
+
+          // 同上：模型卡常被详情页往返覆盖，关离屏缓存防返回后文字乱码。
+
+          addRepaintBoundaries: false,
 
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
 

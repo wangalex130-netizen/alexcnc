@@ -337,6 +337,10 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
                       padding: EdgeInsets.all(12),
 
+                      // 本页常被相机全屏页覆盖后返回，关格子级离屏缓存防文字乱码（2026-09-22）。
+
+                      addRepaintBoundaries: false,
+
                       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
 
                         crossAxisCount: 2,

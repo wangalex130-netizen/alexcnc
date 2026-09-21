@@ -1007,6 +1007,8 @@ class _RecentCardState extends ConsumerState<_RecentCard> {
                   scrollDirection: Axis.horizontal,
                   itemCount: history.length,
                   separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  // 本页常被全屏控制台/向导覆盖后返回，关格子级离屏缓存防文字乱码（2026-09-22）。
+                  addRepaintBoundaries: false,
                   itemBuilder: (c, i) {
                     final it = history[i];
                     return GestureDetector(
