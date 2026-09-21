@@ -29,13 +29,64 @@ import 'toolpath_preview.dart';
 
 /// 向导内部经 getTaskById 从云端拉 TaskMetadata（模型条目回退已打通）。
 
-class ModelDetailPage extends ConsumerWidget {
+/// 外壳（Stateful）：从向导页返回后自增 epoch 换 key，强制整页
+/// build+layout+paint——杜绝引擎复用返回前的离屏图层缓存导致
+/// 参数区文字乱码（与 app_shell 花屏 F-02 同族手法，2026-09-21）。
+class ModelDetailPage extends StatefulWidget {
 
   final LibraryItem item;
 
   const ModelDetailPage({super.key, required this.item});
 
+  @override
 
+  State<ModelDetailPage> createState() => _ModelDetailPageState();
+
+}
+
+class _ModelDetailPageState extends State<ModelDetailPage> {
+
+  int _epoch = 0;
+
+  void _openWizard() {
+
+    // 2026-09-04：详情页已展示模型信息（材料/刀具/尺寸），"解析任务"步骤
+
+    // 整段移除，进入向导即为材质确认（步骤 1）。
+
+    Navigator.of(context)
+
+        .push(MaterialPageRoute(builder: (_) => WizardPage(item: widget.item)))
+
+        .then((_) {
+
+          // 返回详情页：换 key 全量重建（花屏/乱码 F-02 兜底）。
+
+          if (mounted) setState(() => _epoch++);
+
+        });
+
+  }
+
+  @override
+
+  Widget build(BuildContext context) => KeyedSubtree(
+
+        key: ValueKey<int>(_epoch),
+
+        child: _DetailView(item: widget.item, onStart: _openWizard),
+
+      );
+
+}
+
+class _DetailView extends ConsumerWidget {
+
+  final LibraryItem item;
+
+  final VoidCallback onStart;
+
+  const _DetailView({required this.item, required this.onStart});
 
   @override
 
@@ -114,6 +165,12 @@ class ModelDetailPage extends ConsumerWidget {
             child: ListView(
 
               padding: const EdgeInsets.only(bottom: 24),
+
+              // 关闭框架自动 RepaintBoundary：离屏图层缓存在「压入向导页→返回」
+
+              // 时被复用错位，是参数区文字乱码的根因（花屏同族，2026-09-21）。
+
+              addRepaintBoundaries: false,
 
               children: [
 
@@ -247,7 +304,7 @@ class ModelDetailPage extends ConsumerWidget {
 
           ),
 
-          _BottomBar(item: item, sliced: sliced),
+          _BottomBar(item: item, sliced: sliced, onStart: onStart),
 
         ],
 
@@ -451,6 +508,10 @@ class _ParamsGrid extends StatelessWidget {
 
         childAspectRatio: 2.1,
 
+        // 同 ListView：关闭格子级离屏缓存，杜绝返回后字形缓存错位。
+
+        addRepaintBoundaries: false,
+
         children: cells.map((c) => _ParamCell(label: c.$1, value: c.$2)).toList(),
 
       ),
@@ -641,7 +702,11 @@ class _BottomBar extends StatelessWidget {
 
   final bool sliced;
 
-  const _BottomBar({required this.item, required this.sliced});
+  final VoidCallback onStart;
+
+  const _BottomBar(
+
+      {required this.item, required this.sliced, required this.onStart});
 
 
 
@@ -683,17 +748,9 @@ class _BottomBar extends StatelessWidget {
 
             ),
 
-            onPressed: () {
+            // 进入向导由外壳 _openWizard 处理：返回后触发整页重建兜底。
 
-              // 2026-09-04：详情页已展示模型信息（材料/刀具/尺寸），"解析任务"步骤
-
-              // 整段移除，进入向导即为材质确认（步骤 1）。
-
-              Navigator.of(context).push(MaterialPageRoute(
-
-                  builder: (_) => WizardPage(item: item)));
-
-            },
+            onPressed: onStart,
 
             child: Text(
 
