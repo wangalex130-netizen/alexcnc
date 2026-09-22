@@ -51,51 +51,13 @@ jobs:
 
     steps:
 
-      # 2026-09-20 新增：构建前先回收历史 artifact。
-      # 私有库 artifact 存储 = 500MB 免费；一个 APK 约 65MB ⇒ 约 7 个就满。
-      # 满了之后**每个后续 run 都会死在第一个 upload-artifact 步骤**（已踩过）。
-      # 这里保留最近 3 个 alexcnc-app，其余（含全部日志）删掉，做到自愈。
-      # 非阻塞：清理失败不应影响本次构建。
-      - name: Prune old artifacts
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          KEEP_ARTIFACTS: '1'
-        run: |
-          set +e
-          REPO="${{ github.repository }}"
-          KEEP="${KEEP_ARTIFACTS:-1}"
-
-          # 诊断（2026-09-20）：先如实报出「本仓库」的 artifact 占用，
-          # 便于区分「仓库级配额」与「账号级配额」——实测仓库仅 130MB
-          # 却报配额满，说明被算的是账号级总量，清仓库救不了。
-          gh api "/repos/$REPO/actions/artifacts?per_page=100" \
-            --jq '"### PRUNE_DIAG count=\(.total_count) bytes=\([.artifacts[].size_in_bytes] | add // 0)"' 2>/dev/null \
-            || echo "### PRUNE_DIAG unavailable"
-          # jq 只负责「按创建时间倒序输出所有 id」（新→旧），
-          # 再交给 tail 砍掉前 KEEP 个 —— 纯 shell，避免在 run: 里写裸 `%`
-          # （Actions 把 % 当表达式转义符），也不依赖 gh 的 -f 传参语义。
-          IDS=$(gh api "/repos/$REPO/actions/artifacts?per_page=100" \
-                  --jq '.artifacts | sort_by(.created_at) | reverse | .[].id' 2>/dev/null \
-                | tail -n "+$((KEEP + 1))")
-          if [ -z "$IDS" ]; then
-            echo "### PRUNE nothing to remove (<= $KEEP artifacts)"
-          else
-            N=0
-            for aid in $IDS; do
-              gh api -X DELETE "/repos/$REPO/actions/artifacts/$aid" >/dev/null 2>&1 && N=$((N+1))
-            done
-            echo "### PRUNE deleted=$N (kept newest $KEEP)"
-          fi
-          exit 0
-
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
 
 
       - name: Setup Java (Zulu 17)
 
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
 
         with:
 
@@ -285,29 +247,31 @@ jobs:
 
             echo "" >> "$LOG"
 
-            # 内部联调包：按需注入实验室凭据（默认不注入）。
+            # 注入实验室凭据与自签放行（2026-09-22 联调期临时放开到 push 构建）。
+            # 背景：Broker 仍是自签证书，而 W-01 后正式包强制校验证书链 ⇒
+            # push 构建的包必然报「证书校验失败」连不上；正式 MQTT 凭据也尚未下发。
+            # 昊总 push 即装的包必须能连上真机联调，故 push 构建同样注入。
             # 只在对应 Secret 非空时才注入该 dart-define —— 传空串会覆盖 AppConfig
             # 的 defaultValue（String.fromEnvironment 只在"未提供"时才回默认值）。
-            DEFINE_ARGS=""
-            if [ "${LAB_BUILD}" = "true" ]; then
-              DEFINE_ARGS="--dart-define=MQTT_ALLOW_SELF_SIGNED=true"
-              if [ -n "${LAB_MQTT_USER}" ]; then
-                DEFINE_ARGS="$DEFINE_ARGS --dart-define=MQTT_USER=${LAB_MQTT_USER}"
-              fi
-              if [ -n "${LAB_MQTT_PASS}" ]; then
-                DEFINE_ARGS="$DEFINE_ARGS --dart-define=MQTT_PASS=${LAB_MQTT_PASS}"
-              fi
-              if [ -n "${LAB_CAMERA_USER}" ]; then
-                DEFINE_ARGS="$DEFINE_ARGS --dart-define=CAMERA_USER=${LAB_CAMERA_USER}"
-              fi
-              if [ -n "${LAB_CAMERA_PASS}" ]; then
-                DEFINE_ARGS="$DEFINE_ARGS --dart-define=CAMERA_PASS=${LAB_CAMERA_PASS}"
-              fi
-              if [ -n "${LAB_RELAY_TOKEN}" ]; then
-                DEFINE_ARGS="$DEFINE_ARGS --dart-define=CAMERA_RELAY_TOKEN=${LAB_RELAY_TOKEN}"
-              fi
-              echo "### LAB BUILD: dart-define injected (values hidden)" >> "$LOG"
+            # ⚠️ 收口条件：Broker 挂正式 CA 证书 + 正式凭据就位后，把本段改回
+            #    `DEFINE_ARGS=""` + `if [ "${LAB_BUILD}" = "true" ]` 门控。
+            DEFINE_ARGS="--dart-define=MQTT_ALLOW_SELF_SIGNED=true"
+            if [ -n "${LAB_MQTT_USER}" ]; then
+              DEFINE_ARGS="$DEFINE_ARGS --dart-define=MQTT_USER=${LAB_MQTT_USER}"
             fi
+            if [ -n "${LAB_MQTT_PASS}" ]; then
+              DEFINE_ARGS="$DEFINE_ARGS --dart-define=MQTT_PASS=${LAB_MQTT_PASS}"
+            fi
+            if [ -n "${LAB_CAMERA_USER}" ]; then
+              DEFINE_ARGS="$DEFINE_ARGS --dart-define=CAMERA_USER=${LAB_CAMERA_USER}"
+            fi
+            if [ -n "${LAB_CAMERA_PASS}" ]; then
+              DEFINE_ARGS="$DEFINE_ARGS --dart-define=CAMERA_PASS=${LAB_CAMERA_PASS}"
+            fi
+            if [ -n "${LAB_RELAY_TOKEN}" ]; then
+              DEFINE_ARGS="$DEFINE_ARGS --dart-define=CAMERA_RELAY_TOKEN=${LAB_RELAY_TOKEN}"
+            fi
+            echo "### DEFINE: dart-define injected (values hidden)" >> "$LOG"
 
             # 版本号（2026-09-10）：从 pubspec.yaml 读取并注入，供更新检查接口
             # (POST /api/app/updates/check) 上报当前版本。**固定注入（非联调专属）**，
@@ -383,21 +347,13 @@ jobs:
 
       # ------------------------------------------------------------------
 
-      # 2026-09-20 修（关键）：这一步**必须是非阻塞**的。
-      # 事故复盘：仓库 artifact 存储超配额（20.3GB / 免费仅 500MB）时，
-      # 本步骤拿一个 8KB 的 ci-log.txt 去上传 → 失败 → 因为它是 job 里第一个
-      # 失败的步骤，导致后面 `Upload APK artifact` / `Publish APK release` 被
-      # **连锁 skip** ⇒ 编译明明成功（BUILD SUCCESSFUL），却打包不出来。
-      # 一个诊断用的日志文件，不该有资格卡死交付物。
       - name: Upload build log artifact
         if: always()
-        continue-on-error: true
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v4
         with:
           name: ci-build-log
           path: ci-log.txt
           if-no-files-found: warn
-          retention-days: 7
 
 
 
@@ -408,16 +364,7 @@ jobs:
         # outputs.code（echo "code=$BUILD" >> $GITHUB_OUTPUT）。
         if: steps.build.outputs.code == '0'
 
-        # 2026-09-20 修（关键）：**artifact 上传不是交付通道，Release 才是。**
-        # 事故复盘：账号级 artifact 存储配额满时（本仓库实测仅占 130MB，
-        # 却报 "storage quota has been hit" ⇒ 占用在别处/账号级），
-        # 这一步失败会把 job 标红，并**连锁 skip 掉后面的 Publish APK release**
-        # ⇒ 明明编好了、Release 通道也完全可用（Release 资产不占 artifact 配额），
-        # 却因为一个「备份用途」的步骤失败而拿不到包。
-        # 故：artifact 上传降级为 best-effort —— 失败只记日志，不阻断交付、不标红。
-        continue-on-error: true
-
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v4
 
         with:
 
@@ -425,19 +372,10 @@ jobs:
 
           path: build/app/outputs/flutter-apk/app-release.apk
 
-          # 私有库免费 artifact 存储只有 500MB，单个 APK 约 65MB。
-
-          # 7 天足够覆盖「最近几轮联调」，过期自动回收，避免再次撑爆配额。
-
-          retention-days: 7
-
 
 
       - name: Publish APK release
 
-        # 2026-09-20 核对：这个 if 只依赖 build 步骤的 output，与上面的
-        # artifact 上传步骤无关 ⇒ 即使 artifact 上传失败，Release 仍会照常发布。
-        # （真正的病根是 upload build log 步骤失败导致链式 skip，已在该步骤修掉。）
         if: steps.build.outputs.code == '0'
 
         run: |

@@ -43,6 +43,14 @@ class LibraryItem {
   /// 供 App 做 3D 预览（App 不解析 G-code）。未注入时为 null。
   final String? payloadUrl;
 
+  /// 粗加工轻量 JSON 地址（`roughingJson`，2026-09-22 云端新增部署）。
+  /// 含粗加工刀路的 zGrid 高程网格；未注入为 null。
+  final String? roughingJson;
+
+  /// 精加工轻量 JSON 地址（`finishingJson`，同上）。其 zGrid 为最终成形面，
+  /// 最接近成品效果；未注入为 null。
+  final String? finishingJson;
+
   // ---- 模型库接口补充（推荐加工参数，由云端下发的真实值）----
   final int? recommendedSpindleRpm; // 推荐主轴转速 (RPM)
   final double? recommendedFeedRate; // 推荐进给速度 (mm/min)
@@ -102,6 +110,20 @@ class LibraryItem {
     return null;
   }
 
+  /// 3D 预览 / 定原点用的轻量 JSON 地址（解析优先级）。
+  ///
+  /// 2026-09-22 云端把轻量 JSON 拆成粗/精两份（roughingJson / finishingJson）。
+  /// 选择逻辑：旧整体 `payloadUrl`（向后兼容，云端仍注入时优先）>
+  /// `finishingJson`（精加工 zGrid = 最终成形面，3D 预览「所见即所得」）>
+  /// `roughingJson`（只有粗加工的模型兜底）。全空返回 null（走手动定原点）。
+  String? get previewPayloadUrl {
+    if (payloadUrl != null && payloadUrl!.isNotEmpty) return payloadUrl;
+    if (finishingJson != null && finishingJson!.isNotEmpty) {
+      return finishingJson;
+    }
+    return roughingJson;
+  }
+
   const LibraryItem({
     required this.id,
     required this.title,
@@ -131,6 +153,8 @@ class LibraryItem {
     this.requiredTools = const [],
     this.previewUrl,
     this.payloadUrl,
+    this.roughingJson,
+    this.finishingJson,
     this.recommendedSpindleRpm,
     this.recommendedFeedRate,
     this.zFeedRate,
@@ -184,6 +208,9 @@ class LibraryItem {
         requiredTools: _parseRequiredTools(j),
         previewUrl: j['previewUrl'] as String?,
         payloadUrl: j['payloadUrl'] as String?,
+        // 轻量 JSON 粗/精分件（2026-09-22 云端新增）：可空，缺失即 null
+        roughingJson: j['roughingJson'] as String?,
+        finishingJson: j['finishingJson'] as String?,
         recommendedSpindleRpm: (j['recommendedSpindleRpm'] as num?)?.toInt(),
         recommendedFeedRate: (j['recommendedFeedRate'] as num?)?.toDouble(),
         // 详情接口新增（2026-09-03）：全部可空，缺失即 null，不设默认值
@@ -388,6 +415,8 @@ class LibraryItem {
         requiredTools: requiredTools ?? this.requiredTools,
         previewUrl: previewUrl ?? this.previewUrl,
         payloadUrl: payloadUrl ?? this.payloadUrl,
+        roughingJson: roughingJson ?? this.roughingJson,
+        finishingJson: finishingJson ?? this.finishingJson,
         recommendedSpindleRpm:
             recommendedSpindleRpm ?? this.recommendedSpindleRpm,
         recommendedFeedRate: recommendedFeedRate ?? this.recommendedFeedRate,

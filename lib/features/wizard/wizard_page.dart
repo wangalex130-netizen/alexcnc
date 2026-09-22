@@ -425,7 +425,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           modelWidthMm: _task?.widthMm ?? 0,
           modelHeightMm: _task?.heightMm ?? 0,
           minThicknessMm: _minThickness,
-          payloadUrl: widget.item.payloadUrl,
+          payloadUrl: widget.item.previewPayloadUrl,
           thickness: _thickness,
           thicknessCtl: _thicknessCtl,
           thicknessFocus: _thicknessFocus,
@@ -482,7 +482,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       case 2:
         return _StepOrigin(
           task: _task,
-          payloadUrl: widget.item.payloadUrl,
+          payloadUrl: widget.item.previewPayloadUrl,
           materialThicknessMm: _thicknessVal,
           origin: _origin,
           originSet: _originSet,
