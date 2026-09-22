@@ -349,6 +349,11 @@ jobs:
 
       - name: Upload build log artifact
         if: always()
+        # 2026-09-22 修（run #408）：日志 artifact 只是诊断件，其上传偶发被
+        # GitHub 产物存储拦截（401/网络），失败会把整个 job 标红并连带跳过
+        # 后面的「发布 Release」—— 真正的交付物是 Release 里的 APK。
+        # 故此处失败不再阻断流水线。
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: ci-build-log
@@ -363,6 +368,10 @@ jobs:
         # （失败被吞、步骤仍 exit 0）。真正可信的是 build 步骤写出的
         # outputs.code（echo "code=$BUILD" >> $GITHUB_OUTPUT）。
         if: steps.build.outputs.code == '0'
+
+        # 2026-09-22 修（run #408）：APK 的正式交付通道是 Release（apk-<sha> tag），
+        # artifact 只是备用入口；其上传失败不得阻断下面的 Release 发布。
+        continue-on-error: true
 
         uses: actions/upload-artifact@v4
 
