@@ -1523,6 +1523,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   bool _laserOn = false;
   String? _noteMsg;
   bool _noteBad = false;
+  DateTime? _noteAt; // A-12：反馈时刻（4 秒时效起点）
+  Timer? _noteTimer; // A-12：到期清空反馈，让引导文案重新出现
   DateTime? _frameAt; // N2：状态帧新鲜度（本地接收时刻）
   Payload? _meta; // 载荷（两套字段形状都兼容，见 payload.dart）
   List<double>? _grid; // 解码后的高程网格（行主序 mm；null = 载荷无网格体）
@@ -1532,6 +1534,9 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   String _g54JobId = ''; // 写入时绑定的 jobId（P4 宁锁勿放）
   bool _framingDone = false; // 业务巡边三锁通过并收到 framing_done
   String? _framingFail; // 巡边被拒绝的原因清单（逐条，不静默）
+  /// _framingFail 的类别：true = 命令根本没发出（MQTT 断 / F2 未交付）；
+  /// false = 被业务三锁拒绝（未锁定原点 / 越界 / busy）。两者文案必须分开。
+  bool _framingNotSent = false;
 
   /// 巡边可视化：0→1 沿模型框走一圈。与机器激光巡边同步（昊总 09-18）。
   late final AnimationController _frameAnim;
@@ -1645,6 +1650,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     WidgetsBinding.instance.removeObserver(this);
     // 2) 业务清理包 try/catch：清理失败不影响「竖屏已恢复」这一事实。
     try {
+      _noteTimer?.cancel();
       _frameAnim.dispose();
       LocalPayloadStore.instance.removeListener(_onLocalPayload);
       DebugSim.instance.removeListener(_onSim);
@@ -1676,6 +1682,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       _g54JobId = '';
       _framingDone = false;
       _framingFail = null;
+      _framingNotSent = false;
     });
     // 载荷换新 ⇒ 上一份载荷的「原点已锁定」与「已目视确认」**一并作废**，必须同步撤回
     // 给父级：否则父级的 originSet / safetyChecked 两个标志仍为 true，客户可跳过
@@ -1753,11 +1760,27 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     }
   }
 
+  /// 操作反馈（A-12）：**必须有展示出口**。
+  ///
+  /// 此前 `_noteMsg` 只写不读 —— 全页 30 条反馈（含「G54 拒绝写入」）
+  /// 客户一条都看不到，表现为「点了没反应」，比「写了个错的」更难排障。
+  ///
+  /// 4 秒时效：`_noteMsg` 全代码没有任何清除逻辑，不设时效的话最后一条反馈
+  /// 会永久霸占顶部引导条（引导文案再也不出现）。
   void _note(String s, {bool bad = false}) {
     if (!mounted) return;
+    _noteTimer?.cancel();
     setState(() {
       _noteMsg = s;
       _noteBad = bad;
+      _noteAt = DateTime.now();
+    });
+    _noteTimer = Timer(const Duration(seconds: 4), () {
+      if (!mounted) return;
+      setState(() {
+        _noteMsg = null;
+        _noteBad = false;
+      });
     });
   }
 
@@ -1829,8 +1852,34 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         );
       }
     }
+    // B-2（09-23 修，P0）：**位置真的变了 ⇒ 旧 G54 / 巡边结论 / 目视确认全部作废。**
+    //
+    // 客户在【确认原点】之后又拖了一下绿框（很常见：想微调）时，旧写法只更新
+    // 排版位置，而 _g54Written / originSet / safetyChecked 三个标志**全部保持 true**
+    // ⇒ 按钮仍是【下一步】且可点，机器里却还是旧位置算出的 G54
+    // ⇒ 起点整体偏移，且界面（绿框在新位置、勾选仍在、步进点仍满）**毫无异常**。
+    // 这是主路径上的静默错位，比「越界被拒」（A-1）更隐蔽。
+    //
+    // 静默撤回（不弹提示）：拖动是高频操作，每帧弹一条会把顶部条刷爆。
+    final moved = p != widget.origin;
     widget.onOrigin(p);
     widget.onOverflow(of);
+    if (moved &&
+        (_g54Written ||
+            _framingDone ||
+            _framingFail != null ||
+            widget.originSet ||
+            widget.safetyChecked)) {
+      setState(() {
+        _g54Written = false;
+        _g54JobId = '';
+        _framingDone = false;
+        _framingFail = null;
+        _framingNotSent = false;
+      });
+      widget.onOriginSet(false);
+      widget.onSafety(false);
+    }
     if (!quiet && of) {
       _note('图案尺寸超出当前耗材可用安全区：请换大料或缩小设计（禁止静默截断）',
           bad: true);
@@ -1914,6 +1963,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       _g54JobId = '';
       _framingDone = false;
       _framingFail = null;
+      _framingNotSent = false;
     });
     _note('已清除标定点、G54 绑定与巡边结论（宁可重来，不带旧状态开切）');
   }
@@ -1944,15 +1994,22 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   /// 拖动中回调：只更新目标，**不下发任何指令**。
   void _onMoveTargetDrag(Offset mm) {
     if (_moving) return;
+    // A-12：只在「从无到有」那一次提示 —— 拖动是逐帧回调，每帧都提示会
+    // 把顶部条刷爆、也永远看不到 4 秒后的引导文案。
+    final first = _moveTarget == null;
     setState(() => _moveTarget = Offset(
           min(max(mm.dx, 0.0), _bedW),
           min(max(mm.dy, 0.0), _bedH),
         ));
+    if (first) {
+      _note('已设定移动目标（画布橙十字）：点【移动到此】执行，或点【取消】撤销');
+    }
   }
 
   void _cancelMove() {
     if (_moving) return;
     setState(() => _moveTarget = null);
+    _note('已取消移动目标');
   }
 
   /// 等待主轴到位（轮询 mpos），超时即放弃等待（指令已下发，机器自己会走完）。
@@ -2162,6 +2219,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     if (fails.isNotEmpty) {
       setState(() {
         _framingDone = false;
+        _framingNotSent = false; // 业务三锁拒绝 ≠ 「没收到机器确认」
         _framingFail = fails.join('\n');
       });
       _note('雕刻预览被拒绝（宁锁勿放）：\n${fails.join('\n')}', bad: true);
@@ -2190,6 +2248,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       _busy = false;
       _framingDone = ok;
       _framePlaying = ok; // 框内同步模拟巡边光点（与机器激光同步）
+      _framingNotSent = !ok;
       _framingFail = ok
           ? null
           : '命令未发出：MQTT 未连接（机器不在线 / 网络断开），'
@@ -2247,7 +2306,14 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       _busy = false;
       _g54Written = ok;
       _g54JobId = ok ? m.jobId : '';
-      if (ok) _framingDone = false; // 原点变了 ⇒ 上一次巡边结论作废
+      if (ok) {
+        // 原点变了 ⇒ 上一次巡边结论与**失败清单**一并作废。
+        // 只清 _framingDone 会让 _topIssue() 的红条继续挂着旧原因
+        //（业务拒绝时显示成「没收到机器确认」），直到客户再按一次预览。
+        _framingDone = false;
+        _framingFail = null;
+        _framingNotSent = false;
+      }
     });
     widget.onOriginSet(ok);
     _note(
@@ -2730,6 +2796,13 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     // 昊总 09-18：模拟调试时要能直接往下走 —— 模拟态本来就没有真机、不存在物理风险，
     // 生产路径（开关关）门禁一条不少。
     final canNext = !widget.overflow && (widget.safetyChecked || sim);
+    // B-3（09-23 修）：显示【下一步】的前提是**本地也有凭据**。
+    // _StepOriginState 无保活（父级 switch 切页即重建），从第 4 步返回时本地
+    // _g54Written/_framingDone 归零，而父级 originSet/safetyChecked 仍在
+    // ⇒ 旧写法直接显示【下一步】且 canNext 为真，客户可跳过本轮的【确认原点】，
+    // 拿上一轮的凭据继续（若期间位置被改过就是错的起点）。
+    // 手动模式（无载荷）没有 G54 可写，以父级 originSet 为准，避免出现死局。
+    final locked = widget.originSet && (_g54Written || !_wysiwyg);
     return [
       Row(children: [
         _deckChip('2D', !_show3D, () => setState(() => _show3D = false)),
@@ -2788,10 +2861,14 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       const SizedBox(height: 5),
       // 「下一步」必须等：原点已锁定 + 未溢出 + 已按【雕刻预览】并由客户勾选确认
       //（调试模拟态可跳过目视确认 —— 没有真机、无物理风险）
-      widget.originSet
+      locked
           ? _deckBtn('下一步', canNext ? widget.onNext : null,
               icon: Symbols.chevron_right, primary: true)
-          : _deckBtn('确认原点', _busy ? null : _writeG54,
+          // 手动模式原先也显示「确认原点」且点了走 _writeG54 —— 而无载荷时
+          // _writeG54 必然早退（「手动模式请用【锁定原点】」）⇒ 一个点了没用的
+          // 死按钮。改为文案与动作都走手动口径，与中央「设原点」一致。
+          : _deckBtn(_wysiwyg ? '确认原点' : '锁定原点',
+              _busy ? null : (_wysiwyg ? _writeG54 : _manualSet),
               icon: Symbols.check_circle, primary: true),
     ];
   }
@@ -3140,6 +3217,11 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
 
   /// 上留白：异常优先（红/黄），否则给操作引导。
   ({String text, int level}) _guideText() {
+    // A-12：**刚发生的事优先**（4 秒内）。客户按下按钮后最需要看到的是
+    // 「刚才那一下的结果」，而不是持续状态；否则 _note() 的反馈会被
+    // _topIssue() 的红条长期压住，等于白写。
+    final fresh = _freshNote();
+    if (fresh != null) return fresh;
     final issue = _topIssue();
     if (issue != null) return issue;
     if (!_wysiwyg) {
@@ -3169,6 +3251,20 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       return (text: '按【雕刻预览】看落点是否合适', level: 0);
     }
     return (text: '原点已就绪，点【下一步】继续', level: 0);
+  }
+
+  /// 4 秒内的操作反馈（A-12）。
+  ///
+  /// 多行反馈压成单行：顶部条是 `maxLines: 1`，保留 '\n' 只会被 ellipsis
+  /// 截成半句（如「雕刻预览被拒绝（宁锁勿放）：」后面全丢）。
+  ({String text, int level})? _freshNote() {
+    final s = _noteMsg;
+    final at = _noteAt;
+    if (s == null || at == null) return null;
+    if (DateTime.now().difference(at) >= const Duration(seconds: 4)) {
+      return null;
+    }
+    return (text: s.replaceAll('\n', ' · '), level: _noteBad ? 1 : 0);
   }
 
   /// 当前最该说的那条异常（只给一条，避免堆叠）。null = 无异常。
@@ -3205,6 +3301,16 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       }
     }
     if (_framingFail != null) {
+      // B-1（09-23 修）：`_framingFail` 有两种来源，**不能共用一句文案**。
+      // 旧写法一律显示「没收到机器确认」，于是客户在「原点还没锁定」时按
+      // 【雕刻预览】被拒，红条却让他去查网络与开机 —— 方向完全指错，
+      // 而正确原因（还没点【确认原点】）只写在不可见的 _note() 里。
+      if (!_framingNotSent) {
+        return (
+          text: '雕刻预览未通过：${_framingFail!.split('\n').first}',
+          level: 2
+        );
+      }
       return (text: '没收到机器确认：检查机器是否开机联网', level: 2);
     }
     return null;
