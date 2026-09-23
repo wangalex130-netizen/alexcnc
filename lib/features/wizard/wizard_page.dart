@@ -1919,8 +1919,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     } else if (widget.p1 == null) {
       widget.onP1(pt);
       // 两点即完成标定（矩形 = 两点围出的横平竖直矩形，与先后无关；圆 = 两点连线为直径）。
-      // 收尾动作与旧版「圆料第 3 点」一致：作废巡边结果 + 把模型夹回新的可用区。
-      setState(() => _framingDone = false);
+      // 收尾动作与旧版「圆料第 3 点」一致：作废旧结论 + 把模型夹回新的可用区。
+      _invalidateDatum(); // B-5：料框变了 ⇒ 旧 G54 / 巡边 / 目视确认全部作废
       _setDesign(widget.origin, quiet: true);
       final c = _circle();
       final r = stockRectOf(widget.p0, pt);
@@ -1945,19 +1945,22 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       // 第 3 下 = 重取（两种形态都只 2 点）：客户点错了直接再点一下即可，不必去找清除按钮。
       widget.onP0(pt);
       widget.onP1(null);
-      setState(() => _framingDone = false);
+      _invalidateDatum(); // B-5：同「完成标定」，重取也必须作废旧 G54
       _note('已重新开始标定：P0 = ($sx, $sy)');
     }
   }
 
-  void _clearPts() {
-    widget.onP0(null);
-    widget.onP1(null);
-    widget.onOverflow(false);
-    widget.onOriginSet(false);
-    // 标定点都清了 ⇒ 上一次的「目视确认」也不再成立，一并撤回（否则写完新 G54
-    // 后无需再次预览即可进下一步，等于拿着旧位置的安全确认去开切）
-    widget.onSafety(false);
+  /// 标定结论发生变化（重取点 / 完成新标定）⇒ 旧 G54、巡边结论、目视确认全部作废。
+  ///
+  /// B-5（09-23 修）：`_take()` 此前只清 `_framingDone`，而 `_g54Written` /
+  /// `originSet` / `safetyChecked` 三个标志**全部留着**。客户发现料框取歪了、
+  /// **不按【重标定】**直接再按两次【取点】重取（产品注释里明确鼓励这种操作：
+  /// 「点错了直接再点一下即可，不必去找清除按钮」），于是新料框生效、旧 G54 还在，
+  /// 而按钮（originSet && g54Written）与 canNext（safetyChecked）都还是真
+  /// ⇒ 客户一路点到【下一步】，起点整体错位且界面毫无异常（与 B-2 同一后果）。
+  ///
+  /// 与 `_clearPts` 共用同一段逻辑，避免两处口径将来各自漂移。
+  void _invalidateDatum() {
     setState(() {
       _g54Written = false;
       _g54JobId = '';
@@ -1965,6 +1968,17 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       _framingFail = null;
       _framingNotSent = false;
     });
+    widget.onOriginSet(false);
+    // 标定点变了 ⇒ 上一次的「目视确认」也不再成立，一并撤回（否则写完新 G54
+    // 后无需再次预览即可进下一步，等于拿着旧位置的安全确认去开切）
+    widget.onSafety(false);
+  }
+
+  void _clearPts() {
+    widget.onP0(null);
+    widget.onP1(null);
+    widget.onOverflow(false);
+    _invalidateDatum();
     _note('已清除标定点、G54 绑定与巡边结论（宁可重来，不带旧状态开切）');
   }
 
