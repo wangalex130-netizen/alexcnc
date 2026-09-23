@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../l10n/strings_zh.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
@@ -452,7 +453,7 @@ class _MachineCard extends ConsumerWidget {
                   label: '当前刀',
                   value: status.tools.where((t) => t.isCurrent).isEmpty
                       ? null
-                      : 'T${status.tools.firstWhere((t) => t.isCurrent).index}',
+                      : S.toolSlot(status.tools.firstWhere((t) => t.isCurrent).index),
                 ),
               ],
             ),
@@ -861,7 +862,7 @@ class _FlowCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('雕刻流程（傻瓜 6 步）',
+              Text(S.carveFlow,
                   style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.bold,

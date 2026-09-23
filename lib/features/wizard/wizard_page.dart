@@ -27,6 +27,7 @@ import 'origin_canvas.dart';
 import 'payload.dart';
 import 'payload_store.dart';
 import 'debug_sim.dart';
+import '../../l10n/strings_zh.dart';
 
 /// Core 2: 6-step foolproof processing wizard.
 ///
@@ -277,10 +278,10 @@ class _WizardPageState extends ConsumerState<WizardPage> {
             .read(hardwareServiceProvider)
             .setLevelingPlan(mode: _leveling, cols: plan.cols, rows: plan.rows)
             .then((ok) {
-          if (!ok) _toastWanBlocked('调平方案下发');
+          if (!ok) _toastWanBlocked(S.lanPlanAction);
         }, onError: (Object _) {
           // 门禁异常不得变成未处理的 Future 错误（P2-7 自审修复）。
-          _toastWanBlocked('调平方案下发');
+          _toastWanBlocked(S.lanPlanAction);
         }),
       );
     }
@@ -330,7 +331,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
         }
       }, onError: (Object _) {
         // 异常不得变成未处理的 Future 错误（同 P2-7 口径）。
-        _softSay('模型预读指令下发失败（不影响继续）');
+        _softSay(S.preloadSendFail);
       }),
     );
   }
@@ -470,7 +471,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
             padding: const EdgeInsets.only(right: 16),
             child: Center(
               child: Text(
-                'Step ${vpos < 0 ? 1 : vpos + 1}/${_visibleSteps.length}',
+                S.t(S.stepOf, {'a': '${vpos < 0 ? 1 : vpos + 1}', 'b': '${_visibleSteps.length}'}),
                 style: t.bodyMedium?.copyWith(color: CncColors.primaryInk),
               ),
             ),
@@ -915,7 +916,7 @@ class _StepMaterial extends StatelessWidget {
       final body = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Step 1 · 材料确认与装夹',
+          Text(S.step1Material,
               style: t.titleMedium?.copyWith(color: CncColors.textMain)),
           const SizedBox(height: 8),
 
@@ -1118,10 +1119,8 @@ class _StepMaterial extends StatelessWidget {
             // 本页以「让客户一屏看全确认项」为先，故截断并保留最关键的"并非 G-code"。
             Text(
                 thVal > 0
-                    ? '按你填写的耗材厚度 ${thVal.toStringAsFixed(1)} mm 模拟雕完状态'
-                        '（数据来自云端轻量 JSON，并非 G-code）'
-                    : '数据来自云端轻量 JSON（高程网格），并非 G-code；'
-                        '填写材料厚度后按真实耗材模拟',
+                    ? S.t(S.cloudSimNote1, {'th': thVal.toStringAsFixed(1)})
+                    : S.cloudSimNote2,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -1312,7 +1311,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
         Row(
           children: [
             Expanded(
-              child: Text('Step 3 · 刀仓映射',
+              child: Text(S.step3Magazine,
                   style: t.titleMedium?.copyWith(color: CncColors.textMain)),
             ),
             IconButton(
@@ -1325,8 +1324,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
           ],
         ),
         const SizedBox(height: 6),
-        Text('模型需按工序顺序使用以下刀具。已自动沿用控制台刀仓中已配置的刀位；'
-            '未配置的工序刀请手动选择物理刀仓。机器按工序顺序自动换刀，而非固定 D1→D2。',
+        Text(S.magazineAutoReuse,
             style: TextStyle(fontSize: 12, color: CncColors.textSub)),
         const SizedBox(height: 14),
         // 有序工序刀具 → 选兜 + 实物确认
@@ -1529,7 +1527,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                     ? (widget.synced
                         ? '已同步到机器（点击重新同步）'
                         : '确认映射并同步到机器')
-                    : '请完成刀位分配与实物确认',
+                    : S.assignTools,
                 style: const TextStyle(
                     fontSize: 14, fontWeight: FontWeight.bold)),
           ),
@@ -1931,15 +1929,6 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     widget.onSafety(false);
     final c = m.centeredOnBed();
     _setDesign(Offset(c.x, c.y), quiet: true);
-    final kb = (m.payloadBytes / 1024).toStringAsFixed(1);
-    final head = '数据来源：$source。载荷 ${m.jobId}：'
-        '${m.spanX.toStringAsFixed(1)}×${m.spanY.toStringAsFixed(1)}mm · $kb KB';
-    _note(
-      m.hasGrid
-          ? '$head · 网格 ${m.gridCols}×${m.gridRows}'
-              '${m.withinContract ? '' : '（超 45KB 契约上限）'}'
-          : '$head · 无网格体（L0/L1 级）⇒ 无 3D/俯视伪彩，定原点照常可用',
-    );
   }
 
   Future<void> _loadWorkArea() async {
@@ -1986,17 +1975,17 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           _meta = null;
           _grid = null;
         });
-        _note('轻量 JSON 不可用（缺 bbox / camOriginOffset）：已回退手动定原点', bad: true);
+        _note(S.noPattern, bad: true);
         return;
       }
-      _applyPayload(m, grid, source: '云端轻量 JSON');
+      _applyPayload(m, grid, source: S.payloadSourceCloud);
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _meta = null;
         _grid = null;
       });
-      _note('轻量 JSON 拉取失败：已回退手动定原点', bad: true);
+      _note(S.noPattern, bad: true);
     }
   }
 
@@ -2158,11 +2147,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     }
     final pt = _livePos();
     if (pt == null) {
-      _note(
-          '读不到机器坐标：请确认机器在线（MQTT 已连、已上报状态帧）；'
-          '未回零时坐标不可信。只想调这一页的话，可在「我的 → 本地文件解析'
-          '（调试）」打开「模拟机器位」',
-          bad: true);
+      _note(S.notConnected, bad: true);
       return;
     }
     final sx = pt.dx.toStringAsFixed(1);
@@ -2239,7 +2224,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     widget.onP1(null);
     widget.onOverflow(false);
     _invalidateDatum();
-    _note('已清除标定点、G54 绑定与巡边结论（宁可重来，不带旧状态开切）');
+    _note(S.calibrationReset);
   }
 
   // ---------- 拖动十字驱动主轴（第 10 条 B 方案）----------
@@ -2330,8 +2315,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       // 放行依据：未回零且开启限位（$22=1）时 GRBL 处于 Alarm、state 不会是
       // idle，上一条 canControl 已拦住；能走到这里 ⇒ 机器可运动、mpos 自洽。
       if (st.homed == false) {
-        _note('机器未回零，绝对定位不可用（先在屏幕上回零，或改用 Jog 步进）',
-            bad: true);
+        _note(S.homingRequired, bad: true);
         return;
       }
     }
@@ -2477,7 +2461,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     final m = _meta;
     if (m != null) {
       if (!_g54Written) {
-        fails.add('G54 未写入，包围盒未锚定');
+        fails.add(S.envelopeLocked);
       } else {
         final v = m.limitViolation(_g54x, _g54y);
         if (v != null) fails.add(v);
@@ -2525,8 +2509,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       _framingNotSent = !ok;
       _framingFail = ok
           ? null
-          : '命令未发出：MQTT 未连接（机器不在线 / 网络断开），'
-              '或固件尚未支持 framing（F2 未交付）';
+          : S.notConnected;
     });
     if (ok) _frameAnim.forward(from: 0);
     _note(
@@ -2535,11 +2518,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       // unknown cmd），App 只能确认「指令已发出」，确认不了机器执行。
       // 无条件宣称成功会让联调时把「固件没做」误判成「App 做完了」。
       ok
-          ? '已下发雕刻预览，画面里同步显示巡边位置，请目视确认激光落在料上、'
-              '避开夹具。若机器没有动作，说明当前小屏固件版本还不支持巡边'
-              '${sim ? "〔调试模式：未下发指令，此处仅推进流程〕" : ""}'
-          : '雕刻预览未发出：MQTT 未连接（机器不在线 / 网络断开），'
-              '或固件尚未支持 framing（F2 未交付）',
+          ? S.framingOn
+          : S.notConnected,
       bad: !ok,
     );
   }
@@ -2548,11 +2528,11 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     if (_busy) return;
     final m = _meta;
     if (m == null) {
-      _note('当前没有载荷：手动模式请用【锁定原点】而不是写入 G54', bad: true);
+      _note(S.noJobData, bad: true);
       return;
     }
     if (!_datumDone) {
-      _note('G54 拒绝写入：请先完成标定（$_needPts 点）', bad: true);
+      _note(S.t(S.calibrationNeeded, {'n': '$_needPts'}), bad: true);
       return;
     }
     // §4.1：G54 = DesignPos − camOriginOffset。**允许为负**（严禁 max(0,·)）。
@@ -2592,11 +2572,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     widget.onOriginSet(ok);
     _note(
       ok
-          ? '已写入 G54：X ${g.x.toStringAsFixed(2)} / Y ${g.y.toStringAsFixed(2)}'
-              '，并绑定作业 ${m.jobId}（Z 由机器按键后对刀写入，App 不写 Z）'
-              '${sim ? "〔调试模式：未下发指令〕" : ""}'
-          : 'G54 未发出：MQTT 未连接（机器不在线 / 网络断开），'
-              '或固件尚未支持 setWcsOffset（F1 未交付）',
+          ? S.originConfirmed
+          : S.notConnected,
       bad: !ok,
     );
   }
@@ -2617,21 +2594,17 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           bad: true));
     } else if (m.cutThroughRisk) {
       out.add(const SizedBox(height: 8));
-      out.add(_banner('载荷自报 cutThroughRisk=true：请确认已垫废料保护板', bad: true));
+      out.add(_banner(S.cutThroughRisk, bad: true));
     }
     // ② P4 宁锁勿放：G54 绑定的是"别的"载荷
     if (_g54Written && _g54JobId.isNotEmpty && _g54JobId != m.jobId) {
       out.add(const SizedBox(height: 8));
-      out.add(_banner('G54 绑定的作业（$_g54JobId）与当前载荷（${m.jobId}）不一致：'
-          '更换载荷后必须重新写入 G54，否则起点会整体偏移', bad: true));
+      out.add(_banner(S.jobMismatch, bad: true));
     }
     // ③ 契约上限 45KB
     if (!m.withinContract) {
       out.add(const SizedBox(height: 8));
-      out.add(_banner(
-          '载荷 ${(m.payloadBytes / 1024).toStringAsFixed(1)}KB 超出 45KB 契约上限：'
-          '请让生产端降级为 L0/L1 或复核解析',
-          bad: true));
+      out.add(_banner(S.jobTooLarge, bad: true));
     }
     return out;
   }
@@ -2641,7 +2614,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     _setDesign(widget.origin);
     if (!widget.overflow) {
       widget.onOriginSet(true);
-      _note('雕刻原点已锁定（手动模式）：行程校验通过。可点【雕刻预览】目视确认落点');
+      _note(S.originLocked);
     }
   }
 
@@ -2880,7 +2853,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   Widget _deckRuler(String label) => Padding(
         padding: const EdgeInsets.only(top: 3),
         child: Text(
-          '$label · 步进 $_jogStepLabel mm',
+          S.t(S.stepJog, {'label': label, 'step': _jogStepLabel}),
           textAlign: TextAlign.center,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -2997,7 +2970,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
             sim
                 ? '模拟机器位'
                 : (allOk
-                    ? (homed == null ? '就绪·回零未上报' : '机器就绪')
+                    ? (homed == null ? S.readyNotHomed : '机器就绪')
                     : (linked ? '检查机器' : '未连接')),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -3872,7 +3845,7 @@ class _StepLeveling extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Step 4 · 智能调平',
+        Text(S.step4Leveling,
             style: t.titleMedium?.copyWith(color: CncColors.textMain)),
         const SizedBox(height: 8),
         // 2026-09-03：屏幕端调平功能尚未开发完成，暂时只允许「不调平」。
@@ -4092,7 +4065,7 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
         '移动至原点，按固化激光参数开光加工',
       ]);
     } else {
-      phases.add('自动开启 ATC 刀仓防护盖');
+      phases.add(S.magazineCoverOpen);
       for (var p = 0; p < req.length; p++) {
         final def = toolById(req[p].toolId);
         final slot = widget.procSlot[p];
@@ -4104,7 +4077,7 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
       }
       phases.addAll([
         '移动至刀仓固定测头对刀 (Z-Offset)',
-        '关闭 ATC 刀仓防护盖',
+        S.magazineCoverClose,
         '运行曲面网格调平扫描',
         '主轴离心风压建立，移动至原点开切',
       ]);
@@ -4229,7 +4202,7 @@ class _ReadyPhase extends StatelessWidget {
       final s = sec % 60;
       return m > 0 ? '约 $m 分 $s 秒' : '约 $s 秒';
     }
-    return '开始后由机器上报';
+    return S.etaPending;
   }
 
   @override
@@ -4238,7 +4211,7 @@ class _ReadyPhase extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Step 5 · 作业参数与安全预检汇总',
+        Text(S.step5Summary,
             style: t.titleMedium?.copyWith(color: CncColors.textMain)),
         const SizedBox(height: 10),
         Container(
@@ -4370,7 +4343,7 @@ class _ReadyPhase extends StatelessWidget {
                         strokeWidth: 2, color: Colors.black54),
                   )
                 : const Icon(Symbols.play_arrow, color: Colors.black),
-            label: Text(launching ? '已下发，等待机器响应…' : '开始自检并雕刻',
+            label: Text(launching ? S.sentWaitingPlain : '开始自检并雕刻',
                 style: const TextStyle(
                     fontSize: 14, fontWeight: FontWeight.bold)),
           ),

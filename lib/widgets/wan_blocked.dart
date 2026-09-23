@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/strings_zh.dart';
+
 /// 「必须与机器同网（局域网）」门禁被触发时的**统一提示**（W-10 扩展，2026-09-10）。
 ///
 /// 为什么必须提示：门禁失败是"点了没反应"的高发区 —— 客户只会以为 App 坏了。
@@ -20,9 +22,8 @@ void showWanBlockedSnack(BuildContext context, String what) {
   ScaffoldMessenger.maybeOf(context)?.showSnackBar(
     SnackBar(
       content: Text(
-        '$what 需要在机器同一局域网内执行。'
-        '若手机已连机器 Wi-Fi，App 会自动重试，请稍候再点一次；'
-        '仍不行可在「我的→联调设置」填写机器 IP 后重试。',
+        '${S.t(S.wanBlockedNeedLan, {'what': what})}。'
+        '${S.wanBlockedRetry}。',
       ),
       duration: const Duration(seconds: 5),
     ),

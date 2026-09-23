@@ -666,9 +666,9 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                   runTool != null && firstSlot != null
 
-                      ? '${ringEmoji(runTool.ring)} T$firstSlot ${runTool.name}'
+                      ? '${ringEmoji(runTool.ring)} D$firstSlot ${runTool.name}'
 
-                      : 'T —',
+                      : 'D —',
 
                   CncColors.danger),
 

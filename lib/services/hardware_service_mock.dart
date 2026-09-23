@@ -261,7 +261,7 @@ class MockHardwareService implements HardwareService {
       state: MachineState.idle,
       alarmCode: 0,
       error: '',
-      message: '软复位完成',
+      message: '复位完成',
     );
     _emit();
   }

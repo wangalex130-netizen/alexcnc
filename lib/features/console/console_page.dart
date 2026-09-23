@@ -5,6 +5,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
+import '../../l10n/strings_zh.dart';
+import '../../widgets/app_icon.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 
@@ -1611,7 +1614,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                             ],
 
-                            Icon(Symbols.schedule, size: 13, color: _tlColor()),
+                            Container(width: 7, height: 7, decoration: BoxDecoration(color: _tlColor(), shape: BoxShape.circle)),
 
                             const SizedBox(width: 4),
 
@@ -1811,10 +1814,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                           children: [
 
-                            Icon(Symbols.science, size: 16, color: CncColors.warning),
-
-                            SizedBox(width: 6),
-
                             Expanded(
 
                               child: Text('演示模式',
@@ -1837,9 +1836,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                         Text(
 
-                            '当前未连接真实设备，画面与状态仅供演示，'
-
-                            '移动 / 主轴等命令不会真正下发。与机器是否开机无关。',
+                            S.simNote,
 
                             style: TextStyle(fontSize: 11, color: CncColors.textSub)),
 
@@ -1924,10 +1921,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                         Row(
 
                           children: [
-
-                            Icon(Symbols.sensors, size: 16, color: CncColors.blue),
-
-                            const SizedBox(width: 6),
 
                             Expanded(
 
@@ -2029,10 +2022,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                       children: [
 
-                        Icon(Symbols.priority_high, size: 16, color: CncColors.warning),
-
-                        const SizedBox(width: 6),
-
                         Expanded(
 
                           child: Text('等待机旁确认：请在机器面板按下确认键后继续加工。',
@@ -2073,7 +2062,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                       children: [
 
-                        Icon(Symbols.wifi_off, size: 16, color: CncColors.danger),
+                        Container(width: 8, height: 8, decoration: const BoxDecoration(color: CncColors.danger, shape: BoxShape.circle)),
 
                         const SizedBox(width: 6),
 
@@ -2826,7 +2815,7 @@ class _ConnStatusChip extends ConsumerWidget {
 
       color = CncColors.warning;
 
-      label = '演示模式 · 命令不会下发';
+      label = S.simBadge;
 
     } else if (isCloud) {
 
@@ -2997,15 +2986,7 @@ class _ConnStatusChip extends ConsumerWidget {
 
             if (realMode && !mqttConnected)
 
-              Icon(
-
-                Symbols.refresh,
-
-                size: 16,
-
-                color: color,
-
-              ),
+              AppIcon('refresh', size: 16, color: color, semanticLabel: '刷新'),
 
           ],
 
@@ -3279,7 +3260,7 @@ class _SpindleCard extends StatelessWidget {
 
                 children: [
 
-                  Text('目标转速: ${rpm.toString()} RPM',
+                  Text(S.t(S.spindleRpm, {'rpm': rpm.toString()}),
 
                       style: TextStyle(fontSize: 12, color: CncColors.textSub)),
 
@@ -3435,7 +3416,7 @@ class _AtcEntry extends ConsumerWidget {
 
                 children: [
 
-                  Text('ATC 自动换刀系统', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                  Text(S.atcSystem, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
 
                   const SizedBox(height: 2),
 
@@ -3660,10 +3641,6 @@ class _TimeLapseStatusCard extends StatelessWidget {
           Row(
 
             children: [
-
-              Icon(Symbols.schedule, size: 16, color: CncColors.blue),
-
-              const SizedBox(width: 6),
 
               Text('延时摄影',
 

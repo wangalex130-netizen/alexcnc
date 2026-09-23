@@ -14,6 +14,8 @@ import '../../models/library_item.dart';
 import '../../models/model_library.dart';
 
 import '../../state/providers.dart';
+import '../../state/auth_provider.dart';
+import '../../l10n/strings_zh.dart';
 
 import '../shell/app_shell.dart';
 
@@ -1435,7 +1437,7 @@ class _ModelCard extends StatelessWidget {
 
 
 
-class _MySpaceSliver extends StatelessWidget {
+class _MySpaceSliver extends ConsumerWidget {
 
   final List<LibraryItem> items;
 
@@ -1451,18 +1453,20 @@ class _MySpaceSliver extends StatelessWidget {
 
   @override
 
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
 
     final projects = items.where((e) => !e.isHistory).toList();
 
     final history = items.where((e) => e.isHistory).toList();
 
+    final account = ref.watch(authProvider).username;
+
     return SliverList(
 
       delegate: SliverChildListDelegate([
 
-        // 云端同步横幅
-
+        // 云端同步横幅（W1-4：无登录账号整块不渲染，账号显示真实用户名）
+        if (account != null && account.isNotEmpty)
         Container(
 
           padding: const EdgeInsets.all(12),
@@ -1489,7 +1493,7 @@ class _MySpaceSliver extends StatelessWidget {
 
                   children: [
 
-                    Text('账号：User_9527', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                    Text(S.t(S.accountLabel, {'name': account ?? ''}), style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
 
                     SizedBox(height: 4),
 

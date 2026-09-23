@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../l10n/strings_zh.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -102,12 +103,12 @@ class JobLaunchBanner extends ConsumerWidget {
       case JobLaunchPhase.dispatched:
         final retrying = pending?.state == CommandDeliveryState.retrying;
         final queued = pending?.state == CommandDeliveryState.queued;
-        title = '已下发';
+        title = S.sent;
         detail = queued
             ? '${pending?.label ?? '指令'}未送达，正在等待网络恢复后自动补发。'
             : retrying
                 ? '指令未送达，正在重试（第 ${pending?.retries ?? 0} 次）…'
-                : '${pending?.label ?? '指令'}已下发，等待机器响应…';
+                : S.t(S.sentWaiting, {'what': pending?.label ?? '指令'});
         color = CncColors.textSub;
         icon = Symbols.send;
       default:

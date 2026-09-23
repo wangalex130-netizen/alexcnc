@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../l10n/strings_zh.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
@@ -253,8 +254,8 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                 const SizedBox(height: 2),
                 Text(
                     def != null
-                        ? '${def.type} · ⌀${def.diameterMm}mm · ${ringEmoji(def.ring)}环 · ${def.material}'
-                        : '点「添加」从刀库选刀',
+                        ? S.t(S.toolLineRing, {'type': def.type, 'dia': def.diameterMm.toString(), 'ring': ringEmoji(def.ring), 'mat': def.material})
+                        : S.addToolHint,
                     style: const TextStyle(
                         fontSize: 10, color: Color(0xFF666666))),
               ],
@@ -350,7 +351,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                                       color: CncColors.textMain)),
                               const SizedBox(height: 2),
                               Text(
-                                  '${def.type} · ⌀${def.diameterMm}mm · ${def.flutes}刃 · ${def.material}',
+                                  S.t(S.toolLineFlutes, {'type': def.type, 'dia': def.diameterMm.toString(), 'flutes': def.flutes.toString(), 'mat': def.material}),
                                   style: const TextStyle(
                                       fontSize: 10,
                                       color: Color(0xFF666666))),

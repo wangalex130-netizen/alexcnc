@@ -1,3 +1,5 @@
+import '../l10n/strings_zh.dart';
+
 /// 系统级广播消息（docs/03 §6 `cnc/broadcast/msg` + §7 `cnc/broadcast/system`）。
 ///
 /// 与机器异步事件 [NotifyEvent]（job_done / alarm / confirm_required）不同，广播是
@@ -62,7 +64,7 @@ class BroadcastMessage {
       final file = j['file']?.toString() ?? j['name']?.toString() ?? '';
       return BroadcastMessage(
         level: 'info',
-        title: '刀路文件已下发',
+        title: S.gcodeSent,
         body: file.isEmpty ? 'PC 端已上传刀路，机器将自动下载' : 'PC 端已上传：$file',
         at: DateTime.now(),
         type: 'gcode_url',

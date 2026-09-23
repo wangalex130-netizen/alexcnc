@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../l10n/strings_zh.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/config.dart';
@@ -166,17 +167,15 @@ class _JogSheetState extends ConsumerState<JogSheet>
         final ok = await showDialog<bool>(
               context: context,
               builder: (ctx) => AlertDialog(
-                title: const Text('软复位会中断当前作业'),
-                content: const Text(
-                    '机器正在加工。软复位会立即中止运动并清空运动缓冲，'
-                    '正在进行的雕刻无法续雕。确定继续吗？'),
+                title: Text(S.jogResetTitle),
+                content: Text(S.jogResetBody),
                 actions: [
                   TextButton(
                       onPressed: () => Navigator.pop(ctx, false),
                       child: const Text('取消')),
                   TextButton(
                       onPressed: () => Navigator.pop(ctx, true),
-                      child: Text('确定软复位',
+                      child: Text(S.jogResetConfirm,
                           style: TextStyle(color: CncColors.danger))),
                 ],
               ),
@@ -185,7 +184,7 @@ class _JogSheetState extends ConsumerState<JogSheet>
         if (!ok) return;
       }
       await widget.hw.softReset();
-      if (mounted) toast('已发送软复位');
+      if (mounted) toast(S.jogResetDone);
     }
 
     Future<void> doUnlock() async {
@@ -208,7 +207,7 @@ class _JogSheetState extends ConsumerState<JogSheet>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('手动移动（Jog）',
+              Text(S.manualMove,
                   style: TextStyle(
                       fontSize: 16, fontWeight: FontWeight.bold, color: CncColors.textMain)),
               if (!canControl)
@@ -340,7 +339,7 @@ class _JogSheetState extends ConsumerState<JogSheet>
                 width: 54,
                 child: Column(
                   children: [
-                    JogKey('软复位', doSoftReset,
+                    JogKey(S.jogReset, doSoftReset,
                         enabled: canReset, repeat: false, danger: true),
                     const SizedBox(height: 6),
                     JogKey('解锁', doUnlock,
@@ -362,7 +361,7 @@ class _JogSheetState extends ConsumerState<JogSheet>
             ],
           ),
           const SizedBox(height: 10),
-          Text('步进 ${step.toStringAsFixed(1)} mm · 长按可连续移动',
+          Text(S.t(S.stepJogLong, {'step': step.toStringAsFixed(1)}),
               style: TextStyle(fontSize: 11, color: CncColors.textSub)),
         ],
       ),

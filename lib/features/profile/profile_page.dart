@@ -631,7 +631,9 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
             // 临时调试口：读手机里的轻量 JSON，验证解析 + 3D 预览
             // （不面向客户流程，联调后可整体删除）。
-            _MenuItem(
+            if (showDebugEntry)
+
+              _MenuItem(
 
               icon: Symbols.download,
 
@@ -1631,68 +1633,68 @@ class _DiagProgressButtonState extends State<_DiagProgressButton> {
 }
 
 
-
-
-/// P1-2（2026-09-21）：外观三选一 —— 跟随系统 / 浅色 / 深色。
-String _themeModeLabel(ThemeMode m) {
-  switch (m) {
-    case ThemeMode.system:
-      return '跟随系统';
-    case ThemeMode.light:
-      return '浅色';
-    case ThemeMode.dark:
-      return '深色';
-  }
-}
-
-class _AppearanceSheet extends ConsumerWidget {
-  const _AppearanceSheet();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final mode = ref.watch(themeModeProvider);
-    return Container(
-      decoration: BoxDecoration(
-        color: CncColors.panel,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 16),
-            Text('外观',
-                style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: CncColors.textMain)),
-            const SizedBox(height: 4),
-            for (final m in const [
-              ThemeMode.system,
-              ThemeMode.light,
-              ThemeMode.dark,
-            ])
-              _MenuItem(
-                icon: m == ThemeMode.system
-                    ? Symbols.brightness_auto
-                    : m == ThemeMode.light
-                        ? Symbols.light_mode
-                        : Symbols.dark_mode,
-                title: _themeModeLabel(m),
-                trailing: mode == m
-                    ? Icon(Symbols.check_circle,
-                        size: 20, color: CncColors.primaryInk)
-                    : null,
-                onTap: () {
-                  ref.read(themeModeProvider.notifier).set(m);
-                  Navigator.of(context).pop();
-                },
-              ),
-            const SizedBox(height: 10),
-          ],
-        ),
-      ),
-    );
-  }
+
+
+/// P1-2（2026-09-21）：外观三选一 —— 跟随系统 / 浅色 / 深色。
+String _themeModeLabel(ThemeMode m) {
+  switch (m) {
+    case ThemeMode.system:
+      return '跟随系统';
+    case ThemeMode.light:
+      return '浅色';
+    case ThemeMode.dark:
+      return '深色';
+  }
+}
+
+class _AppearanceSheet extends ConsumerWidget {
+  const _AppearanceSheet();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mode = ref.watch(themeModeProvider);
+    return Container(
+      decoration: BoxDecoration(
+        color: CncColors.panel,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 16),
+            Text('外观',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: CncColors.textMain)),
+            const SizedBox(height: 4),
+            for (final m in const [
+              ThemeMode.system,
+              ThemeMode.light,
+              ThemeMode.dark,
+            ])
+              _MenuItem(
+                icon: m == ThemeMode.system
+                    ? Symbols.brightness_auto
+                    : m == ThemeMode.light
+                        ? Symbols.light_mode
+                        : Symbols.dark_mode,
+                title: _themeModeLabel(m),
+                trailing: mode == m
+                    ? Icon(Symbols.check_circle,
+                        size: 20, color: CncColors.primaryInk)
+                    : null,
+                onTap: () {
+                  ref.read(themeModeProvider.notifier).set(m);
+                  Navigator.of(context).pop();
+                },
+              ),
+            const SizedBox(height: 10),
+          ],
+        ),
+      ),
+    );
+  }
 }

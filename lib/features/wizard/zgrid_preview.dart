@@ -462,7 +462,7 @@ class _ZGridPreviewState extends State<ZGridPreview> {
       setState(() {
         _data = d;
         _loading = false;
-        _source = d == null ? null : '云端轻量 JSON';
+        _source = d == null ? null : '云端';
       });
     } catch (_) {
       if (!mounted) return;
@@ -522,7 +522,7 @@ class _ZGridPreviewState extends State<ZGridPreview> {
               padding: EdgeInsets.symmetric(horizontal: 16),
               child: Text(
                 '该模型暂无 3D 预览数据。\n'
-                '可稍后重试；或到「我的 → 本地文件解析（调试）」载入一份完整载荷。',
+                '不影响雕刻，可稍后重试。',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 10, color: CncColors.textSub, height: 1.4),
               ),
