@@ -66,6 +66,14 @@ class Payload {
   /// 载荷自身字节数（App 侧契约校验：≤45KB）。
   final int payloadBytes;
 
+  /// 激光作业判定（2026-09-23 工单 v2 §2）：由 [payloadIsLaser] 解析轻量 JSON
+  /// 得出。字段缺失 / 解析失败 / 无 payloadUrl 一律 false（= 铣削，安全默认）。
+  final bool isLaser;
+
+  /// 激光加工参数（null = 非激光 / 云端未下发）。**只读展示**，App 侧不可调 ——
+  /// 参数在 PC 端生成 G-code 时已固化进刀路（架构铁律，App 不解析不生成 G-code）。
+  final LaserParams? laser;
+
   const Payload({
     required this.jobId,
     required this.version,
@@ -94,6 +102,8 @@ class Payload {
     required this.minMaterialThickness,
     required this.cutThroughRisk,
     required this.payloadBytes,
+    required this.isLaser,
+    this.laser,
   });
 
   // ---------- 派生量 ----------
@@ -289,6 +299,8 @@ class Payload {
       minMaterialThickness: _n(st['minMaterialThickness']),
       cutThroughRisk: sf['cutThroughRisk'] == true,
       payloadBytes: bytes,
+      isLaser: payloadIsLaser(j),
+      laser: LaserParams.fromJson(j),
     );
   }
 
@@ -325,6 +337,37 @@ class Payload {
           '[0,${bedWidth.toStringAsFixed(0)}]×[0,${bedHeight.toStringAsFixed(0)}]';
     }
     return null;
+  }
+}
+
+/// 激光作业判定（2026-09-23 工单 v2 §2.2：**单点可换**）。
+///
+/// TODO(激光字段规则): 字段名/取值以昊总提供的 PC 端规则为准（2026-09-23 约定
+/// 待补充）。下方为占位实现，规则确认后只替换本函数与 [LaserParams] 的取值，
+/// 其余代码一律不感知原始字段名（全 App 只消费 `Payload.isLaser`）。
+bool payloadIsLaser(Map<String, dynamic> j) {
+  final v = (j['jobType'] ?? j['processType'] ?? '').toString().toLowerCase();
+  return v == 'laser';
+}
+
+/// 激光加工参数（工单 §4.1 占位结构；字段名待 PC 规则确认后在 [fromJson] 单点替换）。
+class LaserParams {
+  final double? powerPercent;
+  final double? speedMmMin;
+  final double? spotMm;
+  final int? passes;
+  const LaserParams({this.powerPercent, this.speedMmMin, this.spotMm, this.passes});
+
+  static LaserParams? fromJson(Map<String, dynamic> j) {
+    final o = j['laser'];
+    if (o is! Map) return null;
+    double? n(Object? v) => v is num ? v.toDouble() : null;
+    return LaserParams(
+      powerPercent: n(o['powerPercent']),
+      speedMmMin: n(o['speedMmMin']),
+      spotMm: n(o['spotMm']),
+      passes: o['passes'] is num ? (o['passes'] as num).toInt() : null,
+    );
   }
 }
 

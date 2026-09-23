@@ -57,6 +57,14 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   TaskMetadata? _task;
   bool _loading = true;
 
+  /// 本作业是否为激光（2026-09-23 工单 v2）：判定来源 = 轻量 JSON 激光字段
+  /// （payload.dart 的 payloadIsLaser，单点可换）。向导入口预取后置位；
+  /// 未定 / 拉取失败 / 无字段 一律 false（= 铣削 5 步，安全默认）。
+  bool _isLaserJob = false;
+
+  /// 云端下发的激光加工参数（只读展示用；null = 未下发，卡片各行显示 "—"）。
+  LaserParams? _laserParams;
+
   // ---- 跨步骤共享状态 ----
   late String _materialKey; // Step1 模型指定材质（由模型固定，不可更换）→ Step5 展示
   Offset _origin = const Offset(15, 15); // 工件零点 (mm, 底板 300x200)
@@ -108,6 +116,10 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     _thicknessFocus = FocusNode();
     _thicknessFocus.addListener(_snapThicknessOnBlur);
     _load();
+    // 激光/铣削形态预取（工单 §2.3）：不阻塞任何步骤，失败按铣削走。
+    unawaited(_prefetchLaserFlag());
+    // 本地调试载荷兜底（payloadUrl 缺失时）：载荷进单例时同步更新激光判定。
+    LocalPayloadStore.instance.addListener(_onLocalPayloadFlag);
   }
 
   /// 失焦时把厚度吸附到合法范围：空 或 < 下限 ⇒ 取模型厚度（下限）。
@@ -179,7 +191,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     // P1 修复（2026-09-21）：作业无任何工序刀具（req 为空）时，刀仓映射
     // 无需执行 —— 原来直接 return false 会让客户永远卡在本步（点「下一步」
     // 无反应、无报错的死锁）。空列表 = 直接放行。
-    // 按作业类型整屏跳过（激光作业）等云端作业类型字段落地后再做。
+    // 激光作业的整屏跳过已由向导可见步骤表实现（payload.isLaser 判定，
+    // 2026-09-23 工单 v2）—— 激光下根本不会进入本步，本放行仅作防御。
     if (req.isEmpty) return true;
     if (_procSlot.length < req.length) return false;
     final usedSlots = _procSlot.values.toSet();
@@ -271,7 +284,12 @@ class _WizardPageState extends ConsumerState<WizardPage> {
         }),
       );
     }
-    setState(() => _step++);
+    // 沿可见步骤表前进（激光作业跳过「刀仓映射」，见 _visibleSteps）。
+    final vs = _visibleSteps;
+    final i = vs.indexOf(_step);
+    if (i >= 0 && i + 1 < vs.length) {
+      setState(() => _step = vs[i + 1]);
+    }
   }
 
   /// 下发 `preload_model`：把「客户计划雕刻这个模型」告诉机器屏幕（D-2）。
@@ -330,10 +348,84 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     );
   }
 
+  // ---------- 激光/铣削形态判定（2026-09-23 工单 v2） ----------
+
+  /// 可见步骤表：内部索引（0..4）与所有 switch 逻辑**保持不变**，只控制"走不走"。
+  /// 激光作业跳过「刀仓映射」（下标 2，09-23 顺序调整后的位置；工单按旧顺序
+  /// 写的 [0,2,3,4] 已按现行顺序换算）；「定原点防撞」定死保留（昊总拍板：
+  /// 激光同样需要原点与防撞校验）。
+  List<int> get _visibleSteps =>
+      _isLaserJob ? const [0, 1, 3, 4] : const [0, 1, 2, 3, 4];
+
+  List<String> get _visibleTitles =>
+      _visibleSteps.map((s) => _titles[s]).toList();
+
+  /// 向导入口预取轻量 JSON（工单 §2.3）：只为定激光/铣削形态。
+  ///  - 取到 → 解析 isLaser 更新可见步骤表；结果进 PayloadFetchCache，
+  ///    定原点步（_StepOrigin._loadMeta）二次加载直接命中，不重复请求；
+  ///  - 无 payloadUrl → 本地调试载荷兜底（LocalPayloadStore，云端永远优先）；
+  ///  - 取不到 / 解析失败 / 无字段 → 保持铣削 5 步（安全默认），不阻塞不弹框。
+  Future<void> _prefetchLaserFlag() async {
+    final url = widget.item.previewPayloadUrl ?? '';
+    Payload? m;
+    List<double>? grid;
+    if (url.isNotEmpty) {
+      final hit = PayloadFetchCache.get(url);
+      if (hit != null) {
+        m = hit.meta;
+        grid = hit.grid;
+      } else {
+        try {
+          final resp = await http
+              .get(Uri.parse(url))
+              .timeout(const Duration(seconds: 8));
+          if (resp.statusCode == 200) {
+            final j = jsonDecode(utf8.decode(resp.bodyBytes));
+            if (j is Map<String, dynamic>) {
+              m = Payload.fromJson(j, sourceBytes: resp.bodyBytes.length);
+              grid = m?.decodeGrid();
+            }
+          }
+        } catch (_) {
+          m = null; // 弱网/断网：按铣削走，绝不阻塞向导
+        }
+        if (m != null) PayloadFetchCache.put(url, m, grid);
+      }
+    } else {
+      final lp = LocalPayloadStore.instance.payload;
+      m = lp?.meta;
+      grid = lp?.grid;
+    }
+    if (!mounted || m == null) return;
+    _applyLaserFlag(m.isLaser, m.laser);
+  }
+
+  /// 本地调试载荷变化：仅在云端 payloadUrl 缺失时接管（云端永远优先）。
+  void _onLocalPayloadFlag() {
+    if ((widget.item.previewPayloadUrl ?? '').isNotEmpty) return;
+    final lp = LocalPayloadStore.instance.payload;
+    if (!mounted || lp == null) return;
+    _applyLaserFlag(lp.meta.isLaser, lp.meta.laser);
+  }
+
+  void _applyLaserFlag(bool isLaser, LaserParams? laser) {
+    setState(() {
+      _isLaserJob = isLaser;
+      _laserParams = laser;
+      // 防御：判定到达时客户若已站在被跳过的「刀仓映射」（下标 2），立即带离。
+      if (isLaser && _step == 2) _step = 3;
+    });
+  }
+
   /// 回上一步（定原点页的【上一步】，昊总 2026-09-18）。
   void _prev() {
     if (_step <= 0) return;
-    setState(() => _step--);
+    // 沿可见步骤表后退（激光作业不会退进「刀仓映射」）。
+    final vs = _visibleSteps;
+    final i = vs.indexOf(_step);
+    if (i > 0) {
+      setState(() => _step = vs[i - 1]);
+    }
   }
 
   /// P0-04 扩展（2026-09-10）：动作被「必须与机器同网」门禁拦下时的统一提示。
@@ -346,6 +438,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
 
   @override
   void dispose() {
+    LocalPayloadStore.instance.removeListener(_onLocalPayloadFlag);
     _thicknessFocus.dispose();
     if (_thickCtlReady) _thicknessCtl.dispose();
     super.dispose();
@@ -354,6 +447,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
+    // 可见步骤序号（步骤条与 Step x/y 都按"客户看到的第几步"计数）。
+    final vpos = _visibleSteps.indexOf(_step);
     return Scaffold(
       backgroundColor: CncColors.bg,
       // 定原点页（下标 1）横屏全屏沉浸：不留 AppBar / 步骤条 / 底部按钮，
@@ -375,7 +470,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
             padding: const EdgeInsets.only(right: 16),
             child: Center(
               child: Text(
-                'Step ${_step + 1}/5',
+                'Step ${vpos < 0 ? 1 : vpos + 1}/${_visibleSteps.length}',
                 style: t.bodyMedium?.copyWith(color: CncColors.primaryInk),
               ),
             ),
@@ -393,7 +488,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
               : ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _Progress(step: _step, titles: _titles),
+          _Progress(step: vpos < 0 ? 0 : vpos, titles: _visibleTitles),
           const SizedBox(height: 16),
           Card(
             color: CncColors.card,
@@ -412,7 +507,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
               children: [
                 if (_step > 0)
                   OutlinedButton(
-                    onPressed: () => setState(() => _step--),
+                    onPressed: _prev,
                     style: OutlinedButton.styleFrom(
                       foregroundColor: CncColors.textMain,
                       side: BorderSide(color: CncColors.border),
@@ -451,12 +546,13 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   /// 步骤条与【下一步】保持与其它步骤完全一致的操作位置。
   Widget _fitLayout() {
     final t = Theme.of(context).textTheme;
+    final vpos = _visibleSteps.indexOf(_step);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _Progress(step: _step, titles: _titles),
+          _Progress(step: vpos < 0 ? 0 : vpos, titles: _visibleTitles),
           const SizedBox(height: 10),
           Expanded(
             child: Card(
@@ -590,6 +686,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
         );
       case 2:
         // 2026-09-23 顺序调整：刀仓映射现在排在第 3 步（下标 2）。
+        // 激光作业经可见步骤表整屏跳过本步（永不停留在下标 2），
+        // 此空态分支保留为防御（数据异常时兜底，不白屏）。
         // P1 修复（2026-09-21）：无刀具作业（req 为空）显示空态说明，
         // 不再渲染刀仓映射表；配合 _atcReady 放行，修复「下一步」无反应死锁。
         if ((_task?.requiredTools ?? []).isEmpty) {
@@ -644,6 +742,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           item: widget.item,
           task: _task,
           materialKey: _materialKey,
+          isLaser: _isLaserJob,
+          laserParams: _laserParams,
           requiredTools: _task?.requiredTools ?? [],
           procSlot: _procSlot,
         );
@@ -3877,12 +3977,18 @@ class _StepTakeoff extends ConsumerStatefulWidget {
   final LibraryItem item;
   final TaskMetadata? task;
   final String materialKey;
+
+  /// 激光作业标记与只读激光参数（2026-09-23 工单 v2 §4）。
+  final bool isLaser;
+  final LaserParams? laserParams;
   final List<RequiredTool> requiredTools;
   final Map<int, int> procSlot;
   const _StepTakeoff({
     required this.item,
     required this.task,
     required this.materialKey,
+    required this.isLaser,
+    required this.laserParams,
     required this.requiredTools,
     required this.procSlot,
   });
@@ -3976,24 +4082,33 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
     }
 
     final req = widget.requiredTools;
-    final phases = <String>[
-      '防护罩电子门磁锁止',
-      '自动开启 ATC 刀仓防护盖',
-    ];
-    for (var p = 0; p < req.length; p++) {
-      final def = toolById(req[p].toolId);
-      final slot = widget.procSlot[p];
-      // null 兜底（之前 toolById 不会返回 null，现在可能）
-      final defName = def?.name ?? '未配置';
-      final defRing = def?.ring ?? 'grey';
-      phases.add('自动装载 T${slot ?? '?'} 号刀具 (${ringEmoji(defRing)} $defName)');
+    final phases = <String>['防护罩电子门磁锁止'];
+    if (widget.isLaser) {
+      // 激光作业（2026-09-23 工单 v2 §4）：无 ATC / 无刀具 / 无主轴，
+      // 自检流水线换激光语义，自检页不出现任何刀具核对项。
+      phases.addAll([
+        '激光模块自检与焦距校验',
+        '运行曲面网格调平扫描',
+        '移动至原点，按固化激光参数开光加工',
+      ]);
+    } else {
+      phases.add('自动开启 ATC 刀仓防护盖');
+      for (var p = 0; p < req.length; p++) {
+        final def = toolById(req[p].toolId);
+        final slot = widget.procSlot[p];
+        // null 兜底（之前 toolById 不会返回 null，现在可能）
+        final defName = def?.name ?? '未配置';
+        final defRing = def?.ring ?? 'grey';
+        phases.add(
+            '自动装载 T${slot ?? '?'} 号刀具 (${ringEmoji(defRing)} $defName)');
+      }
+      phases.addAll([
+        '移动至刀仓固定测头对刀 (Z-Offset)',
+        '关闭 ATC 刀仓防护盖',
+        '运行曲面网格调平扫描',
+        '主轴离心风压建立，移动至原点开切',
+      ]);
     }
-    phases.addAll([
-      '移动至刀仓固定测头对刀 (Z-Offset)',
-      '关闭 ATC 刀仓防护盖',
-      '运行曲面网格调平扫描',
-      '主轴离心风压建立，移动至原点开切',
-    ]);
     // 雕刻主链路 v2（2026-09-03）：模型带加工程序 URL 时走
     // prepare_job → confirm 两阶段 —— **App 只把 URL + 元数据传给小屏，
     // 自己不下载、不上传 G-code**（D2 守住铁律）。
@@ -4030,7 +4145,9 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
       MaterialPageRoute(
         builder: (_) => SelfCheckPage(
           materialKey: widget.materialKey,
-          requiredTools: widget.requiredTools,
+          // 激光作业传空刀具列表（工单 §4.2）：自检页不出现刀具核对项。
+          requiredTools:
+              widget.isLaser ? const <RequiredTool>[] : widget.requiredTools,
           procSlot: widget.procSlot,
         ),
       ),
@@ -4046,6 +4163,8 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
       mat: mat,
       requiredTools: req,
       procSlot: widget.procSlot,
+      isLaser: widget.isLaser,
+      laserParams: widget.laserParams,
       durationText: widget.item.duration,
       durationSec: widget.item.durationSec,
       timeLapse: _timeLapse,
@@ -4061,6 +4180,10 @@ class _ReadyPhase extends StatelessWidget {
   final MaterialSpec mat;
   final List<RequiredTool> requiredTools;
   final Map<int, int> procSlot;
+
+  /// 激光作业：显示只读激光参数卡、隐藏铣削参数与刀具区块（工单 §4.2）。
+  final bool isLaser;
+  final LaserParams? laserParams;
   final bool timeLapse;
   final ValueChanged<bool> onToggleTimeLapse;
   final TextEditingController durationController;
@@ -4078,6 +4201,8 @@ class _ReadyPhase extends StatelessWidget {
     required this.mat,
     required this.requiredTools,
     required this.procSlot,
+    required this.isLaser,
+    required this.laserParams,
     required this.timeLapse,
     required this.onToggleTimeLapse,
     required this.durationController,
@@ -4086,6 +4211,10 @@ class _ReadyPhase extends StatelessWidget {
     this.durationText,
     this.durationSec,
   });
+
+  /// 激光参数格式化：缺项显示 "—"（工单 §4.2：不崩、不编数）。
+  String _laserStr(double? v, String unit, int frac) =>
+      v == null ? '—' : v.toStringAsFixed(frac) + unit;
 
   /// W-12（2026-09-10）：原实现写死一个固定时长（编造数字，与所选模型无关）。
   /// 改为使用云端模型自带的真实预估；两者都没有时如实说明由机器上报，不再展示假数。
@@ -4122,10 +4251,31 @@ class _ReadyPhase extends StatelessWidget {
           child: Column(
             children: [
               _Param('匹配材质', '${mat.name}'),
-              _Param('主轴转速', '${mat.rpm} RPM'),
-              _Param('进给速度', '${mat.feed} mm/min'),
-              _Param('下刀速度', '${mat.plunge} mm/min'),
-              ...requiredTools.asMap().entries.map((e) {
+              // 激光作业：隐藏铣削参数与刀具区块，换只读激光参数卡（工单 §4.2）。
+              if (!isLaser) ...[
+                _Param('主轴转速', '${mat.rpm} RPM'),
+                _Param('进给速度', '${mat.feed} mm/min'),
+                _Param('下刀速度', '${mat.plunge} mm/min'),
+              ] else ...[
+                _Param('激光功率', _laserStr(laserParams?.powerPercent, ' %', 0)),
+                _Param('加工速度',
+                    _laserStr(laserParams?.speedMmMin, ' mm/min', 0)),
+                _Param('光斑直径', _laserStr(laserParams?.spotMm, ' mm', 2)),
+                _Param('加工遍数',
+                    laserParams?.passes == null ? '—' : '${laserParams!.passes}'),
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                        '激光参数已在电脑端生成刀路时固化，App 仅展示、不可调整',
+                        style:
+                            TextStyle(fontSize: 10, color: CncColors.textSub)),
+                  ),
+                ),
+              ],
+              if (!isLaser)
+                ...requiredTools.asMap().entries.map((e) {
                 final p = e.key;
                 final rt = e.value;
                 final def = toolById(rt.toolId);

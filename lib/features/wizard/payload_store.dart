@@ -37,6 +37,22 @@ class LocalPayload {
   bool get hasGrid => grid != null && meta.hasGrid;
 }
 
+/// 向导预取缓存（2026-09-23 工单 v2 §2.3）。
+///
+/// 向导入口（initState）预取的云端轻量 JSON 按 URL 驻留内存，
+/// 「定原点防撞」步（_StepOrigin._loadMeta）二次加载直接命中，不重复请求。
+/// 进程内缓存、不落盘；只存解析结果，App 依旧不解析 G-code。
+class PayloadFetchCache {
+  PayloadFetchCache._();
+
+  static final Map<String, ({Payload meta, List<double>? grid})> _m = {};
+
+  static ({Payload meta, List<double>? grid})? get(String url) => _m[url];
+
+  static void put(String url, Payload meta, List<double>? grid) =>
+      _m[url] = (meta: meta, grid: grid);
+}
+
 /// 单例：`LocalPayloadStore.instance`（`ValueNotifier`，消费方 addListener 即可）。
 class LocalPayloadStore extends ValueNotifier<LocalPayload?> {
   LocalPayloadStore._() : super(null);
