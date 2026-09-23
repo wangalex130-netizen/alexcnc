@@ -610,7 +610,7 @@ class ToolMagazine extends StateNotifier<Map<int, String?>> {
       state = _empty;
       return _empty;
     }
-    if (!force && _loadedFor == device) return; // 同一台机器不重复拉取
+    if (!force && _loadedFor == device) return state; // 同一台机器不重复拉取
     _loading = true;
     try {
       final cfg = await _service.fetch(device);
