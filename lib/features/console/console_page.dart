@@ -2062,7 +2062,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                       children: [
 
-                        Container(width: 8, height: 8, decoration: const BoxDecoration(color: CncColors.danger, shape: BoxShape.circle)),
+                        Container(width: 8, height: 8, decoration: BoxDecoration(color: CncColors.danger, shape: BoxShape.circle)),
 
                         const SizedBox(width: 6),
 
