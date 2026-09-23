@@ -1224,6 +1224,9 @@ class RealHardwareService implements HardwareService {
       _failCarve('网络不稳，指令没发出去，请检查网络后重试');
       return false;
     }
+    return true;
+  }
+
   // ===================== D-1 · 模型预读（2026-09-23 昊总新增）=====================
   /// 下发 `preload_model`：告知小屏「客户计划雕刻这个模型」，请它先把该模型的
   /// **轻量 JSON（高程网格）**从服务器拉下来并预读。
@@ -1293,9 +1296,6 @@ class RealHardwareService implements HardwareService {
     // reqId 由 _publish 自动注入（同一模型重复点【下一步】时，小屏按
     // 「10s 内相同 reqId 丢弃」去重；不同 reqId 则按同 modelId 复用缓存）。
     return _dispatch(cmd);
-  }
-
-    return true;
   }
 
   void _updateCarve(CarveSession s) {
