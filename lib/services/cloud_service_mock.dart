@@ -52,7 +52,7 @@ class MockCloudService implements CloudService {
         recommendedFeedRate: 1500,
         defaultMaterialKey: 'pine', // Step1 默认雕刻材料：松木
         defaultToolId: 't_flat_3175', // Step1 默认刀具：3.175 平底刀
-        // 有序工序刀具：先粗雕（平底刀）后精雕（V 型刀），与物理刀兜解耦
+        // 有序工序刀具：先粗雕（平底刀）后精雕（V 型刀），与物理刀仓解耦
         requiredTools: const [
           RequiredTool('t_flat_3175', '粗雕 / 轮廓'),
           RequiredTool('t_v60', '精雕 / 刻线'),

@@ -9,7 +9,9 @@ import '../../app/runtime_config.dart';
 
 import '../../app/theme.dart';
 
+import '../../data/tool_library.dart';
 import '../../models/library_item.dart';
+import '../../widgets/tool_icon.dart';
 
 import '../wizard/wizard_page.dart';
 
@@ -634,6 +636,15 @@ class _ToolCard extends StatelessWidget {
 
     final tools = item.requiredTools;
 
+    // 默认刀具行图标（20260923 工单 §3A）：requiredTools 依次反查本地刀库，
+    // 命中才显示刀具模型图标；未命中只显示文字（不崩）。
+    ToolDef? iconDef;
+    for (final t in item.requiredTools) {
+      iconDef = toolById(t.toolId);
+      if (iconDef != null) break;
+    }
+    iconDef ??= toolById(item.toolId ?? '');
+
     return Container(
 
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -655,6 +666,14 @@ class _ToolCard extends StatelessWidget {
       child: Row(
 
         children: [
+
+          if (iconDef != null) ...[
+
+            ToolIcon(def: iconDef, size: 22),
+
+            const SizedBox(width: 6),
+
+          ],
 
           Text('默认刀具',
 

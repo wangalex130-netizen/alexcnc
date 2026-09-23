@@ -74,8 +74,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   // 2026-09-03：默认改为「不调平」—— 屏幕端调平尚未开发完成，
   // 若默认选调平，下发给机器的调平指令无人执行，客户会卡在这一步。
   int _leveling = 0;
-  // ---- 工序刀序 ↔ 物理刀兜 映射（解耦）----
-  // _procSlot[工序index] = 物理刀兜号；_procConfirmed 存已实物确认的工序 index。
+  // ---- 工序刀序 ↔ 物理刀仓 映射（解耦）----
+  // _procSlot[工序index] = 物理刀仓号；_procConfirmed 存已实物确认的工序 index。
   Map<int, int> _procSlot = {};
   Set<int> _procConfirmed = {};
   bool _syncedToMachine = false; // Step3：必须点「确认映射并同步到机器」
@@ -96,7 +96,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   StockShape _stockShape = StockShape.rect;
 
   // 2026-09-23 昊总裁定：**定原点排在刀仓映射之前**（原话「定完原点后才是
-  // 确定刀具」）。原顺序让客户在还没有工件零点时就去分配刀兜，与车间实际
+  // 确定刀具」）。原顺序让客户在还没有工件零点时就去分配刀仓，与车间实际
   // 动作顺序相反。顺序定义只此一处，其它地方一律按下标引用。
   static const _titles = [
     '材料确认',
@@ -154,7 +154,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       // 材质由模型固定，本步只读展示（不可更换）。
       _materialKey = task.defaultMaterialKey;
       // 刀仓以「控制台刀仓管理」为准（用户可增删/清空刀位）：
-      // 已装好的工序刀沿用当前刀兜；未装的工序刀留空，由用户在 Step3 选择。
+      // 已装好的工序刀沿用当前刀仓；未装的工序刀留空，由用户在 Step3 选择。
       // 不再自动按 1..N 覆盖/重排刀仓 —— 否则控制台删除（清空）的刀会在向导中"复活"。
       _procSlot = {};
       _procConfirmed = {};
@@ -184,7 +184,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   /// 厚度是否达标：已填 且 ≥ 模型要求的下限。
   bool get _thickOk => _thicknessVal >= _minThickness;
 
-  /// 刀仓映射是否就绪：每把工序刀都分配到不同刀兜、逐兜实物确认完成、
+  /// 刀仓映射是否就绪：每把工序刀都分配到不同刀仓、逐仓实物确认完成、
   /// 且已点「确认映射并同步到机器」。
   bool get _atcReady {
     final req = _task?.requiredTools ?? [];
@@ -204,7 +204,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     return true;
   }
 
-  /// 把工序 p 映射到物理刀兜 slot，并写穿到共享刀表。
+  /// 把工序 p 映射到物理刀仓 slot，并写穿到共享刀表。
   void _assignProcSlot(int p, int slot) {
     final req = _task?.requiredTools ?? [];
     if (p >= req.length) return;
@@ -218,7 +218,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       mag[slot] = tid;
       // 用 setAll 而非直接改 state：批量改动也要落云端（刀仓是机器级真实配置）
       ref.read(toolMagazineProvider.notifier).setAll(mag);
-      _procConfirmed.remove(p); // 刀兜变动，实物确认需重做
+      _procConfirmed.remove(p); // 刀仓变动，实物确认需重做
       _syncedToMachine = false; // 映射变动，需重新同步到机器
     });
   }
@@ -612,11 +612,11 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       final req = _task?.requiredTools ?? [];
       final dup = _procSlot.values.length != _procSlot.values.toSet().length;
       if (dup) {
-        msg = '不同工序不能共用同一个刀兜，请为每把工序刀选择独立刀兜。';
+        msg = '不同工序不能共用同一个刀仓，请为每把工序刀选择独立刀仓。';
       } else if (_procSlot.length < req.length) {
-        msg = '请为每把工序刀选择物理刀兜。';
+        msg = '请为每把工序刀选择物理刀仓。';
       } else if (_procConfirmed.length < req.length) {
-        msg = '请逐一确认每个刀兜的实物环色一致。';
+        msg = '请逐一确认每个刀仓的实物环色一致。';
       } else if (!_syncedToMachine) {
         msg = '必须点击「确认映射并同步到机器」后才能进入下一步。';
       } else {
@@ -1194,7 +1194,7 @@ class _CheckTile extends StatelessWidget {
 
 class _StepAtc extends ConsumerStatefulWidget {
   final List<RequiredTool> requiredTools;
-  final Map<int, int> procSlot; // 工序 index → 物理刀兜
+  final Map<int, int> procSlot; // 工序 index → 物理刀仓
   final Set<int> confirmed; // 已实物确认的工序 index
   final bool synced; // 是否已点击「确认映射并同步到机器」
   final void Function(int p, int slot) onAssign;
@@ -1227,8 +1227,8 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
     }
   }
 
-  /// 选择物理刀兜前的占用检测。
-  /// 若目标刀兜已在控制台配置其他刀具，且与当前工序所需刀具不一致，
+  /// 选择物理刀仓前的占用检测。
+  /// 若目标刀仓已在控制台配置其他刀具，且与当前工序所需刀具不一致，
   /// 必须弹窗要求用户实物确认，否则不能分配。
   Future<void> _maybeAssign(int p, int slot) async {
     final magazine = ref.read(toolMagazineProvider);
@@ -1257,7 +1257,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
           children: [
             Icon(Symbols.warning_amber, color: CncColors.danger),
             const SizedBox(width: 8),
-            Text('T$slot 已占用',
+            Text('D$slot 已占用',
                 style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -1265,9 +1265,9 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
           ],
         ),
         content: Text(
-          'T$slot 当前已配置为 ${ringEmoji(existing.ring)} ${existing.name}，'
+          'D$slot 当前已配置为 ${ringEmoji(existing.ring)} ${existing.name}，'
           '与工序${p + 1} 所需刀具 ${ringEmoji(needed.ring)} ${needed.name} 不一致。\n\n'
-          '若继续映射，请确认 T$slot 实物刀兜中的刀具已更换为 ${ringEmoji(needed.ring)} ${needed.name}，'
+          '若继续映射，请确认 D$slot 实物刀仓中的刀具已更换为 ${ringEmoji(needed.ring)} ${needed.name}，'
           '并核对环色无误。',
           style: TextStyle(fontSize: 13, color: CncColors.textSub),
         ),
@@ -1326,7 +1326,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
         ),
         const SizedBox(height: 6),
         Text('模型需按工序顺序使用以下刀具。已自动沿用控制台刀仓中已配置的刀位；'
-            '未配置的工序刀请手动选择物理刀兜。机器按工序顺序自动换刀，而非固定 T1→T2。',
+            '未配置的工序刀请手动选择物理刀仓。机器按工序顺序自动换刀，而非固定 D1→D2。',
             style: TextStyle(fontSize: 12, color: CncColors.textSub)),
         const SizedBox(height: 14),
         // 有序工序刀具 → 选兜 + 实物确认
@@ -1417,7 +1417,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                   ],
                 ),
                 const SizedBox(height: 10),
-                Text('选择物理刀兜',
+                Text('选择物理刀仓',
                     style: TextStyle(fontSize: 11, color: CncColors.textSub)),
                 const SizedBox(height: 6),
                 Row(
@@ -1442,7 +1442,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                     value: widget.confirmed.contains(p),
                     onChanged: (_) => widget.onToggleConfirm(p),
                     label:
-                        '我已确认 T$slot 实物环色为 ${ringEmoji(defOrFallback.ring)} ${defOrFallback.name}',
+                        '我已确认 D$slot 实物环色为 ${ringEmoji(defOrFallback.ring)} ${defOrFallback.name}',
                   ),
                 ],
                 if (dup)
@@ -1455,7 +1455,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                       const SizedBox(width: 4),
                       Expanded(
                         child: Text(
-                            'T$slot 被多个工序占用，请为每个工序选择不同刀兜',
+                            'D$slot 被多个工序占用，请为每个工序选择不同刀仓',
                             style: TextStyle(
                                 fontSize: 11, color: CncColors.danger)),
                       ),
@@ -1467,7 +1467,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
           );
         }).toList(),
         const SizedBox(height: 10),
-        Text('当前刀表（刀兜 ↔ 刀具，与控制台同步）',
+        Text('当前刀表（刀仓 ↔ 刀具，与控制台同步）',
             style: TextStyle(fontSize: 11, color: CncColors.textSub)),
         const SizedBox(height: 8),
         Row(
@@ -1570,7 +1570,7 @@ class _SlotChip extends StatelessWidget {
             ),
           ),
           child: Center(
-            child: Text('T$slot',
+            child: Text('D$slot',
                 style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
@@ -1587,7 +1587,7 @@ class _SlotChip extends StatelessWidget {
 class _Slot extends StatelessWidget {
   final int slot;
   final String? defId;
-  final Map<int, int> procSlot; // 工序 index → 物理刀兜（用于同步显示工序标签）
+  final Map<int, int> procSlot; // 工序 index → 物理刀仓（用于同步显示工序标签）
   final Set<int> confirmed; // 已实物确认的工序 index（防呆）
   // onTap 已移除：这是只读展示，套 GestureDetector 会给出错误的可点暗示。
   const _Slot({
@@ -1602,7 +1602,7 @@ class _Slot extends StatelessWidget {
     final def = defId != null ? toolById(defId!) : null;
     final seated = def != null;
     final ring = seated ? ringColor(def!.ring) : Colors.grey.shade600;
-    // 该刀兜被哪道工序映射（同步显示工序标签）
+    // 该刀仓被哪道工序映射（同步显示工序标签）
     final procEntry = procSlot.entries.where((e) => e.value == slot).isEmpty
         ? null
         : procSlot.entries.firstWhere((e) => e.value == slot);
@@ -1628,7 +1628,7 @@ class _Slot extends StatelessWidget {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text('T$slot',
+                      Text('D$slot',
                           style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 16,
@@ -4100,7 +4100,7 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
         final defName = def?.name ?? '未配置';
         final defRing = def?.ring ?? 'grey';
         phases.add(
-            '自动装载 T${slot ?? '?'} 号刀具 (${ringEmoji(defRing)} $defName)');
+            '自动装载 D${slot ?? '?'} 号刀具 (${ringEmoji(defRing)} $defName)');
       }
       phases.addAll([
         '移动至刀仓固定测头对刀 (Z-Offset)',
@@ -4283,7 +4283,7 @@ class _ReadyPhase extends StatelessWidget {
                 final defName = def?.name ?? '未配置';
                 final defRing = def?.ring ?? 'grey';
                 return _Param('工序刀具 ${p + 1}',
-                    slot != null ? 'T$slot · ${ringEmoji(defRing)} $defName' : '未分配');
+                    slot != null ? 'D$slot · ${ringEmoji(defRing)} $defName' : '未分配');
               }),
               _Param('预估总耗时', _estimateText),
             ],

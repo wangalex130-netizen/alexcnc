@@ -26,7 +26,7 @@ import '../preview/timelapse_client.dart';
 
 import 'bind_page.dart';
 
-import 'bit_config_dialog.dart';
+import 'tool_magazine_editor.dart';
 
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
@@ -466,7 +466,7 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
                         onPreview: () => _openPreview(m),
 
-                        onBitConfig: () => showBitConfigDialog(context, m.sn),
+                        onBitConfig: () => showToolMagazineEditor(context, m.sn),
 
                       );
 

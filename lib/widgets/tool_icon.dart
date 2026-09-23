@@ -13,6 +13,40 @@ class ToolIcon extends StatelessWidget {
   const ToolIcon(
       {required this.def, this.size = 40, this.showRing = true, super.key});
 
+  /// 按刀型字符串构造（20260923 工单 §3A）：云端 SysBit 没有完整 [ToolDef]
+  /// 时使用（官方刀头库等）。映射：ballnose/ball → 球头；v/v bits → V型；
+  /// flat/end mill/upcut/straight → 平底；其余一律兜底平底。
+  /// 定位环色是实物防呆标识，环色未知时调用方应传 showRing: false（宁缺勿错）。
+  factory ToolIcon.byType(String? type,
+      {double size = 40, bool showRing = true}) {
+    return ToolIcon(def: _syntheticDef(type), size: size, showRing: showRing);
+  }
+
+  /// 构造仅含刀型信息的占位 [ToolDef]（id/systemId 为空值，勿用于业务查询）。
+  static ToolDef _syntheticDef(String? raw) {
+    final s = (raw ?? '').toLowerCase().trim();
+    var t = '平底';
+    if (s.contains('ballnose') || s.contains('ball')) {
+      t = '球头';
+    } else if (s.contains('v')) {
+      t = 'V型';
+    }
+    return ToolDef(
+      id: '',
+      systemId: 0,
+      name: '',
+      type: t,
+      bitType: raw ?? '',
+      diameterMm: 0,
+      flutes: 0,
+      material: '',
+      ring: '',
+      colorHex: '',
+      desc: '',
+      materials: const [],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final ring = ringColor(def.ring);

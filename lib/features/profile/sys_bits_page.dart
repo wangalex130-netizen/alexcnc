@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:material_symbols_icons/material_symbols_icons.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme.dart';
 import '../../models/sys_bit.dart';
+import '../../widgets/tool_icon.dart';
 import '../../state/providers.dart';
 
 /// 官方刀头库（云端 `GET /api/bit/sys/list`）。
@@ -79,13 +79,15 @@ class _BitCard extends StatelessWidget {
                   .withOpacity(0.14),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(
-              _typeIcon(bit.bitType),
-              size: 22,
-              color: bit.isLocalSupported
-                  ? CncColors.primaryInk
-                  : CncColors.textSub,
-            ),
+            // 刀具模型图标（20260923 工单 §3A）：本机适配刀有真实 ToolDef
+            // （含环色）→ 带环展示；云端全集刀无环色 → 按刀型绘制、不带环。
+            child: bit.localTool != null
+                ? ToolIcon(def: bit.localTool!, size: 36)
+                : Opacity(
+                    opacity: 0.5,
+                    child: ToolIcon.byType(bit.bitType,
+                        size: 36, showRing: false),
+                  ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -127,18 +129,5 @@ class _BitCard extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  IconData _typeIcon(String? bitType) {
-    switch (bitType?.toLowerCase()) {
-      case 'v':
-      case 'v bits':
-        return Symbols.construction; // V 型刻刀
-      case 'ballnose':
-      case 'ball':
-        return Symbols.circle; // 球头
-      default:
-        return Symbols.view_stream; // 平底/直刀
-    }
   }
 }

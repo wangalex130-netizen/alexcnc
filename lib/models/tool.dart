@@ -1,4 +1,4 @@
-/// A tool slot in the ATC magazine (T1..T4).
+/// A tool slot in the ATC magazine (D1..D4).
 class Tool {
   final int index; // 1..4
   final String name;
@@ -8,7 +8,7 @@ class Tool {
   final String? defId; // 关联刀库 ToolDef.id（用于与刀库同步）
 
   // --- V1.1 富模型最小集（docs/03 §10.4）---
-  /// 刀色标识（color）：UI 用于刀兜/刀环配色；缺失为 null。
+  /// 刀色标识（color）：UI 用于刀仓/刀环配色；缺失为 null。
   final String? color;
   /// 当前工作刀位（isCurrent）：= Doc2 `cur_tool`，true=该刀位正在工作。
   final bool isCurrent;

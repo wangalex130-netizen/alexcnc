@@ -590,12 +590,25 @@ class ToolMagazine extends StateNotifier<Map<int, String?>> {
   /// - 未登录 / 未选机器 / 接口异常 → 一律**空仓**，
   ///   **绝不填充任何假刀**（此前硬编码了 1 号平底 + 2 号 60°V，属误导）。
   /// - 后端 slot1~4 是「刀头 ID」（整数），经 [toolBySystemId] 映射到本地刀具。
-  Future<void> refresh({bool force = false}) async {
+  Future<Map<int, String?>> refresh(
+      {bool force = false, String? deviceCode}) async {
+    // deviceCode 显式指定且非当前机器（「我的机器」对其他机器开刀仓配置）：
+    // 只拉取并返回该机器刀表，不写共享 state —— 不污染当前机器的控制台/向导视图。
+    final explicit = deviceCode;
+    if (explicit != null && explicit.isNotEmpty && explicit != _deviceCode) {
+      final cfg = await _service.fetch(explicit);
+      final slots = cfg?.slots ?? const [null, null, null, null];
+      final map = <int, String?>{};
+      for (var i = 0; i < 4; i++) {
+        map[i + 1] = toolBySystemId(slots[i])?.id;
+      }
+      return map;
+    }
     final device = _deviceCode;
     if (device == null) {
       _loadedFor = null;
       state = _empty;
-      return;
+      return _empty;
     }
     if (!force && _loadedFor == device) return; // 同一台机器不重复拉取
     _loading = true;
@@ -610,10 +623,12 @@ class ToolMagazine extends StateNotifier<Map<int, String?>> {
       state = map;
       _loadedFor = device;
       _error = null;
+      return map;
     } catch (e) {
       // 这台机器从未成功加载过 → 空仓；已加载过的保留原值，避免网络抖动清掉配置
       if (_loadedFor != device) state = _empty;
       _error = e.toString().replaceFirst('Exception: ', '');
+      return state;
     } finally {
       _loading = false;
     }
@@ -625,36 +640,48 @@ class ToolMagazine extends StateNotifier<Map<int, String?>> {
     await _saveToCloud();
   }
 
-  /// 批量写入（向导 Step3 一次会动多个刀位：先清重复再落位），只落一次云端。
-  Future<void> setAll(Map<int, String?> next) async {
-    state = {...next};
-    await _saveToCloud();
+  /// 批量写入（向导 Step3 / 统一刀仓编辑组件），只落一次云端。
+  ///
+  /// deviceCode 显式指定且非当前机器（「我的机器」对其他机器配置）：
+  /// 不做乐观 state 更新（避免污染当前机器视图），仅把该机器配置落云。
+  /// 返回 true = 云端保存成功（服务端已下发 toolMap MQTT 给机器）。
+  Future<bool> setAll(Map<int, String?> next, {String? deviceCode}) async {
+    final explicit = deviceCode;
+    final isOther =
+        explicit != null && explicit.isNotEmpty && explicit != _deviceCode;
+    final device = isOther ? explicit : _deviceCode;
+    if (device == null) return false;
+    if (!isOther) state = {...next};
+    return _saveToCloud(deviceCode: device, values: next);
   }
 
   /// 把当前四个刀位写回阿里云（服务端会直接下发 MQTT 给机器）。
   ///
   /// 保存期间若又发生改动（用户快速连点），标记为 dirty 并在本次结束后补一次，
   /// 避免"最后一次改动被上一次请求覆盖 / 直接丢掉"。
-  Future<void> _saveToCloud() async {
-    if (_deviceCode == null) return;
+  Future<bool> _saveToCloud(
+      {String? deviceCode, Map<int, String?>? values}) async {
+    final target = deviceCode ?? _deviceCode;
+    if (target == null) return false;
     if (_saving) {
       _dirty = true;
-      return;
+      return false;
     }
     _saving = true;
     try {
       do {
         _dirty = false;
-        final device = _deviceCode;
-        if (device == null) break;
+        // values = 待写刀表（统一编辑组件/其他机器）；缺省 = 当前共享 state。
+        // 其他机器保存时绝不读 state（那是当前机器的刀表，会写错机器）。
+        final src = values ?? state;
         int? sid(int i) {
-          final id = state[i];
+          final id = src[i];
           return id == null ? null : toolById(id)?.systemId;
         }
 
         await _service.save(
           BitConfig(
-            deviceCode: device,
+            deviceCode: target,
             slot1: sid(1),
             slot2: sid(2),
             slot3: sid(3),
@@ -663,8 +690,10 @@ class ToolMagazine extends StateNotifier<Map<int, String?>> {
         );
         _error = null;
       } while (_dirty);
+      return true;
     } catch (e) {
       _error = e.toString().replaceFirst('Exception: ', '');
+      return false;
     } finally {
       _saving = false;
     }
@@ -699,7 +728,7 @@ class ActiveJob {
   final LibraryItem item;
   final TaskMetadata task;
   final String materialKey;
-  final Map<int, int> procSlot; // 工序 index → 物理刀兜
+  final Map<int, int> procSlot; // 工序 index → 物理刀仓
   final DateTime startedAt;
   final DateTime? finishedAt;
   final List<String> selfCheckPhases;
