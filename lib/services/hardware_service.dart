@@ -260,6 +260,38 @@ abstract class HardwareService {
   /// [sizeBytes]/[sha256] 后台暂未提供，先传 0/空；按工程师确认的方案 A，
   /// 小屏此时**跳过完整性校验**，只下载即可继续流程。
   /// 后台接口补齐这两个字段后，App 传入真值即可（无需改结构）。
+  /// 🟢 D-1（2026-09-23 昊总新增）：生成前**预读**命令 `preload_model`。
+  ///
+  /// 出点：客户在「材料确认与装夹」点【下一步】时下发，语义是
+  /// **「我打算雕这个模型了」**（不是「现在开始」）。小屏收到后从 [jsonUrl]
+  /// 下载该模型的**轻量 JSON（高程网格）**并预读驻留 —— 客户接下来还要定原点、
+  /// 映射刀仓、选调平，这几分钟正好用来把下载与解析提前做完。
+  ///
+  /// 🔴 与 [prepareJob] 的三点本质差别（务必不要合并这两个命令）：
+  /// 1. [prepareJob] 带 `files[]=G-code`，且本端收到它的 ACK 后会**自动接着发
+  ///    `confirm`** ⇒ 等于开切，故必须同网；本命令**不动机器、不写 G54、
+  ///    不覆盖作业文件**，因此**不受同网门禁限制**（实现注释里有完整理由）。
+  /// 2. 本命令带 `modelId` 而非 G-code：小屏此时还没有刀路，只是提前读模型数据。
+  /// 3. 失败**不得阻塞向导** —— 它是加速项。小屏尚未实现该命令时回
+  ///    `cmd_ack{ok:false, code:'unknown cmd'}`，本端按"忽略"处理：该回执的
+  ///    reqId 与「本端正在等待的开切 reqId」不匹配，真机实现的回执处理天然
+  ///    不会把它当成开切失败。
+  ///
+  /// 返回值语义 = **命令是否真的发出去了**（false = 未连 MQTT 或该模型没有
+  /// 轻量 JSON）。调用方只在 false 时给一句软提示，其余情况安静放行。
+  Future<bool> preloadModel({
+    required String modelId,
+    required String jsonUrl,
+    String title = '',
+    int sizeBytes = 0,
+    String sha256 = '',
+    double widthMm = 0,
+    double heightMm = 0,
+    double depthMm = 0,
+    double boardThicknessMm = 0,
+    String materialKey = '',
+  });
+
   Future<bool> prepareJob({
     required String fileUrl,
     String fileName = 'job.gc',

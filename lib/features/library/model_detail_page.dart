@@ -3,8 +3,6 @@ import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-
-
 import '../../app/config.dart';
 
 import '../../app/runtime_config.dart';
@@ -17,21 +15,27 @@ import '../wizard/wizard_page.dart';
 
 import 'toolpath_preview.dart';
 
-
-
 /// 模型库详情页：多图轮播 + 加工参数展示 + 「开始雕刻」入口。
-
 ///
-
 /// 数据来自模型条目（LibraryItem 已含加工参数字段，见
-
-/// docs/模型库数据格式与接口定义.md）；点「开始雕刻」进入向导 6 步，
-
-/// 向导内部经 getTaskById 从云端拉 TaskMetadata（模型条目回退已打通）。
-
+/// docs/模型库数据格式与接口定义.md）；点「开始雕刻」进入向导，向导内部经
+/// item.toTaskMetadata() 得到 TaskMetadata（模型条目回退已打通）。
+///
 /// 外壳（Stateful）：从向导页返回后自增 epoch 换 key，强制整页
-/// build+layout+paint——杜绝引擎复用返回前的离屏图层缓存导致
+/// build+layout+paint —— 杜绝引擎复用返回前的离屏图层缓存导致
 /// 参数区文字乱码（与 app_shell 花屏 F-02 同族手法，2026-09-21）。
+///
+/// 2026-09-23 昊总：本页改为**一屏信息页，不需要滚动**。
+/// 原实现把「轮播(16:9，约 219px) + 参数网格(2 列 × 4 行，约 363px) +
+/// 刀具卡(约 91px) + 简介」全堆在一个 ListView 里，390×844 上内容约 955px，
+/// 必须滑一屏多。现压缩手法（**信息一条没删**）：
+///   ① 参数由「每格 label 一行 + value 一行」改成「label: value 同行」，
+///      「尺寸」独占整行（它的值最长），其余 6 项两两并排 ⇒ 363px → 约 100px；
+///   ② 作者行与标签行合为一行（原来两块各占一行）；
+///   ③ 刀具卡由「标签 / 值 / 徽章」三行压成一行；
+///   ④ 简介限 2 行（超出省略）。
+/// ListView 保留 —— `addRepaintBoundaries: false` 是 F-02 文字乱码的既有对策，
+/// 不能因为"看起来不用滚"就顺手删掉；内容已放得下，故实际不会滚动。
 class ModelDetailPage extends StatefulWidget {
 
   final LibraryItem item;
@@ -102,7 +106,9 @@ class _DetailView extends ConsumerWidget {
 
     // 刀路预览地址：优先模型自带 previewUrl；否则兜底走云端现算
 
-    // （GET /api/v1/models/{id}/preview，server.py 从 G-code 抽渲染矢量，App 不持有 G-code）
+    // （GET /api/v1/models/{id}/preview，server.py 从 G-code 抽渲染矢量，
+
+    // App 不持有 G-code）。
 
     final base = ref.watch(runtimeConfigProvider).resolvedCloudBaseUrl;
 
@@ -114,13 +120,15 @@ class _DetailView extends ConsumerWidget {
 
     // 仅当模型确实带 G-code（已切片）或自带 previewUrl 时才显示预览，
 
-    // 避免对无 G-code 模型请求现算端点显示假数据（server 的 SAMPLE 仅服务 mock 联调）。
+    // 避免对无 G-code 模型请求现算端点显示假数据（server 的 SAMPLE 仅服务
+
+    // mock 联调）。2026-09-03 起刀路预览入口已移除（模型都是占位"暂无刀路预览"），
+
+    // 这两个值目前不参与渲染 —— 保留是为了不动既定门禁口径（改布局不顺手改契约）。
 
     final canPreview = AppConfig.toolpathPreviewEnabled &&
 
         ((item.previewUrl?.isNotEmpty ?? false) || item.gcodeStatus == 'sliced');
-
-
 
     return Scaffold(
 
@@ -148,7 +156,9 @@ class _DetailView extends ConsumerWidget {
 
         leading: IconButton(
 
-          icon: Icon(Symbols.arrow_back_ios_new, size: 18, color: CncColors.textMain),
+          icon: Icon(Symbols.arrow_back_ios_new,
+
+              size: 18, color: CncColors.textMain),
 
           onPressed: () => Navigator.of(context).maybePop(),
 
@@ -156,15 +166,21 @@ class _DetailView extends ConsumerWidget {
 
       ),
 
+      // 一屏布局：轮播（自然 16:9，跟着屏宽走）+ 信息区（吃剩余高度，
+
+      // 装不下才滚）+ 底部【开始雕刻】。
+
       body: Column(
 
         children: [
+
+          _Gallery(images: images),
 
           Expanded(
 
             child: ListView(
 
-              padding: const EdgeInsets.only(bottom: 24),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
 
               // 关闭框架自动 RepaintBoundary：离屏图层缓存在「压入向导页→返回」
 
@@ -174,129 +190,103 @@ class _DetailView extends ConsumerWidget {
 
               children: [
 
-                _Gallery(images: images),
+                Row(
 
-                Padding(
+                  children: [
 
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                    Expanded(
 
-                  child: Column(
+                      child: Text(item.title,
 
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                          maxLines: 1,
 
-                    children: [
-
-                      Row(
-
-                        children: [
-
-                          Expanded(
-
-                            child: Text(item.title,
-
-                                style: TextStyle(
-
-                                    fontSize: 17,
-
-                                    fontWeight: FontWeight.w700,
-
-                                    color: CncColors.textMain)),
-
-                          ),
-
-                          if (item.category != null)
-
-                            _Badge(
-
-                                label: item.category!,
-
-                                fg: CncColors.primaryInk,
-
-                                bg: CncColors.primary.withOpacity(0.14)),
-
-                        ],
-
-                      ),
-
-                      const SizedBox(height: 4),
-
-                      Text(item.author.isEmpty ? '官方模型' : 'by ${item.author}',
+                          overflow: TextOverflow.ellipsis,
 
                           style: TextStyle(
 
-                              fontSize: 11, color: CncColors.textSub)),
+                              fontSize: 16,
 
-                      if (item.tags.isNotEmpty) ...[
+                              fontWeight: FontWeight.w700,
 
-                        const SizedBox(height: 8),
+                              color: CncColors.textMain)),
 
-                        Wrap(
+                    ),
 
-                          spacing: 6,
+                    if (item.category != null)
 
-                          runSpacing: 6,
+                      _Badge(
 
-                          children: item.tags
+                          label: item.category!,
 
-                              .map((t) => _Badge(
+                          fg: CncColors.primaryInk,
 
-                                  label: t,
+                          bg: CncColors.primary.withOpacity(0.14)),
 
-                                  fg: CncColors.textSub,
-
-                                  bg: CncColors.border.withOpacity(0.5)))
-
-                              .toList(),
-
-                        ),
-
-                      ],
-
-                      if (!sliced) ...[
-
-                        const SizedBox(height: 8),
-
-                        Text('该模型尚未切片，需先在电脑端生成刀路',
-
-                            style: TextStyle(
-
-                                fontSize: 11, color: CncColors.warning)),
-
-                      ],
-
-                      const SizedBox(height: 16),
-
-                      // 2026-09-03 删：刀路预览入口。当前模型都是占位"暂无刀路预览"，
-
-                      // 客户视觉重复且无功能价值。模型参数（转速/进给/刀路）已在加工参数卡里展示。
-
-                      _ParamsGrid(item: item),
-
-                      const SizedBox(height: 14),
-
-                      _ToolCard(item: item),
-
-                      if ((item.description ?? '').isNotEmpty) ...[
-
-                        const SizedBox(height: 14),
-
-                        Text(item.description!,
-
-                            style: TextStyle(
-
-                                fontSize: 12,
-
-                                height: 1.6,
-
-                                color: CncColors.textSub)),
-
-                      ],
-
-                    ],
-
-                  ),
+                  ],
 
                 ),
+
+                const SizedBox(height: 3),
+
+                // 作者 + 标签合并成一行（原为两块各占一行，合计约 30px）。
+
+                Text(
+
+                  [
+
+                    item.author.isEmpty ? '官方模型' : 'by ${item.author}',
+
+                    ...item.tags,
+
+                  ].join('  ·  '),
+
+                  maxLines: 1,
+
+                  overflow: TextOverflow.ellipsis,
+
+                  style: TextStyle(fontSize: 11, color: CncColors.textSub),
+
+                ),
+
+                if (!sliced) ...[
+
+                  const SizedBox(height: 4),
+
+                  Text('该模型尚未切片，需先在电脑端生成刀路',
+
+                      style: TextStyle(
+
+                          fontSize: 11, color: CncColors.warning)),
+
+                ],
+
+                const SizedBox(height: 10),
+
+                _ParamsGrid(item: item),
+
+                const SizedBox(height: 10),
+
+                _ToolCard(item: item),
+
+                if ((item.description ?? '').isNotEmpty) ...[
+
+                  const SizedBox(height: 8),
+
+                  Text(item.description!,
+
+                      maxLines: 2,
+
+                      overflow: TextOverflow.ellipsis,
+
+                      style: TextStyle(
+
+                          fontSize: 11,
+
+                          height: 1.5,
+
+                          color: CncColors.textSub)),
+
+                ],
 
               ],
 
@@ -316,11 +306,7 @@ class _DetailView extends ConsumerWidget {
 
 }
 
-
-
 // ===================== 多图轮播 =====================
-
-
 
 class _Gallery extends StatefulWidget {
 
@@ -328,21 +314,15 @@ class _Gallery extends StatefulWidget {
 
   const _Gallery({required this.images});
 
-
-
   @override
 
   State<_Gallery> createState() => _GalleryState();
 
 }
 
-
-
 class _GalleryState extends State<_Gallery> {
 
   int _index = 0;
-
-
 
   @override
 
@@ -442,11 +422,7 @@ class _GalleryState extends State<_Gallery> {
 
 }
 
-
-
-// ===================== 参数网格 =====================
-
-
+// ===================== 参数网格（2026-09-23 压成 label: value 同行）=====================
 
 class _ParamsGrid extends StatelessWidget {
 
@@ -454,35 +430,87 @@ class _ParamsGrid extends StatelessWidget {
 
   const _ParamsGrid({required this.item});
 
+  static String _fmt(double v) =>
 
+      v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(1);
 
   @override
 
   Widget build(BuildContext context) {
 
-    final cells = <(String, String)>[
+    // 值最长的「尺寸」独占整行；其余 6 项两两并排（共 3 行）。
 
-      ('尺寸', '${_fmt(item.widthMm)} × ${_fmt(item.heightMm)}\n深 ${_fmt(item.depthMm)} mm'),
+    final sizeVal = '${_fmt(item.widthMm)} × ${_fmt(item.heightMm)} mm'
 
-      ('板材厚度', item.boardThicknessMm > 0 ? '${_fmt(item.boardThicknessMm)} mm' : '—'),
+        ' · 深 ${_fmt(item.depthMm)} mm';
 
-      ('雕刻时长', item.duration ?? (item.durationSec != null ? '${item.durationSec! ~/ 60} 分钟' : '—')),
+    final rows = <(String, String)>[
+
+      (
+
+        '板材厚度',
+
+        item.boardThicknessMm > 0
+
+            ? '${_fmt(item.boardThicknessMm)} mm'
+
+            : '—'
+
+      ),
+
+      (
+
+        '雕刻时长',
+
+        item.duration ??
+
+            (item.durationSec != null
+
+                ? '${item.durationSec! ~/ 60} 分钟'
+
+                : '—')
+
+      ),
 
       ('默认材质', item.materialPreset ?? item.materialKey ?? '—'),
 
-      // 详情接口新增加工参数（2026-09-03）：云端下发的推荐值，可空则显示 —
+      (
 
-      ('主轴转速', item.recommendedSpindleRpm != null ? '${item.recommendedSpindleRpm}' : '—'),
+        '主轴转速',
 
-      ('进给速度', item.recommendedFeedRate != null ? '${_fmt(item.recommendedFeedRate!)} mm/min' : '—'),
+        item.recommendedSpindleRpm != null
 
-      ('下刀深度', item.depthPerPass != null ? '${_fmt(item.depthPerPass!)} mm' : '—'),
+            ? '${item.recommendedSpindleRpm}'
+
+            : '—'
+
+      ),
+
+      (
+
+        '进给速度',
+
+        item.recommendedFeedRate != null
+
+            ? '${_fmt(item.recommendedFeedRate!)} mm/min'
+
+            : '—'
+
+      ),
+
+      (
+
+        '下刀深度',
+
+        item.depthPerPass != null ? '${_fmt(item.depthPerPass!)} mm' : '—'
+
+      ),
 
     ];
 
     return Container(
 
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
 
       decoration: BoxDecoration(
 
@@ -494,25 +522,43 @@ class _ParamsGrid extends StatelessWidget {
 
       ),
 
-      child: GridView.count(
+      child: Column(
 
-        crossAxisCount: 2,
+        crossAxisAlignment: CrossAxisAlignment.start,
 
-        shrinkWrap: true,
+        children: [
 
-        physics: const NeverScrollableScrollPhysics(),
+          _row('尺寸', sizeVal),
 
-        mainAxisSpacing: 12,
+          for (var i = 0; i < rows.length; i += 2) ...[
 
-        crossAxisSpacing: 12,
+            const SizedBox(height: 7),
 
-        childAspectRatio: 2.1,
+            Row(
 
-        // 同 ListView：关闭格子级离屏缓存，杜绝返回后字形缓存错位。
+              children: [
 
-        addRepaintBoundaries: false,
+                Expanded(child: _row(rows[i].$1, rows[i].$2)),
 
-        children: cells.map((c) => _ParamCell(label: c.$1, value: c.$2)).toList(),
+                const SizedBox(width: 12),
+
+                Expanded(
+
+                  child: i + 1 < rows.length
+
+                      ? _row(rows[i + 1].$1, rows[i + 1].$2)
+
+                      : const SizedBox.shrink(),
+
+                ),
+
+              ],
+
+            ),
+
+          ],
+
+        ],
 
       ),
 
@@ -520,55 +566,41 @@ class _ParamsGrid extends StatelessWidget {
 
   }
 
+  /// 一行「标签 + 值」。值右对齐、单行省略 —— 中文变宽或字段变长只会截断尾巴，
 
+  /// 绝不会把这一页顶出屏幕（改版前的参数格子允许值换 2 行，是撑高的主因；
 
-  static String _fmt(double v) =>
+  /// 那个格子类已随本次改版删除）。
 
-      v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(1);
-
-}
-
-
-
-class _ParamCell extends StatelessWidget {
-
-  final String label;
-
-  final String value;
-
-  const _ParamCell({required this.label, required this.value});
-
-
-
-  @override
-
-  Widget build(BuildContext context) => Column(
-
-        crossAxisAlignment: CrossAxisAlignment.start,
-
-        mainAxisAlignment: MainAxisAlignment.center,
+  static Widget _row(String label, String value) => Row(
 
         children: [
 
           Text(label,
 
-              style: TextStyle(fontSize: 10, color: CncColors.textSub)),
+              style: TextStyle(fontSize: 10.5, color: CncColors.textSub)),
 
-          const SizedBox(height: 3),
+          const SizedBox(width: 6),
 
-          Text(value,
+          Expanded(
 
-              maxLines: 2,
+            child: Text(value,
 
-              overflow: TextOverflow.ellipsis,
+                maxLines: 1,
 
-              style: TextStyle(
+                overflow: TextOverflow.ellipsis,
 
-                  fontSize: 12,
+                textAlign: TextAlign.right,
 
-                  fontWeight: FontWeight.w500,
+                style: TextStyle(
 
-                  color: CncColors.textMain)),
+                    fontSize: 11.5,
+
+                    fontWeight: FontWeight.w600,
+
+                    color: CncColors.textMain)),
+
+          ),
 
         ],
 
@@ -576,19 +608,13 @@ class _ParamCell extends StatelessWidget {
 
 }
 
-
-
-// ===================== 材质 / 工序刀具 =====================
-
-
+// ===================== 工序刀具（2026-09-23 压成一行）=====================
 
 class _ToolCard extends StatelessWidget {
 
   final LibraryItem item;
 
   const _ToolCard({required this.item});
-
-
 
   @override
 
@@ -610,7 +636,7 @@ class _ToolCard extends StatelessWidget {
 
     return Container(
 
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
 
       decoration: BoxDecoration(
 
@@ -622,63 +648,69 @@ class _ToolCard extends StatelessWidget {
 
       ),
 
-      child: Column(
+      // 原为「默认刀具(标签) / 刀具名 / 工序徽章」三行 —— 压成一行后省约 45px。
 
-        crossAxisAlignment: CrossAxisAlignment.start,
+      // 徽章最多显示 2 个，多出来的折成「+N」，避免长刀名 + 多工序挤爆这一行。
+
+      child: Row(
 
         children: [
 
           Text('默认刀具',
 
-              style: TextStyle(fontSize: 10, color: CncColors.textSub)),
+              style: TextStyle(fontSize: 10.5, color: CncColors.textSub)),
 
-          const SizedBox(height: 4),
+          const SizedBox(width: 8),
 
-          Text(
+          Expanded(
 
-            display,
+            child: Text(
 
-            style: TextStyle(
+              display,
 
-                fontSize: 12,
+              maxLines: 1,
 
-                fontWeight: FontWeight.w500,
+              overflow: TextOverflow.ellipsis,
 
-                color: CncColors.textMain),
+              style: TextStyle(
 
-            maxLines: 3,
+                  fontSize: 12,
 
-            overflow: TextOverflow.ellipsis,
+                  fontWeight: FontWeight.w500,
 
-          ),
-
-          if (tools.isNotEmpty) ...[
-
-            const SizedBox(height: 8),
-
-            Wrap(
-
-              spacing: 6,
-
-              runSpacing: 6,
-
-              children: tools
-
-                  .map((t) => _Badge(
-
-                        label: t.role,
-
-                        fg: CncColors.blue,
-
-                        bg: CncColors.blue.withOpacity(0.1),
-
-                      ))
-
-                  .toList(),
+                  color: CncColors.textMain),
 
             ),
 
-          ],
+          ),
+
+          ...tools.take(2).map((t) => Padding(
+
+                padding: const EdgeInsets.only(left: 4),
+
+                child: _Badge(
+
+                  label: t.role,
+
+                  fg: CncColors.blue,
+
+                  bg: CncColors.blue.withOpacity(0.1),
+
+                ),
+
+              )),
+
+          if (tools.length > 2)
+
+            Padding(
+
+              padding: const EdgeInsets.only(left: 4),
+
+              child: Text('+${tools.length - 2}',
+
+                  style: TextStyle(fontSize: 10, color: CncColors.textSub)),
+
+            ),
 
         ],
 
@@ -690,11 +722,7 @@ class _ToolCard extends StatelessWidget {
 
 }
 
-
-
 // ===================== 底部操作栏 =====================
-
-
 
 class _BottomBar extends StatelessWidget {
 
@@ -707,8 +735,6 @@ class _BottomBar extends StatelessWidget {
   const _BottomBar(
 
       {required this.item, required this.sliced, required this.onStart});
-
-
 
   @override
 
@@ -778,11 +804,7 @@ class _BottomBar extends StatelessWidget {
 
 }
 
-
-
 // ===================== 通用小徽章 =====================
-
-
 
 class _Badge extends StatelessWidget {
 
@@ -793,8 +815,6 @@ class _Badge extends StatelessWidget {
   final Color bg;
 
   const _Badge({required this.label, required this.fg, required this.bg});
-
-
 
   @override
 
@@ -812,6 +832,10 @@ class _Badge extends StatelessWidget {
 
         child: Text(label,
 
+            maxLines: 1,
+
+            overflow: TextOverflow.ellipsis,
+
             style: TextStyle(
 
                 fontSize: 10, color: fg, fontWeight: FontWeight.w500)),
@@ -819,4 +843,3 @@ class _Badge extends StatelessWidget {
       );
 
 }
-

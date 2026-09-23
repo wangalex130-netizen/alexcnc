@@ -37,7 +37,7 @@ import 'debug_sim.dart';
 class WizardPage extends ConsumerStatefulWidget {
   final LibraryItem item;
 
-  /// 起始步骤（0=材料确认与装夹 / 1=刀仓映射 / 2=定原点防撞 / 3=智能调平 / 4=开始雕刻）。
+  /// 起始步骤（0=材料确认与装夹 / 1=定原点防撞 / 2=刀仓映射 / 3=智能调平 / 4=开始雕刻）。
   ///
   /// 2026-09-04 改：详情页已展示模型信息（材料/刀具/尺寸），"解析任务"步骤整段
   /// 移除（顶部步骤条不再出现该栏目），进入向导即为材质确认。
@@ -87,10 +87,13 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   Offset? _p1;
   StockShape _stockShape = StockShape.rect;
 
+  // 2026-09-23 昊总裁定：**定原点排在刀仓映射之前**（原话「定完原点后才是
+  // 确定刀具」）。原顺序让客户在还没有工件零点时就去分配刀兜，与车间实际
+  // 动作顺序相反。顺序定义只此一处，其它地方一律按下标引用。
   static const _titles = [
     '材料确认',
-    '刀仓映射',
     '定原点防撞',
+    '刀仓映射',
     '智能调平',
     '开始雕刻',
   ];
@@ -224,10 +227,13 @@ class _WizardPageState extends ConsumerState<WizardPage> {
         // 客户填写实际料厚（必须 ≥ 模型厚度）+ 平面尺寸核验 + 装夹确认。
         // 厚度填写本身即"对照实物确认"，不再额外要求勾选（昊总 2026-09-18 改回输入模式）。
         return _thickOk && _chkSize && _chkFixture;
+      // 2026-09-23 顺序调整：1 = 定原点防撞，2 = 刀仓映射。
+      // ⚠️ 门禁必须跟着换位 —— 否则客户在定原点页点【下一步】会去校验
+      // 「刀仓映射是否就绪」，而映射还没开始做，必然卡死（无报错的死锁）。
       case 1:
-        return _atcReady;
-      case 2:
         return _originSet && !_originOverflow && _safetyChecked;
+      case 2:
+        return _atcReady;
       case 3:
         return true; // 只需选择是否调平即可进入下一步
       default:
@@ -241,6 +247,11 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   void _next() {
     // 兜底：任何入口都不得绕过门禁（定原点页的「下一步」按钮走同一判定）。
     if (!_canProceed) return;
+    // 🟢 D-2（2026-09-23 昊总）：离开「材料确认与装夹」= 客户已对照实物确认过
+    // 料与装夹，这时就告诉机器屏幕「我打算雕这个模型」，让它趁客户去定原点 /
+    // 映射刀仓的这几分钟，先把该模型的轻量 JSON 从服务器拉下来并预读驻留
+    // （命令定义见 HardwareService.preloadModel）。
+    if (_step == 0) _preloadOnMachine();
     if (_step == 3) {
       final wCm = (_task?.widthMm ?? 0) / 10;
       final hCm = (_task?.heightMm ?? 0) / 10;
@@ -261,6 +272,62 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       );
     }
     setState(() => _step++);
+  }
+
+  /// 下发 `preload_model`：把「客户计划雕刻这个模型」告诉机器屏幕（D-2）。
+  ///
+  /// 🔴 **失败不阻塞、不报错**：预读只是加速项。小屏没实现该命令时回的
+  /// `cmd_ack unknown cmd` 不会被本端当成流程失败（reqId 不匹配，
+  /// 真机实现的命令回执处理会天然忽略它）——这是有意为之：客户此时看到的
+  /// 任何「失败」都与他的下一步无关，弹错误只会让他以为机器坏了。
+  /// 只在**压根没发出去**（模型没有轻量 JSON / MQTT 未连）时给一句软提示，
+  /// 做到「不静默」但不制造焦虑。
+  void _preloadOnMachine() {
+    final item = widget.item;
+    final url = item.previewPayloadUrl ?? '';
+    if (url.trim().isEmpty) {
+      // L0/L1 级模型没有轻量 JSON ⇒ 无从预读。明确说一句，不让客户以为已预载。
+      _softSay('该模型没有轻量预览数据，机器屏幕不会提前加载（不影响后续步骤）');
+      return;
+    }
+    unawaited(
+      ref
+          .read(hardwareServiceProvider)
+          .preloadModel(
+            modelId: item.id,
+            jsonUrl: url,
+            title: item.title,
+            // 云端暂未下发该 JSON 的字节数 / SHA（同 prepareJob 既有口径）
+            sizeBytes: 0,
+            sha256: '',
+            widthMm: item.widthMm,
+            heightMm: item.heightMm,
+            depthMm: item.depthMm,
+            boardThicknessMm: item.boardThicknessMm,
+            materialKey: item.materialKey ?? '',
+          )
+          .then((sent) {
+        if (!sent) {
+          _softSay('机器未连线，模型预读指令没发出去（不影响继续）');
+        }
+      }, onError: (Object _) {
+        // 异常不得变成未处理的 Future 错误（同 P2-7 口径）。
+        _softSay('模型预读指令下发失败（不影响继续）');
+      }),
+    );
+  }
+
+  /// 一句软提示：不阻塞、不打断流程，仅用浮动 SnackBar 说明。
+  void _softSay(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 90),
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   /// 回上一步（定原点页的【上一步】，昊总 2026-09-18）。
@@ -289,9 +356,9 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     final t = Theme.of(context).textTheme;
     return Scaffold(
       backgroundColor: CncColors.bg,
-      // 定原点页（Step 3）横屏全屏沉浸：不留 AppBar / 步骤条 / 底部按钮，
+      // 定原点页（下标 1）横屏全屏沉浸：不留 AppBar / 步骤条 / 底部按钮，
       // 把整屏高度让给画框（昊总 2026-09-17：预览框一定要大）。
-      appBar: _step == 2
+      appBar: _step == 1
           ? null
           : AppBar(
         backgroundColor: CncColors.panel,
@@ -315,11 +382,15 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           ),
         ],
       ),
-      body: _step == 2
+      body: _step == 1
           // 定原点页：横屏沉浸 —— **顶部不留白**（昊总 09-18：顶部还有一条白边），
           // 左右仍避让刘海/挖孔；配合 immersiveSticky 隐藏系统栏，内容按分辨率铺满。
           ? SafeArea(top: false, bottom: false, child: _stepContent())
-          : ListView(
+          // 材料确认页：**一屏不滚动**（昊总 2026-09-23）。
+          // 其余步骤（刀仓映射 / 智能调平 / 开始雕刻）信息量本来就需要滚动，保持原样。
+          : (_step == 0
+              ? _fitLayout()
+              : ListView(
         padding: const EdgeInsets.all(16),
         children: [
           _Progress(step: _step, titles: _titles),
@@ -366,6 +437,55 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           const SizedBox(height: 8),
           if (!_canProceed) _guardHint(t),
         ],
+      )),
+    );
+  }
+
+  /// 材料确认页的**一屏布局**（昊总 2026-09-23：「整合在不需要滚动的一页」）。
+  ///
+  /// 与其余步骤的 ListView 不同：卡片被 Expanded 约束成一个**有界高度**，
+  /// `_StepMaterial` 再用 LayoutBuilder 判断这个高度够不够放 ——
+  ///   - 够（≥ 460，绝大多数手机）⇒ 3D 预览吃满卡内剩余高度，一屏放全，不滚动；
+  ///   - 不够（极矮屏）⇒ 自动退化成可滚动，宁可让客户滑一下，也不把
+  ///     「材料厚度」「装夹确认」这两道人工闸门裁在屏幕外面。
+  /// 步骤条与【下一步】保持与其它步骤完全一致的操作位置。
+  Widget _fitLayout() {
+    final t = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _Progress(step: _step, titles: _titles),
+          const SizedBox(height: 10),
+          Expanded(
+            child: Card(
+              color: CncColors.card,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: _loading
+                    ? Center(
+                        child: CircularProgressIndicator(
+                            color: CncColors.primary))
+                    : _stepContent(),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Spacer(),
+              FilledButton(
+                onPressed: _canProceed ? _next : null,
+                child: const Text('下一步'),
+              ),
+            ],
+          ),
+          if (!_canProceed) ...[
+            const SizedBox(height: 6),
+            _guardHint(t),
+          ],
+        ],
       ),
     );
   }
@@ -381,7 +501,18 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       } else {
         msg = '请逐项确认：实物尺寸 ≥ 图形尺寸、且材料已用夹具固定。';
       }
+    // 2026-09-23：1 / 2 两段随步骤顺序互换（1 = 定原点，2 = 刀仓映射）。
     } else if (_step == 1) {
+      if (!_originSet) {
+        msg = '请先用红点激光「设雕刻原点」。';
+      } else if (_originOverflow) {
+        msg = '雕刻图形已超出机床物理极限，请调整原点位置。';
+      } else if (!_safetyChecked) {
+        msg = '请勾选「红点轨迹已落在耗材内，且避开了压板」。';
+      } else {
+        msg = '原点与行程核验无误，可进入下一步。';
+      }
+    } else if (_step == 2) {
       final req = _task?.requiredTools ?? [];
       final dup = _procSlot.values.length != _procSlot.values.toSet().length;
       if (dup) {
@@ -394,16 +525,6 @@ class _WizardPageState extends ConsumerState<WizardPage> {
         msg = '必须点击「确认映射并同步到机器」后才能进入下一步。';
       } else {
         msg = '请点击「确认映射并同步到机器」。';
-      }
-    } else if (_step == 2) {
-      if (!_originSet) {
-        msg = '请先用红点激光「设雕刻原点」。';
-      } else if (_originOverflow) {
-        msg = '雕刻图形已超出机床物理极限，请调整原点位置。';
-      } else if (!_safetyChecked) {
-        msg = '请勾选「红点轨迹已落在耗材内，且避开了压板」。';
-      } else {
-        msg = '原点与行程核验无误，可进入下一步。';
       }
     } else if (_step == 3) {
       msg = '请选择是否进行曲面调平。';
@@ -436,6 +557,39 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           onChkFixture: (v) => setState(() => _chkFixture = v),
         );
       case 1:
+        // 2026-09-23 顺序调整：定原点现在排在第 2 步（下标 1）。
+        return _StepOrigin(
+          task: _task,
+          payloadUrl: widget.item.previewPayloadUrl,
+          materialThicknessMm: _thicknessVal,
+          origin: _origin,
+          originSet: _originSet,
+          overflow: _originOverflow,
+          safetyChecked: _safetyChecked,
+          p0: _p0,
+          p1: _p1,
+          stockShape: _stockShape,
+          onOrigin: (o) => setState(() => _origin = o),
+          onOriginSet: (v) => setState(() => _originSet = v),
+          onOverflow: (v) => setState(() => _originOverflow = v),
+          onSafety: (v) => setState(() => _safetyChecked = v),
+          onP0: (v) => setState(() => _p0 = v),
+          onP1: (v) => setState(() => _p1 = v),
+          onShape: (v) => setState(() {
+            // 换形态即作废标定点：同一对点在矩形下是「对角」、在圆下是「直径」，
+            // 复用同两点会算出一个客户没预期的图形（2026-09-18 第 2 条合并）。
+            _stockShape = v;
+            _p0 = null;
+            _p1 = null;
+            _originSet = false;
+            _originOverflow = false;
+            _safetyChecked = false;
+          }),
+          onNext: _next,
+          onPrev: _prev,
+        );
+      case 2:
+        // 2026-09-23 顺序调整：刀仓映射现在排在第 3 步（下标 2）。
         // P1 修复（2026-09-21）：无刀具作业（req 为空）显示空态说明，
         // 不再渲染刀仓映射表；配合 _atcReady 放行，修复「下一步」无反应死锁。
         if ((_task?.requiredTools ?? []).isEmpty) {
@@ -478,37 +632,6 @@ class _WizardPageState extends ConsumerState<WizardPage> {
               ),
             );
           },
-        );
-      case 2:
-        return _StepOrigin(
-          task: _task,
-          payloadUrl: widget.item.previewPayloadUrl,
-          materialThicknessMm: _thicknessVal,
-          origin: _origin,
-          originSet: _originSet,
-          overflow: _originOverflow,
-          safetyChecked: _safetyChecked,
-          p0: _p0,
-          p1: _p1,
-          stockShape: _stockShape,
-          onOrigin: (o) => setState(() => _origin = o),
-          onOriginSet: (v) => setState(() => _originSet = v),
-          onOverflow: (v) => setState(() => _originOverflow = v),
-          onSafety: (v) => setState(() => _safetyChecked = v),
-          onP0: (v) => setState(() => _p0 = v),
-          onP1: (v) => setState(() => _p1 = v),
-          onShape: (v) => setState(() {
-            // 换形态即作废标定点：同一对点在矩形下是「对角」、在圆下是「直径」，
-            // 复用同两点会算出一个客户没预期的图形（2026-09-18 第 2 条合并）。
-            _stockShape = v;
-            _p0 = null;
-            _p1 = null;
-            _originSet = false;
-            _originOverflow = false;
-            _safetyChecked = false;
-          }),
-          onNext: _next,
-          onPrev: _prev,
         );
       case 3:
         return _StepLeveling(
@@ -674,221 +797,238 @@ class _StepMaterial extends StatelessWidget {
         ? '等于模型厚度'
         : '比模型厚 ${delta.toStringAsFixed(1)} mm';
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Step 1 · 材料确认与装夹',
-            style: t.titleMedium?.copyWith(color: CncColors.textMain)),
-        const SizedBox(height: 6),
-        Text('请对照实物逐项确认。材质与刀路参数由模型预设，App 无法更改。',
-            style: TextStyle(fontSize: 12, color: CncColors.textSub)),
-        const SizedBox(height: 12),
+    // 2026-09-23 昊总：本步改为**一屏放下、不滚屏**。
+    // 原实现纵向约 790px（3D 预览固定 220 + 五张独立卡片 + 12px 卡间距），
+    // 在 844 高的手机上要滑约 1.5 屏 —— 而「材料厚度输入」与「装夹确认」正好
+    // 落在折叠线以下，偏偏这两项是防「切穿板材 / 夹具撞刀」的人工闸门。
+    // 压缩手法（**信息一条都没删**）：
+    //   ① 3D 预览改**弹性**：够高就吃满剩余，不够就退化成可滚动（见下 fits 分支）；
+    //   ② 步骤标题与说明合一行（步骤名已在顶部步骤条上，不必重复占两行）；
+    //   ③ 材质卡压成一行（图标 30 + 名称 + 「模型指定」徽章）；
+    //   ④ 尺寸核验与装夹**合并成一张卡** —— 两项本来就是"对照实物勾一下"；
+    //   ⑤ 卡内边距 12 → 10、卡间距 12 → 8。
+    return LayoutBuilder(builder: (_, c) {
+      // 可用高度够（≥ 460）⇒ 一屏布局：3D 预览吃满剩余高度。
+      // 不够（极矮屏）⇒ 把预览降为固定 150 并允许滚动：宁可滑一下，
+      // 也不让两道人工闸门被裁到屏幕外（"不滚动"不该以丢信息为代价）。
+      final fits = !c.maxHeight.isFinite || c.maxHeight >= 460;
+      final body = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Step 1 · 材料确认与装夹',
+              style: t.titleMedium?.copyWith(color: CncColors.textMain)),
+          const SizedBox(height: 8),
 
-        // ⓪ 3D 预览（**置顶**）：昊总 2026-09-18「客户一进入页面就能看到模型效果」。
-        // 客户改厚度即时重画 ⇒ 直接看到自己那块料的真实厚度下、雕完是什么样。
-        _card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _title(Symbols.visibility, '3D 预览'),
-              const SizedBox(height: 8),
+          // ⓪ 3D 预览（**置顶**）：昊总 2026-09-18「客户一进入页面就能看到模型效果」。
+          // 客户改厚度即时重画 ⇒ 直接看到自己那块料的真实厚度下、雕完是什么样。
+          if (fits)
+            Expanded(child: _previewCard(thVal, flex: true))
+          else
+            _previewCard(thVal, flex: false),
+          const SizedBox(height: 8),
+
+          // ① 材质（只读：不再提供选择）
+          _card(
+            child: Row(
+              children: [
+                MaterialIcon(visual: def.visual, swatch: def.swatch, size: 30),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(def.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: CncColors.textMain)),
+                ),
+                const SizedBox(width: 6),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: CncColors.primary,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text('模型指定',
+                      style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black)),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // ② 尺寸核验 + ⑤ 装夹确认（合并）：两项都是"对照实物勾一下"，
+          //    同卡更省高度，也让客户一眼看全「料够大 → 且夹在雕刻区外」。
+          _card(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _title(Symbols.fact_check, '尺寸核验与装夹'),
+                const SizedBox(height: 6),
+                _kv('雕刻图形尺寸', sizeText),
+                _kv('材料平面尺寸', '必须 ≥ 图形尺寸'),
+                const SizedBox(height: 4),
+                _CheckTile(
+                  value: chkSize,
+                  onChanged: onChkSize,
+                  label:
+                      hasSize ? '实物板材尺寸 ≥ $sizeText' : '实物板材尺寸 ≥ 图形尺寸',
+                ),
+                _CheckTile(
+                  value: chkFixture,
+                  onChanged: onChkFixture,
+                  label: '材料已平放，夹具固定在雕刻区域外',
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // ④ 材料厚度：**客户填写实际厚度**（昊总 2026-09-18 改回输入模式）。
+          // 基准 = 解析出的模型厚度（下限红线），必须 ≥ 该值。
+          _card(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    // 图标用已验证白名单内的（Symbols.straighten 更贴题，但仓库里没别的
+                    // 文件用过它 ⇒ 无法证明其存在，静态自检会拦；本卡仍以红线提示为主）。
+                    _title(Symbols.priority_high, '材料厚度'),
+                    const SizedBox(width: 8),
+                    Icon(Symbols.error, size: 14, color: CncColors.danger),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text('模型厚度 $minT mm（不可低于此值）',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: CncColors.danger)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: thicknessCtl,
+                  focusNode: thicknessFocus,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  // 输入过程中只记录、不做吸附/回写（避免敲 "18" 时 "1" 被判太薄），
+                  // 真正吸附在失焦/提交时由父级完成。
+                  onChanged: onThickness,
+                  onSubmitted: (_) => thicknessFocus.unfocus(),
+                  style: TextStyle(color: CncColors.textMain),
+                  decoration: InputDecoration(
+                    labelText: '实测材料厚度 (mm)',
+                    hintText: '须 ≥ $minT',
+                    labelStyle: TextStyle(color: CncColors.textSub),
+                    hintStyle: TextStyle(color: CncColors.textSub),
+                    suffixText: 'mm',
+                    suffixStyle: TextStyle(color: CncColors.textSub),
+                    errorText: tooThin
+                        ? '太薄：必须 ≥ $minT mm（模型厚度），否则会切穿板材、伤及台面'
+                        : null,
+                    filled: true,
+                    fillColor: CncColors.bg,
+                    isDense: true,
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(color: CncColors.border),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(color: CncColors.primary),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Icon(
+                      thickOk ? Symbols.check_circle : Symbols.info,
+                      size: 14,
+                      color:
+                          thickOk ? CncColors.primaryInk : CncColors.textSub,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        thickOk
+                            ? '已按 ${thVal.toStringAsFixed(1)} mm 真实耗材模拟（$thickDelta）'
+                            : '填写你手上这块料的实测厚度；定原点页 3D 预览会按它模拟真实耗材。',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 11,
+                            color: thickOk
+                                ? CncColors.primaryInk
+                                : CncColors.textSub),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+      // falls 分支的 Column 里没有 flex 子项（预览为固定高），可以直接放进
+      // SingleChildScrollView（无界高度）；fits 分支有 Expanded，必须留给父级。
+      return fits ? body : SingleChildScrollView(child: body);
+    });
+  }
+
+  /// 3D 预览卡。[flex] = true 时预览吃满卡内剩余高度（`height: 0` 约定，
+  /// 见 ZGridPreview）；false 时用固定 150 的矮版，配合外层滚动。
+  Widget _previewCard(double thVal, {required bool flex}) => _card(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _title(Symbols.visibility, '3D 预览'),
+            const SizedBox(height: 6),
+            if (flex)
+              Expanded(
+                child: ZGridPreview(
+                  url: payloadUrl,
+                  fallbackWidthMm: modelWidthMm,
+                  fallbackHeightMm: modelHeightMm,
+                  fallbackThicknessMm: minThicknessMm,
+                  // 按客户填写的**真实料厚**画耗材（空/非法 ⇒ 0 = 退回模型厚度）
+                  thicknessMmOverride: thVal,
+                  height: 0,
+                ),
+              )
+            else
               ZGridPreview(
                 url: payloadUrl,
                 fallbackWidthMm: modelWidthMm,
                 fallbackHeightMm: modelHeightMm,
                 fallbackThicknessMm: minThicknessMm,
-                // 按客户填写的**真实料厚**画耗材（空/非法 ⇒ 0 = 退回模型厚度）
                 thicknessMmOverride: thVal,
+                height: 150,
               ),
-              const SizedBox(height: 6),
-              Text(
-                  thVal > 0
-                      ? '按你填写的耗材厚度 ${thVal.toStringAsFixed(1)} mm 模拟雕完状态。'
-                          '预览来自云端轻量 JSON（高程网格），并非 G-code。'
-                      : '预览来自云端轻量 JSON（高程网格），并非 G-code；'
-                          '填写材料厚度后将按真实耗材模拟。',
-                  style: TextStyle(fontSize: 10, color: CncColors.textSub)),
-            ],
-          ),
+            const SizedBox(height: 5),
+            // 说明压到 1 行：这句在定原点页还会再出现一次（那里有全屏空间），
+            // 本页以「让客户一屏看全确认项」为先，故截断并保留最关键的"并非 G-code"。
+            Text(
+                thVal > 0
+                    ? '按你填写的耗材厚度 ${thVal.toStringAsFixed(1)} mm 模拟雕完状态'
+                        '（数据来自云端轻量 JSON，并非 G-code）'
+                    : '数据来自云端轻量 JSON（高程网格），并非 G-code；'
+                        '填写材料厚度后按真实耗材模拟',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontSize: 10, height: 1.3, color: CncColors.textSub)),
+          ],
         ),
-        const SizedBox(height: 12),
-
-        // ① 材质（只读：不再提供选择）
-        _card(
-          child: Row(
-            children: [
-              MaterialIcon(visual: def.visual, swatch: def.swatch, size: 44),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(def.name,
-                              style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: CncColors.textMain)),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: CncColors.primary,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: const Text('模型指定',
-                              style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.black)),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text('按此材质备料；更换材质不会改变加工参数。',
-                        style: TextStyle(
-                            fontSize: 11, color: CncColors.textSub)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-
-        // ② 平面尺寸核验
-        _card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _title(Symbols.fact_check, '尺寸核验'),
-              const SizedBox(height: 8),
-              _kv('雕刻图形尺寸', sizeText),
-              _kv('材料平面尺寸', '必须 ≥ 图形尺寸'),
-              const SizedBox(height: 6),
-              _CheckTile(
-                value: chkSize,
-                onChanged: onChkSize,
-                label: hasSize ? '实物板材尺寸 ≥ $sizeText' : '实物板材尺寸 ≥ 图形尺寸',
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-
-        // ④ 材料厚度：**客户填写实际厚度**（昊总 2026-09-18 改回输入模式）。
-        // 基准 = 解析出的模型厚度（下限红线），必须 ≥ 该值。
-        _card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // 图标用已验证白名单内的（Symbols.straighten 更贴题，但仓库里没别的文件
-              // 用过它 ⇒ 无法证明其存在，静态自检会拦；本卡仍以红线提示为主，够用）
-              _title(Symbols.priority_high, '材料厚度'),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Icon(Symbols.error, size: 15, color: CncColors.danger),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text('模型厚度 $minT mm（不可低于此值）',
-                        style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: CncColors.danger)),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: thicknessCtl,
-                focusNode: thicknessFocus,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                // 输入过程中只记录、不做吸附/回写（避免敲 "18" 时 "1" 被判太薄），
-                // 真正吸附在失焦/提交时由父级完成。
-                onChanged: onThickness,
-                onSubmitted: (_) => thicknessFocus.unfocus(),
-                style: TextStyle(color: CncColors.textMain),
-                decoration: InputDecoration(
-                  labelText: '实测材料厚度 (mm)',
-                  hintText: '须 ≥ $minT',
-                  labelStyle: TextStyle(color: CncColors.textSub),
-                  hintStyle: TextStyle(color: CncColors.textSub),
-                  suffixText: 'mm',
-                  suffixStyle: TextStyle(color: CncColors.textSub),
-                  errorText:
-                      tooThin ? '太薄：必须 ≥ $minT mm（模型厚度），否则会切穿板材、伤及台面' : null,
-                  filled: true,
-                  fillColor: CncColors.bg,
-                  isDense: true,
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: CncColors.border),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: CncColors.primary),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  Icon(
-                    thickOk
-                        ? Symbols.check_circle
-                        : Symbols.info,
-                    size: 14,
-                    color: thickOk
-                        ? CncColors.primaryInk
-                        : CncColors.textSub,
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      thickOk
-                          ? '已按 ${thVal.toStringAsFixed(1)} mm 真实耗材模拟（$thickDelta）'
-                          : '填写你手上这块料的实测厚度；定原点页 3D 预览会按它模拟真实耗材。',
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: thickOk
-                              ? CncColors.primaryInk
-                              : CncColors.textSub),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-
-        // ⑤ 装夹确认
-        _card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _title(Symbols.construction, '装夹'),
-              const SizedBox(height: 8),
-              Text('材料平放于台面；夹具只夹在雕刻区域之外，不得伸入图形范围。',
-                  style: TextStyle(fontSize: 11, color: CncColors.textSub)),
-              const SizedBox(height: 6),
-              _CheckTile(
-                value: chkFixture,
-                onChanged: onChkFixture,
-                label: '材料已平放，夹具固定在雕刻区域外',
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
+      );
 }
 
 class _Param extends StatelessWidget {
@@ -950,7 +1090,7 @@ class _CheckTile extends StatelessWidget {
       );
 }
 
-// ===================== Step 2 · 刀仓映射（与控制台刀库同步）=====================
+// ========== Step 3 · 刀仓映射（与控制台刀库同步；2026-09-23 起排在定原点之后）==========
 
 class _StepAtc extends ConsumerStatefulWidget {
   final List<RequiredTool> requiredTools;
@@ -1072,7 +1212,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
         Row(
           children: [
             Expanded(
-              child: Text('Step 2 · 刀仓映射',
+              child: Text('Step 3 · 刀仓映射',
                   style: t.titleMedium?.copyWith(color: CncColors.textMain)),
             ),
             IconButton(
@@ -1448,7 +1588,7 @@ class _Slot extends StatelessWidget {
   }
 }
 
-// ===================== Step 3 · 定原点（大画框：标定 → 拖设计 → 雕刻预览）=====================
+// ========== Step 2 · 定原点（大画框：标定 → 拖设计 → 雕刻预览；2026-09-23 起排在刀仓之前）==========
 /// 所见即所得定原点（开发文档 §4 / §5 / §6）。
 ///
 /// - **有轻量 JSON**：标定（矩形 2 点 / 圆形 3 点）→ 拖设计排版 → App 算 G54_XY

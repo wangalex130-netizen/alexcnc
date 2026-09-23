@@ -1224,6 +1224,77 @@ class RealHardwareService implements HardwareService {
       _failCarve('网络不稳，指令没发出去，请检查网络后重试');
       return false;
     }
+  // ===================== D-1 · 模型预读（2026-09-23 昊总新增）=====================
+  /// 下发 `preload_model`：告知小屏「客户计划雕刻这个模型」，请它先把该模型的
+  /// **轻量 JSON（高程网格）**从服务器拉下来并预读。
+  ///
+  /// 触发点：向导 Step 1（材料确认与装夹）点【下一步】。那一刻客户已经核对完
+  /// 实物料与装夹，去定原点/映射刀仓/选调平还要几分钟 —— 用这段时间做预读。
+  ///
+  /// 🔴 关于门禁：**故意不加 `_allowLocalOnly()`**。
+  /// 契约 `wan_whitelist` 的口径是「只放行 allowed 的 7 项，未列命令一律同网」，
+  /// 该口径要防的是「可能让机器动作 / 覆盖操作员意图」的命令。本条：
+  ///   - 不产生任何运动指令（不进 GRBL、无 jog/home/G0）；
+  ///   - 不写 G54、不改刀仓、不改调平方案；
+  ///   - 不覆盖当前作业文件（落的是独立的预读缓存，正式下载仍走 [prepareJob]）；
+  ///   - 唯一可见副作用是小屏界面显示「客户准备雕刻：<标题>」—— 这恰恰是
+  ///     操作员在机旁想知道的信息，属于正向透明，不是越权。
+  /// 因此归入 `allowed` 一侧。若后续评审要收紧，只需在本方法开头补一行
+  /// `if (!await _allowLocalOnly()) return false;`，调用方无需改动。
+  ///
+  /// 🔴 关于失败：预读是**加速项**，不是流程前提。
+  ///   - 小屏未实现该命令 ⇒ 回 `cmd_ack{ok:false,code:'unknown cmd'}`，
+  ///     其 reqId 与 [_awaitingReqId] 不匹配 ⇒ [_handleCmdAck] 直接忽略，
+  ///     既不会把雕刻会话打成 failed，也不会弹"机器没能准备好"。
+  ///   - 这样处理是**有意的**：客户此时看到的任何"失败"都与他的下一步无关，
+  ///     弹错误只会让他以为机器坏了。调用方仅在「压根没发出去」时提示一句。
+  ///   - 本命令走 [_dispatch] 的默认分支（非启动类、非幂等控制类）⇒
+  ///     **尽力而为、绝不重发**，避免重复下载。
+  @override
+  Future<bool> preloadModel({
+    required String modelId,
+    required String jsonUrl,
+    String title = '',
+    int sizeBytes = 0,
+    String sha256 = '',
+    double widthMm = 0,
+    double heightMm = 0,
+    double depthMm = 0,
+    double boardThicknessMm = 0,
+    String materialKey = '',
+  }) async {
+    final trimmed = jsonUrl.trim();
+    // 没有轻量 JSON（L0/L1 级模型）⇒ 小屏无从预读，直接如实返回 false，
+    // 由调用方给客户一句说明（不静默、也不假装成功）。
+    if (trimmed.isEmpty) return false;
+
+    final cmd = <String, dynamic>{
+      'cmd': 'preload_model',
+      'protocolVersion': 1,
+      // 与 prepare_job 的 `'type': 'gcode_ready'` 同族：本帧携带的是模型轻量数据
+      'type': 'model_json',
+      'deviceId': deviceId,
+      'modelId': modelId,
+      'title': title,
+      'jsonUrl': trimmed,
+      // 云端暂未下发该 JSON 的字节数 / SHA（同 prepareJob 的既有口径）：
+      // 小屏按"方案 A"跳过完整性校验；字段位先占住，后台补齐后无需改结构。
+      'sizeBytes': sizeBytes,
+      'sha256': sha256,
+      // 尺寸 / 料厚一并带上：小屏可据此先画预览，客户改料厚时也能就地重算
+      'widthMm': widthMm,
+      'heightMm': heightMm,
+      'depthMm': depthMm,
+      'boardThicknessMm': boardThicknessMm,
+      'materialKey': materialKey,
+      'source': 'mobile',
+      'issuedAt': DateTime.now().millisecondsSinceEpoch,
+    };
+    // reqId 由 _publish 自动注入（同一模型重复点【下一步】时，小屏按
+    // 「10s 内相同 reqId 丢弃」去重；不同 reqId 则按同 modelId 复用缓存）。
+    return _dispatch(cmd);
+  }
+
     return true;
   }
 

@@ -382,6 +382,26 @@ class MockHardwareService implements HardwareService {
     return confirmJob();
   }
 
+  /// 🟢 D-1（2026-09-23）：Mock 下没有真小屏可预读，恒返回「发出去了」。
+  ///
+  /// 为什么不返回 false：向导 Step 1 的【下一步】不因预读失败而变灰（预读只是
+  /// 加速项），返回 false 会让 Mock/演示环境平白多一条"未连线"提示，误导联调。
+  /// 唯一返回 false 的情况与真机一致：模型压根没有轻量 JSON。
+  @override
+  Future<bool> preloadModel({
+    required String modelId,
+    required String jsonUrl,
+    String title = '',
+    int sizeBytes = 0,
+    String sha256 = '',
+    double widthMm = 0,
+    double heightMm = 0,
+    double depthMm = 0,
+    double boardThicknessMm = 0,
+    String materialKey = '',
+  }) async =>
+      jsonUrl.trim().isNotEmpty;
+
   @override
   Future<bool> confirmJob() async {
     _carve = _carve.copyWith(stage: CarveStage.confirming);

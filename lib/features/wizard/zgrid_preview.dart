@@ -370,6 +370,14 @@ class ZGridPreview extends StatefulWidget {
   /// 客户填写的实际材料厚度（mm），>0 时压过载荷自报厚度（见 [ZGridSurface]）。
   final double thicknessMmOverride;
 
+  /// 预览区高度（逻辑像素）。D-2（2026-09-23 昊总「一屏不放滚动」）新增，三种取值：
+  /// - `null`（缺省）= 沿用历史固定 220 —— 既有调用点（定原点页等）**行为零变化**；
+  /// - `> 0` = 指定高度（如极矮屏兜底用的 150）；
+  /// - `<= 0` = **填满父级可用高度**，供「一屏不滚动」的弹性布局使用：
+  ///   父级给多少就用多少，小屏自动变矮、大屏自动变高，不会把内容顶出屏幕。
+  ///   父级高度无界（例如放进滚动视图）时回退 220，避免拿到 inf 画崩。
+  final double? height;
+
   const ZGridPreview({
     super.key,
     required this.url,
@@ -377,6 +385,7 @@ class ZGridPreview extends StatefulWidget {
     this.fallbackHeightMm = 0,
     this.fallbackThicknessMm = 0,
     this.thicknessMmOverride = 0,
+    this.height,
   });
 
   @override
@@ -467,19 +476,27 @@ class _ZGridPreviewState extends State<ZGridPreview> {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 220,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: Container(
-          color: const Color(0xFFF5F7FA),
-          child: _body(),
+    // 用 LayoutBuilder 取父级给的最大高度：height <= 0 时按「填满可用高度」处理。
+    // 注意不能直接用 MediaQuery 算 —— 本组件嵌在卡片里，要的是**卡内剩余**高度。
+    return LayoutBuilder(builder: (_, c) {
+      final avail = c.maxHeight.isFinite ? c.maxHeight : 220.0;
+      final h = height == null
+          ? 220.0
+          : (height! <= 0 ? (avail > 0 ? avail : 220.0) : height!);
+      return SizedBox(
+        height: h,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            color: const Color(0xFFF5F7FA),
+            child: _body(h),
+          ),
         ),
-      ),
-    );
+      );
+    });
   }
 
-  Widget _body() {
+  Widget _body(double h) {
     if (_loading) {
       return Center(
         child: SizedBox(
@@ -504,9 +521,8 @@ class _ZGridPreviewState extends State<ZGridPreview> {
             Padding(
               padding: EdgeInsets.symmetric(horizontal: 16),
               child: Text(
-                '需要含高程网格（zGrid.base64）的 Full 级轻量 JSON。\n'
-                '云端未注入时，可在「我的 → 本地文件解析（调试）」放入一份 Full 级载荷，'
-                '本处长按下拉即自动显示。',
+                '该模型暂无 3D 预览数据。\n'
+                '可稍后重试；或到「我的 → 本地文件解析（调试）」载入一份完整载荷。',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 10, color: CncColors.textSub, height: 1.4),
               ),
@@ -524,8 +540,9 @@ class _ZGridPreviewState extends State<ZGridPreview> {
           fallbackHeightMm: widget.fallbackHeightMm,
           fallbackThicknessMm: widget.fallbackThicknessMm,
           thicknessMmOverride: widget.thicknessMmOverride,
-          // 外层 SizedBox 是 220 ⇒ 给来源文字留出高度，避免 RenderFlex 溢出
-          height: 184,
+          // 给「数据来源」那一行留出 36px；父级很矮时兜到 0（负高度会直接抛异常）。
+          // 原注释写死的 220 已不成立 —— 外层高度现在是参数（见 [height]）。
+          height: h > 36 ? h - 36 : 0,
         ),
         if (_source != null)
           Padding(
