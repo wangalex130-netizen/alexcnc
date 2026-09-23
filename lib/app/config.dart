@@ -88,7 +88,7 @@ class AppConfig {
 
   // 与固件 RELAY: 指令一致：RELAY:<baseUrl>|<token>|<device>|<fps>
 
-  // 示例：--dart-define=CAMERA_RELAY_BASE_URL=http://43.154.192.242:8080
+  // 示例：--dart-define=CAMERA_RELAY_BASE_URL=http://39.106.144.53:8080
 
   static const String cameraRelayBaseUrl = String.fromEnvironment(
 

@@ -1677,6 +1677,11 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       _framingDone = false;
       _framingFail = null;
     });
+    // 载荷换新 ⇒ 上一份载荷的「原点已锁定」与「已目视确认」**一并作废**，必须同步撤回
+    // 给父级：否则父级的 originSet / safetyChecked 两个标志仍为 true，客户可跳过
+    // 【确认原点】直接进下一步，而机器里还是上一份载荷的 G54（起点整体错位）。
+    widget.onOriginSet(false);
+    widget.onSafety(false);
     final c = m.centeredOnBed();
     _setDesign(Offset(c.x, c.y), quiet: true);
     final kb = (m.payloadBytes / 1024).toStringAsFixed(1);
@@ -1901,6 +1906,9 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     widget.onP1(null);
     widget.onOverflow(false);
     widget.onOriginSet(false);
+    // 标定点都清了 ⇒ 上一次的「目视确认」也不再成立，一并撤回（否则写完新 G54
+    // 后无需再次预览即可进下一步，等于拿着旧位置的安全确认去开切）
+    widget.onSafety(false);
     setState(() {
       _g54Written = false;
       _g54JobId = '';
@@ -2173,7 +2181,11 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         ? true
         : await ref.read(hardwareServiceProvider).framing(points: pts);
     if (!mounted) return;
-    if (ok) widget.onSafety(true); // 预览成功 = 客户已目视确认落点（P5 第三层）
+    // P5 第三层：**不**拿「命令发出去了」代替「客户已目视确认」。
+    // App 只能确认 framing 指令已发出（固件 F2 未交付时机器可能毫无动作），
+    // 故「已确认」改由客户在 _safetyTick() 勾选框里自己打勾。失败则撤回既有确认，
+    // 避免上一次的确认残留到这一次预览上。
+    if (!ok) widget.onSafety(false);
     setState(() {
       _busy = false;
       _framingDone = ok;
@@ -2210,9 +2222,20 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       _note('G54 拒绝写入：请先完成标定（$_needPts 点）', bad: true);
       return;
     }
-    setState(() => _busy = true);
     // §4.1：G54 = DesignPos − camOriginOffset。**允许为负**（严禁 max(0,·)）。
     final g = m.g54For(widget.origin.dx, widget.origin.dy);
+    // E_LIMIT 前置硬检（与【雕刻预览】的 _framingLocks 同一判据）：
+    // 用「G54 + 原始 bbox」算出机床**真实走位**，越界就不许落盘。
+    // 软围栏（_avail）算的是标定区内的排版位置，**公式里不含 cam**；只有这一检能保证
+    // 写进机器的偏置本身不会把走位顶出台面 —— 否则客户看到的是「已写入 G54」的
+    // 成功提示，而机器已经带着一个越界偏置（错的 G54 一旦落盘就是静默的）。
+    final viol = m.limitViolation(g.x, g.y);
+    if (viol != null) {
+      _note('G54 拒绝写入：$viol。\n请把模型挪回材料安全区内，或重新标定材料边界后再试',
+          bad: true);
+      return;
+    }
+    setState(() => _busy = true);
     final sim = DebugSim.instance.enabled;
     final ok = sim
         ? true
@@ -2761,7 +2784,9 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       _deckBtn(_framePlaying ? '预览中…' : '雕刻预览', canPreview ? _doFraming : null,
           icon: Symbols.play_arrow),
       const SizedBox(height: 5),
-      // 「下一步」必须等：原点已锁定 + 未溢出 + 已按【雕刻预览】目视确认
+      _safetyTick(),
+      const SizedBox(height: 5),
+      // 「下一步」必须等：原点已锁定 + 未溢出 + 已按【雕刻预览】并由客户勾选确认
       //（调试模拟态可跳过目视确认 —— 没有真机、无物理风险）
       widget.originSet
           ? _deckBtn('下一步', canNext ? widget.onNext : null,
@@ -2772,6 +2797,51 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   }
 
   // ---------- 通用控件 ----------
+
+  /// 「已目视确认」勾选框（P5 第三层）。
+  ///
+  /// **必须由客户手动勾**：App 只能确认 framing 指令已发出（固件 F2 未交付时机器
+  /// 可能毫无动作），若由「命令已发出」自动置位，联调时就会把「固件没做」误判成
+  /// 「客户已确认」，且画面里的巡边光点动画还会强化「机器走过了」的错觉。
+  /// 未按过【雕刻预览】前禁用 —— 没看过落点就勾 = 自己骗自己。
+  Widget _safetyTick() {
+    final enabled = _framingDone && !_busy;
+    final on = widget.safetyChecked;
+    return GestureDetector(
+      onTap: enabled ? () => widget.onSafety(!on) : null,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: on ? CncColors.primary.withOpacity(0.10) : CncColors.card,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: on ? CncColors.primary : CncColors.border),
+        ),
+        child: Row(children: [
+          Icon(on ? Symbols.check_circle : Symbols.visibility,
+              size: 14,
+              color: on
+                  ? CncColors.primaryInk
+                  : (enabled ? CncColors.textSub : CncColors.border)),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              on
+                  ? '已确认：轨迹在耗材内、避开压板'
+                  : (_framingDone
+                      ? '点此确认：轨迹在耗材内、避开压板'
+                      : '先按【雕刻预览】看清落点'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 10.5,
+                color: enabled ? CncColors.textSub : CncColors.border,
+              ),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
 
   Widget _deckChip(String label, bool active, VoidCallback? onTap) => Expanded(
         child: GestureDetector(
