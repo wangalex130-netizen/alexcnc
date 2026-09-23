@@ -1899,6 +1899,23 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   }
 
   void _take() {
+    // C-2（09-23）：坐标取的是**状态帧里的 mpos**。机器掉线时状态帧会停在
+    // 最后一条，_livePos() 仍照旧返回那个值 ⇒ 客户取到一个「几秒甚至几分钟
+    // 前的点」，而界面一切正常、取完还报「已记下第 1 点 (x, y)」—— 静默错位。
+    // 左侧状态灯（_leftDeck 的 allOk）本来就按 2 秒新鲜度判门禁，这里用**同一
+    // 口径**补齐取点这一路，不引入第二套阈值。模拟机器位态无真机，跳过。
+    if (!DebugSim.instance.enabled) {
+      final fresh = _frameAt != null &&
+          DateTime.now().difference(_frameAt!) < const Duration(seconds: 2);
+      if (!fresh) {
+        _note(
+            '机器坐标已过期（状态帧超过 2 秒未更新）：现在取点会记下一个旧坐标，'
+            '不是主轴当前所在位置。请确认机器已开机、MQTT 已连并正在上报状态帧'
+            '后再取点',
+            bad: true);
+        return;
+      }
+    }
     final pt = _livePos();
     if (pt == null) {
       _note(
@@ -1942,7 +1959,10 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
             '拖动模型摆好位置，按【确认原点】锁定');
       }
     } else {
-      // 第 3 下 = 重取（两种形态都只 2 点）：客户点错了直接再点一下即可，不必去找清除按钮。
+      // 已取满两点时再按 = 以当前位置做新的 P0（只留 1 点）。
+      // C-1 后**正常路径已不经过这里**：中央键取满两点就变【重新】并改走
+      // _clearPts()（全清）。保留此分支作兜底 —— 万一将来有别的入口在
+      // 「两点已取」状态下直接调 _take()，也不至于把旧 P1 留在那儿构成错框。
       widget.onP0(pt);
       widget.onP1(null);
       _invalidateDatum(); // B-5：同「完成标定」，重取也必须作废旧 G54
@@ -2766,10 +2786,20 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           onDown: _busy ? null : () => _jog('y', -1),
           onLeft: _busy ? null : () => _jog('x', -1),
           onRight: _busy ? null : () => _jog('x', 1),
-          centerLabel: _wysiwyg ? '取点' : '设原点',
+          // C-1（09-23 昊总）：取满两点后中央键由【取点】变【重新】。
+          // 原来「再按一下就是重取」是 _take() 里的**隐藏行为**，按钮文案
+          // 永远是「取点」，客户不可能猜得到 —— 于是要么不敢按、要么按了才发现
+          // 把第一个点顶掉了。文案跟着状态走，行为才有可预期性。
+          // 取满后走 _clearPts()（全清 + 作废旧 G54/巡边/目视确认），与右下
+          // 【重标定】同一函数 —— 两处口径不各写一套，将来不会漂移。
+          centerLabel: _wysiwyg
+              ? (_datumDone ? '重新' : '取点')
+              : '设原点',
           centerSub: _wysiwyg ? '$got/$_needPts' : null,
           centerActive: _wysiwyg && !_datumDone,
-          onCenter: _busy ? null : (_wysiwyg ? _take : _manualSet),
+          onCenter: _busy
+              ? null
+              : (_wysiwyg ? (_datumDone ? _clearPts : _take) : _manualSet),
         ),
       ),
       // 有待确认目标时，这一行换成【移动到此 / 取消】——
@@ -2777,17 +2807,22 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       if (_moveTarget == null)
         _deckRuler('移动主轴')
       else
+        // C-3（09-23）：原来这里是「▶ 移动到此」＋「取消」各占一半宽度。
+        // 图标 16 + 间距 5 就吃掉 21px，留给文字的只剩二十几 px，4 个汉字
+        // （50px）放不下 ⇒ 被 ellipsis 截成「移…」，客户根本看不出这个按钮
+        // 干什么。去掉图标 + 按 3:2 分宽，「移动到此」完整显示，「取消」两字仍宽裕。
         Row(children: [
           Expanded(
+            flex: 3,
             child: _deckBtn(
               _moving ? '移动中…' : '移动到此',
               (_moving || _busy || !canMove) ? null : _confirmMove,
-              icon: Symbols.play_arrow,
               primary: true,
             ),
           ),
           const SizedBox(width: 5),
           Expanded(
+            flex: 2,
             child: _deckBtn('取消', (_moving || _busy) ? null : _cancelMove),
           ),
         ]),
