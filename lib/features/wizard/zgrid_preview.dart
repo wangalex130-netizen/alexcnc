@@ -480,9 +480,9 @@ class _ZGridPreviewState extends State<ZGridPreview> {
     // 注意不能直接用 MediaQuery 算 —— 本组件嵌在卡片里，要的是**卡内剩余**高度。
     return LayoutBuilder(builder: (_, c) {
       final avail = c.maxHeight.isFinite ? c.maxHeight : 220.0;
-      final h = height == null
+      final h = widget.height == null
           ? 220.0
-          : (height! <= 0 ? (avail > 0 ? avail : 220.0) : height!);
+          : (widget.height! <= 0 ? (avail > 0 ? avail : 220.0) : widget.height!);
       return SizedBox(
         height: h,
         child: ClipRRect(
