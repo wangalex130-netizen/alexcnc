@@ -331,9 +331,9 @@ jobs:
 
           echo "code=$BUILD" >> "$GITHUB_OUTPUT"
 
-          echo "----- last 60 lines -----"
+          echo "----- last 400 lines (Gradle what-went-wrong) -----"
 
-          tail -n 60 "$LOG"
+          tail -n 400 "$LOG"
 
           exit 0
 
