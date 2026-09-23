@@ -118,6 +118,13 @@
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
             </intent-filter>
         </receiver>
+
+        <!-- 花屏实验（2026-09-23 修改工单）：关闭 Impeller 回落 Skia/OpenGL。
+             Flutter 3.29 默认启用 Impeller(Vulkan)，在华为鸿蒙+卓易通容器缺少缓冲同步，
+             疑致字形图集污染花屏。复测仍花屏则删除本 meta-data 即可零残留回退。 -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
