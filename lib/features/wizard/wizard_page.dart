@@ -2578,37 +2578,6 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     );
   }
 
-  /// 安全 / 一致性提示（对齐双模拟器 v2.0 的安全审计条）。
-  List<Widget> _safetyBanners() {
-    final m = _meta;
-    if (m == null) return const [];
-    final out = <Widget>[];
-    final thick = _matThickness;
-    // ① 穿透底板：最大切深超过板厚（报大=漏检穿底，报小=起探撞料）
-    if (thick > 0 && m.maxCutDepth.abs() > thick + 1e-6) {
-      out.add(const SizedBox(height: 8));
-      out.add(_banner(
-          '穿透底板预警：最大切削深度 ${m.maxCutDepth.toStringAsFixed(2)}mm 超过板厚 '
-          '${thick.toStringAsFixed(1)}mm（超出 ${(m.maxCutDepth.abs() - thick).toStringAsFixed(2)}mm）'
-          '，请垫废料保护板或换更厚的料',
-          bad: true));
-    } else if (m.cutThroughRisk) {
-      out.add(const SizedBox(height: 8));
-      out.add(_banner(S.cutThroughRisk, bad: true));
-    }
-    // ② P4 宁锁勿放：G54 绑定的是"别的"载荷
-    if (_g54Written && _g54JobId.isNotEmpty && _g54JobId != m.jobId) {
-      out.add(const SizedBox(height: 8));
-      out.add(_banner(S.jobMismatch, bad: true));
-    }
-    // ③ 契约上限 45KB
-    if (!m.withinContract) {
-      out.add(const SizedBox(height: 8));
-      out.add(_banner(S.jobTooLarge, bad: true));
-    }
-    return out;
-  }
-
   void _manualSet() {
     if (_busy) return;
     _setDesign(widget.origin);
@@ -3617,31 +3586,6 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         ),
       );
 
-  Widget _banner(String s, {required bool bad}) => Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: (bad ? CncColors.danger : CncColors.warning).withOpacity(0.12),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-              color: (bad ? CncColors.danger : CncColors.warning)
-                  .withOpacity(0.45)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(bad ? Symbols.error : Symbols.info,
-                size: 15,
-                color: bad ? CncColors.danger : CncColors.warning),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(s,
-                  style: TextStyle(
-                      fontSize: 11, color: CncColors.textMain, height: 1.4)),
-            ),
-          ],
-        ),
-      );
 }
 class _StepChip extends StatelessWidget {
   final String label;
