@@ -60,6 +60,28 @@ class CncColors {
 
   // 边框
   static Color get border => _dark ? _dBorder : const Color(0xFFE2E5EA); // 描边
+
+  // ---- 批次一新增槽位（2026-09-24 工单一/二；现值=现有色板近似，
+  //      工单三·配色落值时在工单三分支统一换 E 色板，此处不改既有槽位）----
+
+  /// 主按钮（primary）上的文字/图标色。现版主按钮沿用白字，暂与现状一致。
+  static Color get onPrimary => const Color(0xFFFFFFFF);
+
+  /// 成功语义：底（中心钮 / 步长选中 / 已目视确认选中）与字。
+  static Color get successBg =>
+      _dark ? const Color(0x1F00D97E) : const Color(0x1400FF7F);
+  static Color get successFg => primaryInk;
+
+  /// 报警卡底 / 描边（控制台状态卡报警态）。
+  static Color get dangerBg =>
+      _dark ? const Color(0x2EFF6B6B) : const Color(0x1FD32F2F);
+  static Color get dangerBd =>
+      _dark ? const Color(0x66FF6B6B) : const Color(0x59D32F2F);
+
+  /// 画布台面中性底（定原点页规格书 §3.1 / L4：暖象牙，两端定值）。
+  /// 画布内语义色（标定蓝点 / 红十字 / 尺寸签红等）不在本令牌范围。
+  static Color get canvasBed =>
+      _dark ? const Color(0xFF201B14) : const Color(0xFFEFE9DC);
 }
 
 

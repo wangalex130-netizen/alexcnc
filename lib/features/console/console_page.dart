@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import '../../l10n/strings_zh.dart';
-import '../../widgets/app_icon.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -43,7 +42,6 @@ import '../preview/rtsp_preview_widget.dart';
 
 import '../preview/timelapse_client.dart';
 
-import '../preview/mjpeg_stream_player.dart';
 
 import '../preview/fullscreen_preview_page.dart';
 
@@ -57,9 +55,9 @@ import '../wizard/job_monitor_page.dart';
 
 import '../wizard/self_check_page.dart';
 
-import '../workbench/jog_sheet.dart';
 
-import '../machines/machines_page.dart';
+import 'move_page.dart';
+
 import '../machines/bind_page.dart';
 import '../../services/machines_service.dart';
 import '../auth/login_page.dart';
@@ -102,7 +100,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
   bool _laser = false;
 
-  bool _fan = false;
 
   bool _spindleOn = false;
 
@@ -1130,9 +1127,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
     final hw = ref.read(hardwareServiceProvider);
 
-    // 链路连接态（云端 MQTT / 局域网 TCP 的连通状态），用于顶部连接指示。
-
-    final conn = ref.watch(connectionStateProvider).value;
 
     // 当前选中的机器：未选择时不显示任何机器状态（修复「没选机器却有 Smart 3020 待机」）。
 
@@ -1142,11 +1136,11 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     // 离线设备不会回传状态帧，machineStatusProvider 会停在默认 idle，
     // 故必须交叉核对 presence，否则选了离线的机器也显示「待机 / 已连接」。
     final presenceMap = ref.watch(presenceMapProvider).valueOrNull;
-    final DevicePresence? _curPresence = (currentMachine != null && presenceMap != null)
+    final DevicePresence? curPresence = (currentMachine != null && presenceMap != null)
         ? presenceMap[currentMachine.sn]
         : null;
     final bool isDeviceOffline =
-        _curPresence != null && _curPresence.online == false;
+        curPresence != null && curPresence.online == false;
 
     // 2026-09-05（根治「首次登录必须先进全屏预览才有画面」）：
 
@@ -1200,105 +1194,12 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
 
 
-    final idle = status.state == MachineState.idle;
-
-    // 终局方案（2026-08-28）：命令一律经云端 MQTT 下发，内外网权限已无区别，
-
-    // 主动控制只由机器状态决定 —— 空闲可动，加工中/报警/回零中等禁用。
-
-    // （历史：此前还要求 isLocalLAN 局域网直连才解锁，现已废除。）
-
-    //
-
-    // 2026-08-29 安全加固：**真实后端模式下必须先选择机器**。
-
-    // 未选机器时 deviceId 会回退到 AppConfig 默认值（联调用的 cnc-demo-01），
-
-    // 不加闸门的话 Jog / 主轴 / 回零会打到一台用户根本没选中的机器上。
-
-    // 联调 / Mock 模式（!realMode）保持放开，不影响工程师调试。
-
-    final canControl = idle && (hasMachine || !realMode) && !isDeviceOffline;
 
 
 
-    // 报警自救通道（2026-08-31，与 `jog_sheet.dart` 同口径）：
-
-    // 软复位 / 解锁**刻意不受 `idle` 闸门限制**。机器进 Alarm 后 canControl=false，
-
-    // Jog 与回零全部锁死；若解锁也一起锁，就形成死锁——App 永远救不回报警状态，
-
-    // 用户只能跑到机器旁按实体键。故这两项只要「已连上机器」即可用。
-
-    final connected = !isDeviceOffline && status.state != MachineState.disconnected;
-
-    final canReset = connected && (hasMachine || !realMode);
-
-    // 解锁只在报警态点亮，避免正常状态下误触。
-
-    final canUnlock = canReset && status.state == MachineState.alarm;
 
 
 
-    // DRO 状态标签：未选机器 → 不显示任何运行状态，避免误导客户。
-
-    final Color stateColor = !hasMachine
-
-        ? CncColors.textSub
-
-        : isDeviceOffline
-            ? CncColors.danger
-            : status.state == MachineState.disconnected
-
-            ? CncColors.danger
-
-            : status.state == MachineState.busy
-
-                ? CncColors.warning
-
-                : status.state == MachineState.paused
-
-                    ? CncColors.blue
-
-                    : status.state == MachineState.homing
-
-                        ? CncColors.warning
-
-                        : status.state == MachineState.alarm
-
-                            ? CncColors.danger
-
-                            : CncColors.primaryInk;
-
-    final String stateLabel = !hasMachine
-
-        ? '待选择'
-
-        : isDeviceOffline
-            ? '不在线'
-            : status.state == MachineState.disconnected
-
-            ? '未连接'
-
-            : status.state == MachineState.busy
-
-                ? '加工中'
-
-                : status.state == MachineState.paused
-
-                    ? '已暂停'
-
-                    : status.state == MachineState.homing
-
-                        ? '回零中'
-
-                        : status.state == MachineState.alarm
-
-                            // P1-5（2026-09-21）：报警态叠加客户可读文案
-                            // （报警文案映射表 v1.0）。
-                            ? '报警 · ${status.alarmText ?? '报警'}'
-
-                            : '待机';
 
 
 
@@ -1336,19 +1237,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
         status.aux.containsKey('laser') ? status.aux['laser']! : _laser;
 
-    final fanOn = status.aux.containsKey('fan') ? status.aux['fan']! : _fan;
 
 
 
-    // 2026-09-03 改：视频框按屏幕宽度自适应 **4:3**（实测摄像头是 4:3，
-
-    // 之前 16:9 会在 contain 渲染下留出大黑边）。
-
-    // 注：RtspPreviewWidget 内部 BoxFit.contain，外框比例必须接近视频原始比例，
-
-    // 否则 contain 渲染会有黑边。后续如果换成 16:9 摄像头，改这里即可。
-
-    final videoBoxH = MediaQuery.of(context).size.width * 3 / 4;
 
     // 三态门控：未登录 / 未绑定机器 时只展示引导，不渲染视频与控制区
     if (!loggedIn) {
@@ -1378,1308 +1269,488 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
 
 
+    // 20260924 工单二 §4 / 控制台规格书 §1：主页 v2.2（拓竹式，全高固定区无滚动）。
+    // 换皮+换位：状态源、命令下发、横幅数据流零改动（规格书 §9.4）。
+    final job = ref.watch(activeJobProvider);
+    final bool alarmNow = status.state == MachineState.alarm;
+    final bool busyNow = status.state == MachineState.busy ||
+        status.state == MachineState.paused;
+    final int progressPct = (status.progress.clamp(0.0, 1.0) * 100).round();
+    final String jobName =
+        job?.item.title ?? status.job ?? '（其他端发起的作业）';
+
+    // 视频区左上角机器标识圆点（规格 §2）：在线 blue / 离线灰 / 异常 danger。
+    final Color machineDot = isDeviceOffline ||
+            status.state == MachineState.disconnected
+        ? const Color(0xFF8B938E)
+        : alarmNow
+            ? CncColors.danger
+            : CncColors.blue;
+
     return Scaffold(
-
       backgroundColor: CncColors.bg,
-
       body: Column(
-
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-
-          // ---- 视频监控区 ----
-
-          Stack(
-
-            children: [
-
-              // 机器侧面固定头：纯裸画面（无叠加层），默认用配置里的固定地址，
-
-              // 自动发现作为兜底（见 lib/features/preview/ ）。
-
-              // A3 拉流解耦：优先用「当前绑定机器」后端返回的 relay_url/cam_device；
-
-              // 未绑定/调试期回退 runtime_config 固定地址。
-
-              SizedBox(
-
-                height: videoBoxH,
-
-                child: RtspPreviewWidget(
-
-                  // 真实后端模式下须登录才允许拉流（杜绝「不登录也能看」）。
-
-                  //
-
-                  // 2026-09-05：按 8-29 决策「App 移除 LAN/WAN 双模，仅走服务器中继」，
-
-                  // 取流**不再**按 isLocal 切换局域网 RTSP。
-
-                  //
-
-                  // 原实现的坑：CAMERA_RTSP 默认为空串，一旦探测到局域网可达就走
-
-                  // rtspUrl（空）且 relayUrl 被置 null，只能靠局域网扫描碰运气，
-
-                  // 表现为「控制台点播放没画面，必须先从我的机器进一次全屏预览」。
-
-                  // 统一走云中继后取流路径唯一确定，与该决策一致。
-
-                  //
-
-                  // RTSP / CameraDiscovery 组件**保留不删**：PC Web 版是否补回 LAN
-
-                  // 尚未拍板（仅记「可能补回」），底层留着不影响 App 行为。
-
-                  rtspUrl: null,
-
-                  relayUrl:
-
-                      (!realMode || loggedIn) ? _resolvedRelayUrl(cfg) : null,
-
-                  // 2026-09-05：点「开始预览」前先补发 stream_start（按需推流，
-
-                  // 不先下令就会拉到空流、干等 12s 超时后失败）。
-
-                  onBeforePlay: _sendCameraStart,
-
-                  onFullscreen: () {
-
-                    Navigator.of(context).push(
-
-                      MaterialPageRoute(
-
-                        builder: (_) => FullscreenPreviewPage(
-
-                          machine: ref.read(currentMachineProvider),
-
-                        ),
-
-                      ),
-
-                    );
-
-                  },
-
-                ),
-
-              ),
-
-              // 延时摄影「开始录制/停止」浮动按钮：仅已打开延时功能或采集中时显示，
-
-              // 居中悬浮在视频区底部（不与 RtspPreviewWidget 左下角暂停/停止冲突）。
-
-              if (_tlShowRecordBtn())
-
-                Positioned(
-
-                  left: 0,
-
-                  right: 0,
-
-                  bottom: 10,
-
-                  child: Center(
-
-                    child: GestureDetector(
-
-                      onTap: _isTlRunning()
-
-                          ? _tlStopRecording
-
-                          : _tlStartRecording,
-
-                      child: Container(
-
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-
-                        decoration: BoxDecoration(
-
-                          color: _isTlRunning()
-
-                              ? CncColors.danger
-
-                              : CncColors.primary,
-
-                          borderRadius: BorderRadius.circular(20),
-
-                        ),
-
-                        child: Row(
-
-                          mainAxisSize: MainAxisSize.min,
-
-                          children: [
-
-                            Icon(
-
-                              _isTlRunning() ? Symbols.stop : Symbols.fiber_manual_record,
-
-                              size: 16,
-
-                              color: Colors.white,
-
-                            ),
-
-                            const SizedBox(width: 6),
-
-                            Text(
-
-                              _tlRecordLabel(),
-
-                              style: const TextStyle(
-
-                                fontSize: 12,
-
-                                color: Colors.white,
-
-                                fontWeight: FontWeight.bold,
-
-                              ),
-
-                            ),
-
-                          ],
-
-                        ),
-
-                      ),
-
-                    ),
-
-                  ),
-
-                ),
-
-              // 右上角只保留延时摄影入口。
-
-              // 2026-09-05：摄像头取流路径**固定走云中继**（8-29 决策：App 仅走服务器中继），
-
-              // 不再由 isLocalLANProvider 探测结果切换；界面也早已不暴露「远程 / 局域网」概念。
-
-              // 探测仍在跑（启动 300ms / 每 10s / 切回前台），但结果只用于诊断。
-
-              Positioned(
-
-                top: 40,
-
-                right: 15,
-
-                child: Row(
-
-                  mainAxisSize: MainAxisSize.min,
-
-                  children: [
-
-                    // 延时摄影图标（右上角）：两级交互，见 _toggleTimeLapse。
-
-                    GestureDetector(
-
-                      onTap: _toggleTimeLapse,
-
-                      child: Container(
-
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-
-                        decoration: BoxDecoration(
-
-                          color: Colors.black.withOpacity(0.6),
-
-                          borderRadius: BorderRadius.circular(6),
-
-                          border: Border.all(color: _tlBorderColor()),
-
-                        ),
-
-                        child: Row(
-
-                          mainAxisSize: MainAxisSize.min,
-
-                          children: [
-
-                            if (_isTlRunning()) ...[
-
-                              Container(
-
-                                width: 6,
-
-                                height: 6,
-
-                                decoration: BoxDecoration(color: CncColors.danger, shape: BoxShape.circle),
-
-                              ),
-
-                              const SizedBox(width: 5),
-
-                            ],
-
-                            Container(width: 7, height: 7, decoration: BoxDecoration(color: _tlColor(), shape: BoxShape.circle)),
-
-                            const SizedBox(width: 4),
-
-                            Text(_tlLabel(),
-
-                                style: TextStyle(fontSize: 10, color: _tlColor(), fontWeight: FontWeight.bold)),
-
-                          ],
-
-                        ),
-
-                      ),
-
-                    ),
-
-                  ],
-
-                ),
-
-              ),
-
-              // 外网 MJPEG 模式下，右下角「全屏」入口改由 RtspPreviewWidget 内部
-
-              // 常驻控制层统一承载（与「截图」并排，经 onFullscreen 回调），
-
-              // 此处不再单独叠加，避免与 widget 内右下角按钮重叠。
-
-            ],
-
-          ),
-
-
-
-          // ---- 链路连接状态（doc 25 需求：直观显示当前机器与链路连通情况）----
-
-          _ConnStatusChip(
-
-            isCloud: hw.isCloudMode,
-
-            mqttConnected: hw.isMqttConnected,
-
-            tcpConnected: hw.isTcpConnected,
-
-            connState: conn,
-
-          ),
-
-
-
-          // ---- 机器状态与坐标：常驻显示，不随内容滚动 ----
-
+          // ---- 视频监控区（规格 §2：高 170 固定，深浅主题同值，属视频语义）----
           Container(
-
-            margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
-
-            padding: const EdgeInsets.all(10),
-
-            decoration: _cardDeco(),
-
-            child: Column(
-
-              mainAxisSize: MainAxisSize.min,
-
+            height: 170,
+            color: const Color(0xFF111111),
+            child: Stack(
               children: [
-
-                Row(
-
-                  children: [
-
-                    Expanded(
-
-                      child: Text(machineTitle,
-
-                          maxLines: 1,
-
-                          overflow: TextOverflow.ellipsis,
-
-                          style: TextStyle(
-
-                              fontSize: 13,
-
-                              fontWeight: FontWeight.bold,
-
-                              color: CncColors.textMain)),
-
-                    ),
-
-                    const SizedBox(width: 8),
-
-                    Container(
-
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-
-                      decoration: BoxDecoration(
-
-                        color: stateColor.withOpacity(0.15),
-
-                        borderRadius: BorderRadius.circular(6),
-
-                      ),
-
-                      child: Row(
-
-                        mainAxisSize: MainAxisSize.min,
-
-                        children: [
-
-                          _statusDot(stateColor),
-
-                          const SizedBox(width: 5),
-
-                          Text(stateLabel,
-
-                              style: TextStyle(
-
-                                  fontSize: 12,
-
-                                  fontWeight: FontWeight.bold,
-
-                                  color: stateColor)),
-
-                        ],
-
-                      ),
-
-                    ),
-
-                  ],
-
-                ),
-
-                const SizedBox(height: 8),
-
-                Row(
-
-                  children: [
-
-                    _DroAxis(label: 'X 轴', color: CncColors.danger, value: status.position.x),
-
-                    _DroAxis(label: 'Y 轴', color: CncColors.primaryInk, value: status.position.y),
-
-                    _DroAxis(label: 'Z 轴', color: CncColors.blue, value: status.position.z),
-
-                  ],
-
-                ),
-
-              ],
-
-            ),
-
-          ),
-
-
-
-          // ---- 内容滚动区：快捷开关 / Jog / 主轴 / 刀仓随内容滚动 ----
-
-          Expanded(
-
-            child: ListView(
-
-              padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
-
-              children: [
-
-                // 演示模式提醒：CI 包默认 USE_REAL_BACKEND=false，此时用的是 Mock 服务，
-
-                // 界面一切正常但命令根本不会下发到真机。必须显式告知 + 给出一键开启入口，
-
-                // 否则会被误解成"机器没在线"。
-
-                if (!realMode)
-
-                  Container(
-
-                    margin: const EdgeInsets.only(bottom: 12),
-
-                    padding: const EdgeInsets.all(12),
-
-                    decoration: BoxDecoration(
-
-                      color: CncColors.warning.withOpacity(0.12),
-
-                      borderRadius: BorderRadius.circular(10),
-
-                      border: Border.all(color: CncColors.warning.withOpacity(0.5)),
-
-                    ),
-
-                    child: Column(
-
-                      crossAxisAlignment: CrossAxisAlignment.start,
-
-                      children: [
-
-                        Row(
-
-                          children: [
-
-                            Expanded(
-
-                              child: Text('演示模式',
-
-                                  style: TextStyle(
-
-                                      fontSize: 12,
-
-                                      fontWeight: FontWeight.bold,
-
-                                      color: CncColors.textMain)),
-
-                            ),
-
-                          ],
-
-                        ),
-
-                        const SizedBox(height: 4),
-
-                        Text(
-
-                            S.simNote,
-
-                            style: TextStyle(fontSize: 11, color: CncColors.textSub)),
-
-                        const SizedBox(height: 8),
-
-                        SizedBox(
-
-                          width: double.infinity,
-
-                          child: FilledButton.icon(
-
-                            onPressed: () => Navigator.of(context).push(
-
-                              MaterialPageRoute(
-
-                                  builder: (_) => const DebugSettingsPage()),
-
-                            ),
-
-                            icon: const Icon(Symbols.tune, size: 16),
-
-                            label: const Text('开启真实设备连接',
-
-                                style: TextStyle(
-
-                                    fontSize: 13, fontWeight: FontWeight.bold)),
-
-                            style: FilledButton.styleFrom(
-
-                              backgroundColor: CncColors.warning,
-
-                              foregroundColor: Colors.white,
-
-                              padding: const EdgeInsets.symmetric(vertical: 10),
-
-                              shape: RoundedRectangleBorder(
-
-                                  borderRadius: BorderRadius.circular(8)),
-
-                            ),
-
+                // 机器侧面固定头：纯裸画面（无叠加层）。A3 拉流解耦：
+                // 优先「当前绑定机器」后端返回的 relay_url；统一走云中继
+                // （8-29 决策：App 仅走服务器中继）。
+                Positioned.fill(
+                  child: RtspPreviewWidget(
+                    rtspUrl: null,
+                    relayUrl:
+                        (!realMode || loggedIn) ? _resolvedRelayUrl(cfg) : null,
+                    onBeforePlay: _sendCameraStart,
+                    onFullscreen: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => FullscreenPreviewPage(
+                            machine: ref.read(currentMachineProvider),
                           ),
-
                         ),
-
-                      ],
-
-                    ),
-
-                  ),
-
-
-
-                // 未选择机器引导：真实后端模式下禁止下发任何运动命令，
-
-                // 避免打到默认的联调设备（cnc-demo-01）上。
-
-                if (realMode && !hasMachine)
-
-                  Container(
-
-                    margin: const EdgeInsets.only(bottom: 12),
-
-                    padding: const EdgeInsets.all(12),
-
-                    decoration: BoxDecoration(
-
-                      color: CncColors.blue.withOpacity(0.1),
-
-                      borderRadius: BorderRadius.circular(10),
-
-                      border: Border.all(color: CncColors.blue.withOpacity(0.4)),
-
-                    ),
-
-                    child: Column(
-
-                      crossAxisAlignment: CrossAxisAlignment.start,
-
-                      children: [
-
-                        Row(
-
-                          children: [
-
-                            Expanded(
-
-                              child: Text('请先选择要控制的机器',
-
-                                  style: TextStyle(
-
-                                      fontSize: 12,
-
-                                      fontWeight: FontWeight.bold,
-
-                                      color: CncColors.textMain)),
-
-                            ),
-
-                          ],
-
-                        ),
-
-                        const SizedBox(height: 4),
-
-                        Text('未选择机器前，移动 / 主轴 / 换刀等操作已锁定，仅可查看画面与状态。',
-
-                            style: TextStyle(fontSize: 11, color: CncColors.textSub)),
-
-                        const SizedBox(height: 8),
-
-                        SizedBox(
-
-                          width: double.infinity,
-
-                          child: FilledButton.icon(
-
-                            onPressed: () => Navigator.of(context).push(
-
-                              MaterialPageRoute(builder: (_) => const MachinesPage()),
-
-                            ),
-
-                            icon: const Icon(Symbols.sensors, size: 16),
-
-                            label: const Text('选择机器',
-
-                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-
-                            style: FilledButton.styleFrom(
-
-                              backgroundColor: CncColors.primary,
-
-                              foregroundColor: Colors.black,
-
-                              padding: const EdgeInsets.symmetric(vertical: 10),
-
-                              shape: RoundedRectangleBorder(
-
-                                  borderRadius: BorderRadius.circular(8)),
-
-                            ),
-
-                          ),
-
-                        ),
-
-                      ],
-
-                    ),
-
-                  ),
-
-
-
-                // 雕刻启动三态：已下发 / 待确认 / 指令未送达（两段式启动，2026-09-02）
-
-                const JobLaunchBanner(),
-
-
-
-                // 机旁确认横幅：固件广播 awaitingConfirm（notify 流 confirm_required 同步触发）
-
-                if (status.awaitingConfirm)
-
-                  Container(
-
-                    margin: const EdgeInsets.only(bottom: 12),
-
-                    padding: const EdgeInsets.all(10),
-
-                    decoration: BoxDecoration(
-
-                      color: CncColors.warning.withOpacity(0.12),
-
-                      borderRadius: BorderRadius.circular(8),
-
-                      border: Border.all(color: CncColors.warning.withOpacity(0.5)),
-
-                    ),
-
-                    child: Row(
-
-                      children: [
-
-                        Expanded(
-
-                          child: Text('等待机旁确认：请在机器面板按下确认键后继续加工。',
-
-                              style: TextStyle(fontSize: 11, color: CncColors.warning)),
-
-                        ),
-
-                      ],
-
-                    ),
-
-                  ),
-
-
-
-                // 掉线横幅：云端 MQTT 断开时提示
-
-                if (status.state == MachineState.disconnected)
-
-                  Container(
-
-                    margin: const EdgeInsets.only(bottom: 12),
-
-                    padding: const EdgeInsets.all(10),
-
-                    decoration: BoxDecoration(
-
-                      color: CncColors.danger.withOpacity(0.12),
-
-                      borderRadius: BorderRadius.circular(8),
-
-                      border: Border.all(color: CncColors.danger.withOpacity(0.5)),
-
-                    ),
-
-                    child: Row(
-
-                      children: [
-
-                        Container(width: 8, height: 8, decoration: BoxDecoration(color: CncColors.danger, shape: BoxShape.circle)),
-
-                        const SizedBox(width: 6),
-
-                        Expanded(
-
-                          child: Text('与机器断开连接：命令与状态无法同步，请检查网络后重连。',
-
-                              style: TextStyle(fontSize: 11, color: CncColors.danger)),
-
-                        ),
-
-                      ],
-
-                    ),
-
-                  ),
-
-
-
-                // 当前加工任务入口（解决监控页被叉掉后找不到入口的 bug）
-
-                Consumer(
-
-                  builder: (context, ref, child) {
-
-                    final job = ref.watch(activeJobProvider);
-
-                    // 2026-09-15：屏幕/PC 发起的雕刻，App 无 activeJob 也必须显示进度
-                    // （PRD §3.3.1⑨ 执行与监视）。原来 job 为空直接不渲染 ⇒ 非本 App
-                    // 发起的作业在控制台看不到任何进度。监控页对空作业安全（无刀路时
-                    // 仅显示百分比与状态）。
-                    final remoteBusy = job == null &&
-                        (status.state == MachineState.busy ||
-                            status.state == MachineState.paused);
-
-                    if (job == null && !remoteBusy) {
-                      return const SizedBox.shrink();
-                    }
-
-                    final j = job;
-
-                    final completed = j?.completed ?? false;
-
-                    final progress = completed
-
-                        ? 100
-
-                        : (status.progress.clamp(0.0, 1.0) * 100).round();
-
-                    return GestureDetector(
-
-                      onTap: () {
-
-                        if (j == null || completed || j.selfCheckDone) {
-
-                          Navigator.of(context).push(
-
-                            MaterialPageRoute(
-
-                                builder: (_) => const JobMonitorPage()),
-
-                          );
-
-                        } else {
-
-                          Navigator.of(context).push(
-
-                            MaterialPageRoute(
-
-                              builder: (_) => SelfCheckPage(
-
-                                materialKey: j!.materialKey,
-
-                                requiredTools: j!.task.requiredTools,
-
-                                procSlot: j!.procSlot,
-
-                              ),
-
-                            ),
-
-                          );
-
-                        }
-
-                      },
-
-                      child: Container(
-
-                        margin: const EdgeInsets.only(bottom: 12),
-
-                        padding: const EdgeInsets.all(12),
-
-                        decoration: BoxDecoration(
-
-                          color: completed
-
-                              ? CncColors.primary.withOpacity(0.1)
-
-                              : CncColors.warning.withOpacity(0.1),
-
-                          borderRadius: BorderRadius.circular(10),
-
-                          border: Border.all(
-
-                              color: completed
-
-                                  ? CncColors.primary.withOpacity(0.4)
-
-                                  : CncColors.warning.withOpacity(0.4)),
-
-                        ),
-
-                        child: Row(
-
-                          children: [
-
-                            Container(
-
-                              width: 36,
-
-                              height: 36,
-
-                              decoration: BoxDecoration(
-
-                                color: completed
-
-                                    ? CncColors.primary.withOpacity(0.15)
-
-                                    : CncColors.warning.withOpacity(0.15),
-
-                                shape: BoxShape.circle,
-
-                              ),
-
-                              child: Icon(
-
-                                  completed ? Symbols.check_circle : Symbols.play_circle,
-
-                                  color: completed
-
-                                      ? CncColors.primary
-
-                                      : CncColors.warning,
-
-                                  size: 18),
-
-                            ),
-
-                            const SizedBox(width: 10),
-
-                            Expanded(
-
-                              child: Column(
-
-                                crossAxisAlignment: CrossAxisAlignment.start,
-
-                                children: [
-
-                                  Text(
-
-                                    completed
-
-                                        ? '加工已完成'
-
-                                        : j == null
-
-                                            ? '正在雕刻（其他端发起）· $progress%'
-
-                                            : '当前加工中 · $progress%',
-
-                                    style: TextStyle(
-
-                                        fontSize: 10,
-
-                                        color: completed
-
-                                            ? CncColors.primaryInk
-
-                                            : CncColors.warning),
-
-                                  ),
-
-                                  Text(j?.item.title ?? '（其他端发起的作业）',
-
-                                      maxLines: 1,
-
-                                      overflow: TextOverflow.ellipsis,
-
-                                      style: TextStyle(
-
-                                          fontSize: 13,
-
-                                          fontWeight: FontWeight.bold,
-
-                                          color: CncColors.textMain)),
-
-                                ],
-
-                              ),
-
-                            ),
-
-                            if (completed)
-
-                              GestureDetector(
-
-                                onTap: () => ref
-
-                                    .read(activeJobProvider.notifier)
-
-                                    .dismissCompleted(),
-
-                                child: Container(
-
-                                  padding: const EdgeInsets.all(6),
-
-                                  margin: const EdgeInsets.only(right: 4),
-
-                                  decoration: BoxDecoration(
-
-                                    color: CncColors.primary.withOpacity(0.15),
-
-                                    shape: BoxShape.circle,
-
-                                  ),
-
-                                  child: Icon(Symbols.close,
-
-                                      size: 16, color: CncColors.primaryInk),
-
-                                ),
-
-                              ),
-
-                            Icon(Symbols.chevron_right,
-
-                                color: CncColors.textSub),
-
-                          ],
-
-                        ),
-
-                      ),
-
-                    );
-
-                  },
-
-                ),
-
-
-
-                // 延时摄影状态卡：仅生成完成/失败后显示（查看/下载入口）。
-
-                // 采集中/处理中由右上角图标 + 画面「停止录制」按钮表达，不打扰客户。
-
-                // 与向导 Step6 共用 timeLapseJobProvider，故 carve 联动或本页手动开启都在此呈现。
-
-                if (_tlShowCard())
-
-                  _TimeLapseStatusCard(
-
-                    jobId: _tlJobId!,
-
-                    status: _tlStatus,
-
-                    onView: () => _openTimeLapseVideo(_tlJobId!),
-
-                    onDownload: () => _downloadTimeLapse(_tlJobId!),
-
-                    // 「完成」/「知道了」：这次延时摄影任务结束，清掉本地状态回到干净状态。
-
-                    // 下次雕刻时可以从零开始新一轮（功能的"可循环"体现在这里）。
-
-                    onDone: _tlDismissReady,
-
-                  ),
-
-
-
-                // 快捷开关：随内容滚动（原先固定在顶部，挤压了下方 Jog 区可用空间）
-
-                Container(
-
-                  margin: const EdgeInsets.only(bottom: 12),
-
-                  decoration: _cardDeco(),
-
-                  child: ClipRRect(
-
-                    borderRadius: BorderRadius.circular(12),
-
-                    child: Row(
-
-                      children: [
-
-                        _ToggleBtn(
-
-                            icon: Symbols.lightbulb,
-
-                            label: '机箱照明',
-
-                            active: lightOn,
-
-                            onTap: () {
-
-                              setState(() => _light = !_light);
-
-                              unawaited(hw.setAux('light', _light));
-
-                            }),
-
-                        _ToggleBtn(
-
-                            icon: Symbols.gps_fixed,
-
-                            label: '红点激光',
-
-                            active: laserOn,
-
-                            onTap: () {
-
-                              setState(() => _laser = !_laser);
-
-                              hw.setAux('laser', _laser).then((sent) {
-
-                                if (!sent && mounted) {
-
-                                  // 被门禁拦下 → 回滚开关，避免界面与机器状态不一致
-
-                                  setState(() => _laser = false);
-
-                                  _toastWanBlocked('红点激光');
-
-                                }
-
-                              });
-
-                            }),
-
-                        _ToggleBtn(
-
-                            icon: Symbols.air,
-
-                            label: '冷却风扇',
-
-                            active: fanOn,
-
-                            onTap: () {
-
-                              setState(() => _fan = !_fan);
-
-                              unawaited(hw.setAux('fan', _fan));
-
-                            }),
-
-                      ],
-
-                    ),
-
-                  ),
-
-                ),
-
-
-
-                const SizedBox(height: 12),
-
-
-
-                // 主动控制区：始终展示（终局方案内外网权限一致），加工中仅禁用不隐藏
-
-                ...[
-
-                  const _SectionTitle('定位与回零'),
-
-                  _JogEntry(
-
-                    enabled: canControl,
-
-                    onOpen: () => _openJog(context, hw),
-
-                  ),
-                  const SizedBox(height: 12),
-
-                  const _SectionTitle('主轴调试'),
-
-                  _SpindleCard(
-
-                    enabled: canControl,
-
-                    rpm: _rpm,
-
-                    onRpm: (v) => setState(() => _rpm = v),
-
-                    spindleOn: _spindleOn,
-
-                    onToggle: () {
-
-                      setState(() => _spindleOn = !_spindleOn);
-
-                      if (_spindleOn) {
-
-                        hw.startSpindle(_rpm.toDouble()).then((sent) {
-
-                          if (!sent && mounted) {
-
-                            setState(() => _spindleOn = false);
-
-                            _toastWanBlocked('主轴启动');
-
-                          }
-
-                        });
-
-                      } else {
-
-                        // 停机不受门禁限制：外网必须能停主轴
-
-                        hw.stopSpindle();
-
-                      }
-
-                    },
-
-                  ),
-
-                  const SizedBox(height: 12),
-
-                  const _SectionTitle('安全与刀仓配置'),
-
-                  _AtcEntry(enabled: canControl, onOpen: () => _openAtc(context, hw)),
-
-                ],
-
-
-
-                const SizedBox(height: 12),
-
-              ],
-
-            ),
-
-          ),
-
-
-
-          // ---- 底部动作条（2026-08-29 瘦身：原 24px 底部留白 + 56px 高按钮
-
-          // 吃掉了滚动区高度，导致 Jog 显示不全；现压到 40px 高、留白减半）----
-
-          // 真实模式下未选机器时整条隐藏：此时没有可操作的机器，
-
-          // 留着只会让人误点、把停止/暂停发到默认的联调设备上。
-
-          if (hasMachine || !realMode)
-
-            Container(
-
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-
-              decoration: BoxDecoration(
-
-                color: CncColors.panel,
-
-                border: Border(top: BorderSide(color: CncColors.border)),
-
-              ),
-
-              child: Row(
-
-                children: [
-
-                Expanded(
-
-                  child: _ActionBtn(
-
-                    icon: Symbols.stop,
-
-                    label: '停止',
-
-                    fg: CncColors.danger,
-
-                    bg: CncColors.danger.withOpacity(0.15),
-
-                    border: CncColors.danger,
-
-                    onTap: () {
-
-                      showDialog(
-
-                        context: context,
-
-                        builder: (_) => AlertDialog(
-
-                          backgroundColor: CncColors.card,
-
-                          title: Text('确认停止雕刻吗？',
-
-                              style: TextStyle(color: CncColors.danger)),
-
-                          content: Text('停止后主轴将刹停，本次加工会中断。',
-
-                              style: TextStyle(color: CncColors.textMain)),
-
-                          actions: [
-
-                            TextButton(
-
-                              onPressed: () => Navigator.of(context).pop(),
-
-                              child: Text('取消',
-
-                                  style: TextStyle(color: CncColors.textMain)),
-
-                            ),
-
-                            TextButton(
-
-                              onPressed: () {
-
-                                hw.stopJob();
-
-                                ref.read(activeJobProvider.notifier).clear();
-
-                                Navigator.of(context).pop();
-
-                              },
-
-                              child: Text('确认停止',
-
-                                  style: TextStyle(color: CncColors.danger)),
-
-                            ),
-
-                          ],
-
-                        ),
-
                       );
-
                     },
-
                   ),
-
                 ),
-
-                const SizedBox(width: 10),
-
-                Expanded(
-
-                  child: _ActionBtn(
-
-                    icon: isPaused ? Symbols.play_arrow : Symbols.pause,
-
-                    label: isPaused ? '继续' : '暂停',
-
-                    fg: CncColors.textMain,
-
-                    bg: const Color(0xFFEDEFF2),
-
-                    border: CncColors.border,
-
-                    onTap: () {
-
-                      // 仅在真正加工中/已暂停时才下发命令，避免 idle 时误触
-
-                      final st = ref.read(machineStatusProvider).value?.state;
-
-                      if (st != MachineState.busy && st != MachineState.paused) {
-
-                        _showHint('当前不在加工中，无需暂停/继续');
-
-                        return;
-
-                      }
-
-                      // 乐观 UI：立即切换按钮状态，同时发送 MQTT 指令
-
-                      if (isPaused) {
-
-                        setState(() => _pausedLocal = false);
-
-                        hw.resumeJob();
-
-                        _showHint('已发送继续请求');
-
-                      } else {
-
-                        setState(() => _pausedLocal = true);
-
-                        hw.pauseJob();
-
-                        _showHint('已发送暂停请求');
-
-                      }
-
-                    },
-
+                // 左上角机器标识：圆点 7×7 + 机器名（规格 §2 逐值）。
+                Positioned(
+                  top: 10,
+                  left: 12,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.35),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                              color: machineDot, shape: BoxShape.circle),
+                        ),
+                        const SizedBox(width: 5),
+                        Text(machineTitle,
+                            style: const TextStyle(
+                                fontSize: 11.5, color: Colors.white)),
+                      ],
+                    ),
                   ),
-
                 ),
-
+                if (_tlShowRecordBtn())
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 10,
+                    child: Center(
+                      child: GestureDetector(
+                        onTap: _isTlRunning()
+                            ? _tlStopRecording
+                            : _tlStartRecording,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: _isTlRunning()
+                                ? CncColors.danger
+                                : CncColors.primary,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                _isTlRunning()
+                                    ? Symbols.stop
+                                    : Symbols.fiber_manual_record,
+                                size: 16,
+                                color: Colors.white,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                _tlRecordLabel(),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                // 右上角延时摄影 chip（现有组件；规格 §2：位置 top:10, right:10）。
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: GestureDetector(
+                    onTap: _toggleTimeLapse,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.6),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: _tlBorderColor()),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_isTlRunning()) ...[
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                  color: CncColors.danger,
+                                  shape: BoxShape.circle),
+                            ),
+                            const SizedBox(width: 5),
+                          ],
+                          Container(
+                              width: 7,
+                              height: 7,
+                              decoration: BoxDecoration(
+                                  color: _tlColor(), shape: BoxShape.circle)),
+                          const SizedBox(width: 4),
+                          Text(_tlLabel(),
+                              style: TextStyle(
+                                  fontSize: 10,
+                                  color: _tlColor(),
+                                  fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               ],
-
             ),
-
           ),
 
+          // ---- 功能横幅区（数据流不变；条件态，默认不渲染）----
+          if (!realMode)
+            Container(
+              margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: CncColors.warning.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: CncColors.warning.withOpacity(0.5)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('演示模式',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: CncColors.textMain)),
+                  const SizedBox(height: 4),
+                  Text(S.simNote,
+                      style:
+                          TextStyle(fontSize: 11, color: CncColors.textSub)),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const DebugSettingsPage()),
+                      ),
+                      icon: const Icon(Symbols.tune, size: 16),
+                      label: const Text('开启真实设备连接',
+                          style: TextStyle(
+                              fontSize: 13, fontWeight: FontWeight.bold)),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: CncColors.warning,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (status.state == MachineState.disconnected)
+            Container(
+              margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: CncColors.danger.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: CncColors.danger.withOpacity(0.5)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                          color: CncColors.danger, shape: BoxShape.circle)),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                        '与机器断开连接：命令与状态无法同步，请检查网络后重连。',
+                        style: TextStyle(
+                            fontSize: 11, color: CncColors.danger)),
+                  ),
+                ],
+              ),
+            ),
+          if (status.awaitingConfirm)
+            Container(
+              margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: CncColors.warning.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: CncColors.warning.withOpacity(0.5)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                        '等待机旁确认：请在机器面板按下确认键后继续加工。',
+                        style: TextStyle(
+                            fontSize: 11, color: CncColors.warning)),
+                  ),
+                ],
+              ),
+            ),
+          const JobLaunchBanner(),
+          if (job != null && job.completed)
+            GestureDetector(
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const JobMonitorPage()),
+              ),
+              child: Container(
+                margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: CncColors.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border:
+                      Border.all(color: CncColors.primary.withOpacity(0.4)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Symbols.check_circle,
+                        size: 18, color: CncColors.primary),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text('加工已完成 · ${job.item.title}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: CncColors.textMain)),
+                    ),
+                    GestureDetector(
+                      onTap: () => ref
+                          .read(activeJobProvider.notifier)
+                          .dismissCompleted(),
+                      child: Icon(Symbols.close,
+                          size: 16, color: CncColors.textSub),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          if (_tlShowCard())
+            Container(
+              margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+              child: _TimeLapseStatusCard(
+                jobId: _tlJobId!,
+                status: _tlStatus,
+                onView: () => _openTimeLapseVideo(_tlJobId!),
+                onDownload: () => _downloadTimeLapse(_tlJobId!),
+                onDone: _tlDismissReady,
+              ),
+            ),
+
+          // ---- 状态卡（三态互斥一张卡，规格 §3；『当前加工中·x%』并入本卡）----
+          _StatusCard(
+            mode: alarmNow
+                ? _StatusMode.alarm
+                : busyNow
+                    ? _StatusMode.busy
+                    : _StatusMode.idle,
+            alarmText: status.alarmText ?? status.error ?? '机器报警',
+            progressPct: progressPct,
+            etaText: _fmtEta(status.eta),
+            jobName: jobName,
+            isPaused: isPaused,
+            onTap: () {
+              if (job != null && !job.completed && !job.selfCheckDone) {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => SelfCheckPage(
+                      materialKey: job.materialKey,
+                      requiredTools: job.task.requiredTools,
+                      procSlot: job.procSlot,
+                    ),
+                  ),
+                );
+              } else {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const JobMonitorPage()),
+                );
+              }
+            },
+            onPauseResume: () {
+              // 仅在真正加工中/已暂停时才下发命令，避免 idle 时误触（沿用原逻辑）。
+              final st = ref.read(machineStatusProvider).value?.state;
+              if (st != MachineState.busy && st != MachineState.paused) {
+                _showHint('当前不在加工中，无需暂停/继续');
+                return;
+              }
+              if (isPaused) {
+                setState(() => _pausedLocal = false);
+                hw.resumeJob();
+                _showHint('已发送继续请求');
+              } else {
+                setState(() => _pausedLocal = true);
+                hw.pauseJob();
+                _showHint('已发送暂停请求');
+              }
+            },
+            onStop: () {
+              // 报警态免确认直停（规格 §3）；正常加工二次确认（沿用原底部动作条逻辑）。
+              if (alarmNow) {
+                hw.stopJob();
+                ref.read(activeJobProvider.notifier).clear();
+                return;
+              }
+              showDialog(
+                context: context,
+                builder: (_) => AlertDialog(
+                  backgroundColor: CncColors.card,
+                  title: Text('确认停止雕刻吗？',
+                      style: TextStyle(color: CncColors.danger)),
+                  content: Text('停止后主轴将刹停，本次加工会中断。',
+                      style: TextStyle(color: CncColors.textMain)),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: Text('取消',
+                          style: TextStyle(color: CncColors.textMain)),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        hw.stopJob();
+                        ref.read(activeJobProvider.notifier).clear();
+                        Navigator.of(context).pop();
+                      },
+                      child: Text('确认停止',
+                          style: TextStyle(color: CncColors.danger)),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+
+          // ---- 分区标题（规格 §4）----
+          Container(
+            margin: const EdgeInsets.fromLTRB(14, 16, 14, 0),
+            alignment: Alignment.centerLeft,
+            child: Text('设备控制',
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: CncColors.textMain)),
+          ),
+
+          // ---- 入口卡行（规格 §5：只写名称，禁副标题——文案零解释铁律）----
+          Container(
+            margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            child: Row(
+              children: [
+                _EntryCard(
+                  label: '移动',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => MovePage(hw: hw)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _EntryCard(
+                  label: '主轴',
+                  onTap: () => _openSpindle(context),
+                ),
+                const SizedBox(width: 8),
+                _EntryCard(
+                  label: '刀仓',
+                  onTap: () => _openAtc(context, hw),
+                ),
+              ],
+            ),
+          ),
+
+          // ---- 开关卡（规格 §6）----
+          Container(
+            margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _SwitchCard(
+                    label: '机箱照明',
+                    value: lightOn,
+                    onChanged: (v) {
+                      setState(() => _light = v);
+                      unawaited(hw.setAux('light', v));
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _SwitchCard(
+                    label: '红点激光',
+                    value: laserOn,
+                    onChanged: (v) {
+                      setState(() => _laser = v);
+                      hw.setAux('laser', v).then((sent) {
+                        if (!sent && mounted) {
+                          setState(() => _laser = false);
+                          _toastWanBlocked('红点激光');
+                        }
+                      });
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            child: Row(
+              children: [
+                // 空气净化：接口未接入前正常外观、点击无响应，不显示任何「待接入」字样。
+                Expanded(
+                  child: _SwitchCard(label: '空气净化', value: false,
+                      onChanged: (_) {}),
+                ),
+              ],
+            ),
+          ),
+
+          const Spacer(flex: 1),
         ],
-
       ),
-
     );
-
   }
-
-
 
   void _openAtc(BuildContext context, dynamic hw) {
     // 20260923 工单 §3D：三口共用统一刀仓编辑组件（唯一写路径 =
@@ -2694,24 +1765,13 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     );
   }
 
-  void _openJog(BuildContext context, HardwareService hw) {
-
-    showModalBottomSheet(
-
-      context: context,
-
-      backgroundColor: Colors.transparent,
-
-      isScrollControlled: true,
-
-      builder: (_) => JogSheet(hw: hw),
-
+  void _openSpindle(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const _SpindlePage()),
     );
-
   }
 
 }
-
 
 
 // ===================== 通用装饰 =====================
@@ -2730,491 +1790,296 @@ BoxDecoration _cardDeco() => BoxDecoration(
 
 
 
-/// 状态指示圆点：替代彩色 emoji 色点，统一为纯色圆，跟随语义色。
+// ===================== 状态卡（规格 §3 三态互斥） =====================
 
-Widget _statusDot(Color color) => Container(
+/// 剩余时间文案：2h12m / 45m；无数据返回空串（副行自动省略该段）。
+String _fmtEta(Duration? eta) {
+  if (eta == null || eta.inSeconds <= 0) return '';
+  final h = eta.inHours;
+  final m = eta.inMinutes % 60;
+  return h > 0 ? '剩余 ${h}h${m}m' : '剩余 ${m}m';
+}
 
-      width: 8,
+enum _StatusMode { idle, busy, alarm }
 
-      height: 8,
+/// 三态互斥状态卡：空闲 / 加工中（进度+暂停/停止圆钮）/ 报警。
+/// 同一 widget 三种入参（规格 §3），整卡 onTap → 加工详情。
+class _StatusCard extends StatelessWidget {
+  final _StatusMode mode;
+  final String alarmText;
+  final int progressPct;
+  final String etaText;
+  final String jobName;
+  final bool isPaused;
+  final VoidCallback onTap;
+  final VoidCallback onPauseResume;
+  final VoidCallback onStop;
 
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-
-    );
-
-
-
-/// 链路连接状态条（doc 25 需求）：直观显示当前机器与链路是否连通。
-
-/// - 云端模式（终局方案下的常态）：显示「云端 MQTT · 已连接/连接中/未连接」
-
-/// - 设备直连（仅联调兜底）：显示「设备直连 · 已连接/未连接」
-
-/// 点击可触发一次手动重连；未连接时显示最近一次错误文本，便于诊断。
-
-class _ConnStatusChip extends ConsumerWidget {
-
-  final bool isCloud;
-
-  final bool mqttConnected;
-
-  final bool tcpConnected;
-
-  final LinkState? connState;
-
-  const _ConnStatusChip({
-
-    required this.isCloud,
-
-    required this.mqttConnected,
-
-    required this.tcpConnected,
-
-    required this.connState,
-
+  const _StatusCard({
+    required this.mode,
+    required this.alarmText,
+    required this.progressPct,
+    required this.etaText,
+    required this.jobName,
+    required this.isPaused,
+    required this.onTap,
+    required this.onPauseResume,
+    required this.onStop,
   });
 
-
-
   @override
-
-  Widget build(BuildContext context, WidgetRef ref) {
-
-    final connecting = connState == LinkState.connecting;
-
-    final lastError = ref.watch(lastConnErrorProvider);
-
-    final currentMachine = ref.watch(currentMachineProvider);
-
-    final machineName = currentMachine?.name.isNotEmpty == true
-
-        ? currentMachine!.name
-
-        : (currentMachine?.sn.isNotEmpty == true ? currentMachine!.sn : '未选择机器');
-
-    // 在线态真相：离线设备即使 broker 链路已连，也不应显示「已连接」。
-    final presenceMap = ref.watch(presenceMapProvider).valueOrNull;
-    final DevicePresence? info = (currentMachine != null && presenceMap != null)
-        ? presenceMap[currentMachine.sn]
-        : null;
-    final deviceOffline = info != null && info.online == false;
-
-    // 演示模式识别：CI 包默认 USE_REAL_BACKEND=false，此时用的是 Mock 服务，
-
-    // 界面一切正常但命令根本不会下发。必须显式提示，否则用户/客户会被静默误导。
-
-    final realMode = ref.watch(runtimeConfigProvider).resolvedUseRealBackend;
-
-    Color color;
-
-    String label;
-
-    if (!realMode) {
-
-      color = CncColors.warning;
-
-      label = S.simBadge;
-
-    } else if (isCloud) {
-
-      if (mqttConnected) {
-
-        color = CncColors.primary;
-
-        label = '云端连接 · 已连接';
-
-      } else if (connecting) {
-
-        color = CncColors.warning;
-
-        label = '云端连接 · 连接中…';
-
-      } else {
-
-        color = CncColors.danger;
-
-        label = '云端连接 · 未连接';
-
-      }
-
-    } else {
-
-      if (tcpConnected) {
-
-        color = CncColors.primary;
-
-        label = '设备直连 · 已连接';
-
-      } else {
-
-        color = CncColors.danger;
-
-        label = '设备直连 · 未连接';
-
-      }
-
-    }
-
-    // 离线设备：即便 broker 链路显示已连接，也应明确「设备离线」，
-    // 与「我的机器」列表同源（presence），避免选了离线机却显示「已连接 / 待机」。
-    if (deviceOffline) {
-      color = CncColors.danger;
-      label = '设备离线';
-    }
-
-    // 演示模式下不显示「最近错误」与重连入口（Mock 服务没有真实链路可重连）。
-
-    final showError =
-
-        realMode && !mqttConnected && lastError != null && lastError.isNotEmpty;
-
+  Widget build(BuildContext context) {
+    final alarm = mode == _StatusMode.alarm;
+    final busy = mode == _StatusMode.busy;
     return GestureDetector(
-
-      onTap: () async {
-
-        final hw = ref.read(hardwareServiceProvider);
-
-        ScaffoldMessenger.of(context).showSnackBar(
-
-          const SnackBar(content: Text('正在重连…'), duration: Duration(seconds: 1)),
-
-        );
-
-        await hw.reconnect();
-
-      },
-
+      onTap: onTap,
       child: Container(
-
-        margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-
+        margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+        padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
         decoration: BoxDecoration(
-
-          color: color.withOpacity(0.1),
-
-          borderRadius: BorderRadius.circular(8),
-
-          border: Border.all(color: color.withOpacity(0.4)),
-
+          color: alarm ? CncColors.dangerBg : CncColors.card,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+              color: alarm ? CncColors.dangerBd : CncColors.border),
         ),
-
-        child: Row(
-
-          children: [
-
-            _statusDot(color),
-
-            const SizedBox(width: 8),
-
-            Text(machineName,
-
-                style: TextStyle(
-
-                    fontSize: 12,
-
-                    fontWeight: FontWeight.bold,
-
-                    color: CncColors.textMain)),
-
-            const SizedBox(width: 6),
-
-            Icon(
-
-              isCloud ? Symbols.cloud : Symbols.wifi,
-
-              size: 14,
-
-              color: color,
-
-            ),
-
-            const SizedBox(width: 6),
-
-            Expanded(
-
-              child: Column(
-
-                crossAxisAlignment: CrossAxisAlignment.start,
-
-                mainAxisSize: MainAxisSize.min,
-
-                children: [
-
-                  Text(label,
-
-                      style: TextStyle(
-
-                          fontSize: 12,
-
-                          fontWeight: FontWeight.bold,
-
-                          color: color == CncColors.danger
-
-                              ? CncColors.danger
-
-                              : CncColors.primaryInk)),
-
-                  if (showError)
-
-                    Text(
-
-                      lastError,
-
-                      maxLines: 2,
-
-                      overflow: TextOverflow.ellipsis,
-
-                      style: TextStyle(
-
-                        fontSize: 10,
-
-                        color: CncColors.danger.withOpacity(0.85),
-
-                      ),
-
-                    ),
-
-                ],
-
-              ),
-
-            ),
-
-            if (realMode && !mqttConnected)
-
-              AppIcon('refresh', size: 16, color: color, semanticLabel: '刷新'),
-
-          ],
-
-        ),
-
+        child: busy && !alarm ? _busyBody() : _simpleRow(alarm),
       ),
-
     );
-
   }
 
-}
-
-
-
-// ===================== 快捷开关 =====================
-
-
-
-class _ToggleBtn extends StatelessWidget {
-
-  final IconData icon;
-
-  final String label;
-
-  final bool active;
-
-  final bool enabled;
-
-  final VoidCallback onTap;
-
-  const _ToggleBtn({required this.icon, required this.label, required this.active, this.enabled = true, required this.onTap});
-
-
-
-  @override
-
-  Widget build(BuildContext context) => Expanded(
-
-        child: GestureDetector(
-
-          onTap: enabled ? onTap : null,
-
-          child: Opacity(
-
-            opacity: enabled ? 1 : 0.45,
-
-            child: Container(
-
-              padding: const EdgeInsets.symmetric(vertical: 10),
-
-              decoration: BoxDecoration(
-
-                color: active && enabled ? CncColors.card : const Color(0xFFE6E9ED),
-
-                border: Border(
-
-                  right: BorderSide(color: CncColors.border.withOpacity(0.5)),
-
-                ),
-
-              ),
-
-              child: Column(
-
-                children: [
-
-                  Icon(icon,
-
-                      size: 20,
-
-                      color: active && enabled ? CncColors.primary : CncColors.textSub),
-
-                  const SizedBox(height: 4),
-
-                  Text(label,
-
-                      style: TextStyle(fontSize: 10, color: active && enabled ? CncColors.primary : CncColors.textSub)),
-
-                ],
-
-              ),
-
+  /// 加工中态：标题行 + 进度条（高 6）+ 副行（规格 §3 逐值）。
+  Widget _busyBody() {
+    final sub = [
+      if (etaText.isNotEmpty) etaText,
+      jobName,
+      '点击查看详情',
+    ].join(' · ');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('加工中 $progressPct%',
+                style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                    color: CncColors.textMain)),
+            const Spacer(),
+            _roundBtn(
+              bg: CncColors.primary,
+              onTap: onPauseResume,
+              child: isPaused
+                  ? Icon(Symbols.play_arrow,
+                      size: 18, color: CncColors.onPrimary)
+                  : _PauseGlyph(CncColors.onPrimary),
             ),
-
-          ),
-
+            const SizedBox(width: 8),
+            _roundBtn(
+              bg: CncColors.dangerBg,
+              border: CncColors.danger,
+              onTap: onStop,
+              child: _StopGlyph(CncColors.danger),
+            ),
+          ],
         ),
-
-      );
-
-}
-
-
-
-// ===================== DRO =====================
-
-
-
-class _DroAxis extends StatelessWidget {
-
-  final String label;
-
-  final Color color;
-
-  final double value;
-
-  const _DroAxis({required this.label, required this.color, required this.value});
-
-
-
-  @override
-
-  Widget build(BuildContext context) => Expanded(
-
-        child: Container(
-
-          margin: const EdgeInsets.symmetric(horizontal: 4),
-
-          padding: const EdgeInsets.symmetric(vertical: 6),
-
-          decoration: BoxDecoration(
-
-            color: const Color(0xFFE6E9ED),
-
-            borderRadius: BorderRadius.circular(6),
-
-            border: Border.all(color: CncColors.border),
-
-          ),
-
-          child: Column(
-
-            children: [
-
-              Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: color)),
-
-              const SizedBox(height: 2),
-
-              Text(value.toStringAsFixed(3),
-
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: CncColors.textMain)),
-
-            ],
-
-          ),
-
-        ),
-
-      );
-
-}
-
-
-
-// ===================== 小标题 =====================
-
-
-
-class _SectionTitle extends StatelessWidget {
-
-  final String text;
-
-  const _SectionTitle(this.text);
-
-  @override
-
-  Widget build(BuildContext context) => Padding(
-
-        padding: const EdgeInsets.only(bottom: 6, left: 2),
-
-        child: Text(text,
-
-            style: TextStyle(fontSize: 11, color: CncColors.textSub, letterSpacing: 0.5)),
-
-      );
-
-}
-
-
-
-// ===================== Jog 入口 =====================
-
-class _JogEntry extends StatelessWidget {
-  final bool enabled;
-  final VoidCallback onOpen;
-  const _JogEntry({this.enabled = true, required this.onOpen});
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-        onTap: enabled ? onOpen : null,
-        child: Opacity(
-          opacity: enabled ? 1 : 0.45,
+        const SizedBox(height: 9),
+        // 进度条：高 6、底 panelAlt、填充 primary、圆角 3。
+        ClipRRect(
+          borderRadius: BorderRadius.circular(3),
           child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: _cardDeco(),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('手动移动',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
-                    SizedBox(height: 2),
-                    Text('X / Y / Z 轴步进移动 · 设原点 · 回零',
-                        style: TextStyle(fontSize: 10, color: Color(0xFF666666))),
-                  ],
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEDEFF2),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: CncColors.border),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text('打开', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: CncColors.blue)),
-                      SizedBox(width: 4),
-                      Icon(Symbols.chevron_right, size: 14, color: CncColors.blue),
-                    ],
-                  ),
-                ),
-              ],
+            height: 6,
+            color: CncColors.panelAlt,
+            child: FractionallySizedBox(
+              alignment: Alignment.centerLeft,
+              widthFactor: progressPct.clamp(0, 100) / 100,
+              child: Container(color: CncColors.primary),
             ),
           ),
         ),
+        const SizedBox(height: 6),
+        Text(sub,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+      ],
+    );
+  }
+
+  /// 空闲 / 报警态：左标题+副行，右箭头（报警态加停止圆钮，免确认直停）。
+  Widget _simpleRow(bool alarm) {
+    return Row(
+      children: [
+        if (alarm) ...[
+          Icon(Symbols.warning, size: 15, color: CncColors.danger),
+          const SizedBox(width: 5),
+        ],
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(alarm ? '报警 · $alarmText' : '设备空闲',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                      color:
+                          alarm ? CncColors.danger : CncColors.textMain)),
+              const SizedBox(height: 2),
+              Text(alarm ? '点击处理' : '快来开始雕刻吧',
+                  style: TextStyle(fontSize: 11.5, color: CncColors.textSub)),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        if (alarm) ...[
+          _roundBtn(
+            bg: CncColors.dangerBg,
+            border: CncColors.danger,
+            onTap: onStop,
+            child: _StopGlyph(CncColors.danger),
+          ),
+          const SizedBox(width: 8),
+        ],
+        Icon(Symbols.chevron_right,
+            size: 16,
+            color: alarm ? CncColors.danger : const Color(0xFFB3BAB6)),
+      ],
+    );
+  }
+
+  /// 暂停/停止小圆钮：34×34（规格 §3）。
+  Widget _roundBtn(
+      {required Color bg, Color? border, required Widget child, onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          color: bg,
+          shape: BoxShape.circle,
+          border:
+              border == null ? null : Border.all(color: border, width: 1.5),
+        ),
+        child: Center(child: child),
+      ),
+    );
+  }
+}
+
+/// 暂停图标（SVG 双竖条等价矢量绘制，禁文本字符当图标）。
+class _PauseGlyph extends StatelessWidget {
+  final Color color;
+  const _PauseGlyph(this.color);
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: 12,
+        height: 12,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Container(
+                width: 3.5,
+                height: 12,
+                decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(1.5))),
+            Container(
+                width: 3.5,
+                height: 12,
+                decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(1.5))),
+          ],
+        ),
       );
 }
+
+/// 停止图标（SVG 圆角方块等价矢量绘制，禁文本字符当图标）。
+class _StopGlyph extends StatelessWidget {
+  final Color color;
+  const _StopGlyph(this.color);
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 11,
+        height: 11,
+        decoration: BoxDecoration(
+            color: color, borderRadius: BorderRadius.circular(2.5)),
+      );
+}
+
+// ===================== 入口卡 / 开关卡（规格 §5/§6） =====================
+
+class _EntryCard extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  const _EntryCard({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+          decoration: BoxDecoration(
+            color: CncColors.card,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: CncColors.border),
+          ),
+          child: Row(
+            children: [
+              Text(label,
+                  style:
+                      TextStyle(fontSize: 12.5, color: CncColors.textMain)),
+              const Spacer(),
+              Icon(Symbols.chevron_right,
+                  size: 14, color: const Color(0xFFB3BAB6)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SwitchCard extends StatelessWidget {
+  final String label;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+  const _SwitchCard({required this.label, required this.value, this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: CncColors.card,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: CncColors.border),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(label,
+                style: TextStyle(fontSize: 12, color: CncColors.textMain)),
+          ),
+          SizedBox(
+            height: 28,
+            child: Switch(
+              value: value,
+              activeColor: CncColors.primary,
+              inactiveTrackColor: CncColors.panelAlt,
+              onChanged: onChanged,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 
 // ===================== 主轴 =====================
 
@@ -3360,190 +2225,77 @@ class _SpindleCard extends StatelessWidget {
 
 
 
-// ===================== ATC 入口 + 抽屉 =====================
+// ===================== 主轴二级页（规格 §5 入口卡） =====================
 
-// 与向导 Step3 共用 toolMagazineProvider：任一处修改，另一处立即同步。
-
-
-
-class _AtcEntry extends ConsumerWidget {
-
-  final bool enabled;
-
-  final VoidCallback onOpen;
-
-  const _AtcEntry({this.enabled = true, required this.onOpen});
+/// 主轴调试页：承载原控制台内嵌的 _SpindleCard（数据流零改动）。
+class _SpindlePage extends ConsumerStatefulWidget {
+  const _SpindlePage();
 
   @override
+  ConsumerState<_SpindlePage> createState() => _SpindlePageState();
+}
 
-  Widget build(BuildContext context, WidgetRef ref) {
+class _SpindlePageState extends ConsumerState<_SpindlePage> {
+  int _rpm = 12000;
+  bool _spindleOn = false;
 
-    final magazine = ref.watch(toolMagazineProvider);
+  @override
+  Widget build(BuildContext context) {
+    final status =
+        ref.watch(machineStatusProvider).value ?? const MachineStatus();
+    final cfg = ref.watch(runtimeConfigProvider);
+    final hasMachine = ref.watch(currentMachineProvider) != null;
+    // 终局方案（2026-08-28）：空闲可动，加工中/报警/回零中禁用（与原内嵌卡同口径）。
+    final canControl = status.state == MachineState.idle &&
+        (hasMachine || !cfg.resolvedUseRealBackend);
+    final hw = ref.read(hardwareServiceProvider);
 
-    final t1 = magazine[1] != null ? toolById(magazine[1]!) : null;
-
-    final sub = t1 != null
-
-        ? '当前主轴 D1: ${ringEmoji(t1.ring)} ${t1.name}'
-
-        : '当前主轴: 空';
-
-    return GestureDetector(
-
-      onTap: enabled ? onOpen : null,
-
-      child: Opacity(
-
-        opacity: enabled ? 1 : 0.45,
-
-        child: Container(
-
-          padding: const EdgeInsets.all(12),
-
-          decoration: _cardDeco(),
-
-          child: Row(
-
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-
-            children: [
-
-              Column(
-
-                crossAxisAlignment: CrossAxisAlignment.start,
-
-                children: [
-
-                  Text(S.atcSystem, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
-
-                  const SizedBox(height: 2),
-
-                  Text(sub, style: const TextStyle(fontSize: 10, color: Color(0xFF666666))),
-
-                ],
-
-              ),
-
-              Container(
-
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-
-                decoration: BoxDecoration(
-
-                  color: const Color(0xFFEDEFF2),
-
-                  borderRadius: BorderRadius.circular(8),
-
-                  border: Border.all(color: CncColors.border),
-
-                ),
-
-                child: Row(
-
-                  mainAxisSize: MainAxisSize.min,
-
-                  children: [
-
-                    Text('管理刀仓', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: CncColors.blue)),
-
-                    SizedBox(width: 4),
-
-                    Icon(Symbols.chevron_right, size: 14, color: CncColors.blue),
-
-                  ],
-
-                ),
-
-              ),
-
-            ],
-
-          ),
-
+    return Scaffold(
+      backgroundColor: CncColors.bg,
+      appBar: AppBar(
+        backgroundColor: CncColors.card,
+        surfaceTintColor: CncColors.card,
+        toolbarHeight: 48,
+        elevation: 0,
+        iconTheme: IconThemeData(color: CncColors.textMain),
+        leading: IconButton(
+          icon: const Icon(Symbols.chevron_left, size: 22),
+          onPressed: () => Navigator.of(context).pop(),
         ),
-
+        title: Text('主轴',
+            style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: CncColors.textMain)),
       ),
-
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+        children: [
+          _SpindleCard(
+            enabled: canControl,
+            rpm: _rpm,
+            onRpm: (v) => setState(() => _rpm = v),
+            spindleOn: _spindleOn,
+            onToggle: () {
+              setState(() => _spindleOn = !_spindleOn);
+              if (_spindleOn) {
+                hw.startSpindle(_rpm.toDouble()).then((sent) {
+                  if (!sent && mounted) {
+                    setState(() => _spindleOn = false);
+                    showWanBlockedSnack(context, '主轴启动');
+                  }
+                });
+              } else {
+                // 停机不受门禁限制：外网必须能停主轴
+                hw.stopSpindle();
+              }
+            },
+          ),
+        ],
+      ),
     );
-
   }
-
 }
-
-
-
-// ===================== 底部动作 =====================
-
-
-
-class _ActionBtn extends StatelessWidget {
-
-  final String label;
-
-  final IconData? icon;
-
-  final Color fg;
-
-  final Color bg;
-
-  final Color border;
-
-  final VoidCallback onTap;
-
-  const _ActionBtn({required this.label, this.icon, required this.fg, required this.bg, required this.border, required this.onTap});
-
-
-
-  @override
-
-  Widget build(BuildContext context) => GestureDetector(
-
-        onTap: onTap,
-
-        child: Container(
-
-          padding: const EdgeInsets.symmetric(vertical: 9),
-
-          decoration: BoxDecoration(
-
-            color: bg,
-
-            border: Border.all(color: border),
-
-            borderRadius: BorderRadius.circular(8),
-
-          ),
-
-          child: Center(
-
-            child: icon == null
-
-                ? Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: fg))
-
-                : Row(
-
-                    mainAxisSize: MainAxisSize.min,
-
-                    children: [
-
-                      Icon(icon, size: 16, color: fg),
-
-                      const SizedBox(width: 5),
-
-                      Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: fg)),
-
-                    ],
-
-                  ),
-
-          ),
-
-        ),
-
-      );
-
-}
-
 
 
 // ===================== 延时摄影状态卡 =====================

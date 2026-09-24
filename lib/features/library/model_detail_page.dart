@@ -11,7 +11,6 @@ import '../../app/theme.dart';
 
 import '../../data/tool_library.dart';
 import '../../models/library_item.dart';
-import '../../widgets/tool_icon.dart';
 
 import '../wizard/wizard_page.dart';
 
@@ -614,7 +613,7 @@ class _ParamsGrid extends StatelessWidget {
 
 }
 
-// ===================== 工序刀具（2026-09-23 压成一行）=====================
+// ===================== 工序刀具（2026-09-24 工单三：逐把分行）=====================
 
 class _ToolCard extends StatelessWidget {
 
@@ -626,28 +625,21 @@ class _ToolCard extends StatelessWidget {
 
   Widget build(BuildContext context) {
 
-    // 主展示：直接显示云端原文（如 "1/8 in Flat Cutter, 1/8 in Ballnose"）——
+    // 控制台规格书 §8 刀具分行：requiredTools 数组本身有序（先粗雕后精雕），
 
-    // 用户可读 + 自动兼容老/新两种命名风格，不再暴露本地刀库 id（"t_ball_3175"）。
+    // 逐把一行 = 序号圆点 19×19（successBg 底 / blue 1.5 边 / successFg 字）
 
-    // 派生映射保留在 item.requiredTools 里供向导用。
+    // + 刀具全名 13 textMain（可两行）+ 右侧角色徽章（panelAlt 底、字 10 textSub）。
+
+    // 行距 7；标题「默认刀具」10.5 textSub 在首行上方。空数组回退原文显示。
+
+    final tools = item.requiredTools;
 
     final display = (item.tools?.trim().isNotEmpty ?? false)
 
         ? item.tools!.trim()
 
         : ((item.toolId?.trim().isNotEmpty ?? false) ? item.toolId!.trim() : '—');
-
-    final tools = item.requiredTools;
-
-    // 默认刀具行图标（20260923 工单 §3A）：requiredTools 依次反查本地刀库，
-    // 命中才显示刀具模型图标；未命中只显示文字（不崩）。
-    ToolDef? iconDef;
-    for (final t in item.requiredTools) {
-      iconDef = toolById(t.toolId);
-      if (iconDef != null) break;
-    }
-    iconDef ??= toolById(item.toolId ?? '');
 
     return Container(
 
@@ -663,81 +655,143 @@ class _ToolCard extends StatelessWidget {
 
       ),
 
-      // 原为「默认刀具(标签) / 刀具名 / 工序徽章」三行 —— 压成一行后省约 45px。
+      child: tools.isEmpty
 
-      // 徽章最多显示 2 个，多出来的折成「+N」，避免长刀名 + 多工序挤爆这一行。
+          ? Column(
 
-      child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
 
-        children: [
+              children: [
 
-          if (iconDef != null) ...[
+                Text('默认刀具',
 
-            ToolIcon(def: iconDef, size: 22),
+                    style: TextStyle(fontSize: 10.5, color: CncColors.textSub)),
 
-            const SizedBox(width: 6),
+                const SizedBox(height: 4),
 
-          ],
+                Text(display,
 
-          Text('默认刀具',
+                    maxLines: 2,
 
-              style: TextStyle(fontSize: 10.5, color: CncColors.textSub)),
+                    overflow: TextOverflow.ellipsis,
 
-          const SizedBox(width: 8),
+                    style: TextStyle(
 
-          Expanded(
+                        fontSize: 12,
 
-            child: Text(
+                        fontWeight: FontWeight.w500,
 
-              display,
+                        color: CncColors.textMain)),
 
-              maxLines: 1,
+              ],
 
-              overflow: TextOverflow.ellipsis,
+            )
 
-              style: TextStyle(
+          : Column(
 
-                  fontSize: 12,
+              crossAxisAlignment: CrossAxisAlignment.start,
 
-                  fontWeight: FontWeight.w500,
+              children: [
 
-                  color: CncColors.textMain),
+                Text('默认刀具',
+
+                    style: TextStyle(fontSize: 10.5, color: CncColors.textSub)),
+
+                const SizedBox(height: 4),
+
+                for (var i = 0; i < tools.length; i++) ...[
+
+                  if (i > 0) const SizedBox(height: 7),
+
+                  Row(
+
+                    children: [
+
+                      Container(
+
+                        width: 19,
+
+                        height: 19,
+
+                        decoration: BoxDecoration(
+
+                          color: CncColors.successBg,
+
+                          shape: BoxShape.circle,
+
+                          border: Border.all(
+
+                              color: CncColors.blue, width: 1.5),
+
+                        ),
+
+                        alignment: Alignment.center,
+
+                        child: Text('${i + 1}',
+
+                            style: TextStyle(
+
+                                fontSize: 11,
+
+                                color: CncColors.successFg)),
+
+                      ),
+
+                      const SizedBox(width: 8),
+
+                      Expanded(
+
+                        child: Text(
+
+                          toolById(tools[i].toolId)?.name ?? tools[i].toolId,
+
+                          maxLines: 2,
+
+                          overflow: TextOverflow.ellipsis,
+
+                          style: TextStyle(
+
+                              fontSize: 13,
+
+                              color: CncColors.textMain),
+
+                        ),
+
+                      ),
+
+                      const SizedBox(width: 8),
+
+                      Container(
+
+                        padding: const EdgeInsets.symmetric(
+
+                            horizontal: 8, vertical: 2),
+
+                        decoration: BoxDecoration(
+
+                          color: CncColors.panelAlt,
+
+                          borderRadius: BorderRadius.circular(6),
+
+                        ),
+
+                        child: Text(tools[i].role,
+
+                            style: TextStyle(
+
+                                fontSize: 10, color: CncColors.textSub)),
+
+                      ),
+
+                    ],
+
+                  ),
+
+                ],
+
+              ],
 
             ),
-
-          ),
-
-          ...tools.take(2).map((t) => Padding(
-
-                padding: const EdgeInsets.only(left: 4),
-
-                child: _Badge(
-
-                  label: t.role,
-
-                  fg: CncColors.blue,
-
-                  bg: CncColors.blue.withOpacity(0.1),
-
-                ),
-
-              )),
-
-          if (tools.length > 2)
-
-            Padding(
-
-              padding: const EdgeInsets.only(left: 4),
-
-              child: Text('+${tools.length - 2}',
-
-                  style: TextStyle(fontSize: 10, color: CncColors.textSub)),
-
-            ),
-
-        ],
-
-      ),
 
     );
 

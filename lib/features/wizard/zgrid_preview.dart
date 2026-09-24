@@ -112,7 +112,10 @@ class ZGridData {
 ///   → **Z 放大**（把 mm 级凹凸拉到肉眼可见，上限保证不视觉切穿板厚）
 ///   → 巡边定位外框（z=0 平面）。
 ///
-/// 交互：单指拖动旋转 · 双指缩放/平移 · 双击复位 · 预设视角 · Z 放大滑块。
+/// 交互：单指拖动旋转 · 双指缩放/平移 · 双击复位。
+/// 3D 预览窗清空（2026-09-24 工单）：视角 chips / Z 放大滑块 / 手势提示 /
+/// 复位钮 / 数据来源行全部删除 —— 窗内除 3D 模型外无任何常驻文字与控件；
+/// Z 放大固定用默认倍数（[_zAmp]），手势行为不变。
 class ZGridSurface extends StatefulWidget {
   final ZGridData data;
   final double fallbackWidthMm;
@@ -166,8 +169,6 @@ class ZGridSurface extends StatefulWidget {
 class _ZGridSurfaceState extends State<ZGridSurface> {
   static const _isoRotX = 0.62;
   static const _isoRotZ = -0.35;
-  static const _sideRotX = 0.16;
-  static const _topRotX = math.pi / 2 - 0.03;
 
   // 相机：绕 Z / 绕 X 旋转（弧度）、缩放、平移
   double _rotX = _isoRotX;
@@ -177,22 +178,15 @@ class _ZGridSurfaceState extends State<ZGridSurface> {
   Offset? _focal;
   double? _baseScale;
 
-  /// Z 放大倍数（1~20，默认 4）：浅浮雕按真实比例几乎看不出层次。
-  int _zAmp = 4;
+  /// Z 放大倍数（固定默认 4）：浅浮雕按真实比例几乎看不出层次。
+  /// 滑块已随「预览窗清空」删除，保留默认倍数供渲染用。
+  static const int _zAmp = 4;
 
   void _reset() {
     setState(() {
       _rotX = _isoRotX;
       _rotZ = _isoRotZ;
       _zoom = 1.0;
-      _pan = Offset.zero;
-    });
-  }
-
-  void _preset(double rx, double rz) {
-    setState(() {
-      _rotX = rx.clamp(0.06, math.pi / 2 - 0.03);
-      _rotZ = rz;
       _pan = Offset.zero;
     });
   }
@@ -264,98 +258,11 @@ class _ZGridSurfaceState extends State<ZGridSurface> {
               ),
             ),
           ),
-          Positioned(
-            left: 8,
-            top: 6,
-            child: Text('拖动旋转 · 双指缩放',
-                style: TextStyle(fontSize: 9, color: CncColors.textSub)),
-          ),
-          Positioned(top: 6, right: 6, child: _resetButton()),
-          Positioned(left: 0, right: 0, bottom: 0, child: _controlBar()),
         ],
       ),
     );
   }
 
-  Widget _resetButton() {
-    return GestureDetector(
-      onTap: _reset,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.9),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: CncColors.border),
-        ),
-        child: Text('复位',
-            style: TextStyle(fontSize: 10, color: CncColors.textSub)),
-      ),
-    );
-  }
-
-  Widget _controlBar() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      color: Colors.white.withOpacity(0.94),
-      child: Row(
-        children: [
-          _presetChip('等轴测', _rotX == _isoRotX && _rotZ == _isoRotZ,
-              () => _preset(_isoRotX, _isoRotZ)),
-          const SizedBox(width: 4),
-          _presetChip(
-              '俯视', _rotX > _topRotX - 0.08, () => _preset(_topRotX, 0)),
-          const SizedBox(width: 4),
-          _presetChip('侧视', _rotX < _sideRotX + 0.09, () => _preset(_sideRotX, 0)),
-          const SizedBox(width: 6),
-          Text('Z放大',
-              style: TextStyle(fontSize: 10, color: CncColors.textSub)),
-          Expanded(
-            child: SizedBox(
-              height: 24,
-              child: SliderTheme(
-                data: SliderThemeData(
-                  trackHeight: 2,
-                  overlayShape: SliderComponentShape.noOverlay,
-                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
-                  activeTrackColor: CncColors.primary,
-                  inactiveTrackColor: CncColors.border,
-                  thumbColor: CncColors.primary,
-                ),
-                child: Slider(
-                  value: _zAmp.toDouble(),
-                  min: 1,
-                  max: 20,
-                  divisions: 19,
-                  onChanged: (v) => setState(() => _zAmp = v.round()),
-                ),
-              ),
-            ),
-          ),
-          Text('${_zAmp}x',
-              style: TextStyle(fontSize: 10, color: CncColors.textSub)),
-        ],
-      ),
-    );
-  }
-
-  Widget _presetChip(String label, bool active, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        decoration: BoxDecoration(
-          color: active ? CncColors.primary.withOpacity(0.12) : Colors.transparent,
-          borderRadius: BorderRadius.circular(5),
-          border:
-              Border.all(color: active ? CncColors.primary : CncColors.border),
-        ),
-        child: Text(label,
-            style: TextStyle(
-                fontSize: 9,
-                color: active ? CncColors.primaryInk : CncColors.textSub)),
-      ),
-    );
-  }
 }
 
 /// 轻量 JSON 的 3D 预览（**按 URL 拉取**）：拉取成功即交给 [ZGridSurface] 渲染。
@@ -396,9 +303,6 @@ class _ZGridPreviewState extends State<ZGridPreview> {
   ZGridData? _data;
   bool _loading = false;
 
-  /// 数据来源说明（云端 payloadUrl / 本地调试文件 / 无）。
-  String? _source;
-
   @override
   void initState() {
     super.initState();
@@ -425,11 +329,9 @@ class _ZGridPreviewState extends State<ZGridPreview> {
     // 不能把提升结果（bool）拿到表达式之外用 —— 那样 lp 仍是可空类型。
     final ok = lp != null && lp.hasGrid;
     final d = ok ? ZGridData.fromPayload(lp.meta, lp.grid!) : null;
-    final source = ok ? '本地调试文件「${lp.fileName}」' : null;
     setState(() {
       _data = d;
       _loading = false;
-      _source = source;
     });
   }
 
@@ -462,14 +364,12 @@ class _ZGridPreviewState extends State<ZGridPreview> {
       setState(() {
         _data = d;
         _loading = false;
-        _source = d == null ? null : '云端';
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _data = null;
         _loading = false;
-        _source = null;
       });
     }
   }
@@ -531,26 +431,15 @@ class _ZGridPreviewState extends State<ZGridPreview> {
         ),
       );
     }
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        ZGridSurface(
-          data: d,
-          fallbackWidthMm: widget.fallbackWidthMm,
-          fallbackHeightMm: widget.fallbackHeightMm,
-          fallbackThicknessMm: widget.fallbackThicknessMm,
-          thicknessMmOverride: widget.thicknessMmOverride,
-          // 给「数据来源」那一行留出 36px；父级很矮时兜到 0（负高度会直接抛异常）。
-          // 原注释写死的 220 已不成立 —— 外层高度现在是参数（见 [height]）。
-          height: h > 36 ? h - 36 : 0,
-        ),
-        if (_source != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text('数据来源：$_source',
-                style: TextStyle(fontSize: 10, color: CncColors.textSub)),
-          ),
-      ],
+    // 预览窗清空（2026-09-24 工单）：整块高度全给 3D 实体，不再给
+    // 「数据来源」行留 36px（该行已删除）。
+    return ZGridSurface(
+      data: d,
+      fallbackWidthMm: widget.fallbackWidthMm,
+      fallbackHeightMm: widget.fallbackHeightMm,
+      fallbackThicknessMm: widget.fallbackThicknessMm,
+      thicknessMmOverride: widget.thicknessMmOverride,
+      height: h,
     );
   }
 }
@@ -611,9 +500,6 @@ class _ZGridPainter extends CustomPainter {
     required this.modelX,
     required this.modelY,
   });
-
-  /// 底部控制条占位（画布避让，避免实体被控件盖住）。
-  static const _ctrlH = 26.0;
 
   /// 平行光向量（左上前方，与双模拟器一致，已归一化）。
   static const _lx = -0.4206;
@@ -702,7 +588,7 @@ class _ZGridPainter extends CustomPainter {
     double rz(double z) => z * zFactor;
 
     final usableW = size.width;
-    final usableH = math.max(40.0, size.height - _ctrlH);
+    final usableH = math.max(40.0, size.height);
 
     /// 自适应取景（昊总 09-18：「3D 太小、每次都要手动放大」）：
     /// 取板 8 个角 + 模型区最深点，先以 scale=1 求投影包围盒，再一次性缩放

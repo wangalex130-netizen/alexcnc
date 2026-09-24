@@ -6,17 +6,17 @@ import 'package:material_symbols_icons/material_symbols_icons.dart';
 import '../app/theme.dart';
 import 'jog_key.dart';
 
-/// 八向盘（工单 20260924 §3.2a，昊总 09-24 17:17 拍板）：定原点页①主轴盘、
-/// ②模型盘与控制台移动页三处**共用**本组件 —— 盘面 8 向 + 中心键（3×3 网格，
-/// 四角 = 斜向），箭头为 painted 线性图标（chevron 旋转，非 emoji/文本符号）；
-/// 步长三选由各页自持、置于盘正下方，不跨页共享状态。
+/// 八向盘（工单 20260924 §3.2a / 控制台规格书 §7）：定原点页①主轴盘、
+/// ②模型盘与控制台移动页三处**共用**本组件 —— 拓竹圆盘式**圆形**盘面
+/// （190 视觉稿逐值等比：直边文字键距边 14、斜角小箭头距边 46/48、
+/// 中心动作键 170 盘 52 / 190 盘 58）。箭头/文字均为 painted 图形，非文本符号。
 ///
-/// 手势**复用 JogKey 原件**（每向一个 JogKey，严禁重新发明长按/连发/保活）：
+/// 手势**复用 JogKey 原件**（每向一个 JogKey + flat 平面渲染，
+/// 严禁重新发明长按/连发/保活）：
 /// - 机器 jog 盘：直边 4 向 `holdFor` 走「长按只发一次 continuous」新模型
-///   （受 AppConfig.jogContinuousEnabled 保护），斜角 4 向仅点按（固件多轴
-///   分支只认 step，长按无意义）；
-/// - 模型盘（纯 App 运算）：8 向全部 `repeatFor`（旧模型 180ms 连发）；
-/// - 斜向距离语义三处统一：每轴分量 = 步长÷√2，合成位移 = 标称步长。
+///   （受 AppConfig.jogContinuousEnabled 保护），斜角 4 向仅点按（jogXY
+///   多轴帧，固件 cnc_net.c:1439-1460 现成，每轴分量 = 步长÷√2）；
+/// - 模型盘（纯 App 运算）：8 向全部 `repeatFor`（旧模型 180ms 连发）。
 ///
 /// 方向回调一律用**屏幕空间** (dx, dy)：dx 右正、dy 下正。本 App 机床朝向：
 /// 屏幕右 = X+、屏幕上 = Y+，调用方换算 my = -dy。
@@ -34,6 +34,10 @@ class OctagonDial extends StatelessWidget {
     this.centerSub,
     this.centerActive = false,
     this.onCenter,
+    this.labelUp = 'Y+',
+    this.labelDown = 'Y−',
+    this.labelLeft = 'X−',
+    this.labelRight = 'X+',
   });
 
   /// 点按某方向。(dx, dy) ∈ {-1,0,1}^2 且不同时为 0。
@@ -54,77 +58,134 @@ class OctagonDial extends StatelessWidget {
   final bool centerActive;
   final VoidCallback? onCenter;
 
+  /// 四直边文字键（拓竹圆盘：Y+/Y−/X−/X+）。
+  final String labelUp;
+  final String labelDown;
+  final String labelLeft;
+  final String labelRight;
+
   @override
   Widget build(BuildContext context) {
+    // 斜角小箭头：浅色 #B9BFBA（视觉稿定值）/ 深色用 icon 令牌。
+    final diagColor = Theme.of(context).brightness == Brightness.dark
+        ? CncColors.icon
+        : const Color(0xFFB9BFBA);
+
     return LayoutBuilder(builder: (ctx, c) {
       final side = min(c.maxWidth, c.maxHeight);
       if (!side.isFinite || side <= 12) return const SizedBox.shrink();
+      final r = side / 2;
 
-      Widget dir(int dx, int dy) {
+      // 方向键：复用 JogKey 手势原件（flat = 透明底，视觉由盘面承载）。
+      Widget key(int dx, int dy, Widget child) {
         final hold = (holdFor?.call(dx, dy) ?? false) && onHoldStart != null;
         return JogKey(
           '',
           () => onTap(dx, dy),
           enabled: enabled,
+          flat: true,
           repeat: repeatFor?.call(dx, dy) ?? false,
           onJogStart: hold ? () => onHoldStart!(dx, dy) : null,
           onJogEnd: hold ? onHoldEnd : null,
           onJogKeepalive: hold ? onHoldKeepalive : null,
-          child: Transform.rotate(
-            angle: atan2(dy.toDouble(), dx.toDouble()),
-            child: Icon(Symbols.chevron_right,
-                size: 24,
-                color: enabled ? CncColors.textMain : CncColors.border),
-          ),
+          child: Center(child: child),
         );
       }
 
-      Widget cell(Widget k) => Expanded(
-            child: Center(
-              child:
-                  SizedBox(width: min(96.0, side * 0.34), height: 40, child: k),
-            ),
+      Widget edgeLabel(String text) => Text(text,
+          style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: CncColors.textMain));
+
+      Widget diag(int dx, int dy) => Transform.rotate(
+            angle: atan2(dy.toDouble(), dx.toDouble()),
+            child: Icon(Symbols.chevron_right, size: 12, color: diagColor),
           );
+
+      // 定位比例（190 视觉稿逐值，等比缩放到任意 size）。
+      final eEdge = side * 22 / 190; // 直边文字键中心距边（top14 + 半行高8）
+      final dV = side * 46 / 190; // 斜角箭头距上/下边
+      final dH = side * 48 / 190; // 斜角箭头距左/右边
+      const keyH = 40.0;
+      final keyW = side * 0.30;
+      const diagS = 44.0;
 
       return Center(
         child: SizedBox(
           width: side,
           height: side,
           child: Stack(
-            alignment: Alignment.center,
             children: [
               Positioned.fill(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     color: CncColors.card,
-                    borderRadius: BorderRadius.circular(14),
+                    shape: BoxShape.circle,
                     border: Border.all(color: CncColors.border),
                   ),
                 ),
               ),
-              Column(children: [
-                Expanded(
-                  child: Row(children: [
-                    cell(dir(-1, -1)),
-                    cell(dir(0, -1)),
-                    cell(dir(1, -1)),
-                  ]),
-                ),
-                Expanded(
-                  child: Row(children: [
-                    cell(dir(-1, 0)),
-                    Expanded(child: Center(child: _center(side))),
-                    cell(dir(1, 0)),
-                  ]),
-                ),
-                Expanded(
-                  child: Row(children: [
-                    cell(dir(-1, 1)),
-                    cell(dir(0, 1)),
-                    cell(dir(1, 1)),
-                  ]),
-                ),
-              ]),
+              // 四直边文字键（长按连续 / 旧模型连发）。
+              Positioned(
+                left: r - keyW / 2,
+                top: eEdge - keyH / 2,
+                width: keyW,
+                height: keyH,
+                child: key(0, -1, edgeLabel(labelUp)),
+              ),
+              Positioned(
+                left: r - keyW / 2,
+                top: side - eEdge - keyH / 2,
+                width: keyW,
+                height: keyH,
+                child: key(0, 1, edgeLabel(labelDown)),
+              ),
+              Positioned(
+                left: eEdge - keyW / 2,
+                top: r - keyH / 2,
+                width: keyW,
+                height: keyH,
+                child: key(-1, 0, edgeLabel(labelLeft)),
+              ),
+              Positioned(
+                left: side - eEdge - keyW / 2,
+                top: r - keyH / 2,
+                width: keyW,
+                height: keyH,
+                child: key(1, 0, edgeLabel(labelRight)),
+              ),
+              // 四斜角：仅点按（jogXY 多轴帧）。
+              Positioned(
+                left: dH - diagS / 2,
+                top: dV - diagS / 2,
+                width: diagS,
+                height: diagS,
+                child: key(-1, -1, diag(-1, -1)),
+              ),
+              Positioned(
+                left: side - dH - diagS / 2,
+                top: dV - diagS / 2,
+                width: diagS,
+                height: diagS,
+                child: key(1, -1, diag(1, -1)),
+              ),
+              Positioned(
+                left: dH - diagS / 2,
+                top: side - dV - diagS / 2,
+                width: diagS,
+                height: diagS,
+                child: key(-1, 1, diag(-1, 1)),
+              ),
+              Positioned(
+                left: side - dH - diagS / 2,
+                top: side - dV - diagS / 2,
+                width: diagS,
+                height: diagS,
+                child: key(1, 1, diag(1, 1)),
+              ),
+              // 中心动作键（取点/重新/归中）。
+              Center(child: _center(side)),
             ],
           ),
         ),
@@ -133,7 +194,7 @@ class OctagonDial extends StatelessWidget {
   }
 
   /// 中心键：onCenter 非空 = 圆形动作键（取点/重新/归中，active 高亮）；
-  /// 为空 = 静态方位标识（控制台 'XY'），不可点。
+  /// 为空 = 静态方位标识（'XY'，不可点）。
   Widget _center(double side) {
     if (onCenter == null) {
       return Container(
@@ -149,26 +210,33 @@ class OctagonDial extends StatelessWidget {
     return GestureDetector(
       onTap: onCenter,
       child: Container(
-        width: min(58, side * 0.36),
-        height: min(58, side * 0.36),
+        // 规格 §4.2-2 / §7：本页 170 盘 → 中心 52；控制台 190 盘 → 58。
+        // side*0.305 在 170/190 两档恰好落在 52/58（±2px 容差内）。
+        width: min(58, side * 0.305),
+        height: min(58, side * 0.305),
         decoration: BoxDecoration(
-          color: centerActive ? CncColors.primary : CncColors.card,
+          // 规格 §4.2-2：底 successBg、边 1.5 blue；active 态保持 primary 强调。
+          color: centerActive ? CncColors.primary : CncColors.successBg,
           shape: BoxShape.circle,
-          border: Border.all(color: CncColors.primary, width: 1.5),
+          border: Border.all(color: CncColors.blue, width: 1.5),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(centerLabel,
                 style: TextStyle(
-                    fontSize: 12,
-                    color:
-                        centerActive ? Colors.white : CncColors.primaryInk)),
+                    fontSize: centerSub == null ? 12 : 10.5,
+                    fontWeight: FontWeight.w600,
+                    color: centerActive
+                        ? CncColors.onPrimary
+                        : CncColors.successFg)),
             if (centerSub != null)
               Text(centerSub!,
                   style: TextStyle(
-                      fontSize: 10,
-                      color: centerActive ? Colors.white : CncColors.textSub)),
+                      fontSize: 8.5,
+                      color: centerActive
+                          ? CncColors.onPrimary
+                          : CncColors.textSub)),
           ],
         ),
       ),

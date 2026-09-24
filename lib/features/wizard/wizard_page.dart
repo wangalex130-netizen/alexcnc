@@ -2683,7 +2683,13 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           _noticeBanner(guide.text, guide.level),
           Expanded(child: _canvasArea(laserMm, sim)),
           _statusBar(),
-          _drawer(),
+          // 收起/展开 200ms 高度动画（规格 §4.5）；画布用 Expanded 自动跟随。
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            alignment: Alignment.bottomCenter,
+            child: _drawer(),
+          ),
           _cta(),
         ],
       ),
@@ -2698,27 +2704,33 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     final sim = DebugSim.instance.enabled;
     final st = ref.watch(machineStatusProvider).valueOrNull;
     final linked = sim || st != null;
+    // 规格 §2：高 48；返回钮 34×34 / 圆角 9 / 底 panelAlt / ← 图标 14；
+    // 标题 13/700；连接圆点 7×7 —— 在线 blue / 离线 textSub / 异常 danger。
+    final alarm = st?.state == MachineState.alarm;
+    final dotColor = alarm
+        ? CncColors.danger
+        : (linked ? CncColors.blue : CncColors.textSub);
     return Container(
-      height: 46,
+      height: 48,
       padding: const EdgeInsets.symmetric(horizontal: 6),
       decoration: BoxDecoration(
-        color: CncColors.panel,
+        color: CncColors.card,
         border: Border(bottom: BorderSide(color: CncColors.border)),
       ),
       child: Row(children: [
         GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: _busy ? null : widget.onPrev,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
-            child: Row(children: [
-              Icon(Symbols.arrow_back_ios_new,
-                  size: 17, color: CncColors.textMain),
-              const SizedBox(width: 5),
-              Text('上一步',
-                  style:
-                      TextStyle(fontSize: 12.5, color: CncColors.textMain)),
-            ]),
+          child: Container(
+            width: 34,
+            height: 34,
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            decoration: BoxDecoration(
+              color: CncColors.panelAlt,
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Icon(Symbols.arrow_back_ios_new,
+                size: 14, color: CncColors.textMain),
           ),
         ),
         Expanded(
@@ -2727,8 +2739,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
                     color: CncColors.textMain)),
           ),
         ),
@@ -2736,14 +2748,11 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           Container(
             width: 7,
             height: 7,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: linked ? CncColors.primary : CncColors.textSub,
-            ),
+            decoration: BoxDecoration(shape: BoxShape.circle, color: dotColor),
           ),
           const SizedBox(width: 4),
           Text(sim ? '模拟' : (linked ? '已连接' : '未连接'),
-              style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+              style: TextStyle(fontSize: 10.5, color: CncColors.textSub)),
         ]),
         const SizedBox(width: 8),
       ]),
@@ -2810,23 +2819,22 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         }
       },
       child: Container(
-        height: 30,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.92),
+          color: CncColors.card,
           borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: CncColors.border),
+          border: Border.all(color: CncColors.blue),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           Icon(_show3D ? Symbols.map : Symbols.view_in_ar,
-              size: 15,
+              size: 14,
               color: !_show3D && !can3d
                   ? CncColors.textSub
                   : CncColors.textMain),
           const SizedBox(width: 4),
           Text(_show3D ? '2D' : '3D',
               style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 10.5,
                   fontWeight: FontWeight.w600,
                   color: !_show3D && !can3d
                       ? CncColors.textSub
@@ -2892,14 +2900,14 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         child: InkWell(
           onTap: () => setState(() => _drawerOpen = true),
           child: Container(
-            height: 36,
+            height: 34,
             alignment: Alignment.center,
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               Icon(Symbols.keyboard_arrow_up,
-                  size: 17, color: CncColors.textSub),
+                  size: 12, color: CncColors.textSub),
               const SizedBox(width: 4),
               Text('展开工具',
-                  style: TextStyle(fontSize: 12, color: CncColors.textSub)),
+                  style: TextStyle(fontSize: 10.5, color: CncColors.textSub)),
             ]),
           ),
         ),
@@ -2908,9 +2916,9 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     return _drawerShell(
       child: Column(children: [
         Row(children: [
-          Expanded(child: _segTab(0, Symbols.center_focus_strong, '定原点')),
-          Expanded(child: _segTab(1, Symbols.open_with, '摆模型')),
-          Expanded(child: _segTab(2, Symbols.play_circle, '预览确认')),
+          Expanded(child: _segTab(0, '① 定原点')),
+          Expanded(child: _segTab(1, '② 摆模型')),
+          Expanded(child: _segTab(2, '③ 预览确认')),
           GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () => setState(() => _drawerOpen = false),
@@ -2937,72 +2945,67 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         child: child,
       );
 
-  Widget _segTab(int i, IconData ic, String label) {
+  Widget _segTab(int i, String label) {
     final active = _seg == i;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => setState(() => _seg = i),
       child: Container(
-        margin: const EdgeInsets.fromLTRB(6, 6, 0, 0),
-        padding: const EdgeInsets.symmetric(vertical: 7),
+        height: 30,
+        margin: const EdgeInsets.fromLTRB(0, 6, 6, 0),
         decoration: BoxDecoration(
-          color: active
-              ? CncColors.primary.withOpacity(0.12)
-              : Colors.transparent,
+          color: active ? CncColors.panelAlt : CncColors.card,
           borderRadius: BorderRadius.circular(9),
           border: Border.all(
-              color: active ? CncColors.primary : CncColors.border),
+              width: active ? 1.5 : 1,
+              color: active ? CncColors.textMain : CncColors.border),
         ),
-        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(ic,
-              size: 15,
-              color: active ? CncColors.primaryInk : CncColors.textSub),
-          const SizedBox(width: 4),
-          Text(label,
+        child: Center(
+          child: Text(label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: active ? FontWeight.w600 : FontWeight.normal,
-                  color: active ? CncColors.primaryInk : CncColors.textSub)),
-        ]),
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                  color: active ? CncColors.textMain : CncColors.textSub)),
+        ),
       ),
     );
   }
 
   /// 分段内容（纯 UI 重组，全部复用既有函数 —— 工单 §3.2）。
   Widget _segBody(int seg) {
-    // 十字盘高度随屏：大屏 185 / 小屏 120 —— 保证收起/展开态画布占比（§3.7-8）。
-    final crossH =
-        (MediaQuery.of(context).size.height * 0.22).clamp(120.0, 185.0);
+    // 规格 §4.2-2 / §7：两处八向盘定值 170×170（中心钮 52 由盘组件按比例出）。
+    const crossH = 170.0;
     switch (seg) {
       case 0:
-        // ① 定原点：形态 chip + 主轴十字（中心=取点/重新 n/2，复用 _clearPts）
-        // + 步进 + 激光开关。
+        // ① 定原点（规格 §4.2）：形状 chip 行 → 八向盘（中心=取点/重新 n/2，
+        // 复用 _clearPts）→ 步长三选 → 激光标识行。
         return Column(children: [
           if (_wysiwyg) ...[
             Row(children: [
-              _deckChip('矩形', widget.stockShape == StockShape.rect,
-                  () => widget.onShape(StockShape.rect)),
-              _deckChip('圆形', widget.stockShape == StockShape.circle,
-                  () => widget.onShape(StockShape.circle)),
+              Expanded(
+                  child: _shapeChip('矩形', widget.stockShape == StockShape.rect,
+                      () => widget.onShape(StockShape.rect))),
+              const SizedBox(width: 6),
+              Expanded(
+                  child: _shapeChip('圆形', widget.stockShape == StockShape.circle,
+                      () => widget.onShape(StockShape.circle))),
             ]),
             const SizedBox(height: 6),
           ],
           SizedBox(height: crossH, child: _jogCross()),
           const SizedBox(height: 6),
           Row(children: [
-            _deckChip(
-                '0.1', _jogStep == 0.1, () => setState(() => _jogStep = 0.1)),
-            _deckChip('1', _jogStep == 1, () => setState(() => _jogStep = 1)),
-            _deckChip(
-                '10', _jogStep == 10, () => setState(() => _jogStep = 10)),
-            Expanded(
-              child: _deckBtn(_laserOn ? '激光标识 开' : '激光标识 关', _toggleLaser,
-                  icon: Symbols.lightbulb, active: _laserOn),
-            ),
+            _stepPill('0.1', _jogStep == 0.1, () => setState(() => _jogStep = 0.1)),
+            _stepPill('1', _jogStep == 1, () => setState(() => _jogStep = 1)),
+            _stepPill('10', _jogStep == 10, () => setState(() => _jogStep = 10)),
           ]),
+          const SizedBox(height: 6),
+          _laserRow(),
         ]);
       case 1:
-        // ② 摆模型：模型十字（中心=归中，复用 _centerModel）。
+        // ② 摆模型：模型盘（中心=归中，复用 _centerModel）。
         // 拖动模型时抽屉自动收起 → 画布增高；点「▲ 展开工具」再展开。
         return SizedBox(
           height: crossH,
@@ -3061,8 +3064,11 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           ? (_datumDone ? '确认原点' : '先完成取点')
           : (_wysiwyg ? '确认原点' : '锁定原点');
     }
+    // 规格 §6：容器 padding 8,10,8,12（下 12 给手势条留白）；按钮高 44、
+    // 圆角 12、字 13/700；禁用 = 底 panelAlt 字 textSub；可用 = 底 primary
+    // 字 onPrimary；图标 12。
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 7, 12, 9),
+      padding: const EdgeInsets.fromLTRB(8, 10, 8, 12),
       child: SizedBox(
         width: double.infinity,
         height: 44,
@@ -3080,18 +3086,18 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
                 },
           style: FilledButton.styleFrom(
             backgroundColor:
-                enabled ? CncColors.primary : const Color(0xFFE0E3E8),
-            disabledBackgroundColor: const Color(0xFFE0E3E8),
-            foregroundColor: enabled ? Colors.white : CncColors.textSub,
+                enabled ? CncColors.primary : CncColors.panelAlt,
+            disabledBackgroundColor: CncColors.panelAlt,
+            foregroundColor: enabled ? CncColors.onPrimary : CncColors.textSub,
             disabledForegroundColor: CncColors.textSub,
             shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12)),
           ),
           icon: Icon(locked ? Symbols.arrow_forward : Symbols.check,
-              size: 18),
+              size: 12),
           label: Text(label,
               style: const TextStyle(
-                  fontSize: 14.5, fontWeight: FontWeight.w600)),
+                  fontSize: 13, fontWeight: FontWeight.w700)),
         ),
       ),
     );
@@ -3108,103 +3114,151 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   Widget _safetyTick() {
     final enabled = _framingDone && !_busy;
     final on = widget.safetyChecked;
+    // 规格 §4.4-2：高 34 圆角 10 边 border、padding 0,12；勾选框 16×16 圆角 5
+    //（未选：边 1.5 border 底 card；选中：底 primary + 勾 onPrimary）；
+    // 名称只写「已目视确认」—— 引导判据由工作指示窗承担（文案零解释铁律）。
     return GestureDetector(
       onTap: enabled ? () => widget.onSafety(!on) : null,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        height: 34,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
-          color: on ? CncColors.primary.withOpacity(0.10) : CncColors.card,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: on ? CncColors.primary : CncColors.border),
+          color: CncColors.card,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: CncColors.border),
         ),
         child: Row(children: [
-          Icon(on ? Symbols.check_circle : Symbols.visibility,
-              size: 14,
-              color: on
-                  ? CncColors.primaryInk
-                  : (enabled ? CncColors.textSub : CncColors.border)),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              on
-                  ? '已确认：轨迹在耗材内、避开压板'
-                  : (_framingDone
-                      ? '点此确认：轨迹在耗材内、避开压板'
-                      : '先按【雕刻预览】看清落点'),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 10.5,
-                color: enabled ? CncColors.textSub : CncColors.border,
-              ),
+          Container(
+            width: 16,
+            height: 16,
+            decoration: BoxDecoration(
+              color: on ? CncColors.primary : CncColors.card,
+              borderRadius: BorderRadius.circular(5),
+              border: Border.all(
+                  width: 1.5,
+                  color: on ? CncColors.primary : CncColors.border),
             ),
+            child: on
+                ? Icon(Symbols.check,
+                    size: 10, color: CncColors.onPrimary)
+                : null,
           ),
+          const SizedBox(width: 6),
+          Text('已目视确认',
+              style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: enabled || on
+                      ? CncColors.textMain
+                      : CncColors.textSub)),
         ]),
       ),
     );
   }
 
-  Widget _deckChip(String label, bool active, VoidCallback? onTap) => Expanded(
-        child: GestureDetector(
-          onTap: onTap,
-          child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 2),
-            padding: const EdgeInsets.symmetric(vertical: 5),
-            decoration: BoxDecoration(
-              color: active
-                  ? CncColors.primary.withOpacity(0.12)
-                  : CncColors.card,
-              borderRadius: BorderRadius.circular(8),
-              border:
-                  Border.all(color: active ? CncColors.primary : CncColors.border),
-            ),
-            child: Text(
-              label,
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: active ? FontWeight.bold : FontWeight.normal,
-                color: active ? CncColors.primaryInk : CncColors.textSub,
-              ),
-            ),
+  /// 形状 chip（规格 §4.2-1）：高 26、圆角 8、字 10.5；选中 = 底 panelAlt、
+  /// 边 1.5 textMain、字 textMain（墨=交互语言）；未选 = card / border / textSub。
+  Widget _shapeChip(String label, bool active, VoidCallback? onTap) =>
+      GestureDetector(
+        onTap: onTap,
+        child: Container(
+          height: 26,
+          decoration: BoxDecoration(
+            color: active ? CncColors.panelAlt : CncColors.card,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+                width: active ? 1.5 : 1,
+                color: active ? CncColors.textMain : CncColors.border),
+          ),
+          child: Center(
+            child: Text(label,
+                style: TextStyle(
+                    fontSize: 10.5,
+                    color: active ? CncColors.textMain : CncColors.textSub)),
           ),
         ),
       );
 
-  Widget _deckBtn(String label, VoidCallback? onTap,
-      {IconData? icon, bool primary = false, bool active = false}) {
+  /// 步长胶囊（规格 §4.2-3，与控制台移动页同款）：70 宽、padding 7,0、
+  /// 圆角 999、字 12；选中 = 底 successBg、边 blue、字 successFg 600。
+  Widget _stepPill(String label, bool active, VoidCallback? onTap) =>
+      GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 70,
+          padding: const EdgeInsets.symmetric(vertical: 7),
+          margin: const EdgeInsets.only(right: 6),
+          decoration: BoxDecoration(
+            color: active ? CncColors.successBg : CncColors.card,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+                color: active ? CncColors.blue : CncColors.border),
+          ),
+          child: Center(
+            child: Text(label,
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+                    color:
+                        active ? CncColors.successFg : CncColors.textSub)),
+          ),
+        ),
+      );
+
+  /// 激光标识行（规格 §4.2-4）：高 34 圆角 10 边 border 底 card、padding 0,12；
+  /// 左图标 14 icon 色 + 名称 11.5/600 textMain；右 Switch（选中 primary）。
+  /// 名称只写「激光标识」（中检 P2），开/关状态由开关自身表达。
+  Widget _laserRow() {
+    return Container(
+      height: 34,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: CncColors.card,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: CncColors.border),
+      ),
+      child: Row(children: [
+        Icon(Symbols.gps_fixed, size: 14, color: CncColors.icon),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text('激光标识',
+              style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: CncColors.textMain)),
+        ),
+        SizedBox(
+          height: 28,
+          child: Switch(value: _laserOn, activeColor: CncColors.primary,
+              onChanged: (_) => _toggleLaser()),
+        ),
+      ]),
+    );
+  }
+
+  /// 雕刻预览钮（规格 §4.4-1）：全宽、高 40、圆角 10、边 1px border、底 card；
+  /// ▶ 图标 12 + 文字 12.5/600 textMain。
+  Widget _deckBtn(String label, VoidCallback? onTap, {IconData? icon}) {
     final enabled = onTap != null;
-    final Color bg;
-    final Color fg;
-    if (primary) {
-      bg = enabled ? CncColors.primary : const Color(0xFFE0E3E8);
-      fg = enabled ? Colors.white : CncColors.textSub;
-    } else if (active) {
-      bg = CncColors.primary.withOpacity(0.12);
-      fg = CncColors.primaryInk;
-    } else {
-      bg = CncColors.card;
-      fg = enabled ? CncColors.textMain : CncColors.textSub;
-    }
+    final fg = enabled ? CncColors.textMain : CncColors.textSub;
     return Material(
-      color: bg,
+      color: CncColors.card,
       borderRadius: BorderRadius.circular(10),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+          height: 40,
+          padding: const EdgeInsets.symmetric(horizontal: 6),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
-            border: primary ? null : Border.all(color: CncColors.border),
+            border: Border.all(color: CncColors.border),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               if (icon != null) ...[
-                Icon(icon, size: 16, color: fg),
+                Icon(icon, size: 12, color: fg),
                 const SizedBox(width: 5),
               ],
               Flexible(
@@ -3212,7 +3266,10 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 12.5, color: fg),
+                  style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: fg),
                 ),
               ),
             ],

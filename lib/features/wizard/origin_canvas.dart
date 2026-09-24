@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../app/theme.dart';
+
 /// 材料/标定区域形态（开发文档 §5.2 形态分支）。
 ///
 /// **两种形态都是「两点定形」**（昊总 2026-09-18 第 2 条）：
@@ -349,7 +351,8 @@ class _OriginPainter extends CustomPainter {
     final bed = g.bedPx;
 
     // ① 台面 + 网格 + 刻度（无内衬框：台面就是画布主体）
-    canvas.drawRect(bed, Paint()..color = const Color(0xFFEDEFF2));
+    // 台面中性底（规格书 §3.1 / L4）：换用暖象牙令牌（工单三换值自动跟随）。
+    canvas.drawRect(bed, Paint()..color = CncColors.canvasBed);
     final gridPaint = Paint()
       ..strokeWidth = 0.5
       ..color = _grid;

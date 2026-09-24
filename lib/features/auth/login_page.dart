@@ -8,6 +8,14 @@ import '../../app/theme.dart';
 
 import '../../state/auth_provider.dart';
 
+import '../../state/providers.dart';
+
+import '../../services/push_service.dart';
+
+import '../settings/privacy_policy_page.dart';
+
+import 'package:flutter/gestures.dart';
+
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 // 2026-08-21 工程师确认：App 不开放注册功能，登录页隐藏注册入口。
 
@@ -43,6 +51,24 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
   String? _error;
 
+  /// 隐私勾选（2026-09-24 工单一）：未勾选时登录按钮置灰；勾选并登录成功
+  /// 后写入同意标记并执行推送引导。老用户已同意 → 自动预勾选，不重复弹。
+  bool _agreed = false;
+
+  @override
+
+  void initState() {
+
+    super.initState();
+
+    PushService.instance.isPrivacyAccepted().then((v) {
+
+      if (mounted && v) setState(() => _agreed = true);
+
+    });
+
+  }
+
 
 
   @override
@@ -58,6 +84,26 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 
 
+
+  TextSpan _linkSpan(String text) => TextSpan(
+
+        text: text,
+
+        style: TextStyle(color: CncColors.blue),
+
+        recognizer: TapGestureRecognizer()
+
+          ..onTap = () {
+
+            Navigator.of(context).push(
+
+              MaterialPageRoute(builder: (_) => const PrivacyPolicyPage()),
+
+            );
+
+          },
+
+      );
 
   Future<void> _submit() async {
 
@@ -78,6 +124,14 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     try {
 
       await ref.read(authProvider.notifier).login(u, p);
+
+      // 同意标记在「勾选并登录成功」之后写入（同意先于采集）：
+
+      // 勾选 + 登录成功 ⇒ 记录同意并执行推送引导（个推 init + CID + alias）。
+
+      await PushService.instance.setPrivacyAccepted();
+
+      ref.invalidate(pushBootstrapProvider);
 
       if (mounted) Navigator.of(context).pop(true);
 
@@ -191,9 +245,91 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
               const SizedBox(height: 24),
 
+              // 隐私勾选行（工单一）：☑ 已阅读并同意《隐私政策》《用户协议》。
+
+              // 用户协议全文页暂缺 —— 点击暂同隐私政策页（链接落点后续单接入）。
+
+              Row(
+
+                children: [
+
+                  GestureDetector(
+
+                    onTap: () => setState(() => _agreed = !_agreed),
+
+                    child: Container(
+
+                      width: 16,
+
+                      height: 16,
+
+                      decoration: BoxDecoration(
+
+                        color: _agreed ? CncColors.primary : CncColors.card,
+
+                        borderRadius: BorderRadius.circular(5),
+
+                        border: Border.all(
+
+                            width: 1.5,
+
+                            color: _agreed
+
+                                ? CncColors.primary
+
+                                : CncColors.border),
+
+                      ),
+
+                      child: _agreed
+
+                          ? Icon(Symbols.check,
+
+                              size: 10, color: CncColors.onPrimary)
+
+                          : null,
+
+                    ),
+
+                  ),
+
+                  const SizedBox(width: 6),
+
+                  Expanded(
+
+                    child: Text.rich(
+
+                      TextSpan(
+
+                        style: TextStyle(
+
+                            fontSize: 11.5, color: CncColors.textSub),
+
+                        children: [
+
+                          const TextSpan(text: '已阅读并同意'),
+
+                          _linkSpan('《隐私政策》'),
+
+                          _linkSpan('《用户协议》'),
+
+                        ],
+
+                      ),
+
+                    ),
+
+                  ),
+
+                ],
+
+              ),
+
+              const SizedBox(height: 12),
+
               FilledButton(
 
-                onPressed: busy ? null : _submit,
+                onPressed: (busy || !_agreed) ? null : _submit,
 
                 child: Text(busy ? '登录中…' : '登录'),
 

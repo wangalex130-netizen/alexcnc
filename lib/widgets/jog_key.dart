@@ -34,6 +34,12 @@ class JogKey extends StatefulWidget {
   /// 复用本组件的手势逻辑（A-5b，严禁重新发明长按），但用 painted 箭头
   /// 保持与既有十字盘视觉一致。**不影响任何手势/连发/保活行为**。
   final Widget? child;
+  /// 平面键（拓竹圆盘用）：无底色/描边/固定高度底色，仅保留手势
+  /// （长按/连发/保活行为不变）。视觉由外层容器（圆盘面）承载，避免双重描边。
+  final bool flat;
+
+  /// 自定义高度（null = 默认 40 / tall 44）。
+  final double? height;
   /// 是否启用「长按只发一次」连续模型（共识 S1）。
   /// 默认取构建开关 AppConfig.jogContinuousEnabled（**默认 false**）。
   /// 之所以默认关：固件目前不解析 mode，打开会让点动当场失效；
@@ -48,7 +54,9 @@ class JogKey extends StatefulWidget {
       this.onJogEnd,
       this.onJogKeepalive,
       this.child,
-      this.continuousEnabled = AppConfig.jogContinuousEnabled});
+      this.flat = false,
+      this.continuousEnabled = AppConfig.jogContinuousEnabled,
+      this.height});
 
   @override
   State<JogKey> createState() => JogKeyState();
@@ -169,8 +177,10 @@ class JogKeyState extends State<JogKey> {
           child: Opacity(
             opacity: widget.enabled ? 1 : 0.45,
             child: Container(
-              height: widget.tall ? 44 : 40,
-              decoration: BoxDecoration(
+              height: widget.height ?? (widget.tall ? 44 : 40),
+              decoration: widget.flat
+                  ? null
+                  : BoxDecoration(
                 color: _holding ? accent.withOpacity(0.22) : CncColors.panelAlt,
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(
