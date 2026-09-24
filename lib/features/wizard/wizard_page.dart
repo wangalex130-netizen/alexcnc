@@ -2318,7 +2318,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   /// 物理移动，再叠一层动画只会干扰目视判断，故 App 只保留明确的拒绝清单。
   List<String> _framingLocks() {
     final fails = <String>[];
-    if (!_datumDone) fails.add('未完成标定（需 $_needPts 点）');
+    if (!_datumDone) fails.add('还没取完点（需 $_needPts 个点）');
     final m = _meta;
     if (m != null) {
       if (!_g54Written) {
@@ -2341,7 +2341,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         _framingNotSent = false; // 业务三锁拒绝 ≠ 「没收到机器确认」
         _framingFail = fails.join('\n');
       });
-      _note('雕刻预览被拒绝（宁锁勿放）：\n${fails.join('\n')}', bad: true);
+      _note('雕刻预览被拒绝：\n${fails.join('\n')}', bad: true);
       return;
     }
     final o = widget.origin;
@@ -2533,9 +2533,9 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   // ===================== 视图 2.0：竖屏 + 抽屉分段 =====================
   //
   // 昊总 2026-09-24 拍板：定原点页一次切换到 2.0（竖屏+抽屉），横屏三区布局
-  // 整体废弃。自上而下：顶栏（←/标题/连接灯）→ 画布（工作指示窗 + 2D/3D
-  // 切换键悬浮其上，画布尽量大 —— 硬要求）→ 状态条 → 底部抽屉（定原点/摆
-  // 模型/预览确认 三段，可收起）→ 唯一 CTA。
+  // 整体废弃。自上而下：顶栏（←/标题/连接灯）→ 提示通栏（全宽可换行）→
+  // 画布（2D/3D 切换键悬浮右上，画布尽量大 —— 硬要求）→ 状态条 → 底部抽屉
+  //（定原点/摆模型/预览确认 三段，可收起）→ 唯一 CTA。
   // 业务逻辑零改动（工单 §3.5）：取点/移动/预览/锁定/门禁全部复用既有函数。
 
   @override
@@ -2571,7 +2571,10 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       child: Column(
         children: [
           _topBar(),
-          Expanded(child: _canvasArea(laserMm, sim, guide)),
+          // 提示通栏（昊总 09-24「彻底改」）：从画布内悬浮胶囊改为画布上方
+          // 独立通栏 —— 全宽、自动换行，拒绝清单完整显示不再截半句。
+          _noticeBanner(guide.text, guide.level),
+          Expanded(child: _canvasArea(laserMm, sim)),
           _statusBar(),
           _drawer(),
           _cta(),
@@ -2643,25 +2646,18 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   // ---------- 画布区 ----------
 
   /// 画布区（**尽量大 —— 硬要求，工单 §3.1-3**）：全宽无左右留白；
-  /// 工作指示窗与 2D/3D 切换键都是画布内悬浮元素，不占独立高度。
-  /// 指示窗与切换键错位排布（指示窗 right 留 56），互不遮挡。
-  Widget _canvasArea(
-      Offset? laserMm, bool sim, ({String text, int level}) guide) {
+  /// 2D/3D 切换键是画布内唯一悬浮元素（提示已上移为独立通栏，不占画布）。
+  Widget _canvasArea(Offset? laserMm, bool sim) {
     return Stack(children: [
       Positioned.fill(child: _canvasOr3D(laserMm, sim)),
-      Positioned(
-        top: 8,
-        left: 14,
-        right: 56,
-        child: _indicatorPill(guide.text, guide.level),
-      ),
       Positioned(top: 6, right: 8, child: _modeChip()),
     ]);
   }
 
-  /// 工作指示窗（悬浮胶囊，工单 §3.3）：异常红/黄优先，正常四态文案随流程
-  /// 自动切换（文案见 [_guideText]）。
-  Widget _indicatorPill(String text, int level) {
+  /// 提示通栏（画布上方独立一条，昊总 09-24「彻底改」）：异常红/黄优先，
+  /// 正常文案随流程自动切换（见 [_guideText]）。全宽自动换行 —— 多行拒绝
+  /// 清单（如「雕刻预览被拒绝：+ 逐条原因」）完整显示，不再被单行省略号截断。
+  Widget _noticeBanner(String text, int level) {
     Color bg;
     Color bd;
     Color fg;
@@ -2678,19 +2674,18 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       bd = const Color(0xFFC0DD97);
       fg = const Color(0xFF27500A);
     }
-    return Center(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: bg.withOpacity(0.96),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: bd, width: 0.75),
-        ),
-        child: Text(text,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 12, color: fg)),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
+      decoration: BoxDecoration(
+        color: bg,
+        border: Border(
+            bottom: BorderSide(color: bd.withOpacity(0.35), width: 0.75)),
       ),
+      child: Text(text,
+          maxLines: 4,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 12, height: 1.35, color: fg)),
     );
   }
 
@@ -2944,25 +2939,27 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     final sim = DebugSim.instance.enabled;
     final canNext = !widget.overflow && (widget.safetyChecked || sim);
     final locked = widget.originSet && (_g54Written || !_wysiwyg);
-    // 未锁定门禁（昊总 2026-09-24）：三个分段只是同一步内的工具面板，可随时
-    // 切换查看，但【确认原点】必须走完 取点完成 → 雕刻预览通过 → 目视确认
-    // 才亮；灰色时按钮文案直接说明缺哪一步。模拟模式豁免预览链（与 canNext
-    // 同口径）；手动模式（!_wysiwyg）无预览链，沿用旧口径。
+    // 门禁顺序（昊总 09-24 真机定版，撤销 09-24 晨的反序死锁）：
+    //   取点完成 → 【确认原点】写 G54 → 【雕刻预览】（机器预览必须在已锁定
+    //   的坐标系里走，_framingLocks 硬性要求 _g54Written）→ 目视确认 → 下一步。
+    // 三个分段只是同一步内的工具面板，可随时切换查看；按钮灰色时文案直接
+    // 说明缺哪一步。模拟模式豁免预览链（与 canNext 同口径）。
     final gate = _wysiwyg && !sim;
-    final canConfirm =
-        _datumDone && _framingDone && widget.safetyChecked && !_busy;
-    final enabled = locked ? canNext : (gate ? canConfirm : !_busy);
-    final label = locked
-        ? '下一步'
-        : !gate
-            ? (_wysiwyg ? '确认原点' : '锁定原点')
-            : !_datumDone
-                ? '先完成取点'
-                : !_framingDone
-                    ? '先雕刻预览'
-                    : widget.safetyChecked
-                        ? '确认原点'
-                        : '先目视确认';
+    final bool enabled;
+    final String label;
+    if (locked) {
+      enabled = canNext && !_busy;
+      label = enabled || widget.overflow
+          ? '下一步'
+          : !_framingDone
+              ? '先雕刻预览'
+              : '先目视确认';
+    } else {
+      enabled = (gate ? _datumDone : true) && !_busy;
+      label = gate
+          ? (_datumDone ? '确认原点' : '先完成取点')
+          : (_wysiwyg ? '确认原点' : '锁定原点');
+    }
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 7, 12, 9),
       child: SizedBox(
@@ -3455,9 +3452,13 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         level: 0
       );
     }
-    // ② 摆模型：取点完成、未预览
+    // ② 取点完成 → 先锁原点（预览/下一步都在锁定之后 —— 真机 09-24 定版）
+    if (!(widget.originSet && (_g54Written || !_wysiwyg))) {
+      return (text: '按【确认原点】锁定雕刻起点', level: 0);
+    }
+    // ③ 锁定后 → 预览（可顺手拖模型摆位）
     if (!_framingDone) {
-      return (text: '拖动模型摆好雕刻位置', level: 0);
+      return (text: '拖动模型摆好位置，按【雕刻预览】', level: 0);
     }
     // ③ 预览确认：预览完成、未勾选
     if (!widget.safetyChecked) {
@@ -3469,8 +3470,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
 
   /// 4 秒内的操作反馈（A-12）。
   ///
-  /// 多行反馈压成单行：顶部条是 `maxLines: 1`，保留 '\n' 只会被 ellipsis
-  /// 截成半句（如「雕刻预览被拒绝（宁锁勿放）：」后面全丢）。
+  /// 提示通栏支持多行（09-24 彻底改），保留 '\n' 让拒绝清单逐条完整显示。
   ({String text, int level})? _freshNote() {
     final s = _noteMsg;
     final at = _noteAt;
@@ -3478,7 +3478,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     if (DateTime.now().difference(at) >= const Duration(seconds: 4)) {
       return null;
     }
-    return (text: s.replaceAll('\n', ' · '), level: _noteBad ? 1 : 0);
+    return (text: s, level: _noteBad ? 1 : 0);
   }
 
   /// 当前最该说的那条异常（只给一条，避免堆叠）。null = 无异常。
@@ -3520,10 +3520,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       // 【雕刻预览】被拒，红条却让他去查网络与开机 —— 方向完全指错，
       // 而正确原因（还没点【确认原点】）只写在不可见的 _note() 里。
       if (!_framingNotSent) {
-        return (
-          text: '雕刻预览未通过：${_framingFail!.split('\n').first}',
-          level: 2
-        );
+        // 通栏可多行（09-24）：完整给出拒绝清单，不再只取第一行
+        return (text: '雕刻预览未通过：${_framingFail!}', level: 2);
       }
       return (text: '没收到机器确认：检查机器是否开机联网', level: 2);
     }
