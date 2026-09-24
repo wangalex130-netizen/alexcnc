@@ -255,17 +255,22 @@ class _Geom {
   final double bedH;
   final double scale;
 
-  /// 台面四周留白：只留刻度文字的空间（越小台面越大）。
-  static const _padX = 26.0;
+  /// 台面四周留白（越小台面越大）。水平**不对称**：左侧必须完整容纳
+  /// Y 轴刻度文字（"250" 三字符约 22px），旧版水平居中只留 13px，
+  /// 刻度文字向左偏 22px 直接画出画布 —— 昊总 2026-09-24：左侧坐标显示不全。
+  static const _padL = 30.0;
+  static const _padR = 10.0;
   static const _padY = 18.0;
 
   _Geom({required this.size, required this.bedW, required this.bedH})
       : scale = math.min(
-          (size.width - _padX) / (bedW <= 0 ? 300 : bedW),
+          (size.width - _padL - _padR) / (bedW <= 0 ? 300 : bedW),
           (size.height - _padY) / (bedH <= 0 ? 200 : bedH),
         );
 
-  double get _l => (size.width - bedW * scale) / 2;
+  /// 台面左缘：左留白保底，多余宽度在台面两侧均分（不挤压左侧刻度区）。
+  double get _l =>
+      _padL + math.max(0, (size.width - _padL - _padR - bedW * scale) / 2);
   double get _b => (size.height - bedH * scale) / 2 + bedH * scale;
 
   Offset toPx(Offset mm) => Offset(_l + mm.dx * scale, _b - mm.dy * scale);

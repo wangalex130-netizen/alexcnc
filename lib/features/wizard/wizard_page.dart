@@ -2694,7 +2694,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     );
   }
 
-  /// 2D/3D 切换键：显示当前态，点按切换（3D 仅在载荷带高程网格时可用；
+  /// 2D/3D 切换键：**显示目标视角**（当前 2D ⇒ 键上写 3D，点了就切过去 ——
+  /// 昊总 2026-09-24）。3D 仅在载荷带高程网格时可用（不可用时键面置灰）；
   /// 载体由原手柄条 chip 改为画布右上角浮动键 —— 工单 §3.5）。
   Widget _modeChip() {
     final can3d = _wysiwyg && _grid != null;
@@ -2715,14 +2716,19 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           border: Border.all(color: CncColors.border),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(_show3D ? Symbols.view_in_ar : Symbols.map,
-              size: 15, color: CncColors.textMain),
+          Icon(_show3D ? Symbols.map : Symbols.view_in_ar,
+              size: 15,
+              color: !_show3D && !can3d
+                  ? CncColors.textSub
+                  : CncColors.textMain),
           const SizedBox(width: 4),
-          Text(_show3D ? '3D' : '2D',
+          Text(_show3D ? '2D' : '3D',
               style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: CncColors.textMain)),
+                  color: !_show3D && !can3d
+                      ? CncColors.textSub
+                      : CncColors.textMain)),
         ]),
       ),
     );
@@ -2757,11 +2763,15 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       ),
       child: Row(children: [
         Expanded(
-          child: Text('$name · $mode · $mat',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+          // 长机器名不打省略号 —— 整体等比缩小保完整（昊总 2026-09-24）
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text('$name · $mode · $mat',
+                style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+          ),
         ),
+        const SizedBox(width: 8),
         Text(locked ? '原点已锁定' : '原点未设定',
             style: TextStyle(
                 fontSize: 11,
@@ -2934,8 +2944,25 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     final sim = DebugSim.instance.enabled;
     final canNext = !widget.overflow && (widget.safetyChecked || sim);
     final locked = widget.originSet && (_g54Written || !_wysiwyg);
-    final enabled = locked ? canNext : !_busy;
-    final label = locked ? '下一步' : (_wysiwyg ? '确认原点' : '锁定原点');
+    // 未锁定门禁（昊总 2026-09-24）：三个分段只是同一步内的工具面板，可随时
+    // 切换查看，但【确认原点】必须走完 取点完成 → 雕刻预览通过 → 目视确认
+    // 才亮；灰色时按钮文案直接说明缺哪一步。模拟模式豁免预览链（与 canNext
+    // 同口径）；手动模式（!_wysiwyg）无预览链，沿用旧口径。
+    final gate = _wysiwyg && !sim;
+    final canConfirm =
+        _datumDone && _framingDone && widget.safetyChecked && !_busy;
+    final enabled = locked ? canNext : (gate ? canConfirm : !_busy);
+    final label = locked
+        ? '下一步'
+        : !gate
+            ? (_wysiwyg ? '确认原点' : '锁定原点')
+            : !_datumDone
+                ? '先完成取点'
+                : !_framingDone
+                    ? '先雕刻预览'
+                    : widget.safetyChecked
+                        ? '确认原点'
+                        : '先目视确认';
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 7, 12, 9),
       child: SizedBox(
