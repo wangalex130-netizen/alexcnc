@@ -2185,7 +2185,7 @@ class _SpindleCard extends StatelessWidget {
 
                 children: [
 
-                  const Text('0', style: TextStyle(fontSize: 10, color: CncColors.textSub)),
+                  Text('0', style: TextStyle(fontSize: 10, color: CncColors.textSub)),
 
                   Expanded(
 
@@ -2207,7 +2207,7 @@ class _SpindleCard extends StatelessWidget {
 
                   ),
 
-                  const Text('24k', style: TextStyle(fontSize: 10, color: CncColors.textSub)),
+                  Text('24k', style: TextStyle(fontSize: 10, color: CncColors.textSub)),
 
                 ],
 

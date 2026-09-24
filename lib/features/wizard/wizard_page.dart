@@ -977,7 +977,7 @@ class _StepMaterial extends StatelessWidget {
                       style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.bold,
-                          color: Color(0xFFFFFDF9)),
+                          color: Color(0xFFFFFDF9))),
                 ),
               ],
             ),
@@ -2583,7 +2583,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
             Text(text,
                 style: TextStyle(
                     fontSize: 11,
-                    color: ok ? CncColors.successFg : CncColors.warnFg))),
+                    color: ok ? CncColors.successFg : CncColors.warnFg)),
           ],
         ),
       );

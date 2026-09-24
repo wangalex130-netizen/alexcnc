@@ -473,7 +473,7 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
 
         if (_loading && _errorMsg == null)
 
-          const Center(
+          Center(
 
             child: CircularProgressIndicator(color: CncColors.primary),
 
@@ -529,7 +529,7 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
 
                   children: [
 
-                    const Icon(Symbols.error,
+                    Icon(Symbols.error,
 
                         size: 36, color: CncColors.danger),
 
@@ -551,9 +551,9 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
 
                       onPressed: _retry,
 
-                      icon: const Icon(Symbols.refresh, color: CncColors.primaryInk),
+                      icon: Icon(Symbols.refresh, color: CncColors.primaryInk),
 
-                      label: const Text('重试',
+                      label: Text('重试',
 
                           style: TextStyle(color: CncColors.primaryInk)),
 
