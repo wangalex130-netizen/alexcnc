@@ -2778,7 +2778,6 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     if (!_drawerOpen) {
       return _drawerShell(
         child: InkWell(
-          behavior: HitTestBehavior.opaque,
           onTap: () => setState(() => _drawerOpen = true),
           child: Container(
             height: 36,

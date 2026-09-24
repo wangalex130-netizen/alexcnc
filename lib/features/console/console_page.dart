@@ -1368,9 +1368,10 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     // 绑定机器：有 → 选机列表（点卡即 select 直进控制台）；无 → 保留原扫码
     // 绑定引导。判定收敛进 [_MachinePickerGate]，此处的登录门（态 1）不动。
     if (currentMachine == null) {
-      return const Scaffold(
+      // CncColors.* 非 const（f815071 教训）—— 不能写 const Scaffold。
+      return Scaffold(
         backgroundColor: CncColors.bg,
-        body: _MachinePickerGate(),
+        body: const _MachinePickerGate(),
       );
     }
 
