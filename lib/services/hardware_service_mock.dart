@@ -204,6 +204,16 @@ class MockHardwareService implements HardwareService {
   }
 
   @override
+  Future<bool> jogXY(double xMm, double yMm, {double? feed}) async {
+    final p = _current.position;
+    _current = _current.copyWith(
+      position: p.copyWith(x: p.x + xMm, y: p.y + yMm),
+    );
+    _emit();
+    return true; // 模拟器无网络门禁，恒为已发出
+  }
+
+  @override
   Future<bool> jogContinuous(String axis, int direction,
       {double feed = 600}) async {
     // 模拟器：按 10mm 档模拟"一次长按"产生的位移（不模拟真实连续运动）。

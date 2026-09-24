@@ -13,13 +13,13 @@ import '../../data/material_db.dart';
 import '../../widgets/wan_blocked.dart';
 import '../../data/tool_library.dart';
 import '../../widgets/material_icon.dart';
+import '../../widgets/octagon_dial.dart';
 import '../../widgets/tool_icon.dart';
 import '../../models/library_item.dart';
 import '../../models/task_metadata.dart';
 import '../../models/tool.dart';
 import '../../models/jog_profile.dart';
 import '../../services/hardware_service.dart';
-import '../workbench/jog_sheet.dart';
 import '../../state/providers.dart';
 import '../preview/timelapse_client.dart';
 import 'self_check_page.dart';
@@ -2299,6 +2299,47 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     ref.read(hardwareServiceProvider).jog(axis, d);
   }
 
+  /// 八向盘点按入口（§3.2a）：屏幕空间 (dx, dy)（dx 右正 / dy 下正）。
+  /// 本 App 机床朝向：屏幕右 = X+、屏幕上 = Y+ ⇒ my = -dy；斜向每轴分量 =
+  /// 步长÷√2（合成位移 = 标称步长），走 [_jogXY] 联动帧。
+  void _jogScreen(int dx, int dy) {
+    if (dx != 0 && dy != 0) {
+      _jogXY(dx * _jogStep / sqrt2, -dy * _jogStep / sqrt2);
+    } else if (dx != 0) {
+      _jog('x', dx.toDouble());
+    } else if (dy != 0) {
+      _jog('y', (-dy).toDouble());
+    }
+  }
+
+  /// 斜向 jog（机器）：与 [_jog] 同一套守卫（模拟态虚拟位 / 台面边界软夹 /
+  /// 手动模式联动原点），只是指令换成 hw.jogXY 一条联动帧（真对角线）。
+  void _jogXY(double mx, double my) {
+    if (_busy) return;
+    final delta = Offset(mx, my);
+    if (DebugSim.instance.enabled) {
+      // 调试模式：只移动虚拟位、不发任何指令；不可移出台面（同 [_jog]）。
+      final t = DebugSim.instance.pos + delta;
+      DebugSim.instance.moveTo(Offset(
+        min(max(t.dx, 0.0), _bedW),
+        min(max(t.dy, 0.0), _bedH),
+      ));
+      if (!_wysiwyg) _setDesign(widget.origin + delta);
+      return;
+    }
+    final mp = ref.read(machineStatusProvider).valueOrNull?.machinePosition;
+    if (mp != null) {
+      final t = Offset(mp.x, mp.y) + delta;
+      if (t.dx < 0 || t.dy < 0 || t.dx > _bedW || t.dy > _bedH) {
+        _note('已到台面边界：激光不能再往外移', bad: true);
+        return;
+      }
+    }
+    if (!_wysiwyg) _setDesign(widget.origin + delta);
+    ref.read(hardwareServiceProvider).jogXY(mx, my,
+        feed: jogFeedForStep(_jogStep));
+  }
+
   Future<void> _toggleLaser() async {
     final on = !_laserOn;
     final ok = await ref.read(hardwareServiceProvider).setAux('laser', on);
@@ -2889,7 +2930,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
             _deckChip(
                 '10', _jogStep == 10, () => setState(() => _jogStep = 10)),
             Expanded(
-              child: _deckBtn(_laserOn ? '激光 开' : '激光 关', _toggleLaser,
+              child: _deckBtn(_laserOn ? '激光标识 开' : '激光标识 关', _toggleLaser,
                   icon: Symbols.lightbulb, active: _laserOn),
             ),
           ]),
@@ -2899,23 +2940,17 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         // 拖动模型时抽屉自动收起 → 画布增高；点「▲ 展开工具」再展开。
         return SizedBox(
           height: crossH,
-          child: _cross(
-            onUp: _busy
-                ? null
-                : () => _setDesign(widget.origin + Offset(0, _jogStep),
-                    quiet: true),
-            onDown: _busy
-                ? null
-                : () => _setDesign(widget.origin - Offset(0, _jogStep),
-                    quiet: true),
-            onLeft: _busy
-                ? null
-                : () => _setDesign(widget.origin - Offset(_jogStep, 0),
-                    quiet: true),
-            onRight: _busy
-                ? null
-                : () => _setDesign(widget.origin + Offset(_jogStep, 0),
-                    quiet: true),
+          // 八向盘（§3.2a）：纯 App 运算（_setDesign 偏移），8 向全部支持
+          // 按住连发（旧模型 180ms）；斜向每轴分量 = 步长÷√2。屏幕上 = 设计 Y+。
+          child: OctagonDial(
+            enabled: !_busy,
+            onTap: (dx, dy) {
+              final comp =
+                  (dx != 0 && dy != 0) ? _jogStep / sqrt2 : _jogStep;
+              _setDesign(widget.origin + Offset(dx * comp, -dy * comp),
+                  quiet: true);
+            },
+            repeatFor: (_, __) => true,
             centerLabel: '归中',
             onCenter: _busy ? null : _centerModel,
           ),
@@ -3121,123 +3156,16 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     );
   }
 
-  /// 十字盘：4 向 + 中心键，**自适应剩余高度**（始终正方形、不溢出、不滚动）。
-  /// 左 = 主轴移动（中心取点）／右 = 模型移动（中心归中）。
-  Widget _cross({
-    required VoidCallback? onUp,
-    required VoidCallback? onDown,
-    required VoidCallback? onLeft,
-    required VoidCallback? onRight,
-    required String centerLabel,
-    required VoidCallback? onCenter,
-    String? centerSub,
-    bool centerActive = false,
-  }) {
-    Widget arrow(double angle, VoidCallback? f) => Expanded(
-          child: GestureDetector(
-            onTap: f,
-            behavior: HitTestBehavior.opaque,
-            child: Center(
-              child: Transform.rotate(
-                angle: angle,
-                child: Icon(
-                  Symbols.chevron_right,
-                  size: 24,
-                  color: f == null ? CncColors.border : CncColors.textMain,
-                ),
-              ),
-            ),
-          ),
-        );
-
-    return LayoutBuilder(builder: (ctx, c) {
-      final side = min(c.maxWidth, c.maxHeight);
-      if (!side.isFinite || side <= 12) return const SizedBox.shrink();
-      return Center(
-        child: SizedBox(
-          width: side,
-          height: side,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Positioned.fill(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: CncColors.card,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: CncColors.border),
-                  ),
-                ),
-              ),
-              Column(children: [
-                Expanded(child: arrow(-pi / 2, onUp)),
-                Expanded(
-                  child: Row(children: [
-                    Expanded(child: arrow(pi, onLeft)),
-                    const Expanded(child: SizedBox()),
-                    Expanded(child: arrow(0, onRight)),
-                  ]),
-                ),
-                Expanded(child: arrow(pi / 2, onDown)),
-              ]),
-              _crossCenter(
-                side: side,
-                label: centerLabel,
-                sub: centerSub,
-                active: centerActive,
-                onTap: onCenter,
-              ),
-            ],
-          ),
-        ),
-      );
-    });
-  }
-
-  /// 十字盘中央圆键（左/右盘共用）：label + 可选副标题，active 时高亮。
-  Widget _crossCenter({
-    required double side,
-    required String label,
-    String? sub,
-    required bool active,
-    required VoidCallback? onTap,
-  }) =>
-      GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width: min(58, side * 0.36),
-          height: min(58, side * 0.36),
-          decoration: BoxDecoration(
-            color: active ? CncColors.primary : CncColors.card,
-            shape: BoxShape.circle,
-            border: Border.all(color: CncColors.primary, width: 1.5),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(label,
-                  style: TextStyle(
-                      fontSize: 12,
-                      color: active ? Colors.white : CncColors.primaryInk)),
-              if (sub != null)
-                Text(sub,
-                    style: TextStyle(
-                        fontSize: 10,
-                        color: active ? Colors.white : CncColors.textSub)),
-            ],
-          ),
-        ),
-      );
-
   /// A-5/A-5b（2026-09-24 昊总拍板）：主轴移动只留「jog 直控 + 红十字回显」一个口。
-  /// 四向键**复用控制台 JogKey 原件**（workbench/jog_sheet.dart，严禁重新发明
-  /// 长按逻辑）：单击 = hw.jog(axis, ±_jogStep)（feed 走 jog_profile 档位表，
-  /// 两页同源）；长按 ≥220ms = **只发一次** jogContinuous（受
+  /// 八向盘（§3.2a）**复用控制台 JogKey 原件**（widgets/jog_key.dart，严禁重新
+  /// 发明长按逻辑）：直边单击 = hw.jog(axis, ±_jogStep)（feed 走 jog_profile
+  /// 档位表，两页同源）；直边长按 ≥220ms = 只发一次 jogContinuous（受
   /// AppConfig.jogContinuousEnabled 保护，默认关 = 走旧 180ms 连发模型，仅
   /// ≤1mm 档）；按住期间 200ms 保活；松手/手势取消 = jog_cancel(0x85)；
-  /// App 失焦兜底见 [didChangeAppLifecycleState]。
-  /// 中央键语义不变 —— C-1（09-23）：取满两点后由【取点】变【重新】；取满后
-  /// 走 _clearPts()（全清 + 作废旧 G54/巡边/目视确认）—— 即中心键【重新】。
+  /// App 失焦兜底见 [didChangeAppLifecycleState]。**斜角 4 向仅点按** =
+  /// hw.jogXY 一条 `$J=G91 X.. Y..` 联动帧（固件 cnc_net.c:1439-1460 现成，
+  /// 固件零改动）。中央键语义不变 —— C-1（09-23）：取满两点后由【取点】变
+  /// 【重新】；取满后走 _clearPts()（全清 + 作废旧 G54/巡边/目视确认）。
   Widget _jogCross() {
     final sim = DebugSim.instance.enabled;
     final got = [widget.p0, widget.p1].where((e) => e != null).length;
@@ -3262,72 +3190,28 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       ref.read(hardwareServiceProvider).jogKeepalive();
     }
 
-    Widget key(String axis, int sign, double angle) => JogKey(
-          '',
-          () => _jog(axis, sign.toDouble()),
-          enabled: !_busy,
-          repeat: _jogStep <= 1.0,
-          onJogStart: sim ? null : () => start(axis, sign),
-          onJogEnd: sim ? null : () => end(),
-          onJogKeepalive: sim ? null : keepalive,
-          // 与右盘 _cross 同款 painted 箭头（线性图标，非 emoji/文本符号）。
-          child: Transform.rotate(
-            angle: angle,
-            child: Icon(Symbols.chevron_right,
-                size: 24, color: _busy ? CncColors.border : CncColors.textMain),
-          ),
-        );
-
-    return LayoutBuilder(builder: (ctx, c) {
-      final side = min(c.maxWidth, c.maxHeight);
-      if (!side.isFinite || side <= 12) return const SizedBox.shrink();
-      Widget cell(Widget k) => Expanded(
-            child: Center(
-              child:
-                  SizedBox(width: min(96.0, side * 0.42), height: 40, child: k),
-            ),
-          );
-      return Center(
-        child: SizedBox(
-          width: side,
-          height: side,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Positioned.fill(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: CncColors.card,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: CncColors.border),
-                  ),
-                ),
-              ),
-              Column(children: [
-                Expanded(child: cell(key('y', 1, -pi / 2))),
-                Expanded(
-                  child: Row(children: [
-                    cell(key('x', -1, pi)),
-                    const Expanded(child: SizedBox()),
-                    cell(key('x', 1, 0)),
-                  ]),
-                ),
-                Expanded(child: cell(key('y', -1, pi / 2))),
-              ]),
-              _crossCenter(
-                side: side,
-                label: _wysiwyg ? (_datumDone ? '重新' : '取点') : '设原点',
-                sub: _wysiwyg ? '$got/$_needPts' : null,
-                active: _wysiwyg && !_datumDone,
-                onTap: _busy
-                    ? null
-                    : (_wysiwyg ? (_datumDone ? _clearPts : _take) : _manualSet),
-              ),
-            ],
-          ),
-        ),
-      );
-    });
+    return OctagonDial(
+      enabled: !_busy,
+      onTap: _jogScreen,
+      // 模拟态无固件参与：不进连续模型，走旧模型连发（repeatFor）。
+      holdFor: sim ? null : (dx, dy) => dx == 0 || dy == 0,
+      onHoldStart: (dx, dy) {
+        if (dx != 0) {
+          start('x', dx);
+        } else {
+          start('y', -dy);
+        }
+      },
+      onHoldEnd: () => end(),
+      onHoldKeepalive: keepalive,
+      repeatFor: (dx, dy) => (dx == 0 || dy == 0) && _jogStep <= 1.0,
+      centerLabel: _wysiwyg ? (_datumDone ? '重新' : '取点') : '设原点',
+      centerSub: _wysiwyg ? '$got/$_needPts' : null,
+      centerActive: _wysiwyg && !_datumDone,
+      onCenter: _busy
+          ? null
+          : (_wysiwyg ? (_datumDone ? _clearPts : _take) : _manualSet),
+    );
   }
 
   Widget _canvasOr3D(Offset? laserMm, bool sim) {
@@ -4154,7 +4038,7 @@ class _ReadyPhase extends StatelessWidget {
                 _Param('主轴转速', '${mat.rpm} RPM'),
                 _Param('进给速度', '${mat.feed} mm/min'),
                 _Param('下刀速度', '${mat.plunge} mm/min'),
-              ] else ...[
+              ] else if (laserParams != null) ...[
                 _Param('激光功率', _laserStr(laserParams?.powerPercent, ' %', 0)),
                 _Param('加工速度',
                     _laserStr(laserParams?.speedMmMin, ' mm/min', 0)),
@@ -4166,9 +4050,21 @@ class _ReadyPhase extends StatelessWidget {
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                        '激光参数已在电脑端生成刀路时固化，App 仅展示、不可调整',
+                        '标称值仅供参考 · 实际功率/速度以刀路指令为准',
                         style:
                             TextStyle(fontSize: 10, color: CncColors.textSub)),
+                  ),
+                ),
+              ] else ...[
+                // P-4（09-24 PC 书面确认）：功率/速度无固定值、刀路 JSON 不带
+                // 标称参数 —— 不渲染 4 行 "—" 假占位，整卡退为一行灰字。
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('激光作业 · 实际功率/速度以刀路指令为准',
+                        style:
+                            TextStyle(fontSize: 11, color: CncColors.textSub)),
                   ),
                 ),
               ],

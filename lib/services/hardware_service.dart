@@ -143,6 +143,13 @@ abstract class HardwareService {
   /// 仅**大距离连续走位**（jogContinuous 的 feed，由调用方按档位给值）才显式指定。
   Future<bool> jog(String axis, double distanceMm, {double? feed});
 
+  /// 多轴联动点动（§3.2a 八向盘斜向）：一条 `$J=G91 X.. Y.. F..` 走真对角线。
+  /// [xMm]/[yMm] 为各轴 G91 增量（mm，机床坐标，与 [jog] 单轴同语义）；
+  /// 斜向每轴分量 = 标称步长÷√2（合成位移 = 标称步长）。固件多轴分支现成
+  /// （cnc_net.c:1439-1460：无 axis/dist 字段即走 {x?,y?,z?,feed?} → 联动插补），
+  /// **固件零改动**。
+  Future<bool> jogXY(double xMm, double yMm, {double? feed});
+
   /// 长按连续点动（2026-09-11 三方共识 S1）：**只发一次** `mode:"continuous"`，
   /// 由固件转成一条长距离 `$J` 持续运动。松手必须调用 [jogCancel]。
   ///

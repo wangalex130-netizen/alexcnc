@@ -1647,6 +1647,26 @@ class RealHardwareService implements HardwareService {
   }
 
   @override
+  Future<bool> jogXY(double xMm, double yMm, {double? feed}) async {
+    // 门禁与 [jog] 一致（D-DEC-1 同网限定）。
+    if (!await _confirmLan()) return false;
+    final cmd = {
+      'cmd': 'jog',
+      // 固件多轴分支（cnc_net.c:1439-1460）：不带 axis/dist 字段 →
+      // 拼一条 `$J=G91 X.. Y.. F..` 联动插补，走真对角线。与单轴 [jog]
+      // 同为 G91 机床坐标增量 —— 斜向 = 直边方向的矢量合成，语义一致
+      //（屏幕右 = X+、屏幕上 = Y+，调用方已按此换算分量符号）。
+      'x': xMm,
+      'y': yMm,
+      // 调用方按档位传（jogFeedForStep）；缺省 600 与固件缺省一致。
+      'feed': feed ?? 600,
+      'ts': DateTime.now().millisecondsSinceEpoch,
+      'seq': _jogSeq++,
+    };
+    return _publish(cmd, qos: MqttQos.atMostOnce);
+  }
+
+  @override
   Future<bool> jogContinuous(String axis, int direction,
       {double feed = 600}) async {
     // 2026-09-11 三方共识（S1「点动控制模型」）：长按**只发一次**，从源头消除
