@@ -640,7 +640,7 @@ class _OriginPainter extends CustomPainter {
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1
-          ..color = const Color(0xFFB9B7AE));
+          ..color = const Color(0xFFC4BCA9));
     tp.paint(canvas, rect.topLeft + const Offset(padH, padV));
   }
 

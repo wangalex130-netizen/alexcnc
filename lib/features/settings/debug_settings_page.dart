@@ -492,7 +492,7 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
 
                 backgroundColor: CncColors.primary,
 
-                foregroundColor: Colors.black,
+                foregroundColor: CncColors.onPrimary,
 
                 padding: const EdgeInsets.symmetric(vertical: 14),
 
@@ -945,11 +945,11 @@ class _DiagnosticCard extends ConsumerWidget {
 
               decoration: BoxDecoration(
 
-                color: CncColors.danger.withOpacity(0.1),
+                color: CncColors.dangerBg,
 
                 borderRadius: BorderRadius.circular(8),
 
-                border: Border.all(color: CncColors.danger.withOpacity(0.4)),
+                border: Border.all(color: CncColors.dangerBd),
 
               ),
 

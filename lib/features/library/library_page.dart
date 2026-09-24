@@ -1775,7 +1775,7 @@ class _ProjectItem extends StatelessWidget {
 
                   decoration: BoxDecoration(
 
-                    color: dimmed ? const Color(0xFFE0E3E8) : CncColors.primary,
+                    color: dimmed ? CncColors.disabled : CncColors.primary,
 
                     borderRadius: BorderRadius.circular(6),
 
@@ -1807,7 +1807,7 @@ class _ProjectItem extends StatelessWidget {
 
                     decoration: BoxDecoration(
 
-                      color: CncColors.danger.withOpacity(0.08),
+                      color: CncColors.dangerBg,
 
                       borderRadius: BorderRadius.circular(6),
 

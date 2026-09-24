@@ -381,8 +381,8 @@ class _GalleryState extends State<_Gallery> {
                     raw < 1.2;
                 return Container(
                   color: over
-                      ? const Color(0xFFF2F2F4)
-                      : const Color(0xFF202020),
+                      ? CncColors.panelAlt
+                      : const Color(0xFF1E1913),
                   child: Image.network(
                     url,
                     fit: over ? BoxFit.contain : BoxFit.cover,

@@ -5,6 +5,8 @@ import 'dart:typed_data';
 
 
 import 'package:flutter/material.dart';
+
+import '../../app/theme.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import 'package:flutter/services.dart';
@@ -681,11 +683,11 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
 
                           color: _camLink == _CamLink.connected
 
-                              ? const Color(0xFF00D97E)
+                              ? CncColors.primary
 
                               : _camLink == _CamLink.error
 
-                                  ? const Color(0xFFFF6B6B)
+                                  ? CncColors.danger
 
                                   : Colors.white70,
 
@@ -739,9 +741,9 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
 
                   onPressed: _saving ? null : _capture,
 
-                  backgroundColor: const Color(0xFF00D97E),
+                  backgroundColor: CncColors.primary,
 
-                  foregroundColor: Colors.black,
+                  foregroundColor: CncColors.onPrimary,
 
                   icon: _saving
 

@@ -388,7 +388,7 @@ class _ZGridPreviewState extends State<ZGridPreview> {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(10),
           child: Container(
-            color: const Color(0xFFF5F7FA),
+            color: CncColors.panelAlt,
             child: _body(h),
           ),
         ),

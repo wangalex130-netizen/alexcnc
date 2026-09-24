@@ -1097,7 +1097,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
                 ? CncColors.warning
 
-                : const Color(0xFF1A1A1A),
+                : const Color(0xFF1E1913),
 
       ),
 
@@ -1443,9 +1443,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
               margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: CncColors.warning.withOpacity(0.12),
+                color: CncColors.warnBg,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: CncColors.warning.withOpacity(0.5)),
+                border: Border.all(color: CncColors.warnBd),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1488,9 +1488,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
               margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: CncColors.danger.withOpacity(0.12),
+                color: CncColors.dangerBg,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: CncColors.danger.withOpacity(0.5)),
+                border: Border.all(color: CncColors.dangerBd),
               ),
               child: Row(
                 children: [
@@ -1514,9 +1514,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
               margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: CncColors.warning.withOpacity(0.12),
+                color: CncColors.warnBg,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: CncColors.warning.withOpacity(0.5)),
+                border: Border.all(color: CncColors.warnBd),
               ),
               child: Row(
                 children: [
@@ -1539,15 +1539,15 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: CncColors.primary.withOpacity(0.1),
+                  color: CncColors.successBg,
                   borderRadius: BorderRadius.circular(12),
                   border:
-                      Border.all(color: CncColors.primary.withOpacity(0.4)),
+                      Border.all(color: CncColors.successBd),
                 ),
                 child: Row(
                   children: [
                     Icon(Symbols.check_circle,
-                        size: 18, color: CncColors.primary),
+                        size: 18, color: CncColors.successFg),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text('加工已完成 · ${job.item.title}',
@@ -2137,7 +2137,7 @@ class _SpindleCard extends StatelessWidget {
 
                       decoration: BoxDecoration(
 
-                        color: spindleOn && enabled ? CncColors.danger.withOpacity(0.15) : const Color(0xFFEDEFF2),
+                        color: spindleOn && enabled ? CncColors.dangerBg : CncColors.panelAlt,
 
                         border: Border.all(color: spindleOn && enabled ? CncColors.danger : CncColors.border),
 
@@ -2185,7 +2185,7 @@ class _SpindleCard extends StatelessWidget {
 
                 children: [
 
-                  const Text('0', style: TextStyle(fontSize: 10, color: Color(0xFF555555))),
+                  const Text('0', style: TextStyle(fontSize: 10, color: CncColors.textSub)),
 
                   Expanded(
 
@@ -2207,7 +2207,7 @@ class _SpindleCard extends StatelessWidget {
 
                   ),
 
-                  const Text('24k', style: TextStyle(fontSize: 10, color: Color(0xFF555555))),
+                  const Text('24k', style: TextStyle(fontSize: 10, color: CncColors.textSub)),
 
                 ],
 

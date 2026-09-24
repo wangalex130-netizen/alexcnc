@@ -478,7 +478,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                         return Container(
 
-                          color: const Color(0xFFF5F7FA),
+                          color: CncColors.panelAlt,
 
                           child: Center(
 
@@ -586,7 +586,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                   value: completed ? 1.0 : prog,
 
-                  backgroundColor: const Color(0xFFEDEFF2),
+                  backgroundColor: CncColors.panelAlt,
 
                   color: completed ? CncColors.primary : CncColors.primary,
 
@@ -706,7 +706,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                       decoration: BoxDecoration(
 
-                        color: CncColors.warning.withOpacity(0.15),
+                        color: CncColors.warnBg,
 
                         borderRadius: BorderRadius.circular(10),
 
@@ -766,7 +766,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                     decoration: BoxDecoration(
 
-                      color: CncColors.danger.withOpacity(0.15),
+                      color: CncColors.dangerBg,
 
                       borderRadius: BorderRadius.circular(10),
 
@@ -873,7 +873,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
         duration: const Duration(seconds: 2),
 
-        backgroundColor: const Color(0xFF1A1A1A),
+        backgroundColor: const Color(0xFF1E1913),
 
       ),
 
@@ -1227,7 +1227,7 @@ class _ToolpathProgressPainter extends CustomPainter {
 
       Rect.fromLTWH(0, 0, size.width, size.height),
 
-      Paint()..color = const Color(0xFFF5F7FA),
+      Paint()..color = CncColors.panelAlt,
 
     );
 

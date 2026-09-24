@@ -281,7 +281,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
               backgroundColor: CncColors.primary,
 
-              foregroundColor: Colors.black,
+              foregroundColor: CncColors.onPrimary,
 
             ),
 

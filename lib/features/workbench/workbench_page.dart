@@ -382,7 +382,7 @@ class _MachineCard extends ConsumerWidget {
                         TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                 style: FilledButton.styleFrom(
                   backgroundColor: CncColors.primary,
-                  foregroundColor: Colors.black,
+                  foregroundColor: CncColors.onPrimary,
                   padding: const EdgeInsets.symmetric(vertical: 13),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10)),
@@ -611,9 +611,9 @@ class _AwaitConfirmBanner extends StatelessWidget {
       margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: CncColors.warning.withOpacity(0.15),
+        color: CncColors.warnBg,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: CncColors.warning.withOpacity(0.5)),
+        border: Border.all(color: CncColors.warnBd),
       ),
       child: Row(
         children: [
@@ -679,7 +679,7 @@ class _CurrentWorkCard extends StatelessWidget {
                 onPressed: onGotoLibrary,
                 style: FilledButton.styleFrom(
                   backgroundColor: CncColors.primary,
-                  foregroundColor: Colors.black,
+                  foregroundColor: CncColors.onPrimary,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10)),
@@ -708,9 +708,9 @@ class _CurrentWorkCard extends StatelessWidget {
         margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: CncColors.warning.withOpacity(0.1),
+          color: CncColors.warnBg,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: CncColors.warning.withOpacity(0.4)),
+          border: Border.all(color: CncColors.warnBd),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

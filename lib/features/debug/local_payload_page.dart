@@ -312,9 +312,9 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: CncColors.warning.withOpacity(0.12),
+              color: CncColors.warnBg,
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: CncColors.warning.withOpacity(0.45)),
+              border: Border.all(color: CncColors.warnBd),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -456,7 +456,7 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
             ClipRRect(
               borderRadius: BorderRadius.circular(10),
               child: Container(
-                color: const Color(0xFFF5F7FA),
+                color: CncColors.panelAlt,
                 child: ZGridSurface(
                   data: g,
                   fallbackWidthMm: g.spanX,

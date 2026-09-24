@@ -477,7 +477,7 @@ class _RecordCard extends StatelessWidget {
         padding: const EdgeInsets.only(right: 16),
         margin: const EdgeInsets.only(bottom: 10),
         decoration: BoxDecoration(
-          color: CncColors.danger.withOpacity(0.12),
+          color: CncColors.dangerBg,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Icon(Symbols.delete, color: CncColors.danger, size: 20),

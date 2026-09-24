@@ -804,11 +804,11 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
               decoration: BoxDecoration(
 
-                color: CncColors.warning.withOpacity(0.08),
+                color: CncColors.warnBg,
 
                 borderRadius: BorderRadius.circular(10),
 
-                border: Border.all(color: CncColors.warning.withOpacity(0.3)),
+                border: Border.all(color: CncColors.warnBd),
 
               ),
 

@@ -266,9 +266,9 @@ class _MovePageState extends ConsumerState<MovePage>
                     onHoldEnd: jogEnd,
                     onHoldKeepalive: jogKeepalive,
                     repeatFor: (dx, dy) => (dx == 0 || dy == 0) && step <= 1.0,
-                    centerLabel: '归中',
-                    // 中心键：归中指令接口未接，正常外观、点击无响应。
-                    onCenter: () {},
+                    centerLabel: '回零',
+                    // 中心键：复用底部回零现有调用（修订单 20260925 §1.1）。
+                    onCenter: doHome,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -333,16 +333,11 @@ class _MovePageState extends ConsumerState<MovePage>
               ],
             ),
           ),
-          // ⑥ 底部三键（规格 §7-6）：回零 / 软复位 / 解锁（仅报警态点亮，规则不上屏）。
+          // ⑥ 底部两键（修订单 20260925 §1.2）：软复位 / 解锁（仅报警态点亮，规则不上屏）；回零已上移圆盘中心。
           Container(
             margin: const EdgeInsets.fromLTRB(12, 14, 12, 0),
             child: Row(
               children: [
-                _actionKey('回零', doHome,
-                    fg: CncColors.textMain,
-                    bg: CncColors.card,
-                    border: CncColors.border),
-                const SizedBox(width: 8),
                 _actionKey('软复位', doSoftReset,
                     fg: CncColors.danger,
                     bg: CncColors.card,

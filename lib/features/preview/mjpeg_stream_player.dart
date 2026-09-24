@@ -7,6 +7,8 @@ import 'dart:typed_data';
 
 
 import 'package:flutter/material.dart';
+
+import '../../app/theme.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import 'package:http/http.dart' as http;
@@ -473,7 +475,7 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
 
           const Center(
 
-            child: CircularProgressIndicator(color: Color(0xFF00D97E)),
+            child: CircularProgressIndicator(color: CncColors.primary),
 
           ),
 
@@ -529,7 +531,7 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
 
                     const Icon(Symbols.error,
 
-                        size: 36, color: Color(0xFFFF6B6B)),
+                        size: 36, color: CncColors.danger),
 
                     const SizedBox(height: 10),
 
@@ -549,11 +551,11 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
 
                       onPressed: _retry,
 
-                      icon: const Icon(Symbols.refresh, color: Color(0xFF00D97E)),
+                      icon: const Icon(Symbols.refresh, color: CncColors.primaryInk),
 
                       label: const Text('重试',
 
-                          style: TextStyle(color: Color(0xFF00D97E))),
+                          style: TextStyle(color: CncColors.primaryInk)),
 
                     ),
 

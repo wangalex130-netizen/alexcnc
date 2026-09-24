@@ -181,7 +181,7 @@ class _BindPageState extends ConsumerState<BindPage> {
 
           ),
 
-          backgroundColor: const Color(0xFF1A1A1A),
+          backgroundColor: const Color(0xFF1E1913),
 
           duration: const Duration(seconds: 2),
 

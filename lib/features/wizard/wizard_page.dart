@@ -977,7 +977,7 @@ class _StepMaterial extends StatelessWidget {
                       style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.bold,
-                          color: Colors.black)),
+                          color: Color(0xFFFFFDF9)),
                 ),
               ],
             ),
@@ -1196,7 +1196,7 @@ class _CheckTile extends StatelessWidget {
                       color: value ? CncColors.primary : CncColors.border),
                 ),
                 child: value
-                    ? const Icon(Symbols.check, size: 15, color: Colors.black)
+                    ? Icon(Symbols.check, size: 15, color: CncColors.onPrimary)
                     : null,
               ),
               const SizedBox(width: 10),
@@ -1534,16 +1534,16 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
             style: FilledButton.styleFrom(
               backgroundColor: ready
                   ? (widget.synced
-                      ? CncColors.primary.withOpacity(0.85)
+                      ? CncColors.primaryInk
                       : CncColors.primary)
                   : null,
-              foregroundColor: Colors.black,
+              foregroundColor: CncColors.onPrimary,
             ),
             icon: Icon(
                 ready
                     ? (widget.synced ? Symbols.check_circle : Symbols.sync)
                     : Symbols.block,
-                color: Colors.black),
+                color: CncColors.onPrimary),
             label: Text(
                 ready
                     ? (widget.synced
@@ -1577,7 +1577,7 @@ class _SlotChip extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(8),
             color: danger
-                ? CncColors.danger.withOpacity(0.15)
+                ? CncColors.dangerBg
                 : selected
                     ? CncColors.primary.withOpacity(0.15)
                     : CncColors.bg,
@@ -2562,10 +2562,10 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         margin: const EdgeInsets.only(right: 6),
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
         decoration: BoxDecoration(
-          color: ok ? const Color(0xFFEAF3DE) : const Color(0xFFFAEEDA),
+          color: ok ? CncColors.successBg : CncColors.warnBg,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-              color: ok ? const Color(0xFFC0DD97) : const Color(0xFFEF9F27),
+              color: ok ? CncColors.successBd : CncColors.warnBd,
               width: 0.5),
         ),
         child: Row(
@@ -2575,7 +2575,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
               width: 7,
               height: 7,
               decoration: BoxDecoration(
-                color: ok ? const Color(0xFF639922) : const Color(0xFFBA7517),
+                color: ok ? CncColors.successFg : CncColors.warnFg,
                 shape: BoxShape.circle,
               ),
             ),
@@ -2583,7 +2583,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
             Text(text,
                 style: TextStyle(
                     fontSize: 11,
-                    color: ok ? const Color(0xFF27500A) : const Color(0xFF633806))),
+                    color: ok ? CncColors.successFg : CncColors.warnFg))),
           ],
         ),
       );
@@ -2620,7 +2620,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
                     style: FilledButton.styleFrom(
                       padding: EdgeInsets.zero,
                       backgroundColor: CncColors.primary,
-                      foregroundColor: Colors.black,
+                      foregroundColor: CncColors.onPrimary,
                     ),
                     child: Text(label, style: const TextStyle(fontSize: 12)),
                   )
@@ -2779,17 +2779,17 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     Color bd;
     Color fg;
     if (level == 2) {
-      bg = const Color(0xFFFCEBEB);
-      bd = const Color(0xFFE24B4A);
-      fg = const Color(0xFF791F1F);
+      bg = CncColors.dangerBg;
+      bd = CncColors.dangerBd;
+      fg = CncColors.dangerFg;
     } else if (level == 1) {
-      bg = const Color(0xFFFAEEDA);
-      bd = const Color(0xFFEF9F27);
-      fg = const Color(0xFF633806);
+      bg = CncColors.warnBg;
+      bd = CncColors.warnBd;
+      fg = CncColors.warnFg;
     } else {
-      bg = const Color(0xFFF0F7E8);
-      bd = const Color(0xFFC0DD97);
-      fg = const Color(0xFF27500A);
+      bg = CncColors.successBg;
+      bd = CncColors.successBd;
+      fg = CncColors.successFg;
     }
     return Container(
       width: double.infinity,
@@ -2797,7 +2797,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       decoration: BoxDecoration(
         color: bg,
         border: Border(
-            bottom: BorderSide(color: bd.withOpacity(0.35), width: 0.75)),
+            bottom: BorderSide(color: bd, width: 0.75)),
       ),
       child: Text(text,
           maxLines: 4,
@@ -3362,7 +3362,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       return ClipRRect(
         borderRadius: BorderRadius.circular(10),
         child: Container(
-          color: const Color(0xFFF5F7FA),
+          color: CncColors.panelAlt,
           child: LayoutBuilder(
             builder: (ctx, c) => ZGridSurface(
               data: ZGridData(
@@ -3589,7 +3589,7 @@ class _StepChip extends StatelessWidget {
           margin: const EdgeInsets.only(bottom: 4),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: active ? CncColors.primary : const Color(0xFFEDEFF2),
+            color: active ? CncColors.primary : CncColors.panelAlt,
             borderRadius: BorderRadius.circular(6),
             border: Border.all(
                 color: active ? CncColors.primary : CncColors.border),
@@ -3630,7 +3630,7 @@ class _BedPainter extends CustomPainter {
     // 底板背景
     canvas.drawRect(
       Rect.fromLTWH(0, 0, size.width, size.height),
-      Paint()..color = const Color(0xFFEFF2F5),
+      Paint()..color = const Color(0xFFEFE9DD),
     );
 
     // 点阵网格（对齐 step4.html 的 radial-gradient dot grid）
@@ -3786,9 +3786,9 @@ class _StepLeveling extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: CncColors.warning.withOpacity(0.12),
+            color: CncColors.warnBg,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: CncColors.warning.withOpacity(0.45)),
+            border: Border.all(color: CncColors.warnBd),
           ),
           child: Row(
             children: [
@@ -4287,7 +4287,7 @@ class _ReadyPhase extends StatelessWidget {
                     child: CircularProgressIndicator(
                         strokeWidth: 2, color: Colors.black54),
                   )
-                : const Icon(Symbols.play_arrow, color: Colors.black),
+                : Icon(Symbols.play_arrow, color: CncColors.onPrimary),
             label: Text(launching ? S.sentWaitingPlain : '开始自检并雕刻',
                 style: const TextStyle(
                     fontSize: 14, fontWeight: FontWeight.bold)),

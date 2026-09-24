@@ -122,7 +122,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
     return Container(
       height: 480,
       decoration: BoxDecoration(
-        color: const Color(0xFFE0E3E8),
+        color: CncColors.disabled,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         border: Border(top: BorderSide(color: CncColors.border)),
       ),
@@ -201,7 +201,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
               onPressed: _dirty && !_saving ? _save : null,
               style: FilledButton.styleFrom(
                 backgroundColor: CncColors.primary,
-                foregroundColor: Colors.black,
+                foregroundColor: CncColors.onPrimary,
                 disabledBackgroundColor: CncColors.primary.withOpacity(0.35),
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
@@ -289,7 +289,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: CncColors.danger.withOpacity(0.1),
+                  color: CncColors.dangerBg,
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text('清空',
@@ -397,10 +397,10 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   decoration: BoxDecoration(
-                    color: CncColors.danger.withOpacity(0.1),
+                    color: CncColors.dangerBg,
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
-                        color: CncColors.danger.withOpacity(0.4)),
+                        color: CncColors.dangerBd),
                   ),
                   child: Center(
                     child: Text('清空此刀仓 (空)',

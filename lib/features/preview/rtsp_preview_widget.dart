@@ -937,7 +937,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
         duration: const Duration(seconds: 2),
 
-        backgroundColor: const Color(0xFF1A1A1A),
+        backgroundColor: const Color(0xFF1E1913),
 
       ),
 
@@ -973,7 +973,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
       decoration: BoxDecoration(
 
-        color: const Color(0xFF0A0A0A),
+        color: const Color(0xFF1E1913),
 
         borderRadius: BorderRadius.circular(8),
 
@@ -1011,11 +1011,11 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
       decoration: const BoxDecoration(
 
-        color: Color(0xFF1A1A1A),
+        color: Color(0xFF1E1913),
 
         border: Border(
 
-          bottom: BorderSide(color: Color(0xFF2A2A2A), width: 1),
+          bottom: BorderSide(color: Color(0xFF2B241B), width: 1),
 
         ),
 
@@ -1037,13 +1037,13 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
               color: _state == _CamState.ready
 
-                  ? const Color(0xFF22C55E)
+                  ? CncColors.primary
 
                   : _state == _CamState.connecting
 
                       ? CncColors.primary
 
-                      : const Color(0xFF9AA0A6),
+                      : const Color(0xFFA69D8F),
 
             ),
 
@@ -1059,7 +1059,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
               fontSize: 12,
 
-              color: Color(0xFFF5F5F7),
+              color: Color(0xFFF3EFE7),
 
               fontWeight: FontWeight.w500,
 
@@ -1251,7 +1251,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
         const Positioned.fill(
 
-          child: ColoredBox(color: Color(0xFF0A0A0A)),
+          child: ColoredBox(color: Color(0xFF1E1913)),
 
         ),
 
@@ -1263,7 +1263,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
             child: ColoredBox(
 
-              color: Color(0xFF0A0A0A),
+              color: Color(0xFF1E1913),
 
               child: Center(
 
@@ -1455,7 +1455,7 @@ class _ControlButton extends StatelessWidget {
 
                     child: CircularProgressIndicator(
 
-                      color: Color(0xFFF5F5F7),
+                      color: Color(0xFFF3EFE7),
 
                       strokeWidth: 2.5,
 
@@ -1469,7 +1469,7 @@ class _ControlButton extends StatelessWidget {
 
                     size: 26,
 
-                    color: const Color(0xFFF5F5F7),
+                    color: const Color(0xFFF3EFE7),
 
                   ),
 
@@ -1519,7 +1519,7 @@ class _Placeholder extends StatelessWidget {
 
         children: [
 
-          Icon(icon, size: 44, color: const Color(0xFF9AA0A6)),
+          Icon(icon, size: 44, color: const Color(0xFFA69D8F)),
 
           if (onRetry != null) ...[
 
