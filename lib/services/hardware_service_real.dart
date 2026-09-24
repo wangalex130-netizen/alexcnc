@@ -1116,6 +1116,11 @@ class RealHardwareService implements HardwareService {
   /// 当前等待 ACK 的命令 reqId（prepare 或 confirm 二选一，不会同时等两个）。
   String? _awaitingReqId;
 
+  /// A-1（2026-09-24）：通用 cmd_ack 等待表（reqId → Completer）。
+  /// `set_work_origin` 等带 reqId 的单发命令用它等回执；[_handleCmdAck] 命中
+  /// 即交付并返回 —— 这类回执不属于雕刻阶段推进，不与 _awaitingReqId 机制混用。
+  final Map<String, Completer<NotifyEvent>> _ackWaiters = {};
+
   /// 已处理过的 ACK reqId（文档 §6.11 规则 2：**重复 ACK 只处理一次**）。
   final Set<String> _handledAcks = <String>{};
 
@@ -1379,6 +1384,13 @@ class RealHardwareService implements HardwareService {
   void _handleCmdAck(NotifyEvent ev) {
     final reqId = ev.reqId;
     if (reqId == null || reqId.isEmpty) return;
+    // A-1（2026-09-24）：通用等待者命中即交付（set_work_origin 等）。
+    // 该回执归等待者所有，直接返回 —— 不进雕刻阶段推进逻辑。
+    final waiter = _ackWaiters.remove(reqId);
+    if (waiter != null && !waiter.isCompleted) {
+      waiter.complete(ev);
+      return;
+    }
     if (_awaitingReqId == null || reqId != _awaitingReqId) return;
     if (_handledAcks.contains(reqId)) return; // 重复 ACK 只处理一次
     _handledAcks.add(reqId);
@@ -1634,52 +1646,6 @@ class RealHardwareService implements HardwareService {
     return _publish(cmd, qos: MqttQos.atMostOnce);
   }
 
-  /// 「拖动十字 → 移动到此」（2026-09-18 昊总第 10 条）。
-  ///
-  /// 门禁与 [jog] 完全一致（同网限定）——绝对定位是全行程快速移动，
-  /// 外网误触即撞机，比单步点动更危险。
-  ///
-  /// **走 manual_gcode 过渡通道**（不是 move_to）：`move_to` 是**正式指令**
-  /// （契约 `move_to` 段 / 固件工单 **F6**），尚未交付；而 manual_gcode
-  /// **固件已实现且可用**（`pingMu-3020/main/cnc_net.c:1503`）——
-  /// 帧 `{"cmd":"manual_gcode","line":"G0 X.. Y.. F.."}`，固件约束：
-  /// line 1~120 字符、无控制字符、G-code 发送器 idle-only、LAN only
-  /// （`cnc_net.c:1382` 的 is_wan_forbidden 含 manual_gcode，与本方法门禁一致）。
-  /// 这与 setWcsOffset/framing 的「正式指令 + 过渡通道」双轨是同一惯例
-  /// （开发文档 §5.4 已把 manual_gcode 定为过渡通道）。
-  /// 切回时机：F6 交付后把本方法内换成 _publish({'cmd':'move_to',...}) 即可。
-  ///
-  /// 一行 `G0` 即走直线：加减速全部交给 GRBL planner（两端自然减速，最平滑），
-  /// App 不做 S 曲线、不逐帧改 F —— 那是重复实现 planner，还会与其打架产生震荡。
-  ///
-  /// QoS1（不是 jog 的 QoS0）：绝对定位**必须到达**，丢一帧就是没走到；
-  /// 同一 goal 重发完全幂等（走到同一坐标），无需额外去重。
-  ///
-  /// `safeZ` 当前**不产生任何 Z 指令**：App 没有 Z 行程与零点方向数据，
-  /// 凭空发 Z 指令（如 G53 G0 Z0）会依赖「Z 零点在最高位」这一未经核实的
-  /// 机型前提，最保守假设就是**不假设** ⇒ 不介入 Z。
-  /// Z 安全由两件事兜住：① 调用方按作业类型限制进给率；② UI 明确提示
-  /// 「确认主轴/激光已抬离料面」。F6 交付后固件可真正抬 Z，此处参数才生效。
-  @override
-  Future<bool> moveTo({
-    required double x,
-    required double y,
-    double feed = 1000,
-    bool safeZ = true,
-  }) async {
-    if (!await _confirmLan()) return false;
-    // 3 位小数足够（1µm 分辨率的 1000 倍）；整行远小于固件 120 字符上限。
-    final line = 'G0 X${x.toStringAsFixed(3)} Y${y.toStringAsFixed(3)}'
-        ' F${feed.toStringAsFixed(0)}';
-    final cmd = {
-      'cmd': 'manual_gcode',
-      'line': line,
-      // ts 仅作诊断，不参与任何跨端比较（固件时钟是开机毫秒，见 jog 注释）。
-      'ts': DateTime.now().millisecondsSinceEpoch,
-    };
-    return _publish(cmd);
-  }
-
   @override
   Future<bool> jogContinuous(String axis, int direction,
       {double feed = 600}) async {
@@ -1793,58 +1759,85 @@ class RealHardwareService implements HardwareService {
   }
 
   @override
-  Future<bool> setWcsOffset({
+  Future<WcsWriteResult> setWcsOffset({
     required double x,
     required double y,
     double z = 0,
     String? jobId,
     String wcs = 'G54',
   }) async {
-    // 无感定原点（开发文档 §5.4）：契约未列 → 同网限定（偏置写错会整体跑偏）。
-    if (!await _allowLocalOnly()) return false;
-    // v11(G54-过渡通道)：小屏固件**未实现** `setWcsOffset` —— 命令清单
-    //（《小屏幕支持命令完整清单》§4）里只有 `set_work_zero`（内部发 G92 =
-    // 把**当前位置**设为工件零点），**没有「写入任意偏置」的能力** ⇒ 原样
-    // 下发会命中未知命令分支（回 E400 `unknown cmd`），而 App 端仍报「已写入」
-    //（假阳性成功）。GRBL 原生 `G10 L2 Pn X.. Y..` 正是「写工件坐标系偏置」，
-    // 与本方法的 (x,y) 语义**逐字对应**：payload.g54For() 给出的就是偏置值
-    //（DesignPos − camOriginOffset，允许为负）。⇒ 走 `manual_gcode` 发一行
-    // G10，今天即可在真机跑通「无感定原点」，与 moveTo 是同一过渡套路。
-    // 切回时机：固件实现 setWcsOffset 后，把下面几行换回 _dispatch(cmd)。
-    //
-    // **不带 Z**：App 拿不到 Z 行程/零点方向数据，凭空写 Z 偏置会依赖
-    //「Z 零点在最高位」这一未经核实的机型前提 ⇒ 不介入 Z（Z 铁律，见 moveTo）。
-    // 故 `z` 入参在过渡期不参与下发，仅保留签名兼容。
-    final g54 = <String, int>{
-      'G54': 1,
-      'G55': 2,
-      'G56': 3,
-      'G57': 4,
-      'G58': 5,
-      'G59': 6,
-    }[wcs.toUpperCase()] ?? 1;
-    // 两条，与固件工单 **F1** 的实现口径一致（F1 = setWcsOffset 正式指令，
-    // 开发文档 §8 计划内部串行执行 `G92.1` + `G10 L2 P1 …`）：
-    //   ① `G92.1` = 清掉 G92 临时偏移。若此前用过 set_work_zero（它发的就是
-    //      `G92 X0 Y0`），不清就会**叠加两份偏移** ⇒ 整体跑偏；
-    //   ② `G10 L2 Pn X.. Y..` = 写工件坐标系偏置（P1=G54 … P6=G59）。
-    // 两条都走 manual_gcode（固件 idle-only，逐条排队执行）。
-    final lines = <String>[
-      'G92.1',
-      'G10 L2 P$g54 X${x.toStringAsFixed(3)} Y${y.toStringAsFixed(3)}',
-    ];
-    var sent = true;
-    for (final line in lines) {
-      final one = _publish(<String, dynamic>{
-        'cmd': 'manual_gcode',
-        'line': line,
-        // ts 仅作诊断，不参与跨端比较（固件时钟是开机毫秒，见 jog 注释）。
-        'ts': DateTime.now().millisecondsSinceEpoch,
-      });
-      sent = sent && one;
+    // A-1（2026-09-24）：协议正式命令 ③ `set_work_origin`（《APP联机雕刻协议》09-24）。
+    // 旧 manual_gcode G92.1+G10 过渡通道按协议**退役**（manual_gcode 默认关闭、
+    // 限长 120 字符、要求空闲，明令不用于承载业务流程）。
+    // x/y = MPos 绝对坐标，屏幕内部转坐标系槽位（G54 P1）。
+    // set_work_zero（G92）与本命令不互相替代（协议明确），本流程禁用。
+    // **不带 Z**（Z 铁律，见 jog 注释）：`z` 仅保留签名兼容，不参与下发。
+    if (!await _allowLocalOnly()) {
+      return const WcsWriteResult(false,
+          reason: '原点写入只能在机器同一 Wi-Fi 下执行');
     }
-    // 如实返回「是否真的发出」：未连接 MQTT ⇒ false，App 不得报成功
-    return sent;
+    final reqId = _newId();
+    final waiter = Completer<NotifyEvent>();
+    _ackWaiters[reqId] = waiter;
+    final frame = <String, dynamic>{
+      'cmd': 'set_work_origin',
+      'x': x,
+      'y': y,
+      'reqId': reqId,
+    };
+    if (jobId != null && jobId.isNotEmpty) frame['jobId'] = jobId;
+    final sent = _publish(frame);
+    if (!sent) {
+      _ackWaiters.remove(reqId);
+      return const WcsWriteResult(false, reason: '机器未连线，原点没有写入');
+    }
+    // 第一道闸：cmd_ack（10 秒无回执 = 机器无响应，**不得默认成功**）。
+    NotifyEvent ack;
+    try {
+      ack = await waiter.future.timeout(const Duration(seconds: 10));
+    } on TimeoutException {
+      _ackWaiters.remove(reqId);
+      return const WcsWriteResult(false,
+          reason: '机器无响应（10 秒未回执），原点没有写入');
+    }
+    if (ack.ok != true) {
+      // 错误码 → 客户人话（复用 hsr 既有映射惯例）。
+      return WcsWriteResult(false, reason: _friendlyAckText(ack.message, ack.code));
+    }
+    // 第二道闸（回读校验，A-1 第 3 条）：等最新状态帧，校验 mpos − wpos ≈ 写入值
+    // （±0.02mm）；不一致提示"原点写入未生效…请重试"。
+    // 固件状态帧未携带 wpos 时回读自动跳过（不误伤；wpos 上报属 C-1 第 3 条
+    // mpos 基准核对范围）。断电持久性/强制 G54 等 ← 同见 C-1 第 4 条书面确认。
+    final rb = await _readbackWcs(x, y);
+    if (rb != null) return WcsWriteResult(false, reason: rb);
+    return const WcsWriteResult(true);
+  }
+
+  /// A-1 回读二道闸：等 3s 内的状态帧；帧带 wpos 时校验 mpos−wpos ≈ 写入值。
+  /// 返回 null = 通过（或固件未上报 wpos，跳过）；非 null = 客户可读失败原因。
+  Future<String?> _readbackWcs(double x, double y) async {
+    final done = Completer<String?>();
+    final sub = _ctrl.stream.listen((st) {
+      if (done.isCompleted) return;
+      final w = st.workPosition;
+      if (w == null) return; // 帧未携带 wpos（旧固件形状）⇒ 跳过，不误判
+      final m = st.machinePosition;
+      final dx = m.x - w.x;
+      final dy = m.y - w.y;
+      if ((dx - x).abs() <= 0.02 && (dy - y).abs() <= 0.02) {
+        done.complete(null);
+      } else {
+        done.complete('原点写入未生效（机器返回 X${dx.toStringAsFixed(2)} '
+            'Y${dy.toStringAsFixed(2)}），请重试');
+      }
+    });
+    final timer = Timer(const Duration(seconds: 3), () {
+      if (!done.isCompleted) done.complete(null); // 3s 无 wpos 帧 ⇒ 跳过回读
+    });
+    final r = await done.future;
+    timer.cancel();
+    await sub.cancel();
+    return r;
   }
 
   @override

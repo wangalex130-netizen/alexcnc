@@ -28,6 +28,10 @@ class MachineStatus {
   final MachineState state;
   final Position position; // work coordinates (G54)
   final Position machinePosition; // machine coordinates
+  /// 工作坐标（wpos，G54 偏置后）。**帧里没有 wpos 字段时为 null**（A-1，
+  /// 2026-09-24）：原点回读（mpos−wpos ≈ 写入值）依赖此字段；旧固件缺帧时
+  /// 回读自动跳过 —— 不能用默认全 0 冒充，否则会把「没上报」误判成「偏置丢失」。
+  final Position? workPosition; // work coordinates (wpos, 可空)
   final double? spindleRpm;
   final double? feedRate;
   final double progress; // 0..1
@@ -74,6 +78,7 @@ class MachineStatus {
     this.state = MachineState.idle,
     this.position = const Position(),
     this.machinePosition = const Position(),
+    this.workPosition,
     this.spindleRpm,
     this.feedRate,
     this.progress = 0,
@@ -97,6 +102,7 @@ class MachineStatus {
     MachineState? state,
     Position? position,
     Position? machinePosition,
+    Position? workPosition,
     double? spindleRpm,
     double? feedRate,
     double? progress,
@@ -119,6 +125,7 @@ class MachineStatus {
         state: state ?? this.state,
         position: position ?? this.position,
         machinePosition: machinePosition ?? this.machinePosition,
+        workPosition: workPosition ?? this.workPosition,
         spindleRpm: spindleRpm ?? this.spindleRpm,
         feedRate: feedRate ?? this.feedRate,
         progress: progress ?? this.progress,
@@ -224,6 +231,9 @@ class MachineStatus {
       state: state,
       position: _pos(['pos']),
       machinePosition: _pos(['mpos', 'mp']),
+      // A-1（2026-09-24）：wpos 仅在帧携带时解析，缺失保持 null（见字段注释）。
+      workPosition:
+          (j['wpos'] is Map || j['wp'] is Map) ? _pos(['wpos', 'wp']) : null,
       spindleRpm: (rpmRaw is num)
           ? (rpmRaw as num).toDouble()
           : (j['spindle'] is num ? (j['spindle'] as num).toDouble() : null),

@@ -76,6 +76,17 @@ class PendingCommand {
 /// is encapsulated inside the implementation. To go live, replace
 /// [MockHardwareService] with a real implementation that talks WiFi/Telnet or
 /// MQTT to the MCU — the rest of the app never changes.
+/// 原点写入结果（A-1，2026-09-24：协议正式命令 ③ `set_work_origin`）。
+///
+/// [ok] = 写入已确认生效（cmd_ack OK **且** 回读二道闸通过）；失败时 [reason]
+/// 为客户可读中文（错误码已映射），UI 必须展示、不得静默、不得默认成功。
+class WcsWriteResult {
+  final bool ok;
+  final String? reason;
+
+  const WcsWriteResult(this.ok, {this.reason});
+}
+
 abstract class HardwareService {
   /// Live machine status, broadcast by the MCU (SSOT).
   Stream<MachineStatus> get statusStream;
@@ -129,35 +140,8 @@ abstract class HardwareService {
   /// UI 必须给出明确提示（不再静默失败）。
   /// [feed] 可选：指定进给（mm/min）。缺省用档位表 [jogFeedForStep] —— 单步点动
   /// 必须走档位表，否则 10mm 档在 F600 下耗时 1000ms 会堆积队列（A1-2）。
-  /// 仅**大距离分轴走位**（见 [moveTo] 的降级路径）才显式指定。
+  /// 仅**大距离连续走位**（jogContinuous 的 feed，由调用方按档位给值）才显式指定。
   Future<bool> jog(String axis, double distanceMm, {double? feed});
-
-  /// 主轴移动到台面**绝对坐标**（2026-09-18 昊总裁定：「拖动十字 → 移动到此」）。
-  ///
-  /// 动机：取一个角点常要移 100~200mm，10mm 档 ≈ 15 次按键；两点含找方向 ≈ 40 次
-  /// 操作。改成「画布拖一下 + 点一次确认」≈ 2 次操作。省下的不只是手速，
-  /// 更是判断负担 —— 按键是「我推它往哪走」，拖动是「我告诉它去哪」。
-  ///
-  /// 与 [jog] 的差别：一次下发**两轴绝对目标**走**直线**，App 不做分轴累加，
-  /// 也不受 GRBL 相对点动的队列堆积影响。
-  ///（**不做 App 侧 S 曲线**：那是重复实现固件 planner，且频繁改 F 会与 planner
-  ///  打架产生加减速震荡 —— 加减速交给固件 planner 两端自然减速最平滑。）
-  ///
-  /// 🔴 运动类（契约 `wan_whitelist.forbidden`）⇒ **仅同网可执行**。
-  /// 目标必须由调用方夹在台面内；**绝不允许**让本方法自行推断安全位置。
-  ///
-  /// **通道是双轨的**：当前走 `manual_gcode` 一行 `G0 X.. Y.. F..`（固件已实现，
-  /// 现网可用）；工单 **F6** 的 `move_to` 正式指令交付后切换，接口签名不变。
-  ///
-  /// ⚠️ [safeZ] **当前不产生任何 Z 指令**：App 无 Z 行程与零点方向数据，
-  /// 凭空发 Z 会依赖未经核实的机型前提 ⇒ 最保守假设=不假设。该参数是为
-  /// F6 预留的语义位；其间 Z 安全由 ① 调用方按距离限速 ② UI 提示兜住。
-  Future<bool> moveTo({
-    required double x,
-    required double y,
-    double feed = 1000,
-    bool safeZ = true,
-  });
 
   /// 长按连续点动（2026-09-11 三方共识 S1）：**只发一次** `mode:"continuous"`，
   /// 由固件转成一条长距离 `$J` 持续运动。松手必须调用 [jogCancel]。
@@ -192,14 +176,17 @@ abstract class HardwareService {
   Future<bool> setWorkZero(
       {List<String> axes = const ['x', 'y', 'z']}); // G92，清单 §4.6-4.8 axes 数组
 
-  /// 写入工件坐标系偏移（无感定原点 · 开发文档 §5.4）。契约未列 → 同网限定。
+  /// 写入工件坐标系偏移（A-1，2026-09-24：协议正式命令 ③ `set_work_origin`）。
   ///
-  /// 由固件**原子执行** `G92.1`（清残留临时偏置，必须先于 G10）+ `G10 L2 P1`，
-  /// 避免双重偏置；幂等（同值重写无害）。**只写 XY**：Z 分量由固件在按键后
-  /// 对刀完成时实测写入并绑定 jobId，App 不写 Z。
+  /// 帧 `{"cmd":"set_work_origin","jobId","x","y","reqId"}`，x/y = **MPos 绝对
+  /// 坐标**（屏幕内部转坐标系槽位 G54 P1）。成功依据 = `cmd_ack(reqId)` OK
+  /// **且**回读二道闸通过（最新状态帧 mpos−wpos ≈ 写入值，±0.02mm）；
+  /// 10 秒无回执 = 机器无响应，**不得默认成功**。
+  /// `set_work_zero`（G92）与本命令不互相替代（协议明确），本流程禁用。
+  /// **只写 XY**：Z 分量由固件对刀完成时实测写入并绑定 jobId，App 不写 Z。
   /// G54_X = DesignPosX − camOriginOffset.x（**允许为负**，严禁 max(0,·)）。
-  /// ⚠️ 固件工单 F1 交付前该命令无响应（向导可先跑通 UI/计算）。
-  Future<bool> setWcsOffset({
+  /// [wcs]/[z] 参数保留签名兼容，协议帧无此字段，过渡期不参与下发。
+  Future<WcsWriteResult> setWcsOffset({
     required double x,
     required double y,
     double z = 0,

@@ -340,14 +340,17 @@ class Payload {
   }
 }
 
-/// 激光作业判定（2026-09-23 工单 v2 §2.2：**单点可换**）。
+/// 激光作业判定（A-6-3，2026-09-24：**单点可换**）。
 ///
-/// TODO(激光字段规则): 字段名/取值以昊总提供的 PC 端规则为准（2026-09-23 约定
-/// 待补充）。下方为占位实现，规则确认后只替换本函数与 [LaserParams] 的取值，
-/// 其余代码一律不感知原始字段名（全 App 只消费 `Payload.isLaser`）。
+/// PC 端已定 `codeType` 枚举（'3D RELIEF' / '2.5D VECTOR' / 'LASER'）——
+/// 本函数按**精确匹配** `codeType == 'LASER'` 判激光；App 不解析 G-code（铁律），
+/// 判定只依赖该字段（字段须在进入向导前可达：列表接口或载荷 JSON，C-2 #1/C-3 #2）。
+/// ⚠️ 枚举精确字符串（含分隔符）尚待 PC 端书面定死（工单 C-2 第 2 条）；
+/// 若定稿后有出入，只替换本函数 —— 其余代码一律不感知原始字段名
+///（全 App 只消费 `Payload.isLaser`）。
 bool payloadIsLaser(Map<String, dynamic> j) {
-  final v = (j['jobType'] ?? j['processType'] ?? '').toString().toLowerCase();
-  return v == 'laser';
+  final v = (j['codeType'] ?? '').toString().trim();
+  return v == 'LASER';
 }
 
 /// 激光加工参数（工单 §4.1 占位结构；字段名待 PC 规则确认后在 [fromJson] 单点替换）。

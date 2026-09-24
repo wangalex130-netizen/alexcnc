@@ -204,24 +204,6 @@ class MockHardwareService implements HardwareService {
   }
 
   @override
-  Future<bool> moveTo({
-    required double x,
-    required double y,
-    double feed = 1000,
-    bool safeZ = true,
-  }) async {
-    // 模拟器无真实运动：直接吸附到目标（真机由固件走直线 + 抬 Z）。
-    // 工作坐标与机械坐标同步吸附，保持 wpos/mpos 的一致关系（与 jog 的处理一致）。
-    _current = _current.copyWith(
-      position: _current.position.copyWith(x: x, y: y),
-      machinePosition: _current.machinePosition.copyWith(x: x, y: y),
-    );
-    _emit();
-    _emitTelemetry();
-    return true; // 模拟器无网络门禁，恒为已发出
-  }
-
-  @override
   Future<bool> jogContinuous(String axis, int direction,
       {double feed = 600}) async {
     // 模拟器：按 10mm 档模拟"一次长按"产生的位移（不模拟真实连续运动）。
@@ -305,14 +287,14 @@ class MockHardwareService implements HardwareService {
   }
 
   @override
-  Future<bool> setWcsOffset({
+  Future<WcsWriteResult> setWcsOffset({
     required double x,
     required double y,
     double z = 0,
     String? jobId,
     String wcs = 'G54',
   }) async {
-    return true;
+    return const WcsWriteResult(true);
   }
 
   @override

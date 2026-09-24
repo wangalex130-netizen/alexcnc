@@ -394,6 +394,10 @@ class JogKey extends StatefulWidget {
   /// 固件 600ms 收不到保活即自行写 0x85 停机 —— 保活是连续模式**能持续**
   /// 的前提（不发的话长按只动 600ms）。为 null 时不发保活。
   final VoidCallback? onJogKeepalive;
+  /// 自定义内容（可选）：传入时替代默认的 label 文本渲染。向导页定原点盘
+  /// 复用本组件的手势逻辑（A-5b，严禁重新发明长按），但用 painted 箭头
+  /// 保持与既有十字盘视觉一致。**不影响任何手势/连发/保活行为**。
+  final Widget? child;
   /// 是否启用「长按只发一次」连续模型（共识 S1）。
   /// 默认取构建开关 AppConfig.jogContinuousEnabled（**默认 false**）。
   /// 之所以默认关：固件目前不解析 mode，打开会让点动当场失效；
@@ -407,6 +411,7 @@ class JogKey extends StatefulWidget {
       this.onJogStart,
       this.onJogEnd,
       this.onJogKeepalive,
+      this.child,
       this.continuousEnabled = AppConfig.jogContinuousEnabled});
 
   @override
@@ -538,13 +543,14 @@ class JogKeyState extends State<JogKey> {
                         : (widget.danger ? CncColors.danger : CncColors.border)),
               ),
               child: Center(
-                child: Text(widget.label,
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                        color: widget.danger
-                            ? CncColors.danger
-                            : CncColors.textMain)),
+                child: widget.child ??
+                  Text(widget.label,
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: widget.danger
+                              ? CncColors.danger
+                              : CncColors.textMain)),
               ),
             ),
           ),

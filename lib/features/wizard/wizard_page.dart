@@ -17,6 +17,9 @@ import '../../widgets/tool_icon.dart';
 import '../../models/library_item.dart';
 import '../../models/task_metadata.dart';
 import '../../models/tool.dart';
+import '../../models/jog_profile.dart';
+import '../../services/hardware_service.dart';
+import '../workbench/jog_sheet.dart';
 import '../../state/providers.dart';
 import '../preview/timelapse_client.dart';
 import 'self_check_page.dart';
@@ -266,6 +269,19 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     // 映射刀仓的这几分钟，先把该模型的轻量 JSON 从服务器拉下来并预读驻留
     // （命令定义见 HardwareService.preloadModel）。
     if (_step == 0) _preloadOnMachine();
+    // A-6-6（2026-09-24 协议②）：job topic phase=failed ⇒ 屏幕下载/解析布局
+    // 失败 —— 协议明文要求此时**不得进入定原点**（没有有效布局，原点必错）。
+    if (_step == 0 && (widget.item.previewPayloadUrl ?? '').isNotEmpty) {
+      final jp = ref.read(jobProgressProvider).valueOrNull;
+      if (jp?.phase == 'failed') {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+          content: const Text('布局文件在屏幕端下载失败，暂不能进入定原点；'
+              '请返回重试或检查机器网络'),
+          duration: const Duration(seconds: 4),
+        ));
+        return;
+      }
+    }
     if (_step == 3) {
       final wCm = (_task?.widthMm ?? 0) / 10;
       final hCm = (_task?.heightMm ?? 0) / 10;
@@ -316,9 +332,11 @@ class _WizardPageState extends ConsumerState<WizardPage> {
             modelId: item.id,
             jsonUrl: url,
             title: item.title,
-            // 云端暂未下发该 JSON 的字节数 / SHA（同 prepareJob 既有口径）
-            sizeBytes: 0,
-            sha256: '',
+            // A-6-4（09-24）：接列表接口真值 —— 轻量 JSON 侧用 totalJson 的
+            // size/sha（云端生成链路落地后即有值，C-3 #1）；当前 null 时保持
+            // 0/'' 既有口径（预读不校验，失败不阻塞）。
+            sizeBytes: item.totalJsonSizeBytes ?? 0,
+            sha256: item.totalJsonSha256 ?? '',
             widthMm: item.widthMm,
             heightMm: item.heightMm,
             depthMm: item.depthMm,
@@ -1689,7 +1707,7 @@ class _Slot extends StatelessWidget {
 // ========== Step 2 · 定原点（大画框：标定 → 拖设计 → 雕刻预览；2026-09-23 起排在刀仓之前）==========
 /// 所见即所得定原点（开发文档 §4 / §5 / §6）。
 ///
-/// - **有轻量 JSON**：标定（矩形 2 点 / 圆形 3 点）→ 拖设计排版 → App 算 G54_XY
+/// - **有轻量 JSON**：标定（矩形 2 点 / 圆形 2 点，连线为直径）→ 拖设计排版 → App 算 G54_XY
 ///   → 雕刻预览目视确认。**Z 基准不在本步建立**（按键后由固件探针/对刀写入）。
 /// - **无轻量 JSON**：退回手动定原点（Jog + 激光十字设原点），仍做行程校验。
 /// - 标定点与排版位置保存在向导父级 ⇒ 来回切步、预览-调整-再预览都不丢（§5.8 V2）。
@@ -1770,7 +1788,9 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   // —— 标定/G54/巡边 过程状态（对齐双模拟器 v2.0 的 App 侧状态机）——
   bool _g54Written = false; // G54 已写入且绑定当前载荷
   String _g54JobId = ''; // 写入时绑定的 jobId（P4 宁锁勿放）
-  bool _framingDone = false; // 业务巡边三锁通过并收到 framing_done
+  // A-2（09-24）：注释与实现一致 —— 现值 = 收到 framing_done **或（固件未交付
+  // 期间）发布成功**；字段名待固件 C-1 第 1 条书面回复后单点接入。
+  bool _framingDone = false;
   String? _framingFail; // 巡边被拒绝的原因清单（逐条，不静默）
   /// _framingFail 的类别：true = 命令根本没发出（MQTT 断 / F2 未交付）；
   /// false = 被业务三锁拒绝（未锁定原点 / 越界 / busy）。两者文案必须分开。
@@ -1780,13 +1800,6 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   late final AnimationController _frameAnim;
   bool _framePlaying = false;
 
-  // —— 「拖动十字 → 移动到此」过程状态（昊总 09-18 第 10 条，B 方案）——
-  /// 画布上拖出的拟移动目标（mm，绝对台面坐标）。null = 无待确认目标。
-  /// **拖动期间只改这个值、绝不下发指令** —— 松手后必须再点【移动到此】才动。
-  /// 理由：手滑拖到台面另一头就猛跑，必须在「松手」与「运动」之间隔一次明确意图。
-  Offset? _moveTarget;
-  /// 移动指令已下发、正在等待到位。控制按钮文案与画布目标十字的灰度。
-  bool _moving = false;
 
   static const double _knifeR = 1.6; // 刀半径（围栏外扩）
 
@@ -1875,6 +1888,14 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
+    // A-5b 安全细节①（照抄控制台 jog_sheet）：App 失焦时长按手势会被系统
+    // 中断、不触发 onTapUp ⇒ 必须兜底发 jog_cancel(0x85)，否则机器会一直走。
+    // jog_cancel 幂等（非点动状态是空操作），无条件发是安全的。
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.inactive) {
+      unawaited(ref.read(hardwareServiceProvider).jogCancel());
+    }
     // 仅 resumed 需要补下发；其余状态不做系统 UI 操作，避免与系统抢控制权。
     if (state == AppLifecycleState.resumed && mounted) {
       _enterChrome();
@@ -2237,176 +2258,6 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     return mp == null ? null : Offset(mp.x, mp.y);
   }
 
-  /// 距离自适应进给率（mm/min）。
-  ///
-  /// **刻意不做 S 曲线、不逐帧改 F**（昊总 09-18 问「变速还是常速」）：
-  /// App 侧算加减速等于重复实现固件 planner，且频繁改 F 会与 planner 打架、
-  /// 产生加减速震荡 —— 越「用心」越抖。正确做法是**一条指令 + 常速**，
-  /// 两端减速交给固件 planner（它天然减速，最平滑）。
-  /// 分档只为两件事：短距离慢到看得清激光点，长距离别磨蹭。
-  double _feedForMove(double d) {
-    if (d < 5) return 200; // 精调：慢到能看清激光落在哪
-    if (d <= 50) return 1000; // 常规取点
-    return 3000; // 大跨距：0.5s 走 25mm
-  }
-
-  /// 拖动中回调：只更新目标，**不下发任何指令**。
-  void _onMoveTargetDrag(Offset mm) {
-    if (_moving) return;
-    // A-12：只在「从无到有」那一次提示 —— 拖动是逐帧回调，每帧都提示会
-    // 把顶部条刷爆、也永远看不到 4 秒后的引导文案。
-    final first = _moveTarget == null;
-    setState(() => _moveTarget = Offset(
-          min(max(mm.dx, 0.0), _bedW),
-          min(max(mm.dy, 0.0), _bedH),
-        ));
-    if (first) {
-      _note('已设定移动目标（画布橙十字）：点【移动到此】执行，或点【取消】撤销');
-    }
-  }
-
-  void _cancelMove() {
-    if (_moving) return;
-    setState(() => _moveTarget = null);
-    _note('已取消移动目标');
-  }
-
-  /// 等待主轴到位（轮询 mpos），超时即放弃等待（指令已下发，机器自己会走完）。
-  /// 返回是否确认识别到位。
-  Future<bool> _awaitArrival(Offset target, int timeoutMs) async {
-    final end = DateTime.now().add(Duration(milliseconds: timeoutMs));
-    while (DateTime.now().isBefore(end)) {
-      await Future<void>.delayed(const Duration(milliseconds: 120));
-      if (!mounted) return false;
-      final now = _curMpos();
-      if (now == null) continue;
-      if ((now - target).distance < 0.3) return true;
-    }
-    return false;
-  }
-
-  /// 确认移动：下发一行 G0（manual_gcode，固件**已实现**）→ 不支持则降级为**分轴点动**。
-  ///
-  /// 降级路径存在的理由：`move_to` 是新增命令，固件未交付前若直接报错，
-  /// 这个功能在真机上一天都用不了。分轴点动走的是**已在真机验证过的 jog**，
-  /// 今天就能用；代价是 L 形路径（先 X 后 Y）——取点场景只看终点，路径无所谓。
-  Future<void> _confirmMove() async {
-    final t = _moveTarget;
-    if (t == null || _busy || _moving) return;
-    final sim = DebugSim.instance.enabled;
-    final st = ref.read(machineStatusProvider).valueOrNull;
-
-    // 门禁（生产路径一条不少；模拟态无真机、无物理风险，只走虚拟位）
-    if (!sim) {
-      if (st == null) {
-        _note('未连接机器，不能驱动主轴', bad: true);
-        return;
-      }
-      if (!st.canControl) {
-        _note('机器当前不可控制（${st.state.name}），不能快速走位', bad: true);
-        return;
-      }
-      // v11(homed-未上报放行)：本判据原为 `st.homed != true`，会把
-      // 「未上报（null）」当成「未回零」硬锁 —— 而小屏固件状态帧**没有 homed
-      // 字段**（2026-09-18 核实 pingMu-3020/main/cnc_net.c build_status_json
-      // 全字段），于是本功能在现网 100% 不可用（真机联调「回不到轨道」的
-      // 直接原因之一）。现改为**仅「明确未回零」才锁**，与
-      // MachineStatus.homed 的既有口径（未上报只提示不硬拦）一致。
-      // 放行依据：未回零且开启限位（$22=1）时 GRBL 处于 Alarm、state 不会是
-      // idle，上一条 canControl 已拦住；能走到这里 ⇒ 机器可运动、mpos 自洽。
-      if (st.homed == false) {
-        _note(S.homingRequired, bad: true);
-        return;
-      }
-    }
-
-    final from = _curMpos();
-    final d = from == null ? 0.0 : (t - from).distance;
-    if (from != null && d < 0.2) {
-      _note('已经在目标位置附近');
-      setState(() => _moveTarget = null);
-      return;
-    }
-
-    // 手动模式：主轴即雕刻原点 ⇒ 走多少，设计位置同步平移多少（与 _jog 同语义）
-    if (!_wysiwyg && from != null) _setDesign(widget.origin + (t - from));
-
-    final feed = _feedForMove(d);
-    setState(() {
-      _busy = true;
-      _moving = true;
-    });
-    _note('正在移动：${d.toStringAsFixed(0)}mm @ F${feed.toStringAsFixed(0)}'
-        '（请确认主轴/激光已抬离料面）');
-
-    if (sim) {
-      await Future<void>.delayed(const Duration(milliseconds: 420));
-      if (!mounted) return;
-      DebugSim.instance.moveTo(t);
-      setState(() {
-        _busy = false;
-        _moving = false;
-      });
-      _note('模拟已到位：X${t.dx.toStringAsFixed(1)} '
-          'Y${t.dy.toStringAsFixed(1)}（可点【取点】）');
-      return;
-    }
-
-    final hw = ref.read(hardwareServiceProvider);
-    final timeoutMs =
-        (d / max(feed, 1) * 60000).round() + 4000; // 理论耗时 + 4s 余量
-    var ok = false;
-    var degraded = false;
-    try {
-      ok = await hw.moveTo(x: t.dx, y: t.dy, feed: feed);
-      if (ok) {
-        ok = await _awaitArrival(t, timeoutMs);
-      }
-      if (!ok && mounted) {
-        // 下发失败或未到位 ⇒ 降级分轴点动（manual_gcode 不可用时的兜底）
-        degraded = true;
-        _note('直线走位不可用，改用分轴走位…');
-        ok = await _moveByAxisJog(t, feed);
-      }
-    } catch (_) {
-      ok = false;
-    }
-    if (!mounted) return;
-    setState(() {
-      _busy = false;
-      _moving = false;
-      if (ok) _moveTarget = null; // 到位即清目标（避免客户重复点同一目标）
-    });
-    if (ok) {
-      _note('已到位：X${t.dx.toStringAsFixed(1)} Y${t.dy.toStringAsFixed(1)}'
-          '（可点【取点】）${degraded ? ' · 分轴走位' : ''}');
-    } else {
-      _note('移动未确认到位：请检查机器状态后手动核对坐标'
-          '（manual_gcode 不可用时会自动改走分轴点动）', bad: true);
-    }
-  }
-
-  /// 降级：用**两次单轴点动**走 L 形（先 X 后 Y）。
-  ///
-  /// 必须**串行**并逐轴等到位：jog 是相对点动，两轴同时发会各自进 GRBL 队列，
-  /// 交替执行 ⇒ 实际走斜线，且第二轴的起点不再等于下发时的 mpos，到位判定失效。
-  Future<bool> _moveByAxisJog(Offset target, double feed) async {
-    final hw = ref.read(hardwareServiceProvider);
-    for (final ax in const ['x', 'y']) {
-      if (!mounted) return false;
-      final now = _curMpos();
-      if (now == null) return false;
-      final delta = ax == 'x' ? target.dx - now.dx : target.dy - now.dy;
-      if (delta.abs() < 0.05) continue;
-      await hw.jog(ax, delta, feed: feed);
-      final axisTarget = ax == 'x' ? Offset(target.dx, now.dy) : target;
-      final ms = (delta.abs() / max(feed, 1) * 60000).round() + 2500;
-      final reached = await _awaitArrival(axisTarget, ms);
-      if (!reached) return false;
-    }
-    return true;
-  }
-
   void _jog(String axis, double dir) {
     if (_busy) return;
     final d = dir * _jogStep;
@@ -2550,11 +2401,12 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     }
     setState(() => _busy = true);
     final sim = DebugSim.instance.enabled;
-    final ok = sim
-        ? true
+    final res = sim
+        ? const WcsWriteResult(true)
         : await ref
             .read(hardwareServiceProvider)
             .setWcsOffset(x: g.x, y: g.y);
+    final ok = res.ok;
     if (!mounted) return;
     setState(() {
       _busy = false;
@@ -2570,10 +2422,9 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       }
     });
     widget.onOriginSet(ok);
+    // A-1：失败必须给客户可读原因（cmd_ack 错误码已映射 / 无回执 / 回读不一致）。
     _note(
-      ok
-          ? S.originConfirmed
-          : S.notConnected,
+      ok ? S.originConfirmed : (res.reason ?? S.notConnected),
       bad: !ok,
     );
   }
@@ -2856,8 +2707,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     ));
   }
 
-  /// 手柄条坐标行：有待确认目标时显示**目标 + 距离**（当前操作焦点），
-  /// 否则显示**主轴机械坐标（mpos）**—— 第 9 条的「可观测」落点。
+  /// 手柄条坐标行：显示**主轴机械坐标（mpos）**—— 第 9 条的「可观测」落点。
   ///
   /// 只让 App 内部读对不够：客户/工程师必须能把这里的数字与屏幕上的数字
   /// 直接对上，才能一眼判断是 App 解析错、还是屏幕端上报错。
@@ -2865,16 +2715,9 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     final sim = DebugSim.instance.enabled;
     final st = ref.read(machineStatusProvider).valueOrNull;
     final mp = st?.machinePosition;
-    final t = _moveTarget;
     String s;
     Color c;
-    if (t != null) {
-      final from = _curMpos();
-      final d = from == null ? null : (t - from).distance;
-      final ds = d == null ? '' : ' · ${d.toStringAsFixed(1)}mm';
-      s = '目标 X${t.dx.toStringAsFixed(1)} Y${t.dy.toStringAsFixed(1)}$ds';
-      c = const Color(0xFFB8730C);
-    } else if (sim) {
+    if (sim) {
       final p = DebugSim.instance.pos;
       s = '模拟位 X${p.dx.toStringAsFixed(1)} Y${p.dy.toStringAsFixed(1)}';
       c = CncColors.textSub;
@@ -2910,13 +2753,11 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         DateTime.now().difference(_frameAt!) < const Duration(seconds: 2);
     final linked = sim || st != null;
     final homed = sim ? true : st?.homed;
-    // v11：未上报（null）**不等于**未回零（见 _confirmMove 注释）。
+    // v11：未上报（null）**不等于**未回零 —— 仅「明确未回零」才硬锁。
     final homedBlocked = !sim && st?.homed == false;
     final idle = sim || (st?.canControl ?? false);
     final allOk = linked && !homedBlocked && (fresh || sim) && idle;
     final got = [widget.p0, widget.p1].where((e) => e != null).length;
-    // 快速走位可用的前提：空闲 + **非明确未回零**（绝对定位须已知机械坐标）。
-    final canMove = sim || (st?.canControl == true && st?.homed != false);
 
     Widget dot(bool on) => Container(
           width: 8,
@@ -2962,52 +2803,12 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         ]),
         const SizedBox(height: 5),
       ],
-      Expanded(
-        child: _cross(
-          onUp: _busy ? null : () => _jog('y', 1),
-          onDown: _busy ? null : () => _jog('y', -1),
-          onLeft: _busy ? null : () => _jog('x', -1),
-          onRight: _busy ? null : () => _jog('x', 1),
-          // C-1（09-23 昊总）：取满两点后中央键由【取点】变【重新】。
-          // 原来「再按一下就是重取」是 _take() 里的**隐藏行为**，按钮文案
-          // 永远是「取点」，客户不可能猜得到 —— 于是要么不敢按、要么按了才发现
-          // 把第一个点顶掉了。文案跟着状态走，行为才有可预期性。
-          // 取满后走 _clearPts()（全清 + 作废旧 G54/巡边/目视确认），与右下
-          // 【重标定】同一函数 —— 两处口径不各写一套，将来不会漂移。
-          centerLabel: _wysiwyg
-              ? (_datumDone ? '重新' : '取点')
-              : '设原点',
-          centerSub: _wysiwyg ? '$got/$_needPts' : null,
-          centerActive: _wysiwyg && !_datumDone,
-          onCenter: _busy
-              ? null
-              : (_wysiwyg ? (_datumDone ? _clearPts : _take) : _manualSet),
-        ),
-      ),
-      // 有待确认目标时，这一行换成【移动到此 / 取消】——
-      // 复用手柄条既有行位，**不增加任何高度**（第 9 条：不要上下滑）。
-      if (_moveTarget == null)
-        _deckRuler('移动主轴')
-      else
-        // C-3（09-23）：原来这里是「▶ 移动到此」＋「取消」各占一半宽度。
-        // 图标 16 + 间距 5 就吃掉 21px，留给文字的只剩二十几 px，4 个汉字
-        // （50px）放不下 ⇒ 被 ellipsis 截成「移…」，客户根本看不出这个按钮
-        // 干什么。去掉图标 + 按 3:2 分宽，「移动到此」完整显示，「取消」两字仍宽裕。
-        Row(children: [
-          Expanded(
-            flex: 3,
-            child: _deckBtn(
-              _moving ? '移动中…' : '移动到此',
-              (_moving || _busy || !canMove) ? null : _confirmMove,
-              primary: true,
-            ),
-          ),
-          const SizedBox(width: 5),
-          Expanded(
-            flex: 2,
-            child: _deckBtn('取消', (_moving || _busy) ? null : _cancelMove),
-          ),
-        ]),
+      // A-5/A-5b（09-24 昊总拍板）：四向键 = 控制台 JogKey 原件（_jogCross），
+      // 长按逻辑严禁重新发明；中心键语义不变（取点/重新/设原点，C-1 注释随迁）。
+      Expanded(child: _jogCross()),
+      // A-5（09-24 昊总拍板）：橙十字快速走位按钮组整组删除 —— 主轴移动
+      // 只留 jog 直控 + 红十字回显一个口。
+      _deckRuler('移动主轴'),
       const SizedBox(height: 5),
       Row(children: [
         _deckChip('0.1', _jogStep == 0.1, () => setState(() => _jogStep = 0.1)),
@@ -3288,35 +3089,148 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
                 ),
                 Expanded(child: arrow(pi / 2, onDown)),
               ]),
-              GestureDetector(
+              _crossCenter(
+                side: side,
+                label: centerLabel,
+                sub: centerSub,
+                active: centerActive,
                 onTap: onCenter,
-                child: Container(
-                  width: min(58, side * 0.36),
-                  height: min(58, side * 0.36),
+              ),
+            ],
+          ),
+        ),
+      );
+    });
+  }
+
+  /// 十字盘中央圆键（左/右盘共用）：label + 可选副标题，active 时高亮。
+  Widget _crossCenter({
+    required double side,
+    required String label,
+    String? sub,
+    required bool active,
+    required VoidCallback? onTap,
+  }) =>
+      GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: min(58, side * 0.36),
+          height: min(58, side * 0.36),
+          decoration: BoxDecoration(
+            color: active ? CncColors.primary : CncColors.card,
+            shape: BoxShape.circle,
+            border: Border.all(color: CncColors.primary, width: 1.5),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(label,
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: active ? Colors.white : CncColors.primaryInk)),
+              if (sub != null)
+                Text(sub,
+                    style: TextStyle(
+                        fontSize: 10,
+                        color: active ? Colors.white : CncColors.textSub)),
+            ],
+          ),
+        ),
+      );
+
+  /// A-5/A-5b（2026-09-24 昊总拍板）：主轴移动只留「jog 直控 + 红十字回显」一个口。
+  /// 四向键**复用控制台 JogKey 原件**（workbench/jog_sheet.dart，严禁重新发明
+  /// 长按逻辑）：单击 = hw.jog(axis, ±_jogStep)（feed 走 jog_profile 档位表，
+  /// 两页同源）；长按 ≥220ms = **只发一次** jogContinuous（受
+  /// AppConfig.jogContinuousEnabled 保护，默认关 = 走旧 180ms 连发模型，仅
+  /// ≤1mm 档）；按住期间 200ms 保活；松手/手势取消 = jog_cancel(0x85)；
+  /// App 失焦兜底见 [didChangeAppLifecycleState]。
+  /// 中央键语义不变 —— C-1（09-23）：取满两点后由【取点】变【重新】；取满后
+  /// 走 _clearPts()（全清 + 作废旧 G54/巡边/目视确认），与【重标定】同一函数。
+  Widget _jogCross() {
+    final sim = DebugSim.instance.enabled;
+    final got = [widget.p0, widget.p1].where((e) => e != null).length;
+    var jogActive = false;
+
+    Future<void> start(String axis, int sign) async {
+      jogActive = true;
+      final sent = await ref
+          .read(hardwareServiceProvider)
+          .jogContinuous(axis, sign, feed: jogFeedForStep(_jogStep));
+      if (!sent) jogActive = false;
+    }
+
+    Future<void> end() async {
+      if (!jogActive) return;
+      jogActive = false;
+      await ref.read(hardwareServiceProvider).jogCancel();
+    }
+
+    void keepalive() {
+      if (!jogActive) return;
+      ref.read(hardwareServiceProvider).jogKeepalive();
+    }
+
+    Widget key(String axis, int sign, double angle) => JogKey(
+          '',
+          () => _jog(axis, sign.toDouble()),
+          enabled: !_busy,
+          repeat: _jogStep <= 1.0,
+          onJogStart: sim ? null : () => start(axis, sign),
+          onJogEnd: sim ? null : () => end(),
+          onJogKeepalive: sim ? null : keepalive,
+          // 与右盘 _cross 同款 painted 箭头（线性图标，非 emoji/文本符号）。
+          child: Transform.rotate(
+            angle: angle,
+            child: Icon(Symbols.chevron_right,
+                size: 24, color: _busy ? CncColors.border : CncColors.textMain),
+          ),
+        );
+
+    return LayoutBuilder(builder: (ctx, c) {
+      final side = min(c.maxWidth, c.maxHeight);
+      if (!side.isFinite || side <= 12) return const SizedBox.shrink();
+      Widget cell(Widget k) => Expanded(
+            child: Center(
+              child:
+                  SizedBox(width: min(96.0, side * 0.42), height: 40, child: k),
+            ),
+          );
+      return Center(
+        child: SizedBox(
+          width: side,
+          height: side,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Positioned.fill(
+                child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: centerActive ? CncColors.primary : CncColors.card,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: CncColors.primary, width: 1.5),
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(centerLabel,
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: centerActive
-                                  ? Colors.white
-                                  : CncColors.primaryInk)),
-                      if (centerSub != null)
-                        Text(centerSub,
-                            style: TextStyle(
-                                fontSize: 10,
-                                color: centerActive
-                                    ? Colors.white
-                                    : CncColors.textSub)),
-                    ],
+                    color: CncColors.card,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: CncColors.border),
                   ),
                 ),
+              ),
+              Column(children: [
+                Expanded(child: cell(key('y', 1, -pi / 2))),
+                Expanded(
+                  child: Row(children: [
+                    cell(key('x', -1, pi)),
+                    const Expanded(child: SizedBox()),
+                    cell(key('x', 1, 0)),
+                  ]),
+                ),
+                Expanded(child: cell(key('y', -1, pi / 2))),
+              ]),
+              _crossCenter(
+                side: side,
+                label: _wysiwyg ? (_datumDone ? '重新' : '取点') : '设原点',
+                sub: _wysiwyg ? '$got/$_needPts' : null,
+                active: _wysiwyg && !_datumDone,
+                onTap: _busy
+                    ? null
+                    : (_wysiwyg ? (_datumDone ? _clearPts : _take) : _manualSet),
               ),
             ],
           ),
@@ -3401,9 +3315,6 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         // 只有**非模拟**态才允许拖动画布驱动真机：模拟态的整个意义就是
         // 「不发任何指令」，绝不能从这里漏出真机运动。反过来模拟态可拖激光
         // 虚拟位（laserDraggable: sim）—— 两者互补，不会同时生效。
-        moveTargetMm: _moveTarget,
-        onMoveTargetDrag: sim ? null : _onMoveTargetDrag,
-        moveBusy: _moving,
         onLaserDrag: (p) => DebugSim.instance.moveTo(p),
         hasPayload: _wysiwyg,
         zGrid: _grid,

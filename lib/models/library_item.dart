@@ -84,6 +84,26 @@ class LibraryItem {
   /// 精加工 G-code SHA-256（`finishingGcodeSha256`）；未配置为 null。
   final String? finishingGcodeSha256;
 
+  // ---- 云端列表接口新增（2026-09-24《model-library-cloud-list-api》交付）----
+  /// 总刀路（粗+精合一）G-code 地址；未生成为 null。
+  final String? totalGcodeUrl;
+
+  /// 总刀路 G-code 字节数（`totalGcodeSizeBytes`）；未生成为 null。
+  final int? totalGcodeSizeBytes;
+
+  /// 总刀路 G-code SHA-256（小写 hex）；未生成为 null。
+  final String? totalGcodeSha256;
+
+  /// 轻量布局 JSON（totalJson —— job_prepare 的 layoutUrl 指向它）。
+  /// 当前云端为 null，生成链路落地后补（工单 C-3 第 1 条）。
+  final String? totalJson;
+
+  /// 轻量布局 JSON 字节数；未生成为 null（preloadModel 校验参数接真值，A-6-4）。
+  final int? totalJsonSizeBytes;
+
+  /// 轻量布局 JSON SHA-256；未生成为 null。
+  final String? totalJsonSha256;
+
   /// 两个 G-code 均未配置（未切片）；只存在其一不算异常（后端明确约定）。
   bool get hasAnyGcode =>
       (roughingGcodeUrl != null && roughingGcodeUrl!.isNotEmpty) ||
@@ -165,6 +185,12 @@ class LibraryItem {
     this.roughingGcodeSha256,
     this.finishingGcodeSizeBytes,
     this.finishingGcodeSha256,
+    this.totalGcodeUrl,
+    this.totalGcodeSizeBytes,
+    this.totalGcodeSha256,
+    this.totalJson,
+    this.totalJsonSizeBytes,
+    this.totalJsonSha256,
   });
 
   /// 从云端 REST JSON 解析（字段对齐 docs/模型库数据格式与接口定义.md）。
@@ -223,6 +249,13 @@ class LibraryItem {
         roughingGcodeSha256: j['roughingGcodeSha256'] as String?,
         finishingGcodeSizeBytes: (j['finishingGcodeSizeBytes'] as num?)?.toInt(),
         finishingGcodeSha256: j['finishingGcodeSha256'] as String?,
+        // 云端列表接口新增（2026-09-24）：全可空，缺失即 null
+        totalGcodeUrl: j['totalGcodeUrl'] as String?,
+        totalGcodeSizeBytes: (j['totalGcodeSizeBytes'] as num?)?.toInt(),
+        totalGcodeSha256: j['totalGcodeSha256'] as String?,
+        totalJson: j['totalJson'] as String?,
+        totalJsonSizeBytes: (j['totalJsonSizeBytes'] as num?)?.toInt(),
+        totalJsonSha256: j['totalJsonSha256'] as String?,
       );
 
   /// 列表展示用图：优先 coverUrl，其次 imageUrls[0]，最后兼容旧 imageUrl。

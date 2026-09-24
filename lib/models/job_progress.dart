@@ -14,7 +14,12 @@ class JobProgress {
   /// 作业进度 0..1。
   final double? percent;
   /// 作业阶段（docs/03 §10.5）：idle / loading / carving / pausing / done / aborted。
+  /// 协议②（09-24）新增五态：queued / downloading / parsing / ready / failed
+  /// —— `failed` 时 App 阻止进入定原点步骤（A-6-6，协议明文要求）。
   final String? phase;
+
+  /// 协议②（09-24）新增 layout 对象：屏幕解析布局 JSON 后回报的排版信息。
+  final JobLayout? layout;
 
   const JobProgress({
     this.file,
@@ -22,6 +27,7 @@ class JobProgress {
     this.total,
     this.percent,
     this.phase,
+    this.layout,
   });
 
   /// 由作业帧 JSON 解析，逐键安全解析，脏数据不抛异常。
@@ -34,6 +40,9 @@ class JobProgress {
       total: (j['total'] is num) ? (j['total'] as num).toInt() : null,
       percent: pctVal,
       phase: j['phase']?.toString(),
+      layout: j['layout'] is Map
+          ? JobLayout.fromJson(Map<String, dynamic>.from(j['layout'] as Map))
+          : null,
     );
   }
 
@@ -46,4 +55,27 @@ class JobProgress {
     if (line == null || total == null) return null;
     return '$line / $total';
   }
+}
+
+/// 协议②（2026-09-24）：job topic 的 layout 对象（originOffset + 布局尺寸）。
+/// 字段全部可选，缺失即 null；与 payload 的 camOriginOffset 对向对齐由 C-2 #4 核对。
+class JobLayout {
+  final double? originOffsetX;
+  final double? originOffsetY;
+  final double? width;
+  final double? height;
+
+  const JobLayout({
+    this.originOffsetX,
+    this.originOffsetY,
+    this.width,
+    this.height,
+  });
+
+  factory JobLayout.fromJson(Map<String, dynamic> j) => JobLayout(
+        originOffsetX: (j['originOffsetX'] as num?)?.toDouble(),
+        originOffsetY: (j['originOffsetY'] as num?)?.toDouble(),
+        width: (j['width'] as num?)?.toDouble(),
+        height: (j['height'] as num?)?.toDouble(),
+      );
 }
