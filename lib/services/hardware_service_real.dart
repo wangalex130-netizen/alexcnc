@@ -558,11 +558,35 @@ class RealHardwareService implements HardwareService {
     }
   }
 
+  /// A-2（2026-09-24）：巡边回执单点解析。帧形 `{"evt":"framing_done"}` /
+  /// `{"evt":"framing_fail","reason":...}`——字段名以固件 C-1 第 1 条书面回复
+  /// 为准，**只改本函数**即可换字段（单点替换铁律）。notify 与 broadcast 两个
+  /// 主题入口都过这里：固件最终把回执发在哪个主题都能接住；命中返回 true，
+  /// 调用方据此跳过既有解析路径。回执只 emit 到 notifyStream（与 cmd_ack 同理：
+  /// 不进状态流，防被机器状态解析回落成 idle 误解锁 Jog）。
+  bool _handleFramingEvent(Map<String, dynamic> j) {
+    final evt = j['evt']?.toString() ?? '';
+    if (evt != 'framing_done' && evt != 'framing_fail') return false;
+    if (_notifyCtrl.isClosed) return true;
+    // framing_fail 的原因字段候选 reason / msg / message（与既有命令失败
+    // 文案「双键并读」的惯例一致，防固件落在任意一个键上漏接）。
+    final reason = (j['reason'] ?? j['msg'] ?? j['message'])?.toString() ?? '';
+    _notifyCtrl.add(NotifyEvent(
+      type: evt,
+      message: reason.isEmpty ? evt : reason,
+      at: DateTime.now(),
+    ));
+    return true;
+  }
+
   /// docs/03 §6 系统级消息广播解析：emit 到 broadcastStream（UI 弹横幅/通知）。
   /// 2026-08-18：区分 `gcode_url` 型广播——不弹横幅，改走 notifyStream 做中性 toast。
   void _handleBroadcast(String payload) {
     try {
       final j = jsonDecode(payload) as Map<String, dynamic>;
+      // A-2（2026-09-24）：巡边回执单点解析（broadcast 主题入口）。命中即 return，
+      // 不弹广播横幅——回执由向导页经 notifyStream 消费，横幅是重复打扰。
+      if (_handleFramingEvent(j)) return;
       final msg = BroadcastMessage.fromMsg(j);
       if (msg.isGcodeUrl) {
         // PC 端下发刀路 URL：屏幕会 HTTP 下载；App 仅提示用户，不弹横幅/不污染状态。
@@ -689,6 +713,10 @@ class RealHardwareService implements HardwareService {
     try {
       final j = jsonDecode(text);
       if (j is! Map<String, dynamic>) return;
+
+      // A-2（2026-09-24）：巡边回执单点解析（notify 主题入口）。命中即 return，
+      // 绝不能落进机器状态解析——陌生帧会被回落成 idle，误解锁 Jog。
+      if (_handleFramingEvent(j)) return;
 
       // 摄像头状态帧防护（2026-08-29）：
       // docs/32 §4.4 提议摄像头把 online/streaming 发到 cnc/<deviceId>/status。

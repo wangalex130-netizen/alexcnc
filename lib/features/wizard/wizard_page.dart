@@ -16,6 +16,7 @@ import '../../widgets/material_icon.dart';
 import '../../widgets/octagon_dial.dart';
 import '../../widgets/tool_icon.dart';
 import '../../models/library_item.dart';
+import '../../models/notify_event.dart';
 import '../../models/task_metadata.dart';
 import '../../models/tool.dart';
 import '../../models/jog_profile.dart';
@@ -1806,6 +1807,15 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   /// false = 被业务三锁拒绝（未锁定原点 / 越界 / busy）。两者文案必须分开。
   bool _framingNotSent = false;
 
+  /// A-2（2026-09-24）：巡边回执消费。真机发布成功后起 30s 超时表；机器回执
+  ///（framing_done / framing_fail，hsr 单点解析后转 notifyStream）到达后由
+  /// 回执消费函数收尾并停表。所有「预览结论作废」入口一律先停表，防上一轮
+  /// 的超时误伤新一轮。
+  Timer? _framingRctTimer;
+  StreamSubscription<NotifyEvent>? _framingRctSub;
+  /// 回执是否已到达（超时回调里判：已到达则不再报「机器未回复」）。
+  bool _framingRctArrived = false;
+
   /// 巡边可视化：0→1 沿模型框走一圈。与机器激光巡边同步（昊总 09-18）。
   late final AnimationController _frameAnim;
   bool _framePlaying = false;
@@ -1856,6 +1866,11 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     _loadWorkArea();
     LocalPayloadStore.instance.addListener(_onLocalPayload);
     DebugSim.instance.addListener(_onSim);
+    // A-2（2026-09-24）：订阅巡边回执。固件 C-1 第 1 条交付前机器不会发
+    // framing_done/framing_fail，本订阅静默等待，由 30s 超时兜底（见预览函数），
+    // 不阻塞流程。
+    _framingRctSub =
+        ref.read(hardwareServiceProvider).notifyStream.listen(_onFramingReceipt);
     // 2.0（09-24 工单 §3.6）：定原点页改**竖屏 + 抽屉**，进入竖屏沉浸
     //（离开即恢复系统栏）。横屏锁解除，方向不再强锁 landscape。
     _enterChrome();
@@ -1923,6 +1938,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       _frameAnim.dispose();
       LocalPayloadStore.instance.removeListener(_onLocalPayload);
       DebugSim.instance.removeListener(_onSim);
+      _framingRctSub?.cancel();
+      _framingRctTimer?.cancel();
     } catch (_) {
       // 忽略清理异常：竖屏与系统栏已在第 1 步恢复完毕。
     }
@@ -1950,6 +1967,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       _g54Written = false;
       _g54JobId = '';
       _framingDone = false;
+      _framingRctTimer?.cancel();
       _framingFail = null;
       _framingNotSent = false;
     });
@@ -2134,6 +2152,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         _g54Written = false;
         _g54JobId = '';
         _framingDone = false;
+        _framingRctTimer?.cancel();
         _framingFail = null;
         _framingNotSent = false;
       });
@@ -2241,6 +2260,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       _g54Written = false;
       _g54JobId = '';
       _framingDone = false;
+      _framingRctTimer?.cancel();
       _framingFail = null;
       _framingNotSent = false;
     });
@@ -2373,12 +2393,41 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     return fails;
   }
 
+  /// A-2（2026-09-24）：机器巡边回执（framing_done / framing_fail）消费。
+  /// 语义分层：预览指令发布成功仍按现状置「已预览」（固件未交付期间不阻塞，
+  /// 注释与实现一致）；回执到达后在现状之上叠加确认 / 否决——
+  ///  - framing_done：确认本轮预览机器已真实执行；
+  ///  - framing_fail：机器明确拒绝 ⇒ 撤回预览结论与目视确认，红条带原因。
+  void _onFramingReceipt(NotifyEvent ev) {
+    if (!mounted) return;
+    if (ev.type != 'framing_done' && ev.type != 'framing_fail') return;
+    _framingRctTimer?.cancel();
+    _framingRctArrived = true;
+    if (ev.type == 'framing_done') {
+      setState(() {
+        _framingDone = true;
+        _framingFail = null;
+        _framingNotSent = false;
+      });
+      _note('机器已确认巡边完成');
+      return;
+    }
+    setState(() {
+      _framingDone = false;
+      _framingFail = ev.message.isEmpty ? '机器巡边失败' : ev.message;
+      _framingNotSent = false;
+    });
+    widget.onSafety(false); // 机器明确拒绝 ⇒ 既有目视确认不再成立
+    _note('机器拒绝巡边：${_framingFail}', bad: true);
+  }
+
   Future<void> _doFraming() async {
     if (_busy) return;
     final fails = _framingLocks();
     if (fails.isNotEmpty) {
       setState(() {
         _framingDone = false;
+        _framingRctTimer?.cancel();
         _framingNotSent = false; // 业务三锁拒绝 ≠ 「没收到机器确认」
         _framingFail = fails.join('\n');
       });
@@ -2414,6 +2463,22 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           : S.notConnected;
     });
     if (ok) _frameAnim.forward(from: 0);
+    // A-2（2026-09-24）：真机发布成功 ⇒ 起 30s 超时表等机器回执。收到回执
+    // 或本轮作废时停表；超时未收到 → 红条提示「机器未回复巡边结果」，
+    // **不阻塞流程**（发布成功已按现状置「已预览」，目视勾选仍是最终闸门）。
+    if (ok && !sim) {
+      _framingRctTimer?.cancel();
+      _framingRctArrived = false;
+      _framingRctTimer = Timer(const Duration(seconds: 30), () {
+        if (!mounted || _framingRctArrived) return;
+        setState(() {
+          _framingFail = '机器未回复巡边结果';
+          _framingNotSent = false;
+        });
+        _note('30 秒未收到机器巡边回执，无法确认机器是否执行（目视确认仍是最终闸门）',
+            bad: true);
+      });
+    }
     _note(
       // v11：原来这里写「机器抬 Z 至最高安全位后激光巡边一圈」—— 
       // 那是**未经核实的承诺**：小屏固件尚未实现 framing（会回 E400
@@ -2468,6 +2533,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         // 只清 _framingDone 会让 _topIssue() 的红条继续挂着旧原因
         //（业务拒绝时显示成「没收到机器确认」），直到客户再按一次预览。
         _framingDone = false;
+        _framingRctTimer?.cancel();
         _framingFail = null;
         _framingNotSent = false;
       }
