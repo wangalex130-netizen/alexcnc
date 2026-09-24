@@ -20,6 +20,7 @@ import '../../models/notify_event.dart';
 import '../../models/task_metadata.dart';
 import '../../models/tool.dart';
 import '../../models/jog_profile.dart';
+import '../../models/machine_status.dart';
 import '../../services/hardware_service.dart';
 import '../../state/providers.dart';
 import '../preview/timelapse_client.dart';

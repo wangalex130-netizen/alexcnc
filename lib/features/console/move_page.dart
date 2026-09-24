@@ -278,9 +278,19 @@ class _MovePageState extends ConsumerState<MovePage>
                         style: TextStyle(
                             fontSize: 10.5, color: CncColors.textSub)),
                     const SizedBox(height: 8),
-                    _zBtn(Symbols.keyboard_arrow_up, step, 1, enabled: canControl),
+                    _zBtn(Symbols.keyboard_arrow_up, step, 1,
+                        enabled: canControl,
+                        jog: jog,
+                        jogStart: jogStart,
+                        jogEnd: jogEnd,
+                        jogKeepalive: jogKeepalive),
                     const SizedBox(height: 8),
-                    _zBtn(Symbols.keyboard_arrow_down, step, -1, enabled: canControl),
+                    _zBtn(Symbols.keyboard_arrow_down, step, -1,
+                        enabled: canControl,
+                        jog: jog,
+                        jogStart: jogStart,
+                        jogEnd: jogEnd,
+                        jogKeepalive: jogKeepalive),
                   ],
                 ),
               ],
@@ -395,7 +405,12 @@ class _MovePageState extends ConsumerState<MovePage>
 
   /// Z 轴钮（规格 §7-3）：76 宽、圆角 10、边 1px border、字 13.5/600；
   /// 长按连续 / ≤1mm 档连发（复用 JogKey，flat 平面渲染）。
-  Widget _zBtn(IconData icon, double step, int sign, {required bool enabled}) {
+  Widget _zBtn(IconData icon, double step, int sign,
+      {required bool enabled,
+      required Future<void> Function(String, int) jog,
+      required Future<void> Function(String, int) jogStart,
+      required Future<void> Function() jogEnd,
+      required void Function() jogKeepalive}) {
     return Container(
       width: 76,
       decoration: BoxDecoration(
