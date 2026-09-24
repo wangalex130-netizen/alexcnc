@@ -6,6 +6,7 @@ import '../../l10n/strings_zh.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../widgets/jog_key.dart';
+import '../../widgets/octagon_dial.dart';
 import '../../app/config.dart';
 import '../../models/jog_profile.dart';
 import '../../app/runtime_config.dart';
