@@ -323,105 +323,109 @@ class _Gallery extends StatefulWidget {
 }
 
 class _GalleryState extends State<_Gallery> {
-
   int _index = 0;
 
-  @override
+  /// 每张图解析出的真实宽高比（url → w/h）。缺失 = 尚未取到，用 4:3 占位
+  ///（工单 #4：取到真实比例后切换，比例接近低高差，避免跳动）。
+  final Map<String, double> _ratios = <String, double>{};
 
-  Widget build(BuildContext context) {
+  final Set<String> _resolving = <String>{};
 
-    final imgs = widget.images;
-
-    return AspectRatio(
-
-      aspectRatio: 16 / 9,
-
-      child: Stack(
-
-        fit: StackFit.expand,
-
-        children: [
-
-          if (imgs.isEmpty)
-
-            Container(color: const Color(0xFF202020))
-
-          else
-
-            PageView.builder(
-
-              itemCount: imgs.length,
-
-              onPageChanged: (i) => setState(() => _index = i),
-
-              itemBuilder: (_, i) => Image.network(
-
-                imgs[i],
-
-                fit: BoxFit.cover,
-
-                errorBuilder: (_, __, ___) =>
-
-                    Container(color: const Color(0xFF202020)),
-
-              ),
-
-            ),
-
-          if (imgs.length > 1)
-
-            Positioned(
-
-              bottom: 10,
-
-              left: 0,
-
-              right: 0,
-
-              child: Row(
-
-                mainAxisAlignment: MainAxisAlignment.center,
-
-                children: List.generate(
-
-                  imgs.length,
-
-                  (i) => Container(
-
-                    width: 6,
-
-                    height: 6,
-
-                    margin: const EdgeInsets.symmetric(horizontal: 3),
-
-                    decoration: BoxDecoration(
-
-                      shape: BoxShape.circle,
-
-                      color: i == _index
-
-                          ? CncColors.primary
-
-                          : Colors.white.withOpacity(0.4),
-
-                    ),
-
-                  ),
-
-                ),
-
-              ),
-
-            ),
-
-        ],
-
-      ),
-
+  /// 异步取图片真实宽高比（每个 url 只取一次）。
+  void _resolveRatio(String url) {
+    if (_ratios.containsKey(url) || !_resolving.add(url)) return;
+    final stream = Image.network(url)
+        .image
+        .resolve(createLocalImageConfiguration(context));
+    late final ImageStreamListener listener;
+    listener = ImageStreamListener(
+      (info, _) {
+        final w = info.image.width.toDouble();
+        final h = info.image.height.toDouble();
+        stream.removeListener(listener);
+        if (!mounted || w <= 0 || h <= 0) return;
+        setState(() => _ratios[url] = w / h);
+      },
+      onError: (_, __) => stream.removeListener(listener),
     );
-
+    stream.addListener(listener);
   }
 
+  @override
+  Widget build(BuildContext context) {
+    final imgs = widget.images;
+    final screenH = MediaQuery.of(context).size.height;
+    final screenW = MediaQuery.of(context).size.width;
+    return AspectRatio(
+      // 工单 #1/#2：删写死 16:9 —— 宽度铺满屏宽，高度 = 屏宽 ÷ 当前图真实
+      // 比例（钳制 [1.2, 2.4]）；未取到时 4:3 占位，取到后切换。
+      aspectRatio: _curRatio(imgs).clamp(1.2, 2.4),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (imgs.isEmpty)
+            Container(color: const Color(0xFF202020))
+          else
+            PageView.builder(
+              itemCount: imgs.length,
+              onPageChanged: (i) => setState(() => _index = i),
+              // 工单 #5：PageView 内每页按**自己**的比例适配（cover 铺满或
+              // contain 衬边完整显示），互不影响；外框高度只跟随当前页。
+              itemBuilder: (_, i) {
+                final url = imgs[i];
+                _resolveRatio(url);
+                final raw = _ratios[url];
+                // 工单 #3：显示高度超屏高 45% 或竖图（比例 < 1.2 被钳制）
+                // → BoxFit.contain + 中性底色（仍是完整显示，窄衬边）。
+                final over = raw == null ||
+                    screenW / raw.clamp(1.2, 2.4) > screenH * 0.45 ||
+                    raw < 1.2;
+                return Container(
+                  color: over
+                      ? const Color(0xFFF2F2F4)
+                      : const Color(0xFF202020),
+                  child: Image.network(
+                    url,
+                    fit: over ? BoxFit.contain : BoxFit.cover,
+                    errorBuilder: (_, __, ___) =>
+                        Container(color: const Color(0xFF202020)),
+                  ),
+                );
+              },
+            ),
+          if (imgs.length > 1)
+            Positioned(
+              bottom: 10,
+              left: 0,
+              right: 0,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(
+                  imgs.length,
+                  (i) => Container(
+                    width: 6,
+                    height: 6,
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: i == _index
+                          ? CncColors.primary
+                          : Colors.white.withOpacity(0.4),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// 当前页比例（未取到 = 4:3 占位）。
+  double _curRatio(List<String> imgs) {
+    if (imgs.isEmpty || _index >= imgs.length) return 4 / 3;
+    return _ratios[imgs[_index]] ?? 4 / 3;
+  }
 }
 
 // ===================== 参数网格（2026-09-23 压成 label: value 同行）=====================

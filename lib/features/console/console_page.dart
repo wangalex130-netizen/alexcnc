@@ -61,6 +61,7 @@ import '../workbench/jog_sheet.dart';
 
 import '../machines/machines_page.dart';
 import '../machines/bind_page.dart';
+import '../../services/machines_service.dart';
 import '../auth/login_page.dart';
 
 import '../settings/debug_settings_page.dart';
@@ -1363,17 +1364,13 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
         ),
       );
     }
+    // 态 2 / 态 3（工单 20260924 #二）：已登录但未选机器 —— 看账号下有没有
+    // 绑定机器：有 → 选机列表（点卡即 select 直进控制台）；无 → 保留原扫码
+    // 绑定引导。判定收敛进 [_MachinePickerGate]，此处的登录门（态 1）不动。
     if (currentMachine == null) {
-      return Scaffold(
+      return const Scaffold(
         backgroundColor: CncColors.bg,
-        body: _ConsoleGate(
-          icon: Symbols.add_to_queue,
-          title: '还没有绑定机器',
-          subtitle: '先在「我的机器」里扫码绑定你的雕刻机，就能在这里实时查看与控制。',
-          actionLabel: '去绑定机器',
-          onAction: () => Navigator.of(context)
-              .push(MaterialPageRoute(builder: (_) => const BindPage())),
-        ),
+        body: _MachinePickerGate(),
       );
     }
 
@@ -3808,6 +3805,225 @@ class _ConsoleGate extends StatelessWidget {
             child: Text(actionLabel),
           ),
         ],
+      ),
+    );
+  }
+}
+
+
+/// 选机门控（工单 20260924 #二 态 2）：已登录 + 有绑定机器 + 未选中当前机器。
+/// 机器卡片沿用 MachinesPage 列表卡的视觉（在线状态点 / 机器名 / SN），点卡即
+/// [currentMachineProvider].select 直进控制台；绑定清单为空时现场拉一次
+/// （与 MachinesPage._load 同源 [MachinesService.fetchMyMachines]，并回写
+/// [boundMachinesProvider]），确实无绑定 / 拉取失败 → 回落原「还没有绑定机器」
+/// 引导（态 3）。
+class _MachinePickerGate extends ConsumerStatefulWidget {
+  const _MachinePickerGate();
+
+  @override
+  ConsumerState<_MachinePickerGate> createState() => _MachinePickerGateState();
+}
+
+class _MachinePickerGateState extends ConsumerState<_MachinePickerGate> {
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _ensureLoaded();
+  }
+
+  Future<void> _ensureLoaded() async {
+    if (ref.read(boundMachinesProvider).isNotEmpty) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final list = await MachinesService(
+        baseUrl: ref.read(runtimeConfigProvider).resolvedBackendBaseUrl,
+      ).fetchMyMachines();
+      if (!mounted) return;
+      ref.read(boundMachinesProvider.notifier).state = list;
+      setState(() => _loading = false);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = e.toString().replaceFirst('Exception: ', '');
+        });
+      }
+    }
+  }
+
+  /// 点卡即选中：currentMachineProvider 变化会让控制台本体重建，无需再跳页。
+  Future<void> _select(Machine m) async {
+    await ref.read(currentMachineProvider.notifier).select(m);
+    // 与 MachinesPage._selectMachine 同款：配置延时摄影的取流目标。
+    final device = m.sn.isNotEmpty ? m.sn : m.camDevice;
+    if (device.isNotEmpty) {
+      TimeLapseClient.configure(
+        base: AppConfig.cameraRelayBaseUrl,
+        device: device,
+      );
+    }
+  }
+
+  void _openBind() {
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const BindPage()))
+        .then((_) => _ensureLoaded());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final machines = ref.watch(boundMachinesProvider);
+    if (machines.isEmpty) {
+      if (_loading) {
+        return Center(
+            child: CircularProgressIndicator(color: CncColors.primary));
+      }
+      // 态 3：无绑定机器 —— 保留原引导；拉取失败时在底部给一条重试。
+      return Column(
+        children: [
+          Expanded(
+            child: _ConsoleGate(
+              icon: Symbols.add_to_queue,
+              title: '还没有绑定机器',
+              subtitle:
+                  '先在「我的机器」里扫码绑定你的雕刻机，就能在这里实时查看与控制。',
+              actionLabel: '去绑定机器',
+              onAction: _openBind,
+            ),
+          ),
+          if (_error != null) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Text(_error!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 11, color: CncColors.danger)),
+            ),
+            const SizedBox(height: 6),
+            TextButton(onPressed: _ensureLoaded, child: const Text('重试')),
+            const SizedBox(height: 24),
+          ],
+        ],
+      );
+    }
+    // 态 2：选机列表。
+    final presence = ref.watch(presenceMapProvider).valueOrNull ??
+        const <String, DevicePresence>{};
+    return SafeArea(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
+            child: Text('选择要控制的机器',
+                style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: CncColors.textMain)),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+            child: Text('点一台机器直接进入控制台',
+                style: TextStyle(fontSize: 12, color: CncColors.textSub)),
+          ),
+          Expanded(
+            child: ListView.separated(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+              itemCount: machines.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              // 关格子级离屏缓存防文字乱码（与 MachinesPage 同一既有对策）。
+              addRepaintBoundaries: false,
+              itemBuilder: (context, i) {
+                final m = machines[i];
+                final online =
+                    m.online == true || (presence[m.sn]?.online ?? false);
+                return _PickerMachineCard(
+                  machine: m,
+                  online: online,
+                  onTap: () => _select(m),
+                );
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: CncColors.textMain,
+                side: BorderSide(color: CncColors.border),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+              ),
+              icon: const Icon(Symbols.qr_code_scanner, size: 18),
+              label: const Text('扫码添加新机器'),
+              onPressed: _openBind,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 选机卡片：视觉沿用 MachinesPage._MachineCard（圆角 14 / card 底 / 在线点），
+/// 只保留「在线状态点 / 机器名 / SN」三要素 —— 门控场景不需要预览与刀仓入口。
+class _PickerMachineCard extends StatelessWidget {
+  final Machine machine;
+  final bool online;
+  final VoidCallback onTap;
+
+  const _PickerMachineCard({
+    required this.machine,
+    required this.online,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final name = machine.name.isNotEmpty ? machine.name : machine.sn;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: CncColors.card,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: CncColors.border),
+        ),
+        child: Row(children: [
+          Container(
+            width: 9,
+            height: 9,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: online ? CncColors.primary : CncColors.border,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: CncColors.textMain)),
+          ),
+          const SizedBox(width: 8),
+          Text(machine.sn,
+              style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+          const SizedBox(width: 6),
+          Icon(Symbols.chevron_right, size: 16, color: CncColors.textSub),
+        ]),
       ),
     );
   }

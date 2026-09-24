@@ -97,6 +97,10 @@ class OriginCanvas extends StatefulWidget {
   /// 不叠加前序误差，保证"框内位移 = 机械坐标"严格等比、无漂移。
   final void Function(Offset mm) onDesignDragTo;
 
+  /// 拖动**开始**回调（仅模型拖动触发一次）：2.0 底部抽屉据此自动收起、
+  /// 把让出的高度给画布（工单 20260924 §3.2-②）。
+  final VoidCallback? onDesignDragStart;
+
   /// **调试用**：激光十字可手指拖动（代表"机器位"）。仅虚拟机器位模式打开。
   final bool laserDraggable;
 
@@ -126,6 +130,7 @@ class OriginCanvas extends StatefulWidget {
     this.gridCols = 0,
     this.gridRows = 0,
     required this.onDesignDragTo,
+    this.onDesignDragStart,
     this.laserDraggable = false,
     this.onLaserDrag,
     this.framingProgress,
@@ -182,6 +187,7 @@ class _OriginCanvasState extends State<OriginCanvas> {
                     setState(() => _dragging = true);
                     _grabLocal = d.localPosition;
                     _grabDesign = widget.designPos;
+                    widget.onDesignDragStart?.call();
                   }
                 }
               : null,
@@ -537,6 +543,8 @@ class _OriginPainter extends CustomPainter {
       );
       final inner = rp - clearBand * g.scale;
       if (inner > 0) _dashedCircle(canvas, cp, inner);
+      _pill(canvas, '直径 ${(c.radius * 2).toStringAsFixed(0)} mm',
+          Offset(cp.dx, cp.dy + rp));
       return;
     }
     final r = stockRect;
@@ -554,6 +562,9 @@ class _OriginPainter extends CustomPainter {
     if (rp.width > inset * 2 && rp.height > inset * 2) {
       _dashedRect(canvas, rp.deflate(inset));
     }
+    // 尺寸签：压虚拟框边线中点（工单 20260924 §3.1-3，取完两点出现）。
+    _pill(canvas, '${r.width.toStringAsFixed(0)}×${r.height.toStringAsFixed(0)} mm',
+        Offset(rp.center.dx, rp.bottom));
   }
 
   /// 标定点：白底蓝环 + 实心点 + 右上角编号徽标。
@@ -594,6 +605,35 @@ class _OriginPainter extends CustomPainter {
       ..strokeWidth = 1
       ..color = _red.withOpacity(0.75);
     _dashPath(canvas, Path()..addOval(Rect.fromCircle(center: c, radius: r)), p);
+  }
+
+  /// 尺寸签胶囊：白底描边、骑在框边线上。挂在框几何（不随拖动内容移动），
+  /// 不与刻度/台面标签干涉。
+  void _pill(Canvas canvas, String s, Offset center) {
+    final tp = TextPainter(
+      text: TextSpan(
+          text: s,
+          style: const TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF4A4843))),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    const padH = 6.0, padV = 2.5;
+    final rect = Rect.fromCenter(
+      center: center,
+      width: tp.width + padH * 2,
+      height: tp.height + padV * 2,
+    );
+    final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(8));
+    canvas.drawRRect(rrect, Paint()..color = Colors.white.withOpacity(0.94));
+    canvas.drawRRect(
+        rrect,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = const Color(0xFFB9B7AE));
+    tp.paint(canvas, rect.topLeft + const Offset(padH, padV));
   }
 
   void _dashPath(Canvas canvas, Path path, Paint paint) {

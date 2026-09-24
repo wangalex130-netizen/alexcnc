@@ -702,6 +702,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           }),
           onNext: _next,
           onPrev: _prev,
+          stepLabel:
+              '第 ${_visibleSteps.indexOf(_step) + 1}/${_visibleSteps.length} 步',
         );
       case 2:
         // 2026-09-23 顺序调整：刀仓映射现在排在第 3 步（下标 2）。
@@ -1742,6 +1744,10 @@ class _StepOrigin extends ConsumerStatefulWidget {
   /// 回上一步（由父级向导提供）。
   final VoidCallback? onPrev;
 
+  /// 顶栏步骤标签（如「第 2/5 步」）。激光作业会跳过刀仓映射，总数不是恒 5，
+  /// 由父级按可见步骤表算好传入。
+  final String stepLabel;
+
   const _StepOrigin({
     required this.task,
     required this.payloadUrl,
@@ -1762,6 +1768,7 @@ class _StepOrigin extends ConsumerStatefulWidget {
     required this.onShape,
     this.onNext,
     this.onPrev,
+    required this.stepLabel,
   });
 
   @override
@@ -1775,6 +1782,9 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   bool _areaLoading = true;
   double _jogStep = 1;
   bool _show3D = false;
+  // 2.0（09-24）：底部抽屉 —— 当前分段（0 定原点 / 1 摆模型 / 2 预览确认）与展开态。
+  int _seg = 0;
+  bool _drawerOpen = true;
   bool _busy = false;
   bool _laserOn = false;
   String? _noteMsg;
@@ -1846,8 +1856,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     _loadWorkArea();
     LocalPayloadStore.instance.addListener(_onLocalPayload);
     DebugSim.instance.addListener(_onSim);
-    // 定原点页强制横屏 + **沉浸全屏**（离开即恢复竖屏与系统栏）。
-    // 昊总 09-18：横屏时顶部还有一条状态栏白边，要按屏幕分辨率铺满。
+    // 2.0（09-24 工单 §3.6）：定原点页改**竖屏 + 抽屉**，进入竖屏沉浸
+    //（离开即恢复系统栏）。横屏锁解除，方向不再强锁 landscape。
     _enterChrome();
     _frameAnim = AnimationController(
       vsync: this,
@@ -1876,12 +1886,12 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         overlays: SystemUiOverlay.values);
   }
 
-  /// 进入横屏沉浸（首次进入与 resume 兜底共用，避免两处写法漂移）。
+  /// 进入竖屏沉浸（首次进入与 resume 兜底共用，避免两处写法漂移）。
+  /// 2.0（09-24 工单 §3.6）：横屏锁解除 —— 改锁 portraitUp；immersiveSticky
+  /// 保留（顶栏自绘、系统栏仍隐藏）。若真机竖屏沉浸适配有问题，允许整体退回
+  /// 正常 UI 模式（二选一，真机定）。其他页面旋转行为不受影响（出页即恢复）。
   void _enterChrome() {
-    SystemChrome.setPreferredOrientations(const [
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
+    SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
 
@@ -2152,7 +2162,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     // C-2（09-23）：坐标取的是**状态帧里的 mpos**。机器掉线时状态帧会停在
     // 最后一条，_livePos() 仍照旧返回那个值 ⇒ 客户取到一个「几秒甚至几分钟
     // 前的点」，而界面一切正常、取完还报「已记下第 1 点 (x, y)」—— 静默错位。
-    // 左侧状态灯（_leftDeck 的 allOk）本来就按 2 秒新鲜度判门禁，这里用**同一
+    // 顶栏连接灯（与 allOk 同口径）本来就按 2 秒新鲜度判门禁，这里用**同一
     // 口径**补齐取点这一路，不引入第二套阈值。模拟机器位态无真机，跳过。
     if (!DebugSim.instance.enabled) {
       final fresh = _frameAt != null &&
@@ -2220,7 +2230,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   ///
   /// B-5（09-23 修）：`_take()` 此前只清 `_framingDone`，而 `_g54Written` /
   /// `originSet` / `safetyChecked` 三个标志**全部留着**。客户发现料框取歪了、
-  /// **不按【重标定】**直接再按两次【取点】重取（产品注释里明确鼓励这种操作：
+  /// **不按中心键【重新】**直接再按两次【取点】重取（产品注释里明确鼓励这种操作：
   /// 「点错了直接再点一下即可，不必去找清除按钮」），于是新料框生效、旧 G54 还在，
   /// 而按钮（originSet && g54Written）与 canNext（safetyChecked）都还是真
   /// ⇒ 客户一路点到【下一步】，起点整体错位且界面毫无异常（与 B-2 同一后果）。
@@ -2520,18 +2530,13 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       );
 
   @override
-  // ===================== 视图：横屏左右手柄布局 =====================
+  // ===================== 视图 2.0：竖屏 + 抽屉分段 =====================
   //
-  // 昊总 2026-09-17 / 09-18 定稿：
-  //  ① 横屏；② **上下不放任何按键**（全给画框）；③ 全部功能收进左右两条手柄条；
-  //  ④ 两个大十字盘与拇指同高；⑤ 上留白 = 操作引导（异常时替换），下留白 = 进度；
-  //  ⑥ 取点 = 两点定形（矩形=对角 / 圆=直径，都任取、不区分顺序）⇒ 尺寸全实测；
-  //  ⭐ 2026-09-18 第 2 条：圆与矩形**合并**，圆不再需要 3 点（见 [circleOf]）；
-  //  ⑦ 手柄条**固定不滚动**：中间十字盘吃剩余高度 ⇒ 任何屏都不需要上下滑。
-  //  文案原则：一行说完、动词开头、只出现客户能懂的词、每条指向真实按钮。
-
-  /// 步进标签（0.1 / 1 / 10）。
-  String get _jogStepLabel => _jogStep < 1 ? '0.1' : _jogStep.toStringAsFixed(0);
+  // 昊总 2026-09-24 拍板：定原点页一次切换到 2.0（竖屏+抽屉），横屏三区布局
+  // 整体废弃。自上而下：顶栏（←/标题/连接灯）→ 画布（工作指示窗 + 2D/3D
+  // 切换键悬浮其上，画布尽量大 —— 硬要求）→ 状态条 → 底部抽屉（定原点/摆
+  // 模型/预览确认 三段，可收起）→ 唯一 CTA。
+  // 业务逻辑零改动（工单 §3.5）：取点/移动/预览/锁定/门禁全部复用既有函数。
 
   @override
   Widget build(BuildContext context) {
@@ -2553,356 +2558,419 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       ));
     }
 
-    // 手柄条宽度：刚好放得下大十字盘即可，每多占 1px 画框就少 1px
-    final deckW =
-        min(max(MediaQuery.of(context).size.width * 0.20, 118.0), 184.0);
     final guide = _guideText();
 
     return PopScope(
-      // 返回/侧滑时，在路由真正弹出**之前**恢复竖屏：
-      // 时序上比 dispose 更稳（鸿蒙等机型实测更可靠），
-      // 亦是 fullscreen_preview_page.dart:570-582 的既有正确写法。
+      // 返回/侧滑时，在路由真正弹出**之前**恢复系统栏：时序上比 dispose 更稳
+      //（鸿蒙等机型实测更可靠；fullscreen_preview_page.dart 同款既有写法）。
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
         _restoreChrome();
         Navigator.of(context).pop();
       },
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Column(
         children: [
-          SizedBox(width: deckW, child: _deck(_leftDeck(), left: true)),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
-              child: Column(
-                children: [
-                  _strip(guide.text, guide.level, dots: true),
-                  const SizedBox(height: 3),
-                  Expanded(child: _canvasOr3D(laserMm, sim)),
-                  const SizedBox(height: 3),
-                  _strip(_statusText(), 0, center: true),
-                ],
-              ),
-            ),
-          ),
-          SizedBox(width: deckW, child: _deck(_rightDeck(), left: false)),
+          _topBar(),
+          Expanded(child: _canvasArea(laserMm, sim, guide)),
+          _statusBar(),
+          _drawer(),
+          _cta(),
         ],
       ),
     );
   }
 
-  // ---------- 手柄条容器 ----------
+  // ---------- 顶栏 ----------
 
-  /// 手柄条：**固定不滚动**（不能靠上下滑动才看全）。
-  ///
-  /// 布局契约：子项里最多一个 `Expanded`（十字盘），其余为固定高度 ⇒ 永不溢出。
-  Widget _deck(List<Widget> children, {required bool left}) => Container(
+  /// 2.0 自绘顶栏（工单 §3.1-1）：← 上一步（左，承担返回+退出）·
+  /// 「定原点 · 第 x/y 步」· ● 连接灯（右）。**无主轴坐标**（§3.4 删除项）。
+  Widget _topBar() {
+    final sim = DebugSim.instance.enabled;
+    final st = ref.watch(machineStatusProvider).valueOrNull;
+    final linked = sim || st != null;
+    return Container(
+      height: 46,
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      decoration: BoxDecoration(
         color: CncColors.panel,
-        padding: EdgeInsets.fromLTRB(left ? 7 : 3, 5, left ? 3 : 7, 5),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: children,
+        border: Border(bottom: BorderSide(color: CncColors.border)),
+      ),
+      child: Row(children: [
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _busy ? null : widget.onPrev,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
+            child: Row(children: [
+              Icon(Symbols.arrow_back_ios_new,
+                  size: 17, color: CncColors.textMain),
+              const SizedBox(width: 5),
+              Text('上一步',
+                  style:
+                      TextStyle(fontSize: 12.5, color: CncColors.textMain)),
+            ]),
+          ),
         ),
-      );
+        Expanded(
+          child: Center(
+            child: Text('定原点 · ${widget.stepLabel}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: CncColors.textMain)),
+          ),
+        ),
+        Row(children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: linked ? CncColors.primary : CncColors.textSub,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(sim ? '模拟' : (linked ? '已连接' : '未连接'),
+              style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+        ]),
+        const SizedBox(width: 8),
+      ]),
+    );
+  }
 
-  // ---------- 留白条 ----------
+  // ---------- 画布区 ----------
 
-  /// 画框上/下留白的一行条。level：0 正常（绿）1 提醒（黄）2 拦截（红）。
-  Widget _strip(String text, int level, {bool center = false, bool dots = false}) {
-    Color bg = const Color(0xFFF0F7E8);
-    Color bd = const Color(0xFFC0DD97);
-    Color fg = const Color(0xFF27500A);
-    if (level == 1) {
-      bg = const Color(0xFFFAEEDA);
-      bd = const Color(0xFFEF9F27);
-      fg = const Color(0xFF633806);
-    } else if (level == 2) {
+  /// 画布区（**尽量大 —— 硬要求，工单 §3.1-3**）：全宽无左右留白；
+  /// 工作指示窗与 2D/3D 切换键都是画布内悬浮元素，不占独立高度。
+  /// 指示窗与切换键错位排布（指示窗 right 留 56），互不遮挡。
+  Widget _canvasArea(
+      Offset? laserMm, bool sim, ({String text, int level}) guide) {
+    return Stack(children: [
+      Positioned.fill(child: _canvasOr3D(laserMm, sim)),
+      Positioned(
+        top: 8,
+        left: 14,
+        right: 56,
+        child: _indicatorPill(guide.text, guide.level),
+      ),
+      Positioned(top: 6, right: 8, child: _modeChip()),
+    ]);
+  }
+
+  /// 工作指示窗（悬浮胶囊，工单 §3.3）：异常红/黄优先，正常四态文案随流程
+  /// 自动切换（文案见 [_guideText]）。
+  Widget _indicatorPill(String text, int level) {
+    Color bg;
+    Color bd;
+    Color fg;
+    if (level == 2) {
       bg = const Color(0xFFFCEBEB);
       bd = const Color(0xFFE24B4A);
       fg = const Color(0xFF791F1F);
-    }
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: bd, width: 0.75),
-      ),
-      child: Row(
-        mainAxisAlignment:
-            center ? MainAxisAlignment.center : MainAxisAlignment.start,
-        children: [
-          if (dots && !center) ...[
-            _stepDots(fg),
-            const SizedBox(width: 8),
-          ],
-          Flexible(
-            child: Text(
-              text,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12, color: fg),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 三步进度点（标定 → 锁定 → 预览）。
-  Widget _stepDots(Color fg) {
-    final n = _stage;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: List.generate(3, (i) {
-        return Container(
-          width: 7,
-          height: 7,
-          margin: EdgeInsets.only(right: i == 2 ? 0 : 5),
-          decoration: BoxDecoration(
-            color: i < n ? fg : fg.withOpacity(0.25),
-            shape: BoxShape.circle,
-          ),
-        );
-      }),
-    );
-  }
-
-  /// 十字盘下方一行小字（用途 + 步进单位合并，省一行高度）。
-  Widget _deckRuler(String label) => Padding(
-        padding: const EdgeInsets.only(top: 3),
-        child: Text(
-          S.t(S.stepJog, {'label': label, 'step': _jogStepLabel}),
-          textAlign: TextAlign.center,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: 10, color: CncColors.textSub),
-        ),
-      );
-
-  /// 全屏精调：把大画框放大到整屏，手机上拖拽更准（昊总 09-18 补入口）。
-  void _openFullscreen() {
-    Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => _OriginFullscreen(
-        bedW: _bedW,
-        bedH: _bedH,
-        shape: widget.stockShape,
-        p0: widget.p0,
-        p1: widget.p1,
-        stockRect: _stockRectMm,
-        designPos: widget.origin,
-        designW: _w,
-        designH: _h,
-        knifeRadius: _knifeR,
-        clearBand: _clearBand,
-        overflow: widget.overflow,
-        hasPayload: _wysiwyg,
-        zGrid: _grid,
-        gridCols: _meta?.gridCols ?? 0,
-        gridRows: _meta?.gridRows ?? 0,
-        framingProgress: _framePlaying ? _frameAnim.value : null,
-        onDrag: (mm) => _setDesign(mm, quiet: true),
-      ),
-    ));
-  }
-
-  /// 手柄条坐标行：显示**主轴机械坐标（mpos）**—— 第 9 条的「可观测」落点。
-  ///
-  /// 只让 App 内部读对不够：客户/工程师必须能把这里的数字与屏幕上的数字
-  /// 直接对上，才能一眼判断是 App 解析错、还是屏幕端上报错。
-  Widget _mposLine() {
-    final sim = DebugSim.instance.enabled;
-    final st = ref.read(machineStatusProvider).valueOrNull;
-    final mp = st?.machinePosition;
-    String s;
-    Color c;
-    if (sim) {
-      final p = DebugSim.instance.pos;
-      s = '模拟位 X${p.dx.toStringAsFixed(1)} Y${p.dy.toStringAsFixed(1)}';
-      c = CncColors.textSub;
-    } else if (st == null) {
-      s = '主轴坐标：未连接';
-      c = CncColors.textSub;
-    } else if (mp == null) {
-      // 状态帧没带 mpos ⇒ 红十字无处可画。必须**明说**，不静默：
-      // 这是屏幕端该补的字段，不是 App 能兜的。
-      s = '状态帧缺 mpos';
-      c = const Color(0xFFEF9F27);
+    } else if (level == 1) {
+      bg = const Color(0xFFFAEEDA);
+      bd = const Color(0xFFEF9F27);
+      fg = const Color(0xFF633806);
     } else {
-      s = '主轴 X${mp.x.toStringAsFixed(1)} Y${mp.y.toStringAsFixed(1)}';
-      c = CncColors.textMain;
+      bg = const Color(0xFFF0F7E8);
+      bd = const Color(0xFFC0DD97);
+      fg = const Color(0xFF27500A);
     }
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Text(
-        s,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(fontSize: 10, color: c),
-      ),
-    );
-  }
-
-  // ---------- 手柄条内容 ----------
-
-  List<Widget> _leftDeck() {
-    final sim = DebugSim.instance.enabled;
-    final st = ref.read(machineStatusProvider).valueOrNull;
-    final fresh = _frameAt != null &&
-        DateTime.now().difference(_frameAt!) < const Duration(seconds: 2);
-    final linked = sim || st != null;
-    final homed = sim ? true : st?.homed;
-    // v11：未上报（null）**不等于**未回零 —— 仅「明确未回零」才硬锁。
-    final homedBlocked = !sim && st?.homed == false;
-    final idle = sim || (st?.canControl ?? false);
-    final allOk = linked && !homedBlocked && (fresh || sim) && idle;
-    final got = [widget.p0, widget.p1].where((e) => e != null).length;
-
-    Widget dot(bool on) => Container(
-          width: 8,
-          height: 8,
-          margin: const EdgeInsets.only(right: 4),
-          decoration: BoxDecoration(
-            color: on ? const Color(0xFF639922) : const Color(0xFFEF9F27),
-            shape: BoxShape.circle,
-          ),
-        );
-
-    return [
-      Row(children: [
-        dot(linked),
-        dot(homed == true),
-        dot(fresh || sim),
-        const SizedBox(width: 4),
-        Flexible(
-          child: Text(
-            sim
-                ? '模拟机器位'
-                : (allOk
-                    ? (homed == null ? S.readyNotHomed : '机器就绪')
-                    : (linked ? '检查机器' : '未连接')),
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: bg.withOpacity(0.96),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: bd, width: 0.75),
+        ),
+        child: Text(text,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 10.5, color: CncColors.textSub),
-          ),
-        ),
-      ]),
-      const SizedBox(height: 5),
-      // 主轴机械坐标实时读数 —— 第 9 条的「可观测」落点。
-      // 只让 App 内部读对不够：客户/工程师必须能把这里的数字与屏幕上的
-      // 数字直接对上，才能一眼判断是 App 解析错、还是屏幕上报错。
-      _mposLine(),
-      const SizedBox(height: 5),
-      if (_wysiwyg) ...[
-        Row(children: [
-          _deckChip('矩形', widget.stockShape == StockShape.rect,
-              () => widget.onShape(StockShape.rect)),
-          _deckChip('圆形', widget.stockShape == StockShape.circle,
-              () => widget.onShape(StockShape.circle)),
-        ]),
-        const SizedBox(height: 5),
-      ],
-      // A-5/A-5b（09-24 昊总拍板）：四向键 = 控制台 JogKey 原件（_jogCross），
-      // 长按逻辑严禁重新发明；中心键语义不变（取点/重新/设原点，C-1 注释随迁）。
-      Expanded(child: _jogCross()),
-      // A-5（09-24 昊总拍板）：橙十字快速走位按钮组整组删除 —— 主轴移动
-      // 只留 jog 直控 + 红十字回显一个口。
-      _deckRuler('移动主轴'),
-      const SizedBox(height: 5),
-      Row(children: [
-        _deckChip('0.1', _jogStep == 0.1, () => setState(() => _jogStep = 0.1)),
-        _deckChip('1', _jogStep == 1, () => setState(() => _jogStep = 1)),
-        _deckChip('10', _jogStep == 10, () => setState(() => _jogStep = 10)),
-      ]),
-      const SizedBox(height: 5),
-      _deckBtn(_laserOn ? '激光 开' : '激光 关', _toggleLaser,
-          icon: Symbols.lightbulb, active: _laserOn),
-    ];
+            style: TextStyle(fontSize: 12, color: fg)),
+      ),
+    );
   }
 
-  List<Widget> _rightDeck() {
+  /// 2D/3D 切换键：显示当前态，点按切换（3D 仅在载荷带高程网格时可用；
+  /// 载体由原手柄条 chip 改为画布右上角浮动键 —— 工单 §3.5）。
+  Widget _modeChip() {
+    final can3d = _wysiwyg && _grid != null;
+    return GestureDetector(
+      onTap: () {
+        if (_show3D) {
+          setState(() => _show3D = false);
+        } else if (can3d) {
+          setState(() => _show3D = true);
+        }
+      },
+      child: Container(
+        height: 30,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.92),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: CncColors.border),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(_show3D ? Symbols.view_in_ar : Symbols.map,
+              size: 15, color: CncColors.textMain),
+          const SizedBox(width: 4),
+          Text(_show3D ? '3D' : '2D',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: CncColors.textMain)),
+        ]),
+      ),
+    );
+  }
+
+  // ---------- 状态条 / 抽屉 / CTA ----------
+
+  /// 状态条（工单 §3.1-5）：`机器名 · 加工模式 · 材料 W×H · 原点状态`；
+  /// 原点未设定=灰 → 已锁定=绿。
+  Widget _statusBar() {
     final sim = DebugSim.instance.enabled;
-    final canPreview = !_busy && !_framePlaying && _datumDone;
-    // 【下一步】门禁：原点已锁定 + 未溢出 + （已按【雕刻预览】目视确认 **或** 调试模拟态）。
-    // 昊总 09-18：模拟调试时要能直接往下走 —— 模拟态本来就没有真机、不存在物理风险，
-    // 生产路径（开关关）门禁一条不少。
-    final canNext = !widget.overflow && (widget.safetyChecked || sim);
-    // B-3（09-23 修）：显示【下一步】的前提是**本地也有凭据**。
-    // _StepOriginState 无保活（父级 switch 切页即重建），从第 4 步返回时本地
-    // _g54Written/_framingDone 归零，而父级 originSet/safetyChecked 仍在
-    // ⇒ 旧写法直接显示【下一步】且 canNext 为真，客户可跳过本轮的【确认原点】，
-    // 拿上一轮的凭据继续（若期间位置被改过就是错的起点）。
-    // 手动模式（无载荷）没有 G54 可写，以父级 originSet 为准，避免出现死局。
+    final m = ref.watch(currentMachineProvider);
+    final name = sim
+        ? '模拟机器'
+        : (m == null ? '未选机器' : (m.name.isNotEmpty ? m.name : m.sn));
+    final mode = _meta == null ? '手动' : (_meta!.isLaser ? '激光' : '主轴');
+    final circle = widget.stockShape == StockShape.circle;
+    final c = _circle();
+    final r = _stockRectMm;
+    final mat = !_datumDone || (circle ? c == null : r == null)
+        ? '材料未框定'
+        : (circle
+            ? '料 ⌀${(c!.radius * 2).toStringAsFixed(0)}'
+            : '料 ${r!.width.toStringAsFixed(0)}×${r!.height.toStringAsFixed(0)}');
     final locked = widget.originSet && (_g54Written || !_wysiwyg);
-    return [
-      Row(children: [
-        _deckChip('2D', !_show3D, () => setState(() => _show3D = false)),
-        _deckChip('3D', _show3D,
-            (_wysiwyg && _grid != null)
-                ? () => setState(() => _show3D = true)
-                : null),
-        _deckChip('放大', false, _busy ? null : _openFullscreen),
-        const SizedBox(width: 4),
-        GestureDetector(
-          onTap: () => Navigator.of(context).pop(),
+    return Container(
+      height: 28,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: CncColors.panel,
+        border: Border(bottom: BorderSide(color: CncColors.border)),
+      ),
+      child: Row(children: [
+        Expanded(
+          child: Text('$name · $mode · $mat',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+        ),
+        Text(locked ? '原点已锁定' : '原点未设定',
+            style: TextStyle(
+                fontSize: 11,
+                fontWeight: locked ? FontWeight.w600 : FontWeight.normal,
+                color: locked ? CncColors.primary : CncColors.textSub)),
+      ]),
+    );
+  }
+
+  /// 底部抽屉（工单 §3.2）：三个分段 tab，每次只展开当前段；收起态仅剩
+  /// 「▲ 展开工具」一条 + 状态条 + CTA。拖动模型时自动收起
+  ///（[_onDesignDragStart]），点此条或分段 tab 再展开。
+  Widget _drawer() {
+    if (!_drawerOpen) {
+      return _drawerShell(
+        child: InkWell(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => setState(() => _drawerOpen = true),
           child: Container(
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(7),
-              border: Border.all(color: CncColors.border),
-            ),
-            child:
-                Icon(Symbols.close, size: 15, color: CncColors.textSub),
+            height: 36,
+            alignment: Alignment.center,
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Symbols.keyboard_arrow_up,
+                  size: 17, color: CncColors.textSub),
+              const SizedBox(width: 4),
+              Text('展开工具',
+                  style: TextStyle(fontSize: 12, color: CncColors.textSub)),
+            ]),
           ),
         ),
+      );
+    }
+    return _drawerShell(
+      child: Column(children: [
+        Row(children: [
+          Expanded(child: _segTab(0, Symbols.center_focus_strong, '定原点')),
+          Expanded(child: _segTab(1, Symbols.open_with, '摆模型')),
+          Expanded(child: _segTab(2, Symbols.play_circle, '预览确认')),
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() => _drawerOpen = false),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 10),
+              child: Icon(Symbols.keyboard_arrow_down,
+                  size: 18, color: CncColors.textSub),
+            ),
+          ),
+        ]),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+          child: _segBody(_seg),
+        ),
       ]),
-      const SizedBox(height: 5),
-      Row(children: [
-        Expanded(child: _deckBtn('上一步', _busy ? null : widget.onPrev)),
-        const SizedBox(width: 5),
-        Expanded(
-            child: _deckBtn('重标定', _busy ? null : _clearPts,
-                icon: Symbols.refresh)),
-      ]),
-      const SizedBox(height: 5),
-      Expanded(
-        child: _cross(
-          onUp: _busy
+    );
+  }
+
+  Widget _drawerShell({required Widget child}) => Container(
+        decoration: BoxDecoration(
+          color: CncColors.panel,
+          border: Border(top: BorderSide(color: CncColors.border)),
+        ),
+        child: child,
+      );
+
+  Widget _segTab(int i, IconData ic, String label) {
+    final active = _seg == i;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => setState(() => _seg = i),
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(6, 6, 0, 0),
+        padding: const EdgeInsets.symmetric(vertical: 7),
+        decoration: BoxDecoration(
+          color: active
+              ? CncColors.primary.withOpacity(0.12)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(9),
+          border: Border.all(
+              color: active ? CncColors.primary : CncColors.border),
+        ),
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(ic,
+              size: 15,
+              color: active ? CncColors.primaryInk : CncColors.textSub),
+          const SizedBox(width: 4),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+                  color: active ? CncColors.primaryInk : CncColors.textSub)),
+        ]),
+      ),
+    );
+  }
+
+  /// 分段内容（纯 UI 重组，全部复用既有函数 —— 工单 §3.2）。
+  Widget _segBody(int seg) {
+    // 十字盘高度随屏：大屏 185 / 小屏 120 —— 保证收起/展开态画布占比（§3.7-8）。
+    final crossH =
+        (MediaQuery.of(context).size.height * 0.22).clamp(120.0, 185.0);
+    switch (seg) {
+      case 0:
+        // ① 定原点：形态 chip + 主轴十字（中心=取点/重新 n/2，复用 _clearPts）
+        // + 步进 + 激光开关。
+        return Column(children: [
+          if (_wysiwyg) ...[
+            Row(children: [
+              _deckChip('矩形', widget.stockShape == StockShape.rect,
+                  () => widget.onShape(StockShape.rect)),
+              _deckChip('圆形', widget.stockShape == StockShape.circle,
+                  () => widget.onShape(StockShape.circle)),
+            ]),
+            const SizedBox(height: 6),
+          ],
+          SizedBox(height: crossH, child: _jogCross()),
+          const SizedBox(height: 6),
+          Row(children: [
+            _deckChip(
+                '0.1', _jogStep == 0.1, () => setState(() => _jogStep = 0.1)),
+            _deckChip('1', _jogStep == 1, () => setState(() => _jogStep = 1)),
+            _deckChip(
+                '10', _jogStep == 10, () => setState(() => _jogStep = 10)),
+            Expanded(
+              child: _deckBtn(_laserOn ? '激光 开' : '激光 关', _toggleLaser,
+                  icon: Symbols.lightbulb, active: _laserOn),
+            ),
+          ]),
+        ]);
+      case 1:
+        // ② 摆模型：模型十字（中心=归中，复用 _centerModel）。
+        // 拖动模型时抽屉自动收起 → 画布增高；点「▲ 展开工具」再展开。
+        return SizedBox(
+          height: crossH,
+          child: _cross(
+            onUp: _busy
+                ? null
+                : () => _setDesign(widget.origin + Offset(0, _jogStep),
+                    quiet: true),
+            onDown: _busy
+                ? null
+                : () => _setDesign(widget.origin - Offset(0, _jogStep),
+                    quiet: true),
+            onLeft: _busy
+                ? null
+                : () => _setDesign(widget.origin - Offset(_jogStep, 0),
+                    quiet: true),
+            onRight: _busy
+                ? null
+                : () => _setDesign(widget.origin + Offset(_jogStep, 0),
+                    quiet: true),
+            centerLabel: '归中',
+            onCenter: _busy ? null : _centerModel,
+          ),
+        );
+      default:
+        // ③ 预览确认：雕刻预览（复用 _doFraming）+ 已目视确认（复用 _safetyTick）。
+        final canPreview = !_busy && !_framePlaying && _datumDone;
+        return Column(children: [
+          _deckBtn(_framePlaying ? '预览中…' : '雕刻预览',
+              canPreview ? _doFraming : null,
+              icon: Symbols.play_arrow),
+          const SizedBox(height: 6),
+          _safetyTick(),
+        ]);
+    }
+  }
+
+  /// 唯一 CTA（工单 §3.1-6）：不可用=灰 → 可用=绿【✓ 确认原点】；锁定后
+  /// **原地**变【下一步 →】（同一槽位，沿用原 locked/canNext 门禁口径）。
+  Widget _cta() {
+    final sim = DebugSim.instance.enabled;
+    final canNext = !widget.overflow && (widget.safetyChecked || sim);
+    final locked = widget.originSet && (_g54Written || !_wysiwyg);
+    final enabled = locked ? canNext : !_busy;
+    final label = locked ? '下一步' : (_wysiwyg ? '确认原点' : '锁定原点');
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 7, 12, 9),
+      child: SizedBox(
+        width: double.infinity,
+        height: 44,
+        child: FilledButton.icon(
+          onPressed: !enabled
               ? null
-              : () => _setDesign(widget.origin + Offset(0, _jogStep), quiet: true),
-          onDown: _busy
-              ? null
-              : () => _setDesign(widget.origin - Offset(0, _jogStep), quiet: true),
-          onLeft: _busy
-              ? null
-              : () => _setDesign(widget.origin - Offset(_jogStep, 0), quiet: true),
-          onRight: _busy
-              ? null
-              : () => _setDesign(widget.origin + Offset(_jogStep, 0), quiet: true),
-          centerLabel: '归中',
-          onCenter: _busy ? null : _centerModel,
+              : () {
+                  if (locked) {
+                    widget.onNext?.call();
+                  } else if (_wysiwyg) {
+                    _writeG54();
+                  } else {
+                    _manualSet();
+                  }
+                },
+          style: FilledButton.styleFrom(
+            backgroundColor:
+                enabled ? CncColors.primary : const Color(0xFFE0E3E8),
+            disabledBackgroundColor: const Color(0xFFE0E3E8),
+            foregroundColor: enabled ? Colors.white : CncColors.textSub,
+            disabledForegroundColor: CncColors.textSub,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12)),
+          ),
+          icon: Icon(locked ? Symbols.arrow_forward : Symbols.check,
+              size: 18),
+          label: Text(label,
+              style: const TextStyle(
+                  fontSize: 14.5, fontWeight: FontWeight.w600)),
         ),
       ),
-      _deckRuler('移动模型'),
-      const SizedBox(height: 5),
-      _deckBtn(_framePlaying ? '预览中…' : '雕刻预览', canPreview ? _doFraming : null,
-          icon: Symbols.play_arrow),
-      const SizedBox(height: 5),
-      _safetyTick(),
-      const SizedBox(height: 5),
-      // 「下一步」必须等：原点已锁定 + 未溢出 + 已按【雕刻预览】并由客户勾选确认
-      //（调试模拟态可跳过目视确认 —— 没有真机、无物理风险）
-      locked
-          ? _deckBtn('下一步', canNext ? widget.onNext : null,
-              icon: Symbols.chevron_right, primary: true)
-          // 手动模式原先也显示「确认原点」且点了走 _writeG54 —— 而无载荷时
-          // _writeG54 必然早退（「手动模式请用【锁定原点】」）⇒ 一个点了没用的
-          // 死按钮。改为文案与动作都走手动口径，与中央「设原点」一致。
-          : _deckBtn(_wysiwyg ? '确认原点' : '锁定原点',
-              _busy ? null : (_wysiwyg ? _writeG54 : _manualSet),
-              icon: Symbols.check_circle, primary: true),
-    ];
+    );
   }
 
   // ---------- 通用控件 ----------
@@ -3146,7 +3214,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   /// ≤1mm 档）；按住期间 200ms 保活；松手/手势取消 = jog_cancel(0x85)；
   /// App 失焦兜底见 [didChangeAppLifecycleState]。
   /// 中央键语义不变 —— C-1（09-23）：取满两点后由【取点】变【重新】；取满后
-  /// 走 _clearPts()（全清 + 作废旧 G54/巡边/目视确认），与【重标定】同一函数。
+  /// 走 _clearPts()（全清 + 作废旧 G54/巡边/目视确认）—— 即中心键【重新】。
   Widget _jogCross() {
     final sim = DebugSim.instance.enabled;
     final got = [widget.p0, widget.p1].where((e) => e != null).length;
@@ -3329,70 +3397,48 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     );
   }
 
-  // ---------- 引导 / 进度 / 异常（上留白 / 下留白） ----------
+  /// ② 摆模型（工单 §3.2）：拖动模型时抽屉自动收起 → 画布增高；
+  /// 点「▲ 展开工具」再展开。由 OriginCanvas.onDesignDragStart 触发。
+  void _onDesignDragStart() {
+    if (_drawerOpen) setState(() => _drawerOpen = false);
+  }
 
-  /// 三步进度：0 未标定 · 1 已标定 · 2 已锁定 · 3 已预览。
-  int get _stage => _framingDone
-      ? 3
-      : (_g54Written ? 2 : (_datumDone ? 1 : 0));
+  // ---------- 工作指示窗文案 ----------
 
   /// 两点够开且材料矩形成立（<10mm 视为没框好）。
   bool get _rectOk => _stockRectMm != null;
 
-  /// 下留白：做到哪了（纯事实 + 数字）。
-  String _statusText() {
-    final got = [widget.p0, widget.p1].where((e) => e != null).length;
-    final circle = widget.stockShape == StockShape.circle;
-    final c = _circle();
-    final r = _stockRectMm;
-    if (!_datumDone || (circle ? c == null : r == null)) {
-      return '已取 $got / $_needPts 点';
-    }
-    // 圆料报**直径**（客户量的是直径，不是外接矩形）；矩形料照旧报宽×高。
-    final size = circle
-        ? '圆料 直径 ${(c!.radius * 2).toStringAsFixed(1)} mm'
-        : '材料 ${r!.width.toStringAsFixed(1)} × ${r!.height.toStringAsFixed(1)} mm';
-    if (!_g54Written) return '$size · 标定完成';
-    if (!_framingDone) return '$size · 原点已锁定';
-    return '$size · 落点已确认';
-  }
-
-  /// 上留白：异常优先（红/黄），否则给操作引导。
+  /// 工作指示窗 · 四态文案（工单 20260924 §3.3），随流程自动切换；
+  /// 异常（红/黄）优先级更高。
   ({String text, int level}) _guideText() {
     // A-12：**刚发生的事优先**（4 秒内）。客户按下按钮后最需要看到的是
-    // 「刚才那一下的结果」，而不是持续状态；否则 _note() 的反馈会被
-    // _topIssue() 的红条长期压住，等于白写。
+    // 「刚才那一下的结果」，而不是持续状态。
     final fresh = _freshNote();
     if (fresh != null) return fresh;
     final issue = _topIssue();
     if (issue != null) return issue;
     if (!_wysiwyg) {
-      return (text: '用左手盘把激光对准雕刻起点，按【设原点】', level: 0);
+      // 手动兜底（无载荷）：中心键 = 设原点。
+      return (text: '移动主轴对准雕刻起点，按中心键【设原点】', level: 0);
     }
-    final circle = widget.stockShape == StockShape.circle;
-    if (widget.p0 == null) {
+    final got = [widget.p0, widget.p1].where((e) => e != null).length;
+    // ① 取点：未完成取点
+    if (!_datumDone) {
       return (
-        text: circle
-            ? '打开激光，移到圆周上一点，按【取点】'
-            : '打开激光，移到材料任一个角，按【取点】',
+        text: '把激光对准材料角点，取第 ${got + 1} / $_needPts 点',
         level: 0
       );
     }
-    if (widget.p1 == null) {
-      return (
-        text: circle
-            ? '移到圆周「正对面」那点（连线过圆心），再按【取点】'
-            : '移到材料的对角另一端，再按【取点】',
-        level: 0
-      );
-    }
-    if (!_g54Written) {
-      return (text: '拖动模型摆好位置，按【确认原点】锁定', level: 0);
-    }
+    // ② 摆模型：取点完成、未预览
     if (!_framingDone) {
-      return (text: '按【雕刻预览】看落点是否合适', level: 0);
+      return (text: '拖动模型摆好雕刻位置', level: 0);
     }
-    return (text: '原点已就绪，点【下一步】继续', level: 0);
+    // ③ 预览确认：预览完成、未勾选
+    if (!widget.safetyChecked) {
+      return (text: '确认轨迹在耗材内、避开压板，勾选「已目视确认」', level: 0);
+    }
+    // ④ 可下一步：已勾选
+    return (text: '位置确认无误，按【下一步】继续', level: 0);
   }
 
   /// 4 秒内的操作反馈（A-12）。
@@ -4204,148 +4250,6 @@ class _ReadyPhase extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-
-/// 定原点页的「**全屏精调**」：把大画框放大到整屏，手机上拖模型更准。
-///
-/// 昊总 2026-09-18：「你说的全屏精调，我没看见在哪里？」—— 本次补上入口
-/// （右上手柄条【放大】）。这里只做一件事：**更大的画布 + 拖动模型**；
-/// 标定 / 雕刻预览 / 确认原点仍在主页面做。
-///
-/// 拖动走主页面同一个 [onDrag] 回调（软围栏在那边统一裁决），并**回读实际生效位置**
-/// —— 被围栏夹住时全屏页显示的就是夹取后的真值，不会出现"手指在这、框在那"。
-class _OriginFullscreen extends ConsumerStatefulWidget {
-  final double bedW;
-  final double bedH;
-  final StockShape shape;
-  final Offset? p0;
-  final Offset? p1;
-  final Rect? stockRect;
-  final Offset designPos;
-  final double designW;
-  final double designH;
-  final double knifeRadius;
-  final double clearBand;
-  final bool overflow;
-  final bool hasPayload;
-  final List<double>? zGrid;
-  final int gridCols;
-  final int gridRows;
-  final double? framingProgress;
-
-  /// 拖动回调：交给主页面做软围栏裁决，**返回实际生效的位置**。
-  final Offset Function(Offset raw) onDrag;
-
-  const _OriginFullscreen({
-    required this.bedW,
-    required this.bedH,
-    required this.shape,
-    required this.p0,
-    required this.p1,
-    required this.stockRect,
-    required this.designPos,
-    required this.designW,
-    required this.designH,
-    required this.knifeRadius,
-    required this.clearBand,
-    required this.overflow,
-    required this.hasPayload,
-    required this.zGrid,
-    required this.gridCols,
-    required this.gridRows,
-    required this.framingProgress,
-    required this.onDrag,
-  });
-
-  @override
-  ConsumerState<_OriginFullscreen> createState() => _OriginFullscreenState();
-}
-
-class _OriginFullscreenState extends ConsumerState<_OriginFullscreen> {
-  late Offset _pos = widget.designPos;
-
-  @override
-  Widget build(BuildContext context) {
-    final sim = DebugSim.instance.enabled;
-    final mp = ref.watch(machineStatusProvider).valueOrNull?.machinePosition;
-    final laserMm =
-        sim ? DebugSim.instance.pos : (mp == null ? null : Offset(mp.x, mp.y));
-
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 6, 8, 5),
-              child: Row(
-                children: [
-                  Text('全屏精调 · 拖动模型摆位',
-                      style:
-                          TextStyle(fontSize: 12.5, color: CncColors.textSub)),
-                  const Spacer(),
-                  Text(
-                    'X ${_pos.dx.toStringAsFixed(1)}   Y ${_pos.dy.toStringAsFixed(1)} mm',
-                    style: TextStyle(
-                        fontSize: 12, color: CncColors.textMain),
-                  ),
-                  const SizedBox(width: 12),
-                  Material(
-                    color: CncColors.primary,
-                    borderRadius: BorderRadius.circular(8),
-                    child: InkWell(
-                      onTap: () => Navigator.of(context).pop(),
-                      borderRadius: BorderRadius.circular(8),
-                      child: const Padding(
-                        padding:
-                            EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-                        child: Text('完成',
-                            style:
-                                TextStyle(fontSize: 12.5, color: Colors.white)),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: OriginCanvas(
-                    bedW: widget.bedW,
-                    bedH: widget.bedH,
-                    shape: widget.shape,
-                    p0: widget.p0,
-                    p1: widget.p1,
-                    stockRect: widget.stockRect,
-                    designPos: _pos,
-                    designW: widget.designW,
-                    designH: widget.designH,
-                    knifeRadius: widget.knifeRadius,
-                    clearBand: widget.clearBand,
-                    overflow: widget.overflow,
-                    laserMm: laserMm,
-                    hasPayload: widget.hasPayload,
-                    zGrid: widget.zGrid,
-                    gridCols: widget.gridCols,
-                    gridRows: widget.gridRows,
-                    framingProgress: widget.framingProgress,
-                    onDesignDragTo: (mm) {
-                      final actual = widget.onDrag(mm);
-                      if (mounted) setState(() => _pos = actual);
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
