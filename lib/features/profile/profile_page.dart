@@ -1,18 +1,11 @@
-import 'dart:async';
-
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:material_symbols_icons/material_symbols_icons.dart';
 
-
-import '../../app/config.dart';
 import '../../app/theme.dart';
 import '../../app/theme_mode_controller.dart';
-import '../../models/app_update_info.dart';
-import '../../services/app_update_service.dart';
-
 import '../../services/message_store.dart';
 
 import '../../state/auth_provider.dart';
@@ -30,20 +23,16 @@ import '../machines/machines_page.dart';
 
 import '../preview/timelapse_gallery_page.dart';
 
+import 'profile_widgets.dart';
+import 'settings_page.dart';
 import 'sys_bits_page.dart';
 import 'work_history_page.dart';
 
-import '../settings/debug_settings_page.dart';
-import '../settings/privacy_policy_page.dart';
-import '../debug/local_payload_page.dart';
-import '../../widgets/cnc_switch.dart';
-
-import 'package:material_symbols_icons/material_symbols_icons.dart';
-
-
 /// Core 5: personal hub & device manager.
-
-/// Strictly aligned to 我的页面.html —— 荧光绿 #00ff7f / 纯黑底 / 线性图标 / 原名。
+///
+/// 工单七（2026-09-25）：主页信息架构重设计 —— 高频与身份留主页，
+/// 低频收进设置页（SettingsPage）。搬移映射见工单七 §3；本页只出现
+/// 账户卡、注册条件项、创作/设备/支持三组与沉底设置入口。
 
 class ProfilePage extends ConsumerStatefulWidget {
 
@@ -60,144 +49,6 @@ class ProfilePage extends ConsumerStatefulWidget {
 
 
 class _ProfilePageState extends ConsumerState<ProfilePage> {
-
-  /// 检查本 App 是否有新版本（PC 工程师《APP 手动检查更新接口》，2026-09-10）。
-
-  /// 只做「检查 + 展示」：App 内自动下载安装需要 REQUEST_INSTALL_PACKAGES 权限与
-
-  /// 安装器集成（另需 url_launcher 打开外链），属后续产品决策；当前把下载地址
-
-  /// 以可选中文本呈现，客户可复制到浏览器/下载器。
-
-  Future<void> _checkAppUpdate() async {
-
-    final messenger = ScaffoldMessenger.maybeOf(context);
-
-    messenger?.showSnackBar(
-
-      const SnackBar(
-
-          content: Text('正在检查更新…'), duration: Duration(seconds: 2)),
-
-    );
-
-    final info = await AppUpdateService().check(
-
-      target: AppUpdateTarget.android,
-
-      version: AppConfig.appVersion,
-
-      buildNumber: AppConfig.appBuildNumber,
-
-    );
-
-    if (!mounted) return;
-
-    if (info == null) {
-
-      messenger?.showSnackBar(
-
-        const SnackBar(content: Text('检查失败，请稍后重试')),
-
-      );
-
-      return;
-
-    }
-
-    if (!info.updateAvailable) {
-
-      messenger?.showSnackBar(
-
-        SnackBar(content: Text('已是最新版本（v${AppConfig.appVersion}）')),
-
-      );
-
-      return;
-
-    }
-
-    await showDialog<void>(
-
-      context: context,
-
-      builder: (ctx) => AlertDialog(
-
-        title: Text('发现新版本 ${info.latestVersion}'),
-
-        content: SingleChildScrollView(
-
-          child: Column(
-
-            crossAxisAlignment: CrossAxisAlignment.start,
-
-            mainAxisSize: MainAxisSize.min,
-
-            children: [
-
-              if (info.releaseNotes.isNotEmpty) ...[
-
-                Text(info.releaseNotes),
-
-                const SizedBox(height: 12),
-
-              ],
-
-              if (info.downloadUrl.isNotEmpty) ...[
-
-                Text('下载地址（长按可复制）:',
-
-                    style: TextStyle(fontSize: 12, color: CncColors.textSub)),
-
-                const SizedBox(height: 4),
-
-                SelectableText(info.downloadUrl,
-
-                    style: const TextStyle(fontSize: 12)),
-
-              ],
-
-            ],
-
-          ),
-
-        ),
-
-        actions: [
-
-          TextButton(
-
-            onPressed: () => Navigator.pop(ctx),
-
-            child: const Text('知道了'),
-
-          ),
-
-        ],
-
-      ),
-
-    );
-
-  }
-
-  void _openSheet(Widget content) {
-
-    showModalBottomSheet(
-
-      context: context,
-
-      isScrollControlled: true,
-
-      backgroundColor: Colors.transparent,
-
-      builder: (_) => content,
-
-    );
-
-  }
-
-
 
   /// 进入登录/注册页；成功后刷新（顶部显示真实账号）。
 
@@ -253,19 +104,11 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
     final loggedIn = auth.isLoggedIn;
 
-    // W-14（2026-09-10）：调试面板入口仅 debug / profile 包可见。
-    // 用局部变量承载，避免 collection-if 里出现常量条件导致的死代码提示。
-    final showDebugEntry = !kReleaseMode;
-
     final username = auth.username?.isNotEmpty == true
 
         ? auth.username!
 
         : (auth.userId ?? '未登录');
-
-    // 推送偏好（持久化，响应式）——替代原先的内存假开关
-
-    final pushPrefs = ref.watch(pushPrefsProvider);
 
     return ListView(
 
@@ -273,7 +116,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
       children: [
 
-        // 用户信息头（登录态真实账号；未登录显示登录/注册入口）
+        // 用户信息头（登录态真实账号；未登录显示登录入口）—— 工单七 §1 #0 原样保留
 
         Container(
 
@@ -389,17 +232,15 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
 
 
-        // 模块 1：设备与网络（配网在屏幕端完成，App 只做绑定/查看，无蓝牙配网）
+        // 注册账号：仅未登录显示（原条件渲染，账户卡正下方独立单条卡 —— §1 #0a）
 
-        _SectionTitle('设备与网络'),
+        if (!loggedIn) ...[
 
-        _MenuGroup(
+          MenuGroup(
 
-          children: [
+            children: [
 
-            if (!loggedIn) ...[
-
-              _MenuItem(
+              MenuItem(
 
                 icon: Symbols.person_add,
 
@@ -411,7 +252,87 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
             ],
 
-            _MenuItem(
+          ),
+
+          const SizedBox(height: 18),
+
+        ],
+
+
+
+        // 创作（工单七 §1 #1：雕刻历史为全页最高频，提为第一组第一条）
+
+        SectionTitle('创作'),
+
+        MenuGroup(
+
+          children: [
+
+            MenuItem(
+
+              icon: Symbols.history,
+
+              title: '雕刻历史',
+
+              onTap: () => Navigator.push(
+
+                context,
+
+                MaterialPageRoute(builder: (_) => const WorkHistoryPage()),
+
+              ),
+
+            ),
+
+            MenuItem(
+
+              icon: Symbols.movie,
+
+              title: '延时摄影回顾',
+
+              onTap: () => Navigator.push(
+
+                context,
+
+                MaterialPageRoute(
+
+                    builder: (_) => const TimeLapseGalleryPage()),
+
+              ),
+
+            ),
+
+            MenuItem(
+
+              icon: Symbols.construction,
+
+              title: '官方刀头库',
+
+              onTap: () => Navigator.push(
+
+                context,
+
+                MaterialPageRoute(builder: (_) => const SysBitsPage()),
+
+              ),
+
+            ),
+
+          ],
+
+        ),
+
+
+
+        // 设备（§1 #2）
+
+        SectionTitle('设备'),
+
+        MenuGroup(
+
+          children: [
+
+            MenuItem(
 
               icon: Symbols.sensors,
 
@@ -425,11 +346,12 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
             ),
 
-            _MenuItem(
+            MenuItem(
 
               icon: Symbols.system_update,
 
               title: '固件升级',
+
               badge: const _FwUpdateDot(),
 
               trailing: Text('摄像头/控制屏幕/主板',
@@ -448,41 +370,21 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
             ),
 
-            _MenuItem(
-
-              icon: Symbols.dark_mode,
-
-              title: '外观',
-
-              trailing: Consumer(
-
-                builder: (context, ref, _) => Text(
-
-                    _themeModeLabel(ref.watch(themeModeProvider)),
-
-                    style: TextStyle(fontSize: 12, color: CncColors.textSub)),
-
-              ),
-
-              onTap: () => _openSheet(const _AppearanceSheet()),
-
-            ),
-
           ],
 
         ),
 
 
 
-        // 模块 2：消息与告警
+        // 支持（§1 #3：系统消息与历史告警保留主页，归支持组）
 
-        _SectionTitle('消息与告警'),
+        SectionTitle('支持'),
 
-        _MenuGroup(
+        MenuGroup(
 
           children: [
 
-            _MenuItem(
+            MenuItem(
 
               icon: Symbols.notifications,
 
@@ -526,188 +428,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
             ),
 
-            _MenuItem(
-
-              icon: Symbols.notifications_active,
-
-              title: '允许推送设备完成状态',
-
-              trailing: CncSwitch(
-
-                  value: pushPrefs.notifyComplete,
-
-                  onChanged: (v) =>
-
-                      ref.read(pushPrefsProvider.notifier).toggleComplete(v)),
-
-            ),
-
-            _MenuItem(
-
-              icon: Symbols.warning_amber,
-
-              title: '允许推送硬件异常告警',
-
-              trailing: CncSwitch(
-
-                  value: pushPrefs.notifyAlert,
-
-                  onChanged: (v) =>
-
-                      ref.read(pushPrefsProvider.notifier).toggleAlert(v)),
-
-            ),
-
-          ],
-
-        ),
-
-
-
-        // 模块 2.5：创作与回顾
-
-        _SectionTitle('创作与回顾'),
-
-        _MenuGroup(
-
-          children: [
-
-            _MenuItem(
-
-              icon: Symbols.movie,
-
-              title: '延时摄影回顾',
-
-              onTap: () => Navigator.push(
-
-                context,
-
-                MaterialPageRoute(
-
-                    builder: (_) => const TimeLapseGalleryPage()),
-
-              ),
-
-            ),
-
-            _MenuItem(
-
-              icon: Symbols.construction,
-
-              title: '官方刀头库',
-
-              onTap: () => Navigator.push(
-
-                context,
-
-                MaterialPageRoute(builder: (_) => const SysBitsPage()),
-
-              ),
-
-            ),
-
-          ],
-
-        ),
-
-
-
-        // 模块 3：支持与诊断
-
-        _SectionTitle('支持与诊断'),
-
-        _MenuGroup(
-
-          children: [
-
-            _MenuItem(
-
-              icon: Symbols.build,
-
-              title: '智能诊断与日志提取',
-
-              onTap: () => _openSheet(const _DiagSheet()),
-
-            ),
-
-            // 临时调试口：读手机里的轻量 JSON，验证解析 + 3D 预览
-            // （不面向客户流程，联调后可整体删除）。
-            if (showDebugEntry)
-
-              _MenuItem(
-
-              icon: Symbols.download,
-
-              title: '本地文件解析（调试）',
-
-              onTap: () => Navigator.push(
-
-                context,
-
-                MaterialPageRoute(
-
-                    builder: (_) => const LocalPayloadPage()),
-
-              ),
-
-            ),
-
-            // 调试面板入口：正式包隐藏（W-14）。
-            if (showDebugEntry)
-
-              _MenuItem(
-
-                icon: Symbols.tune,
-
-                title: '连接调试（高级）',
-
-                onTap: () => Navigator.push(
-
-                  context,
-
-                  MaterialPageRoute(
-
-                      builder: (_) => const DebugSettingsPage()),
-
-                ),
-
-              ),
-
-            _MenuItem(
-
-              icon: Symbols.sync,
-
-              title: '检查更新',
-
-              trailing: Text('v${AppConfig.appVersion}',
-
-                  style: TextStyle(
-
-                      fontSize: 12, color: CncColors.textSub)),
-
-              onTap: _checkAppUpdate,
-
-            ),
-
-            _MenuItem(
-
-              icon: Symbols.fact_check,
-
-              title: '隐私政策',
-
-              onTap: () => Navigator.push(
-
-                context,
-
-                MaterialPageRoute(
-
-                    builder: (_) => const PrivacyPolicyPage()),
-
-              ),
-
-            ),
-
-            _MenuItem(
+            MenuItem(
 
               icon: Symbols.headset_mic,
 
@@ -729,103 +450,45 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
         ),
 
-        // 模块 4：账号（仅登录后显示退出登录）
 
-        if (loggedIn) ...[
 
-          const SizedBox(height: 18),
+        // 沉底：设置入口（§1 #4：右侧显示当前主题名，同款 Consumer 写法）
 
-          _MenuGroup(
+        const SizedBox(height: 18),
 
-            children: [
+        MenuGroup(
 
-              _MenuItem(
+          children: [
 
-                icon: Symbols.history,
+            MenuItem(
 
-                title: '雕刻历史',
+              icon: Symbols.settings,
 
-                onTap: () => Navigator.push(
+              title: '设置',
 
-                  context,
+              trailing: Consumer(
 
-                  MaterialPageRoute(builder: (_) => const WorkHistoryPage()),
+                builder: (context, ref, _) => Text(
 
-                ),
+                    themeModeLabel(ref.watch(themeModeProvider)),
 
-              ),
-
-              _MenuItem(
-
-                icon: Symbols.logout,
-
-                title: '退出登录',
-
-                // 不传 trailing —— _MenuItem 在 onTap!=null 时会自动加 chevron，
-
-                // 这里不再重复，否则会出现两个右箭头。
-
-                onTap: () async {
-
-                  final ok = await showDialog<bool>(
-
-                    context: context,
-
-                    builder: (_) => AlertDialog(
-
-                      backgroundColor: CncColors.card,
-
-                      title: Text('退出登录',
-
-                          style: TextStyle(color: CncColors.textMain)),
-
-                      content: Text('确定要退出当前账号吗？',
-
-                          style: TextStyle(color: CncColors.textSub)),
-
-                      actions: [
-
-                        TextButton(
-
-                          onPressed: () => Navigator.pop(context, false),
-
-                          child: const Text('取消'),
-
-                        ),
-
-                        TextButton(
-
-                          onPressed: () => Navigator.pop(context, true),
-
-                          child: Text('退出',
-
-                              style: TextStyle(color: CncColors.danger)),
-
-                        ),
-
-                      ],
-
-                    ),
-
-                  );
-
-                  if (ok == true && mounted) {
-
-                    await ref.read(authProvider.notifier).logout();
-
-                    if (mounted) setState(() {});
-
-                  }
-
-                },
+                    style: TextStyle(fontSize: 12, color: CncColors.textSub)),
 
               ),
 
-            ],
+              onTap: () => Navigator.push(
 
-          ),
+                context,
 
-        ],
+                MaterialPageRoute(builder: (_) => const SettingsPage()),
+
+              ),
+
+            ),
+
+          ],
+
+        ),
 
       ],
 
@@ -833,188 +496,55 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
   }
 
-}
 
 
-
-// ===================== 分组菜单 =====================
-
-
-
-class _SectionTitle extends StatelessWidget {
-
-  final String text;
-
-  const _SectionTitle(this.text);
-
-  @override
-
-  Widget build(BuildContext context) => Padding(
-
-        padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
-
-        child: Text(text.toUpperCase(),
-
-            style: TextStyle(
-
-                fontSize: 11, color: CncColors.textSub, letterSpacing: 0.5)),
-
-      );
+  void _openSheet(Widget content) => openSheet(context, content);
 
 }
 
 
 
-class _MenuGroup extends StatelessWidget {
-
-  final List<Widget> children;
-
-  const _MenuGroup({required this.children});
-
-  @override
-
-  Widget build(BuildContext context) => Container(
-
-        decoration: BoxDecoration(
-
-          color: CncColors.card,
-
-          borderRadius: BorderRadius.circular(14),
-
-          border: Border.all(color: CncColors.border),
-
-        ),
-
-        child: Column(children: children),
-
-      );
-
-}
+// ===================== 分组菜单（共享组件见 profile_widgets.dart） =====================
 
 
 
 /// 固件升级「可升级」绿点（拉取式，非推送）。
+
 /// 监听 [fwUpdateAvailableProvider]：云端有可升级固件时显示绿色小点，否则不显示。
+
 class _FwUpdateDot extends ConsumerWidget {
+
   const _FwUpdateDot();
 
+
+
   @override
+
   Widget build(BuildContext context, WidgetRef ref) {
+
     final hasUpdate = ref.watch(fwUpdateAvailableProvider);
+
     if (!hasUpdate) return const SizedBox.shrink();
+
     return Container(
+
       width: 8,
+
       height: 8,
+
       decoration: BoxDecoration(
+
         color: CncColors.primary,
+
         shape: BoxShape.circle,
+
       ),
+
     );
+
   }
-}
-
-class _MenuItem extends StatelessWidget {
-
-  final IconData icon;
-
-  final String title;
-
-  final Widget? trailing;
-
-  final Widget? badge;
-
-  final VoidCallback? onTap;
-
-  const _MenuItem(
-
-      {required this.icon,
-
-      required this.title,
-
-      this.trailing,
-
-      this.badge,
-
-      this.onTap});
-
-
-
-  @override
-
-  Widget build(BuildContext context) => InkWell(
-
-        onTap: onTap,
-
-        child: Container(
-
-          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
-
-          decoration: BoxDecoration(
-
-            border: Border(
-
-                bottom: BorderSide(color: CncColors.border)),
-
-          ),
-
-          child: Row(
-
-            children: [
-
-              SizedBox(
-
-                  width: 24,
-
-                  child: Icon(icon,
-
-                      size: 20, color: CncColors.textMain)),
-
-              const SizedBox(width: 12),
-
-              Expanded(
-
-                  child: Text(title,
-
-                      style: TextStyle(
-
-                          fontSize: 14,
-
-                          fontWeight: FontWeight.w500,
-
-                          color: CncColors.textMain))),
-
-              if (badge != null) ...[
-                const SizedBox(width: 6),
-                badge!,
-              ],
-              if (trailing != null)
-
-                ...[
-
-                  trailing!,
-
-                  const SizedBox(width: 6),
-
-                  if (onTap != null)
-
-                    Icon(Symbols.chevron_right,
-
-                        color: CncColors.textSub),
-
-                ],
-
-            ],
-
-          ),
-
-        ),
-
-      );
 
 }
-
-
-
 
 
 
@@ -1118,9 +648,7 @@ class _SheetFrame extends StatelessWidget {
 
 
 
-
-
-// ===================== 抽屉 3：消息与告警 =====================
+// ===================== 抽屉：消息与告警 =====================
 
 
 
@@ -1372,267 +900,4 @@ class _MessagesSheetState extends ConsumerState<_MessagesSheet> {
 
   }
 
-}
-
-
-
-// ===================== 抽屉 4：诊断日志 =====================
-
-
-
-class _DiagSheet extends StatelessWidget {
-
-  const _DiagSheet();
-
-  @override
-
-  Widget build(BuildContext context) => _SheetFrame(
-
-        title: '智能诊断与日志',
-
-        child: Column(
-
-          crossAxisAlignment: CrossAxisAlignment.start,
-
-          children: [
-
-            Text(
-
-              '当机器出现不可恢复的异常（如异响、持续报错）时，可一键提取主板底层运行日志'
-
-              '（含最近 5 次加工的 G-Code 轨迹与传感器快照），发送给售后工程师协助分析。',
-
-              style: TextStyle(
-
-                  fontSize: 12, color: CncColors.textSub, height: 1.5),
-
-            ),
-
-            const SizedBox(height: 16),
-
-            const _DiagProgressButton(),
-
-          ],
-
-        ),
-
-      );
-
-}
-
-
-
-class _DiagProgressButton extends StatefulWidget {
-
-  const _DiagProgressButton();
-
-  @override
-
-  State<_DiagProgressButton> createState() => _DiagProgressButtonState();
-
-}
-
-
-
-class _DiagProgressButtonState extends State<_DiagProgressButton> {
-
-  bool _running = false;
-
-  double _progress = 0;
-
-  void _start() {
-
-    if (_running) return;
-
-    setState(() => _running = true);
-
-    Timer.periodic(const Duration(milliseconds: 400), (timer) {
-
-      _progress += 20;
-
-      if (mounted) setState(() {});
-
-      if (_progress >= 100) {
-
-        timer.cancel();
-
-        if (mounted) {
-
-          ScaffoldMessenger.of(context).showSnackBar(
-
-            const SnackBar(
-
-                content: Text('日志打包完成，已发送至云端客服工单系统')),
-
-          );
-
-          Future.delayed(const Duration(milliseconds: 600), () {
-
-            if (mounted) Navigator.pop(context);
-
-          });
-
-        }
-
-      }
-
-    });
-
-  }
-
-
-
-  @override
-
-  Widget build(BuildContext context) => Column(
-
-        children: [
-
-          if (_running)
-
-            Padding(
-
-              padding: const EdgeInsets.only(bottom: 12),
-
-              child: LinearProgressIndicator(
-
-                value: _progress / 100,
-
-                backgroundColor: CncColors.bg,
-
-                color: CncColors.primary,
-
-                minHeight: 8,
-
-                borderRadius: BorderRadius.circular(4),
-
-              ),
-
-            ),
-
-          SizedBox(
-
-            width: double.infinity,
-
-            child: FilledButton(
-
-              onPressed: _running ? null : _start,
-
-              style: FilledButton.styleFrom(
-
-                backgroundColor: CncColors.bg,
-
-                foregroundColor: CncColors.primaryInk,
-
-                disabledBackgroundColor: CncColors.border,
-
-                padding: const EdgeInsets.symmetric(vertical: 14),
-
-                shape: RoundedRectangleBorder(
-
-                  borderRadius: BorderRadius.circular(12),
-
-                  side: BorderSide(color: CncColors.border),
-
-                ),
-
-              ),
-
-              child: Row(
-
-                  mainAxisAlignment: MainAxisAlignment.center,
-
-                  children: [
-
-                    if (!_running)
-
-                      Icon(Symbols.archive, size: 18, color: CncColors.primary),
-
-                    if (!_running) const SizedBox(width: 8),
-
-                    Text(
-
-                        _running ? '打包中 ${_progress.toInt()}%' : '一键打包提取机器日志',
-
-                        style: const TextStyle(
-
-                            fontSize: 14, fontWeight: FontWeight.bold)),
-
-                  ]),
-
-            ),
-
-          ),
-
-        ],
-
-      );
-
-}
-
-
-
-
-/// P1-2（2026-09-21）：外观三选一 —— 跟随系统 / 浅色 / 深色。
-String _themeModeLabel(ThemeMode m) {
-  switch (m) {
-    case ThemeMode.system:
-      return '跟随系统';
-    case ThemeMode.light:
-      return '浅色';
-    case ThemeMode.dark:
-      return '深色';
-  }
-}
-
-class _AppearanceSheet extends ConsumerWidget {
-  const _AppearanceSheet();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final mode = ref.watch(themeModeProvider);
-    return Container(
-      decoration: BoxDecoration(
-        color: CncColors.panel,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 16),
-            Text('外观',
-                style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: CncColors.textMain)),
-            const SizedBox(height: 4),
-            for (final m in const [
-              ThemeMode.system,
-              ThemeMode.light,
-              ThemeMode.dark,
-            ])
-              _MenuItem(
-                icon: m == ThemeMode.system
-                    ? Symbols.brightness_auto
-                    : m == ThemeMode.light
-                        ? Symbols.light_mode
-                        : Symbols.dark_mode,
-                title: _themeModeLabel(m),
-                trailing: mode == m
-                    ? Icon(Symbols.check_circle,
-                        size: 20, color: CncColors.primaryInk)
-                    : null,
-                onTap: () {
-                  ref.read(themeModeProvider.notifier).set(m);
-                  Navigator.of(context).pop();
-                },
-              ),
-            const SizedBox(height: 10),
-          ],
-        ),
-      ),
-    );
-  }
 }
