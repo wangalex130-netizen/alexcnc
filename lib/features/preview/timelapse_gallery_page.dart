@@ -1,15 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
-
-
 import '../../app/theme.dart';
 
 import 'timelapse_client.dart';
 
 import 'timelapse_video_page.dart';
 
+import 'video_play_network.dart';
 
+/// 延时摄影回顾页（工单八重设计：只留成品视频画面，对照拓竹范式）。
+///
+/// 列表只显示 video_ready == true 的作业；卡片 = 4/3 实拍缩略图 +
+/// 44px 播放钮 + 一行日期。状态签/时长签/数量行/查看/下载按钮全部删除
+/// （保存动作收敛在播放页）。编辑多选与刷新保留，逻辑零改动。
 
 class TimeLapseGalleryPage extends StatefulWidget {
 
@@ -59,15 +63,21 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
     if (!mounted) return;
 
+    // 工单八 §2：列表只显示 video_ready == true 的作业（未出片的作业
+
+    // 一律不进列表；数据仍留服务端，出片后自然出现，进度看控制台 chip）。
+
+    final ready = list.where((j) => j['video_ready'] == true).toList();
+
     setState(() {
 
-      _jobs = list;
+      _jobs = ready;
 
       _loading = false;
 
-      _selectedIds.removeWhere((id) => !list.any((j) => j['job_id'] == id));
+      _selectedIds.removeWhere((id) => !ready.any((j) => j['job_id'] == id));
 
-      if (list.isEmpty) _error = null;
+      if (ready.isEmpty) _error = null;
 
     });
 
@@ -75,33 +85,11 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
 
 
-  Future<void> _stopRecording(String jobId) async {
+  Future<void> _open(String jobId) async {
 
-    final ok = await TimeLapseClient.stop(jobId);
+    // 修订单 §4：「仅 Wi-Fi」+ 移动网络时拦截播放，SnackBar 提示不阻塞页面。
 
-    if (!mounted) return;
-
-    _snack(ok ? '已停止录制，正在生成视频…' : '停止失败，请重试');
-
-    if (ok) await _load();
-
-  }
-
-
-
-  Future<void> _open(String jobId, {bool download = false}) async {
-
-    if (download) {
-
-      final path = await TimeLapseClient.saveToGallery(jobId);
-
-      if (!mounted) return;
-
-      _snack(path != null ? '已保存到相册' : '保存失败，请重试');
-
-      return;
-
-    }
+    if (!await videoPlayGate(context)) return;
 
     if (!mounted) return;
 
@@ -213,7 +201,7 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
     } else {
 
-      _snack('删除失败，请重试');
+      _snack('无法删除，请重试');
 
     }
 
@@ -345,11 +333,13 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
                         crossAxisCount: 2,
 
-                        mainAxisSpacing: 12,
+                        mainAxisSpacing: 10,
 
-                        crossAxisSpacing: 12,
+                        crossAxisSpacing: 10,
 
-                        childAspectRatio: 0.72,
+                        // 工单八 §3：4/3 缩略图 + 一行信息区，按两列宽换算新卡高。
+
+                        childAspectRatio: 1.02,
 
                       ),
 
@@ -369,21 +359,19 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
   Widget _emptyState() {
 
+    // 工单八 §2：原文案保留、电影大图标删除，空态只有文字，居中，留白 ≥120。
+
     return ListView(
 
       children: [
 
-        SizedBox(height: 80),
+        SizedBox(height: 120),
 
         Center(
 
           child: Column(
 
             children: [
-
-              Icon(Symbols.movie, size: 64, color: CncColors.textSub.withOpacity(0.5)),
-
-              SizedBox(height: 16),
 
               Text('暂无延时摄影记录', style: TextStyle(color: CncColors.textSub, fontSize: 15)),
 
@@ -413,6 +401,8 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
         ),
 
+        SizedBox(height: 120),
+
       ],
 
     );
@@ -425,21 +415,13 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
     final jobId = (job['job_id'] ?? '').toString();
 
-    final status = (job['status'] ?? '').toString();
-
-    final videoReady = job['video_ready'] == true;
-
-    final duration = job['duration'];
-
     final createdAt = job['created_at'];
-
-    final count = job['count'] ?? 0;
-
-    final target = job['frames_target'] ?? 0;
 
     final selected = _selectedIds.contains(jobId);
 
 
+
+    // 工单八 §3：卡片 = 4/3 实拍缩略图 + 播放钮 + 一行日期，就这么多。
 
     return Container(
 
@@ -465,9 +447,9 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
           onTap: () {
 
-            if (_isManageMode) _toggleSelect(jobId);
+            if (_isManageMode) { _toggleSelect(jobId); return; }
 
-            else if (videoReady) _open(jobId);
+            _open(jobId);
 
           },
 
@@ -487,205 +469,89 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
                 crossAxisAlignment: CrossAxisAlignment.stretch,
 
+            children: [
+
+              Stack(
+
                 children: [
 
-                  Expanded(
+                  AspectRatio(
 
-                    child: Stack(
+                    aspectRatio: 4 / 3,
 
-                      fit: StackFit.expand,
+                    child: Image.network(
 
-                      children: [
+                      TimeLapseClient.thumbUrl(jobId),
 
-                        if (videoReady)
+                      fit: BoxFit.cover,
 
-                          Image.network(
+                      // 加载中/出错占位：纯色块，无图标无文字（工单八 §3.1）。
 
-                            TimeLapseClient.thumbUrl(jobId),
+                      loadingBuilder: (_, child, prog) =>
 
-                            fit: BoxFit.cover,
+                          prog == null ? child : Container(color: CncColors.panelAlt),
 
-                            loadingBuilder: (_, child, prog) => prog == null ? child : Center(child: CircularProgressIndicator(strokeWidth: 2)),
-
-                            errorBuilder: (_, __, ___) => _thumbFallback(jobId),
-
-                          )
-
-                        else
-
-                          _thumbFallback(status == 'running' ? '录制中…' : '生成中…'),
-
-                        Positioned(
-
-                          top: 8, left: 8,
-
-                          child: _statusChip(status, videoReady),
-
-                        ),
-
-                        Positioned(
-
-                          bottom: 8, left: 8,
-
-                          child: Container(
-
-                            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-
-                            decoration: BoxDecoration(color: Colors.black.withOpacity(0.6), borderRadius: BorderRadius.circular(6)),
-
-                            child: Text(duration is num ? (duration >= 60 ? '雕刻 ${(duration/60).toStringAsFixed(1)} 分' : '雕刻 ${duration.round()} 秒') : '雕刻 ?',
-
-                                style: TextStyle(color: Colors.white, fontSize: 11)),
-
-                          ),
-
-                        ),
-
-                      ],
+                      errorBuilder: (_, __, ___) => Container(color: CncColors.panelAlt),
 
                     ),
 
                   ),
 
-                  Padding(
+                  Positioned.fill(
 
-                    padding: EdgeInsets.fromLTRB(10, 8, 10, 4),
+                    child: Center(
 
-                    child: Column(
+                      child: Container(
 
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                        width: 44,
 
-                      children: [
+                        height: 44,
 
-                        Text(_formatTime(createdAt), style: TextStyle(color: CncColors.textSub, fontSize: 11)),
+                        decoration: const BoxDecoration(
 
-                        SizedBox(height: 2),
+                          color: Color(0x73182735),
 
-                        // 2026-09-05：frames_target 语义变为「成片满 20 秒所需帧数」，
+                          shape: BoxShape.circle,
 
-                        // 采样不再被封顶，count 会继续增长 → 超过时不再显示 N/M 比例，
+                        ),
 
-                        // 避免出现「录制中 450/300」这类失真显示。
+                        child: const Icon(Symbols.play_arrow,
 
-                        Text(videoReady
-
-                            ? '已生成视频（$count 帧）'
-
-                            : status == 'running'
-
-                                ? (count > target && target > 0
-
-                                    ? '录制中 · 已采 $count 帧'
-
-                                    : '录制中 $count/$target')
-
-                                : '未生成视频',
-
-                            style: TextStyle(color: CncColors.textMain, fontSize: 12, fontWeight: FontWeight.w500),
-
-                            maxLines: 1, overflow: TextOverflow.ellipsis),
-
-                      ],
-
-                    ),
-
-                  ),
-
-                  if (!(_isManageMode))
-
-                    Padding(
-
-                      padding: EdgeInsets.fromLTRB(10, 0, 10, 10),
-
-                      child: Row(
-
-                        children: [
-
-                          Expanded(
-
-                            child: OutlinedButton.icon(
-
-                              onPressed: status == 'running'
-
-                                  ? () => _stopRecording(jobId)
-
-                                  : videoReady
-
-                                      ? () => _open(jobId)
-
-                                      : null,
-
-                              icon: Icon(status == 'running' ? Symbols.stop : Symbols.play_arrow, size: 16),
-
-                              label: Text(status == 'running' ? '停止录制' : '查看', style: TextStyle(fontSize: 12)),
-
-                              style: OutlinedButton.styleFrom(
-
-                                  foregroundColor: status == 'running' ? CncColors.danger : CncColors.blue,
-
-                                  side: BorderSide(color: CncColors.border),
-
-                                  padding: EdgeInsets.symmetric(vertical: 6)),
-
-                            ),
-
-                          ),
-
-                          SizedBox(width: 8),
-
-                          Expanded(
-
-                            child: OutlinedButton.icon(
-
-                              onPressed: videoReady ? () => _open(jobId, download: true) : null,
-
-                              icon: Icon(Symbols.download, size: 16),
-
-                              label: Text('下载', style: TextStyle(fontSize: 12)),
-
-                              style: OutlinedButton.styleFrom(foregroundColor: CncColors.primaryInk, side: BorderSide(color: CncColors.border), padding: EdgeInsets.symmetric(vertical: 6)),
-
-                            ),
-
-                          ),
-
-                        ],
+                            color: Colors.white, size: 26),
 
                       ),
 
                     ),
 
+                  ),
+
                 ],
 
               ),
 
-              if (_isManageMode)
+              Padding(
 
-                Positioned(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
 
-                  top: 6, right: 6,
+                child: Text(_formatTime(createdAt),
 
-                  child: Container(
+                    style: TextStyle(fontSize: 12, color: CncColors.textMain),
 
-                    width: 22, height: 22,
+                    maxLines: 1,
 
-                    decoration: BoxDecoration(
+                    overflow: TextOverflow.ellipsis),
 
-                      shape: BoxShape.circle,
+              ),
 
-                      color: selected ? CncColors.primary : Colors.black54,
+              ],
 
-                      border: Border.all(color: Colors.white.withOpacity(0.9), width: 1.5),
+            ),
 
-                    ),
+              // 勾选遮罩（工单八 3.4：原样保留，跟随新卡片尺寸自然适配）。
 
-                    child: selected ? Icon(Symbols.check, color: Colors.white, size: 14) : null,
+              if (_isManageMode) _selectMask(selected),
 
-                  ),
-
-                ),
-
-],
+            ],
 
           ),
 
@@ -699,57 +565,33 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
 
 
-  Widget _thumbFallback(String label) {
+  // 编辑多选勾选遮罩（工单八 §3.4：原样保留，仅跟随新卡片尺寸自然适配）。
 
-    return Container(
 
-      color: CncColors.panelAlt,
 
-      child: Center(
+  Widget _selectMask(bool selected) {
 
-        child: Column(
+    return Positioned(
 
-          mainAxisSize: MainAxisSize.min,
+      top: 6, right: 6,
 
-          children: [
+      child: Container(
 
-            Icon(Symbols.movie, size: 36, color: CncColors.textSub.withOpacity(0.6)),
+        width: 22, height: 22,
 
-            SizedBox(height: 6),
+        decoration: BoxDecoration(
 
-            Text(label, style: TextStyle(color: CncColors.textSub, fontSize: 11)),
+          shape: BoxShape.circle,
 
-          ],
+          color: selected ? CncColors.primary : Colors.black54,
+
+          border: Border.all(color: Colors.white.withOpacity(0.9), width: 1.5),
 
         ),
 
+        child: selected ? Icon(Symbols.check, color: Colors.white, size: 14) : null,
+
       ),
-
-    );
-
-  }
-
-
-
-  Widget _statusChip(String status, bool videoReady) {
-
-    Color bg; Color fg; String text;
-
-    if (videoReady) { bg = CncColors.primary; fg = CncColors.onPrimary; text = '已完成'; }
-
-    else if (status == 'failed') { bg = CncColors.danger; fg = Colors.white; text = '失败'; }
-
-    else if (status == 'running') { bg = CncColors.blue; fg = Colors.white; text = '录制中'; }
-
-    else { bg = CncColors.panelAlt; fg = CncColors.textSub; text = '生成中'; }
-
-    return Container(
-
-      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(6)),
-
-      child: Text(text, style: TextStyle(color: fg, fontSize: 11, fontWeight: FontWeight.w600)),
 
     );
 

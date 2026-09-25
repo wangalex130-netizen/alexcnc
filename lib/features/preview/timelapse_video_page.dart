@@ -16,6 +16,8 @@ import '../../app/theme.dart';
 
 import 'timelapse_client.dart';
 
+import 'video_play_network.dart';
+
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 
@@ -78,6 +80,10 @@ class _TimeLapseVideoPageState extends State<TimeLapseVideoPage> {
   Future<void> _save() async {
 
     if (_saving) return;
+
+    // 修订单 20260925 4：「仅 Wi-Fi」+ 移动网络时拦截保存动作（播放入口在回顾页卡片处拦截）。
+
+    if (!await videoPlayGate(context)) return;
 
     setState(() => _saving = true);
 
