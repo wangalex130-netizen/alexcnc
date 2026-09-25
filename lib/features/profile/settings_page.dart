@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart' show kReleaseMode;
 
 import 'package:flutter/material.dart';
@@ -6,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../app/config.dart';
@@ -15,6 +18,7 @@ import '../../models/app_update_info.dart';
 import '../../services/app_update_service.dart';
 import '../../state/auth_provider.dart';
 import '../../state/providers.dart';
+import '../../widgets/cnc_cached_image.dart';
 import '../../widgets/cnc_switch.dart';
 
 import '../debug/local_payload_page.dart';
@@ -73,6 +77,30 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     await sp.setBool(kDebugModeKey, v);
     if (!mounted) return;
     setState(() => _debugMode = v);
+  }
+
+  /// 工单十 §4：清空图片磁盘缓存 + 延时视频临时文件，完成后提示「已清理」。
+  Future<void> _clearCache() async {
+    try {
+      await CncImageCacheManager.instance.emptyCache();
+      final dir = await getTemporaryDirectory();
+      if (await dir.exists()) {
+        await for (final e in dir.list()) {
+          final name = e.uri.pathSegments.isNotEmpty
+              ? e.uri.pathSegments.last
+              : '';
+          if (e is File && name.startsWith('timelapse_') && name.endsWith('.mp4')) {
+            await e.delete();
+          }
+        }
+      }
+    } catch (_) {
+      // 清理失败不打断使用；提示保持一致（工单 §4 不引入错误分支文案）。
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(content: Text('已清理'), duration: Duration(seconds: 2)),
+    );
   }
 
   /// 检查本 App 是否有新版本（原样搬移自 profile_page._checkAppUpdate，零改动）。
@@ -287,6 +315,15 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   value: pushPrefs.notifyAlert,
                   onChanged: (v) =>
                       ref.read(pushPrefsProvider.notifier).toggleAlert(v)),
+            ),
+          ]),
+
+          // 工单十 §4：清理缓存（无副标题，文案零解释；不显示缓存大小数字）。
+          MenuGroup(children: [
+            MenuItem(
+              icon: Symbols.cleaning_services,
+              title: '清理缓存',
+              onTap: _clearCache,
             ),
           ]),
 

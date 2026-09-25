@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- OLDUVA 品牌矢量 logo（工单十 §1.1）：单线字形，白色描边，视口 760x140，
+     内在尺寸 240x44.2dp（与 Flutter 覆盖层 logo 同位同宽，无缝续接）。
+     字形为设计稿单线字（描线动画验收点：字形由昊总验收；官方矢量 logo 到位后
+     仅替换本文件与 lib/app/splash_overlay.dart 的路径定义，动画参数不变）。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="240dp"
+    android:height="44.2dp"
+    android:viewportWidth="760"
+    android:viewportHeight="140">
+    <path
+        android:strokeColor="#F5F5F7"
+        android:strokeWidth="21"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M54,20 A42,42 0 0 1 96,62 L96,78 A42,42 0 0 1 54,120 A42,42 0 0 1 12,78 L12,62 A42,42 0 0 1 54,20 Z" />
+    <path
+        android:strokeColor="#F5F5F7"
+        android:strokeWidth="21"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M146,20 V88 q0,32 32,32 h50" />
+    <path
+        android:strokeColor="#F5F5F7"
+        android:strokeWidth="21"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M278,20 V120 M278,20 h14 c50,0 66,25 66,50 s-16,50 -66,50 h-14" />
+    <path
+        android:strokeColor="#F5F5F7"
+        android:strokeWidth="21"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M410,20 v50 c0,32 17,50 43,50 s43,-18 43,-50 V20" />
+    <path
+        android:strokeColor="#F5F5F7"
+        android:strokeWidth="21"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M542,20 l34,98 l36,-98" />
+    <path
+        android:strokeColor="#F5F5F7"
+        android:strokeWidth="21"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M652,120 l31,-92 q3,-8 6,0 l31,92" />
+    <path
+        android:strokeColor="#F5F5F7"
+        android:strokeWidth="21"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M666,88 h42" />
+</vector>

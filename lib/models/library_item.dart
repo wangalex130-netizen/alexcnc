@@ -283,6 +283,67 @@ class LibraryItem {
         laserPasses: (j['laserPasses'] as num?)?.toInt(),
       );
 
+  /// 序列化为本地快照 JSON（工单十 §6：图库首屏内容落盘）。
+  ///
+  /// 键与 [fromJson] 一一对应，保证 `fromJson(toJson())` 无损回读；
+  /// `gcodeStatus` / `requiredTools` 写显式值，from 解析优先取显式字段，
+  /// 不依赖后端推导逻辑。设备状态（在线/加工状态）不属于本模型，天然不进快照。
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'id': id,
+        'title': title,
+        'author': author,
+        'imageUrl': imageUrl,
+        'isPublic': isPublic,
+        'materialPreset': materialPreset,
+        'category': category,
+        'duration': duration,
+        'isHero': isHero,
+        'heroTag': heroTag,
+        'syncTime': syncTime,
+        'isHistory': isHistory,
+        'coverUrl': coverUrl,
+        'imageUrls': imageUrls,
+        'tags': tags,
+        'materialKey': materialKey,
+        'toolId': toolId,
+        'tools': tools,
+        'durationSec': durationSec,
+        'gcodeStatus': gcodeStatus,
+        'description': description,
+        'widthMm': widthMm,
+        'heightMm': heightMm,
+        'depthMm': depthMm,
+        'boardThicknessMm': boardThicknessMm,
+        'requiredTools': [
+          for (final t in requiredTools)
+            <String, dynamic>{'toolId': t.toolId, 'role': t.role},
+        ],
+        'previewUrl': previewUrl,
+        'payloadUrl': payloadUrl,
+        'roughingJson': roughingJson,
+        'finishingJson': finishingJson,
+        'recommendedSpindleRpm': recommendedSpindleRpm,
+        'recommendedFeedRate': recommendedFeedRate,
+        'zFeedRate': zFeedRate,
+        'depthPerPass': depthPerPass,
+        'roughingGcodeUrl': roughingGcodeUrl,
+        'finishingGcodeUrl': finishingGcodeUrl,
+        'roughingGcodeSizeBytes': roughingGcodeSizeBytes,
+        'roughingGcodeSha256': roughingGcodeSha256,
+        'finishingGcodeSizeBytes': finishingGcodeSizeBytes,
+        'finishingGcodeSha256': finishingGcodeSha256,
+        'totalGcodeUrl': totalGcodeUrl,
+        'totalGcodeSizeBytes': totalGcodeSizeBytes,
+        'totalGcodeSha256': totalGcodeSha256,
+        'totalJson': totalJson,
+        'totalJsonSizeBytes': totalJsonSizeBytes,
+        'totalJsonSha256': totalJsonSha256,
+        'processType': processType,
+        'laserPowerPct': laserPowerPct,
+        'laserSpeedMmMin': laserSpeedMmMin,
+        'laserPasses': laserPasses,
+      };
+
   /// 列表展示用图：优先 coverUrl，其次 imageUrls[0]，最后兼容旧 imageUrl。
   String? get displayImageUrl =>
       coverUrl ?? (imageUrls.isNotEmpty ? imageUrls.first : imageUrl);

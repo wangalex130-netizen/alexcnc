@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
+<!-- 品牌启动静态帧（工单十 §1.1）：深底 #070708 + 居中 OLDUVA logo（240dp）。
+     不用 Android 12 SplashScreen 动画能力（卓易通容器兼容性未验证，静态背景兜底）。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="?android:colorBackground" />
-
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
-        <bitmap
-            android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+    <item>
+        <color android:color="#070708" />
+    </item>
+    <item
+        android:width="240dp"
+        android:height="44.2dp"
+        android:gravity="center"
+        android:drawable="@drawable/olduva_logo" />
 </layer-list>

@@ -3,7 +3,10 @@ import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:cached_network_image/cached_network_image.dart';
+
 import '../../app/config.dart';
+import '../../widgets/cnc_cached_image.dart';
 
 import '../../app/runtime_config.dart';
 
@@ -334,9 +337,11 @@ class _GalleryState extends State<_Gallery> {
   /// 异步取图片真实宽高比（每个 url 只取一次）。
   void _resolveRatio(String url) {
     if (_ratios.containsKey(url) || !_resolving.add(url)) return;
-    final stream = Image.network(url)
-        .image
-        .resolve(createLocalImageConfiguration(context));
+    // 工单十 §3：尺寸探测同样走磁盘缓存链路（只解码头信息，不重复拉流）。
+    final stream = CachedNetworkImageProvider(
+      url,
+      cacheManager: CncImageCacheManager.instance,
+    ).resolve(createLocalImageConfiguration(context));
     late final ImageStreamListener listener;
     listener = ImageStreamListener(
       (info, _) {
@@ -384,11 +389,10 @@ class _GalleryState extends State<_Gallery> {
                   color: over
                       ? CncColors.panelAlt
                       : const Color(0xFF1E1913),
-                  child: Image.network(
-                    url,
+                  child: CncCachedImage(
+                    url: url,
                     fit: over ? BoxFit.contain : BoxFit.cover,
-                    errorBuilder: (_, __, ___) =>
-                        Container(color: const Color(0xFF202020)),
+                    fallback: (_) => Container(color: const Color(0xFF202020)),
                   ),
                 );
               },

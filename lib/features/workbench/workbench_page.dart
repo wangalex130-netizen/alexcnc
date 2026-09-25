@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../app/theme.dart';
+import '../../widgets/cnc_cached_image.dart';
 import '../../app/runtime_config.dart';
 import '../../models/library_item.dart';
 import '../../models/broadcast_message.dart';
@@ -1066,13 +1067,16 @@ class _RecentCardState extends ConsumerState<_RecentCard> {
         ),
       );
     }
-    return Image.network(url,
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => Container(
-          color: CncColors.primary.withOpacity(0.25),
-          child: const Center(
-            child: Icon(Symbols.image, color: Colors.white70, size: 22),
-          ),
-        ));
+    // 工单十 §3：磁盘缓存 + 150ms 渐现，失败降级保持原占位。
+    return CncCachedImage(
+      url: url,
+      fit: BoxFit.cover,
+      fallback: (_) => Container(
+        color: CncColors.primary.withOpacity(0.25),
+        child: const Center(
+          child: Icon(Symbols.image, color: Colors.white70, size: 22),
+        ),
+      ),
+    );
   }
 }

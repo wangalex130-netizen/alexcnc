@@ -1,5 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
+
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -12,6 +16,7 @@ import '../../app/runtime_config.dart';
 import '../../models/library_item.dart';
 
 import '../../models/model_library.dart';
+import '../../widgets/cnc_cached_image.dart';
 
 import '../../state/providers.dart';
 import '../../state/auth_provider.dart';
@@ -72,6 +77,9 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   int _pages = 1;
 
   int _total = 0;
+
+  /// 工单十 §6：图库首屏内容快照 key（shared_preferences 落盘，stale-while-revalidate）。
+  static const String _kHomeSnapshotKey = 'library_home_snapshot_v1';
 
   bool _loading = false; // 首屏 / 筛选加载中
 
@@ -175,11 +183,57 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
 
 
+  /// 读取上次落盘的首屏内容快照；解析失败静默返回 null（回退网络加载）。
+  Future<ModelLibraryHome?> _loadHomeSnapshot() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final raw = sp.getString(_kHomeSnapshotKey);
+      if (raw == null || raw.isEmpty) return null;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return null;
+      return ModelLibraryHome.fromJson(decoded);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 把首屏内容（hero + 分类 + 模型卡片）写入快照；失败静默（下次重写）。
+  Future<void> _saveHomeSnapshot(ModelLibraryHome home) async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setString(_kHomeSnapshotKey, jsonEncode(<String, dynamic>{
+        'heroModels': [for (final m in home.heroModels) m.toJson()],
+        'categories': home.categories,
+        'models': [for (final m in home.models) m.toJson()],
+      }));
+    } catch (_) {}
+  }
+
   /// 首屏：拉 home（hero + 分类 + 首屏列表）
 
   Future<void> _refreshHome() async {
 
     if (_tab != 0) return;
+
+    // 工单十 §6：冷启动先渲染上次快照（只存内容列表，不存任何设备状态，
+    // 在线/加工状态永不进快照），后台静默刷新，完成后无缝替换；
+    // 快照读取失败静默回退网络加载。快照渲染期图片走磁盘缓存链路（§3）。
+    if (_home == null) {
+      final snap = await _loadHomeSnapshot();
+      if (!mounted) return;
+      if (snap != null && snap.models.isNotEmpty) {
+        setState(() {
+          _home = snap;
+          _categories = snap.categories.isNotEmpty ? snap.categories : ['全部'];
+          _heroModels = snap.heroModels;
+          _models = snap.models;
+          _pageNo = 1;
+          _pages = 1;
+          _total = snap.models.length;
+          _error = null;
+        });
+      }
+    }
 
     setState(() => _loading = true);
 
@@ -220,6 +274,10 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
         _error = null;
 
       });
+
+      // 工单十 §6：列表内容落盘，供下次冷启动快照秒开。
+
+      await _saveHomeSnapshot(home);
 
     } catch (e) {
 
@@ -1867,17 +1925,17 @@ Widget _thumb(String? url) {
 
   if (url == null) return _gradient();
 
-  return Image.network(
+  // 工单十 §3：磁盘缓存 + 150ms 渐现；网格缩略图解码上限 600px。
 
-    url,
+  return CncCachedImage(
+
+    url: url,
 
     fit: BoxFit.cover,
 
-    loadingBuilder: (_, child, prog) =>
+    memCacheWidth: 600,
 
-        prog?.cumulativeBytesLoaded == prog?.expectedTotalBytes ? child : _gradient(),
-
-    errorBuilder: (_, __, ___) => _gradient(),
+    fallback: _gradient,
 
   );
 

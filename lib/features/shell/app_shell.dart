@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,6 +15,8 @@ import '../console/console_page.dart';
 import '../library/library_page.dart';
 
 import '../profile/profile_page.dart';
+
+import '../../widgets/page_transition.dart';
 
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
@@ -71,11 +75,21 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
 
     WidgetsBinding.instance.addObserver(this);
 
+    // 工单十 §2：「我的」页轻量，首帧后 800ms 后台预挂，消首次点入顿挫。
+
+    _preloadTimer = Timer(const Duration(milliseconds: 800), () {
+
+      if (mounted && !_mounted.contains(2)) setState(() => _mounted.add(2));
+
+    });
+
   }
 
   @override
 
   void dispose() {
+
+    _preloadTimer?.cancel();
 
     WidgetsBinding.instance.removeObserver(this);
 
@@ -121,6 +135,20 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
 
 
 
+  // 工单十 §2 懒挂载：首帧只挂图库；控制台首次点入才挂载（挂载后常驻，
+
+  // 保留既有「常驻」语义）；「我的」由 initState 的 800ms 预挂兜底。
+
+  // 已知取舍（工单 §2 如实转告）：控制台首次点入那一次 build 仍会完整执行，
+
+  // 是把「启动白屏」换成「一次点入略重」——启动是用户最敏感的时刻，值得。
+
+  final Set<int> _mounted = <int>{0};
+
+  Timer? _preloadTimer;
+
+
+
   static const _labels = ['图库', '控制台', '我的'];
 
   // 统一线性图标（Material Symbols Outlined）
@@ -147,13 +175,25 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
 
         // 走完整 build + layout + paint，杜绝复用上一帧的合成结果（花屏 F-02）。
 
-        child: IndexedStack(
+        child: CncFadeThrough(
 
-          key: ValueKey<int>(_repaintEpoch),
+          trigger: idx,
 
-          index: idx,
+          child: IndexedStack(
 
-          children: _pages,
+            key: ValueKey<int>(_repaintEpoch),
+
+            index: idx,
+
+            children: [
+
+              for (var i = 0; i < _pages.length; i++)
+
+                if (_mounted.contains(i)) _pages[i] else const SizedBox.shrink(),
+
+            ],
+
+          ),
 
         ),
 
@@ -163,9 +203,15 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
 
         selectedIndex: idx,
 
-        onDestinationSelected: (i) =>
+        onDestinationSelected: (i) {
 
-            ref.read(navIndexProvider.notifier).state = i,
+          // 工单十 §2：首次点入的 tab 此刻才挂载。
+
+          if (!_mounted.contains(i)) setState(() => _mounted.add(i));
+
+          ref.read(navIndexProvider.notifier).state = i;
+
+        },
 
         destinations: [
 

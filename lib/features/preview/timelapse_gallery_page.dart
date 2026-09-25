@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import '../../app/theme.dart';
+import '../../widgets/cnc_cached_image.dart';
 
 import 'timelapse_client.dart';
 
@@ -479,19 +480,13 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
                     aspectRatio: 4 / 3,
 
-                    child: Image.network(
+                    // 工单十 §3：磁盘缓存 + 150ms 渐现；占位仍为纯色令牌块（工单八 §3.1）。
 
-                      TimeLapseClient.thumbUrl(jobId),
+                    child: CncCachedImage(
+
+                      url: TimeLapseClient.thumbUrl(jobId),
 
                       fit: BoxFit.cover,
-
-                      // 加载中/出错占位：纯色块，无图标无文字（工单八 §3.1）。
-
-                      loadingBuilder: (_, child, prog) =>
-
-                          prog == null ? child : Container(color: CncColors.panelAlt),
-
-                      errorBuilder: (_, __, ___) => Container(color: CncColors.panelAlt),
 
                     ),
 

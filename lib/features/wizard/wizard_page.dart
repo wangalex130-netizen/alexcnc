@@ -7,6 +7,8 @@ import 'package:material_symbols_icons/material_symbols_icons.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../widgets/page_transition.dart';
+
 import '../../app/runtime_config.dart';
 import '../../app/theme.dart';
 import '../../data/material_db.dart';
@@ -61,6 +63,9 @@ class WizardPage extends ConsumerStatefulWidget {
 
 class _WizardPageState extends ConsumerState<WizardPage> {
   late int _step;
+
+  /// 工单十 §5：步骤转场方向（+1 前进 / -1 后退），供 shared axis 位移取侧。
+  int _stepDir = 1;
   TaskMetadata? _task;
   bool _loading = true;
 
@@ -308,6 +313,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     final vs = _visibleSteps;
     final i = vs.indexOf(_step);
     if (i >= 0 && i + 1 < vs.length) {
+      _stepDir = 1;
       setState(() => _step = vs[i + 1]);
     }
   }
@@ -446,6 +452,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     final vs = _visibleSteps;
     final i = vs.indexOf(_step);
     if (i > 0) {
+      _stepDir = -1;
       setState(() => _step = vs[i - 1]);
     }
   }
@@ -494,9 +501,13 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           // 定原点页：横屏沉浸 —— **顶部不留白**（昊总 09-18：顶部还有一条白边），
           // 左右仍避让刘海/挖孔；配合 immersiveSticky 隐藏系统栏，内容按分辨率铺满。
           ? SafeArea(top: false, bottom: false, child: _stepContent())
+          // 工单十 §5：向导步骤前进/后退 shared axis 300ms（水平 24dp + 淡入淡出）。
           // 材料确认页：**一屏不滚动**（昊总 2026-09-23）。
           // 其余步骤（刀仓映射 / 智能调平 / 开始雕刻）信息量本来就需要滚动，保持原样。
-          : (_step == 0
+          : CncSharedAxisSwitcher(
+              step: _step,
+              direction: _stepDir,
+              child: (_step == 0
               ? _fitLayout()
               : ListView(
         padding: const EdgeInsets.all(16),
@@ -543,7 +554,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           const SizedBox(height: 8),
           if (!_canProceed) _guardHint(t),
         ],
-      )),
+      ))),
     );
   }
 

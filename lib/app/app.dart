@@ -8,6 +8,8 @@ import '../features/settings/privacy_consent_gate.dart';
 import '../features/shell/app_shell.dart';
 import '../state/providers.dart';
 import '../state/firmware_update_provider.dart';
+import '../widgets/page_transition.dart';
+import 'splash_overlay.dart';
 
 /// 全局 Navigator key：供无 context 的回调（如云端 401 拦截）弹窗使用。
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
@@ -55,8 +57,25 @@ class AlexCncApp extends ConsumerWidget {
       navigatorKey: appNavigatorKey,
       title: 'Smart CNC Pro',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
+      // 工单十 §5：全库页面路由统一 fade through 250ms（`Cubic(0.4,0,0.6,1)`）。
+      // 以 pageTransitionsTheme 主题级注入生效（逐路由替换调用点易漏），
+      // AppTheme.light / AppTheme.dark 本体零改动（禁改清单）。
+      theme: AppTheme.light.copyWith(
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: <TargetPlatform, PageTransitionsBuilder>{
+            TargetPlatform.android: CncFadeThroughTransitionsBuilder(),
+            TargetPlatform.iOS: CncFadeThroughTransitionsBuilder(),
+          },
+        ),
+      ),
+      darkTheme: AppTheme.dark.copyWith(
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: <TargetPlatform, PageTransitionsBuilder>{
+            TargetPlatform.android: CncFadeThroughTransitionsBuilder(),
+            TargetPlatform.iOS: CncFadeThroughTransitionsBuilder(),
+          },
+        ),
+      ),
       themeMode: mode,
       // F-03：状态栏/导航栏图标颜色必须跟随**当前实际生效**的 Brightness。
       // ThemeMode.system 下 mode 可能是 system，需用 Theme.of 解析后的亮度，不能只看 mode。
@@ -67,9 +86,13 @@ class AlexCncApp extends ConsumerWidget {
         // 工单九 §1：亮度切换时整棵子树换 key 全量重建——静态令牌 getter 无
         // InheritedWidget 订阅，不换 key 则未依赖 Theme 的页面（图库/控制台，
         // IndexedStack 常驻）保持切换前的浅色渲染。
-        return KeyedSubtree(
-          key: ValueKey<Brightness>(Theme.of(context).brightness),
-          child: child ?? const SizedBox.shrink(),
+        // 工单十 §1：品牌启动屏壳 —— 挂在 KeyedSubtree 之外，亮度切换触发的
+        // 子树全量重建不落在它上面（state 原地保留，动画不重放）。
+        return SplashHost(
+          child: KeyedSubtree(
+            key: ValueKey<Brightness>(Theme.of(context).brightness),
+            child: child ?? const SizedBox.shrink(),
+          ),
         );
       },
       // 首次启动隐私政策同意门控（合规 + 推送初始化的正式入口）。
