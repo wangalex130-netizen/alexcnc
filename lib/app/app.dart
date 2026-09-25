@@ -62,10 +62,15 @@ class AlexCncApp extends ConsumerWidget {
       // ThemeMode.system 下 mode 可能是 system，需用 Theme.of 解析后的亮度，不能只看 mode。
       builder: (context, child) {
         // P1-1：同步全局亮度状态，CncColors 令牌 getter 据此在深浅色板间解析。
-        // builder 在每次主题/系统亮度变化时重建，保证整棵子树重新求值。
         CncColors.brightness = Theme.of(context).brightness;
         applySystemBars(Theme.of(context).brightness);
-        return child ?? const SizedBox.shrink();
+        // 工单九 §1：亮度切换时整棵子树换 key 全量重建——静态令牌 getter 无
+        // InheritedWidget 订阅，不换 key 则未依赖 Theme 的页面（图库/控制台，
+        // IndexedStack 常驻）保持切换前的浅色渲染。
+        return KeyedSubtree(
+          key: ValueKey<Brightness>(Theme.of(context).brightness),
+          child: child ?? const SizedBox.shrink(),
+        );
       },
       // 首次启动隐私政策同意门控（合规 + 推送初始化的正式入口）。
       home: const PrivacyConsentGate(child: AppShell()),

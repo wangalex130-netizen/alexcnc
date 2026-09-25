@@ -1725,7 +1725,7 @@ class _ProjectItem extends StatelessWidget {
 
                 decoration: BoxDecoration(
 
-                  color: const Color(0xFF222222),
+                  color: CncColors.panelAlt,
 
                   borderRadius: BorderRadius.circular(8),
 
@@ -1785,7 +1785,7 @@ class _ProjectItem extends StatelessWidget {
 
                       style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold,
 
-                          color: dimmed ? CncColors.textSub : Colors.black)),
+                          color: dimmed ? CncColors.textSub : CncColors.onPrimary)),
 
                 ),
 

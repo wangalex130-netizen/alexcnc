@@ -163,9 +163,9 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
               ),
               GestureDetector(
                 onTap: () => Navigator.of(context).pop(),
-                child: const Text('×',
+                child: Text('×',
                     style:
-                        TextStyle(fontSize: 22, color: Color(0xFF666666))),
+                        TextStyle(fontSize: 22, color: CncColors.textSub)),
               ),
             ],
           ),
@@ -256,8 +256,8 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                     def != null
                         ? S.t(S.toolLineRing, {'type': def.type, 'dia': def.diameterMm.toString(), 'ring': ringEmoji(def.ring), 'mat': def.material})
                         : S.addToolHint,
-                    style: const TextStyle(
-                        fontSize: 10, color: Color(0xFF666666))),
+                    style: TextStyle(
+                        fontSize: 10, color: CncColors.textSub)),
               ],
             ),
           ),
@@ -320,9 +320,9 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                       color: CncColors.textMain)),
               GestureDetector(
                 onTap: () => setState(() => _pickerSlot = null),
-                child: const Text('×',
+                child: Text('×',
                     style:
-                        TextStyle(fontSize: 22, color: Color(0xFF666666))),
+                        TextStyle(fontSize: 22, color: CncColors.textSub)),
               ),
             ],
           ),
@@ -352,9 +352,9 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                               const SizedBox(height: 2),
                               Text(
                                   S.t(S.toolLineFlutes, {'type': def.type, 'dia': def.diameterMm.toString(), 'flutes': def.flutes.toString(), 'mat': def.material}),
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                       fontSize: 10,
-                                      color: Color(0xFF666666))),
+                                      color: CncColors.textSub)),
                               const SizedBox(height: 2),
                               Text(def.desc,
                                   style: TextStyle(

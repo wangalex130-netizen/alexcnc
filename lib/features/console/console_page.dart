@@ -1954,7 +1954,7 @@ class _StatusCard extends StatelessWidget {
         ],
         Icon(Symbols.chevron_right,
             size: 16,
-            color: alarm ? CncColors.danger : const Color(0xFFB3BAB6)),
+            color: alarm ? CncColors.danger : CncColors.icon),
       ],
     );
   }
@@ -2046,7 +2046,7 @@ class _EntryCard extends StatelessWidget {
                       TextStyle(fontSize: 12.5, color: CncColors.textMain)),
               const Spacer(),
               Icon(Symbols.chevron_right,
-                  size: 14, color: const Color(0xFFB3BAB6)),
+                  size: 14, color: CncColors.icon),
             ],
           ),
         ),

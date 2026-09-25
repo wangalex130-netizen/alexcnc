@@ -35,6 +35,28 @@ class CncColors {
   static const Color _dIcon = Color(0xFFC7BFB1); // 图标
   static const Color _dBorder = Color(0xFF332C22); // 描边（发丝线）
 
+  // ---- 深色常量（公开：工单九 §2。AppTheme.dark 是 static final，首帧
+  //      以 light 亮度求值会把 getter 结果永久冻结为浅色值，因此 dark
+  //      ThemeData 必须直接引用常量；页面 build 期 getter 解析不受影响）----
+  static const Color dBg = Color(0xFF14110C); // 画布（暖黑）
+  static const Color dPanel = Color(0xFF1B1712); // 顶栏 / 卡片（暖卡）
+  static const Color dPanelAlt = Color(0xFF262019); // 次级面板（嵌入块）
+  static const Color dCard = Color(0xFF1B1712); // 卡片
+  static const Color dPrimary = Color(0xFFD9A96E); // 强调（亮桃木）
+  static const Color dPrimaryInk = Color(0xFFE5C79A); // 深底亮桃木（文字/选中图标）
+  static const Color dWarning = Color(0xFFE2A44B); // 暖琥珀
+  static const Color dDanger = Color(0xFFE8837A); // 降饱和暖红
+  static const Color dBlue = Color(0xFF4FB3C0); // 海蓝宝石
+  static const Color dLaser = Color(0xFFFF6B5E); // 激光点红
+  static const Color dTextMain = Color(0xFFF3EFE7); // 主文本（暖白）
+  static const Color dTextSub = Color(0xFFA69D8F); // 次文本
+  static const Color dIcon = Color(0xFFC7BFB1); // 图标
+  static const Color dBorder = Color(0xFF332C22); // 描边（发丝线）
+  static const Color dBarBg = Color(0xFF201B14); // 顶栏/导航条/弹层
+  static const Color dOutlineVariant = Color(0xFF2A2419); // ColorScheme.outlineVariant
+  static const Color dOnPrimary = Color(0xFF14110C); // 桃木底上的暖墨字
+
+
   // ---- 令牌：浅色值与历史完全一致（零回归）；深色按 _dark 解析 ----
 
   // 背景 / 面板 / 卡片
@@ -235,59 +257,59 @@ class AppTheme {
 
     brightness: Brightness.dark,
 
-    scaffoldBackgroundColor: CncColors.bg,
+    scaffoldBackgroundColor: CncColors.dBg,
 
     colorScheme: ColorScheme.dark(
 
-      primary: CncColors.primary,
+      primary: CncColors.dPrimary,
 
-      secondary: CncColors.blue,
+      secondary: CncColors.dBlue,
 
-      background: CncColors.bg,
+      background: CncColors.dBg,
 
-      surface: CncColors.panel,
+      surface: CncColors.dPanel,
 
-      error: CncColors.danger,
+      error: CncColors.dDanger,
 
-      onSurface: CncColors.textMain,
+      onSurface: CncColors.dTextMain,
 
-      onSurfaceVariant: CncColors.textSub,
+      onSurfaceVariant: CncColors.dTextSub,
 
-      surfaceContainerHighest: CncColors.panelAlt,
+      surfaceContainerHighest: CncColors.dPanelAlt,
 
-      surfaceContainer: CncColors.panel,
+      surfaceContainer: CncColors.dPanel,
 
-      outline: CncColors.border,
+      outline: CncColors.dBorder,
 
-      outlineVariant: CncColors.outlineVariant,
+      outlineVariant: CncColors.dOutlineVariant,
 
     ),
 
-    cardColor: CncColors.panel,
+    cardColor: CncColors.dPanel,
 
-    dividerColor: CncColors.border,
+    dividerColor: CncColors.dBorder,
 
-    canvasColor: CncColors.bg,
+    canvasColor: CncColors.dBg,
 
-    dialogBackgroundColor: CncColors.panel,
+    dialogBackgroundColor: CncColors.dPanel,
 
     appBarTheme: AppBarTheme(
 
-      backgroundColor: CncColors.barBg,
+      backgroundColor: CncColors.dBarBg,
 
-      foregroundColor: CncColors.textMain,
+      foregroundColor: CncColors.dTextMain,
 
       elevation: 0,
 
     ),
 
-    bottomSheetTheme: BottomSheetThemeData(backgroundColor: CncColors.panel),
+    bottomSheetTheme: BottomSheetThemeData(backgroundColor: CncColors.dPanel),
 
     snackBarTheme: SnackBarThemeData(
 
-      backgroundColor: CncColors.panelAlt,
+      backgroundColor: CncColors.dPanelAlt,
 
-      contentTextStyle: TextStyle(color: CncColors.textMain),
+      contentTextStyle: TextStyle(color: CncColors.dTextMain),
 
     ),
 
@@ -295,37 +317,37 @@ class AppTheme {
 
       filled: true,
 
-      fillColor: CncColors.panelAlt,
+      fillColor: CncColors.dPanelAlt,
 
-      enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: CncColors.border)),
+      enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: CncColors.dBorder)),
 
-      focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: CncColors.primary)),
+      focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: CncColors.dPrimary)),
 
     ),
 
     listTileTheme: ListTileThemeData(
 
-      iconColor: CncColors.icon,
+      iconColor: CncColors.dIcon,
 
-      textColor: CncColors.textMain,
+      textColor: CncColors.dTextMain,
 
     ),
 
     progressIndicatorTheme: ProgressIndicatorThemeData(
 
-      color: CncColors.primary,
+      color: CncColors.dPrimary,
 
-      linearTrackColor: CncColors.panelAlt,
+      linearTrackColor: CncColors.dPanelAlt,
 
     ),
 
     sliderTheme: SliderThemeData(
 
-      activeTrackColor: CncColors.primary,
+      activeTrackColor: CncColors.dPrimary,
 
-      thumbColor: CncColors.primary,
+      thumbColor: CncColors.dPrimary,
 
-      inactiveTrackColor: CncColors.panelAlt,
+      inactiveTrackColor: CncColors.dPanelAlt,
 
     ),
 
@@ -333,11 +355,11 @@ class AppTheme {
 
       thumbColor: WidgetStateProperty.resolveWith((states) =>
 
-          states.contains(WidgetState.selected) ? CncColors.onPrimary : Colors.white),
+          states.contains(WidgetState.selected) ? CncColors.dOnPrimary : CncColors.dIcon),
 
       trackColor: WidgetStateProperty.resolveWith((states) =>
 
-          states.contains(WidgetState.selected) ? CncColors.primary : CncColors.panelAlt),
+          states.contains(WidgetState.selected) ? CncColors.dPrimary : CncColors.dPanelAlt),
 
       trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
 
@@ -347,31 +369,31 @@ class AppTheme {
 
       fillColor: WidgetStateProperty.resolveWith((states) =>
 
-          states.contains(WidgetState.selected) ? CncColors.primary : Colors.transparent),
+          states.contains(WidgetState.selected) ? CncColors.dPrimary : Colors.transparent),
 
-      checkColor: WidgetStateProperty.all(CncColors.onPrimary),
+      checkColor: WidgetStateProperty.all(CncColors.dOnPrimary),
 
     ),
 
     chipTheme: ChipThemeData(
 
-      backgroundColor: CncColors.panelAlt,
+      backgroundColor: CncColors.dPanelAlt,
 
-      side: BorderSide(color: CncColors.border),
+      side: BorderSide(color: CncColors.dBorder),
 
-      labelStyle: TextStyle(color: CncColors.textMain),
+      labelStyle: TextStyle(color: CncColors.dTextMain),
 
     ),
 
     navigationBarTheme: NavigationBarThemeData(
 
-      backgroundColor: CncColors.barBg,
+      backgroundColor: CncColors.dBarBg,
 
-      indicatorColor: CncColors.primary.withOpacity(0.18),
+      indicatorColor: CncColors.dPrimary.withOpacity(0.18),
 
       labelTextStyle: WidgetStateProperty.all(
 
-        TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: CncColors.primaryInk),
+        TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: CncColors.dPrimaryInk),
 
       ),
 
@@ -381,7 +403,7 @@ class AppTheme {
 
         return IconThemeData(
 
-          color: selected ? CncColors.primaryInk : CncColors.icon,
+          color: selected ? CncColors.dPrimaryInk : CncColors.dIcon,
 
           size: 24,
 
@@ -395,9 +417,9 @@ class AppTheme {
 
       style: FilledButton.styleFrom(
 
-        backgroundColor: CncColors.primary,
+        backgroundColor: CncColors.dPrimary,
 
-        foregroundColor: CncColors.onPrimary,
+        foregroundColor: CncColors.dOnPrimary,
 
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
 
@@ -411,9 +433,9 @@ class AppTheme {
 
       style: ElevatedButton.styleFrom(
 
-        backgroundColor: CncColors.panel,
+        backgroundColor: CncColors.dPanel,
 
-        foregroundColor: CncColors.textMain,
+        foregroundColor: CncColors.dTextMain,
 
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
 
