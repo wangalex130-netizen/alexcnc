@@ -245,7 +245,7 @@ class _TimeLapseVideoPageState extends State<TimeLapseVideoPage> {
 
                     backgroundColor: CncColors.primary,
 
-                    foregroundColor: CncColors.primaryInk,
+                    foregroundColor: CncColors.onPrimary,
 
                     padding: const EdgeInsets.symmetric(vertical: 14),
 

@@ -376,7 +376,7 @@ class _MachineCard extends ConsumerWidget {
               width: double.infinity,
               child: FilledButton.icon(
                 onPressed: onJog,
-                icon: const Icon(Symbols.gps_fixed, size: 18, color: Colors.black),
+                icon: Icon(Symbols.gps_fixed, size: 18, color: CncColors.onPrimary),
                 label: const Text('Jog 手动',
                     style:
                         TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
@@ -687,7 +687,7 @@ class _CurrentWorkCard extends StatelessWidget {
                 child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Symbols.add, size: 18, color: Colors.black),
+                    Icon(Symbols.add, size: 18, color: CncColors.onPrimary),
                     SizedBox(width: 8),
                     Text('从模型库选模型',
                         style: TextStyle(

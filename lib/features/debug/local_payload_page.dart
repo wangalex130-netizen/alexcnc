@@ -9,6 +9,7 @@ import 'package:material_symbols_icons/material_symbols_icons.dart';
 import '../../app/config.dart';
 
 import '../../app/theme.dart';
+import '../../widgets/cnc_switch.dart';
 import '../wizard/debug_sim.dart';
 import '../wizard/payload.dart';
 import '../wizard/payload_store.dart';
@@ -393,7 +394,7 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
                     ],
                   ),
                 ),
-                Switch(
+                CncSwitch(
                   value: _simMachine,
                   onChanged: (v) {
                     DebugSim.instance.setEnabled(v);

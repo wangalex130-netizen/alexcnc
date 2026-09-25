@@ -17,6 +17,7 @@ import '../../app/runtime_config.dart';
 
 import '../../app/theme.dart';
 
+import '../../widgets/cnc_switch.dart';
 import '../../widgets/wan_blocked.dart';
 
 import '../../data/tool_library.dart';
@@ -2067,10 +2068,8 @@ class _SwitchCard extends StatelessWidget {
           ),
           SizedBox(
             height: 28,
-            child: Switch(
+            child: CncSwitch(
               value: value,
-              activeColor: CncColors.primary,
-              inactiveTrackColor: CncColors.panelAlt,
               onChanged: onChanged,
             ),
           ),

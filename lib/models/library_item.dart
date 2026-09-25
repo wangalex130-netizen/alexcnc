@@ -104,6 +104,19 @@ class LibraryItem {
   /// 轻量布局 JSON SHA-256；未生成为 null。
   final String? totalJsonSha256;
 
+  // ---- 激光模型参数（工单四 §5，2026-09-25）----
+  /// 加工类型：'cnc' | 'laser'。云端缺省按 'cnc'（存量模型零回归）。
+  final String? processType;
+
+  /// 激光功率 %（laser 专用）。
+  final int? laserPowerPct;
+
+  /// 激光速度 mm/min（laser 专用）。
+  final int? laserSpeedMmMin;
+
+  /// 雕刻遍数（laser 专用）。
+  final int? laserPasses;
+
   /// 两个 G-code 均未配置（未切片）；只存在其一不算异常（后端明确约定）。
   bool get hasAnyGcode =>
       (roughingGcodeUrl != null && roughingGcodeUrl!.isNotEmpty) ||
@@ -191,6 +204,10 @@ class LibraryItem {
     this.totalJson,
     this.totalJsonSizeBytes,
     this.totalJsonSha256,
+    this.processType,
+    this.laserPowerPct,
+    this.laserSpeedMmMin,
+    this.laserPasses,
   });
 
   /// 从云端 REST JSON 解析（字段对齐 docs/模型库数据格式与接口定义.md）。
@@ -256,6 +273,14 @@ class LibraryItem {
         totalJson: j['totalJson'] as String?,
         totalJsonSizeBytes: (j['totalJsonSizeBytes'] as num?)?.toInt(),
         totalJsonSha256: j['totalJsonSha256'] as String?,
+        // 激光模型参数（工单四 §5）：可空，缺失按 'cnc'，存量模型零回归
+        processType:
+            (j['processType'] as String?)?.trim().toLowerCase() == 'laser'
+                ? 'laser'
+                : 'cnc',
+        laserPowerPct: (j['laserPowerPct'] as num?)?.toInt(),
+        laserSpeedMmMin: (j['laserSpeedMmMin'] as num?)?.toInt(),
+        laserPasses: (j['laserPasses'] as num?)?.toInt(),
       );
 
   /// 列表展示用图：优先 coverUrl，其次 imageUrls[0]，最后兼容旧 imageUrl。
@@ -418,6 +443,10 @@ class LibraryItem {
     String? roughingGcodeSha256,
     int? finishingGcodeSizeBytes,
     String? finishingGcodeSha256,
+    String? processType,
+    int? laserPowerPct,
+    int? laserSpeedMmMin,
+    int? laserPasses,
   }) =>
       LibraryItem(
         id: id ?? this.id,
@@ -464,5 +493,9 @@ class LibraryItem {
             finishingGcodeSizeBytes ?? this.finishingGcodeSizeBytes,
         finishingGcodeSha256:
             finishingGcodeSha256 ?? this.finishingGcodeSha256,
+        processType: processType ?? this.processType,
+        laserPowerPct: laserPowerPct ?? this.laserPowerPct,
+        laserSpeedMmMin: laserSpeedMmMin ?? this.laserSpeedMmMin,
+        laserPasses: laserPasses ?? this.laserPasses,
       );
 }

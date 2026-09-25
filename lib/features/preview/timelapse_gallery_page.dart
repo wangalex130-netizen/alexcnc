@@ -735,7 +735,7 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
     Color bg; Color fg; String text;
 
-    if (videoReady) { bg = CncColors.primary; fg = CncColors.primaryInk; text = '已完成'; }
+    if (videoReady) { bg = CncColors.primary; fg = CncColors.onPrimary; text = '已完成'; }
 
     else if (status == 'failed') { bg = CncColors.danger; fg = Colors.white; text = '失败'; }
 

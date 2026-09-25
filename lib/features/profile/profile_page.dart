@@ -36,6 +36,7 @@ import 'work_history_page.dart';
 import '../settings/debug_settings_page.dart';
 import '../settings/privacy_policy_page.dart';
 import '../debug/local_payload_page.dart';
+import '../../widgets/cnc_switch.dart';
 
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
@@ -531,7 +532,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
               title: '允许推送设备完成状态',
 
-              trailing: _Switch(
+              trailing: CncSwitch(
 
                   value: pushPrefs.notifyComplete,
 
@@ -547,7 +548,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
               title: '允许推送硬件异常告警',
 
-              trailing: _Switch(
+              trailing: CncSwitch(
 
                   value: pushPrefs.notifyAlert,
 
@@ -1014,69 +1015,6 @@ class _MenuItem extends StatelessWidget {
 
 
 
-class _Switch extends StatelessWidget {
-
-  final bool value;
-
-  final void Function(bool) onChanged;
-
-  const _Switch({required this.value, required this.onChanged});
-
-  @override
-
-  Widget build(BuildContext context) => GestureDetector(
-
-        onTap: () => onChanged(!value),
-
-        child: AnimatedContainer(
-
-          duration: const Duration(milliseconds: 200),
-
-          width: 36,
-
-          height: 20,
-
-          decoration: BoxDecoration(
-
-            borderRadius: BorderRadius.circular(10),
-
-            color: value ? CncColors.primary : CncColors.border,
-
-          ),
-
-          child: AnimatedAlign(
-
-            duration: const Duration(milliseconds: 200),
-
-            alignment:
-
-                value ? Alignment.centerRight : Alignment.centerLeft,
-
-            child: Container(
-
-              width: 16,
-
-              height: 16,
-
-              margin: const EdgeInsets.all(2),
-
-              decoration: BoxDecoration(
-
-                color: value ? Colors.white : CncColors.textSub,
-
-                shape: BoxShape.circle,
-
-              ),
-
-            ),
-
-          ),
-
-        ),
-
-      );
-
-}
 
 
 

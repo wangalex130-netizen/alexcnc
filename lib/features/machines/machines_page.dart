@@ -746,7 +746,7 @@ class _MachineCard extends StatelessWidget {
 
                     size: 24,
 
-                    color: selected ? CncColors.primaryInk : CncColors.primaryInk),
+                    color: CncColors.primaryInk),
 
               ),
 

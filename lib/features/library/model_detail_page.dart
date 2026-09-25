@@ -11,6 +11,7 @@ import '../../app/theme.dart';
 
 import '../../data/tool_library.dart';
 import '../../models/library_item.dart';
+import '../../widgets/tool_icon.dart';
 
 import '../wizard/wizard_page.dart';
 
@@ -219,9 +220,9 @@ class _DetailView extends ConsumerWidget {
 
                           label: item.category!,
 
-                          fg: CncColors.primaryInk,
+                          fg: CncColors.textMain,
 
-                          bg: CncColors.primary.withOpacity(0.14)),
+                          bg: CncColors.panelAlt),
 
                   ],
 
@@ -267,7 +268,7 @@ class _DetailView extends ConsumerWidget {
 
                 const SizedBox(height: 10),
 
-                _ToolCard(item: item),
+                if (item.processType != 'laser') _ToolCard(item: item),
 
                 if ((item.description ?? '').isNotEmpty) ...[
 
@@ -449,6 +450,8 @@ class _ParamsGrid extends StatelessWidget {
 
         ' · 深 ${_fmt(item.depthMm)} mm';
 
+    final isLaser = item.processType == 'laser';
+
     final rows = <(String, String)>[
 
       (
@@ -477,7 +480,25 @@ class _ParamsGrid extends StatelessWidget {
 
       ),
 
-      ('默认材质', item.materialPreset ?? item.materialKey ?? '—'),
+      if (isLaser) ...[
+
+        ('激光功率', item.laserPowerPct != null ? '${item.laserPowerPct}%' : '—'),
+
+        ('激光速度',
+
+            item.laserSpeedMmMin != null
+
+                ? '${item.laserSpeedMmMin} mm/min'
+
+                : '—'),
+
+        ('雕刻遍数', item.laserPasses != null ? '${item.laserPasses}' : '—'),
+
+        ('默认材质', item.materialPreset ?? item.materialKey ?? '—'),
+
+      ] else ...[
+
+        ('默认材质', item.materialPreset ?? item.materialKey ?? '—'),
 
       (
 
@@ -510,6 +531,8 @@ class _ParamsGrid extends StatelessWidget {
         item.depthPerPass != null ? '${_fmt(item.depthPerPass!)} mm' : '—'
 
       ),
+
+      ],
 
     ];
 
@@ -621,6 +644,15 @@ class _ToolCard extends StatelessWidget {
 
   const _ToolCard({required this.item});
 
+  /// 工单四 §3：刀具行图标。能解析完整定义 → ToolIcon(def)（含定位环）；
+  /// 解析不了 → byType 兜底（不带环，宁缺勿错）。
+  Widget _toolIconFor(String toolId) {
+    final def = toolById(toolId);
+    return def != null
+        ? ToolIcon(def: def, size: 22)
+        : ToolIcon.byType(toolId, size: 22, showRing: false);
+  }
+
   @override
 
   Widget build(BuildContext context) {
@@ -669,19 +701,41 @@ class _ToolCard extends StatelessWidget {
 
                 const SizedBox(height: 4),
 
-                Text(display,
+                Row(
 
-                    maxLines: 2,
+                  children: [
 
-                    overflow: TextOverflow.ellipsis,
+                    if (item.toolId != null &&
 
-                    style: TextStyle(
+                        toolById(item.toolId!) != null) ...[
 
-                        fontSize: 12,
+                      ToolIcon(def: toolById(item.toolId!)!, size: 22),
 
-                        fontWeight: FontWeight.w500,
+                      const SizedBox(width: 8),
 
-                        color: CncColors.textMain)),
+                    ],
+
+                    Expanded(
+
+                      child: Text(display,
+
+                          maxLines: 2,
+
+                          overflow: TextOverflow.ellipsis,
+
+                          style: TextStyle(
+
+                              fontSize: 12,
+
+                              fontWeight: FontWeight.w500,
+
+                              color: CncColors.textMain)),
+
+                    ),
+
+                  ],
+
+                ),
 
               ],
 
@@ -736,6 +790,10 @@ class _ToolCard extends StatelessWidget {
                                 color: CncColors.successFg)),
 
                       ),
+
+                      const SizedBox(width: 6),
+
+                      _toolIconFor(tools[i].toolId),
 
                       const SizedBox(width: 8),
 
@@ -863,9 +921,7 @@ class _BottomBar extends StatelessWidget {
 
                   fontSize: 14,
 
-                  fontWeight: FontWeight.w600,
-
-                  color: CncColors.primaryInk),
+                  fontWeight: FontWeight.w600),
 
             ),
 

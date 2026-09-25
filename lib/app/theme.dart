@@ -333,11 +333,13 @@ class AppTheme {
 
       thumbColor: WidgetStateProperty.resolveWith((states) =>
 
-          states.contains(WidgetState.selected) ? CncColors.onPrimary : CncColors.icon),
+          states.contains(WidgetState.selected) ? CncColors.onPrimary : Colors.white),
 
       trackColor: WidgetStateProperty.resolveWith((states) =>
 
           states.contains(WidgetState.selected) ? CncColors.primary : CncColors.panelAlt),
+
+      trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
 
     ),
 

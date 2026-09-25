@@ -12,6 +12,7 @@ import '../../app/theme.dart';
 import '../../data/material_db.dart';
 import '../../widgets/wan_blocked.dart';
 import '../../data/tool_library.dart';
+import '../../widgets/cnc_switch.dart';
 import '../../widgets/material_icon.dart';
 import '../../widgets/octagon_dial.dart';
 import '../../widgets/tool_icon.dart';
@@ -797,7 +798,7 @@ class _Progress extends StatelessWidget {
                 backgroundColor: color,
                 radius: 11,
                 child: Text('${i + 1}',
-                    style: const TextStyle(fontSize: 11, color: Colors.black)),
+                    style: TextStyle(fontSize: 11, color: CncColors.onPrimary)),
               ),
               label: Text(titles[i],
                   style: TextStyle(
@@ -1302,7 +1303,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
             onPressed: () => Navigator.of(ctx).pop(true),
             style: FilledButton.styleFrom(
               backgroundColor: CncColors.danger,
-              foregroundColor: Colors.black,
+              foregroundColor: Colors.white,
             ),
             child: const Text('已实物确认，继续映射',
                 style: TextStyle(fontWeight: FontWeight.bold)),
@@ -1675,7 +1676,7 @@ class _Slot extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: isConfirmed
                           ? CncColors.primary
-                          : Colors.orange,
+                          : CncColors.warning,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text('工序${proc + 1}',
@@ -3230,7 +3231,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         ),
         SizedBox(
           height: 28,
-          child: Switch(value: _laserOn, activeColor: CncColors.primary,
+          child: CncSwitch(value: _laserOn,
               onChanged: (_) => _toggleLaser()),
         ),
       ]),

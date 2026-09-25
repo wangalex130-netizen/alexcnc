@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../app/theme.dart';
 import '../../models/work_record.dart';
 import '../../state/providers.dart';
+import '../../widgets/cnc_switch.dart';
 
 /// 雕刻历史（工作记录）。
 ///
@@ -172,7 +173,7 @@ class _WorkHistoryPageState extends ConsumerState<WorkHistoryPage> {
             style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
         actions: [
           // 总开关：客户可关闭，关闭后本页不展示任何记录（隐私保护）
-          Switch(
+          CncSwitch(
             value: enabled,
             onChanged: (v) =>
                 ref.read(historyEnabledProvider.notifier).set(v),

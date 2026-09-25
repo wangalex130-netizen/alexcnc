@@ -20,6 +20,7 @@ import '../../services/local_notify_service.dart';
 import '../../services/push_service.dart';
 
 import '../../state/providers.dart';
+import '../../widgets/cnc_switch.dart';
 
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
@@ -368,11 +369,9 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
 
                 ),
 
-                Switch(
+                CncSwitch(
 
                   value: _useReal,
-
-                  activeColor: CncColors.primary,
 
                   onChanged: (v) => setState(() => _useReal = v),
 

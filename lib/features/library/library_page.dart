@@ -813,7 +813,7 @@ class _LibSegmented extends StatelessWidget {
 
                     fontSize: 13,
 
-                    color: index == i ? Colors.black : CncColors.textSub)),
+                    color: index == i ? CncColors.onPrimary : CncColors.textSub)),
 
           ),
 
@@ -1309,7 +1309,7 @@ class _HeroCard extends StatelessWidget {
 
                           child: Text(item.heroTag!,
 
-                              style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.black)),
+                              style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: CncColors.onPrimary)),
 
                         ),
 
