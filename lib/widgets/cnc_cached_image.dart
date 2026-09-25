@@ -13,9 +13,9 @@ class CncImageCacheManager extends CacheManager with ImageCacheManager {
   static final CncImageCacheManager instance = CncImageCacheManager._();
 
   CncImageCacheManager._()
-      : super(const Config(
+      : super(Config(
           'cncImageCache',
-          stalePeriod: Duration(days: 30),
+          stalePeriod: const Duration(days: 30),
           maxNrOfCacheObjects: 800,
         ));
 }

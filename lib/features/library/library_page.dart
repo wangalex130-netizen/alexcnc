@@ -1935,7 +1935,7 @@ Widget _thumb(String? url) {
 
     memCacheWidth: 600,
 
-    fallback: _gradient,
+    fallback: (_) => _gradient(),
 
   );
 
