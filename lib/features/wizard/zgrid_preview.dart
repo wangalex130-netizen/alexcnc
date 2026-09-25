@@ -579,7 +579,10 @@ class _ZGridPainter extends CustomPainter {
     final gMin = data.minZ;
     final gMax = data.maxZ;
     final gRange = math.max(0.001, gMax - gMin);
-    final zFactor = math.min(zAmp * 0.7, (thick * 0.8) / math.max(gRange, 0.1));
+    // 工单五 §4：Z 方向禁止压扁 —— 下限 1，只放大不缩小。
+    // 深浮雕（gRange 大）时旧逻辑第二项 < 1 会把立方体画成板状长方体；
+    // 放大（zoom 上限 6.0）超出窗口由 ClipRRect 裁切：允许看不见，禁止变形。
+    final zFactor = math.max(1.0, math.min(zAmp * 0.7, (thick * 0.8) / math.max(gRange, 0.1)));
 
     final cosZ = math.cos(rotZ), sinZ = math.sin(rotZ);
     final cosX = math.cos(rotX), sinX = math.sin(rotX);
