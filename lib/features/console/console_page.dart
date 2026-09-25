@@ -2070,7 +2070,7 @@ class _SwitchCard extends StatelessWidget {
             height: 28,
             child: CncSwitch(
               value: value,
-              onChanged: onChanged,
+              onChanged: (v) => onChanged?.call(v),
             ),
           ),
         ],
