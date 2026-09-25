@@ -95,7 +95,7 @@ class ConsolePage extends ConsumerStatefulWidget {
 
 class _ConsolePageState extends ConsumerState<ConsolePage>
 
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
 
   bool _light = false;
 
@@ -137,6 +137,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   /// 再点才真正调用 start()。服务端只有 start/stop，故 arm 状态存本地。
 
   bool _tlArmed = false;
+
+  /// 延时摄影 chip 红点闪烁动画（录制中态；工单六 §3.2）。
+  late final AnimationController _tlBlink;
 
 
 
@@ -187,6 +190,11 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   void initState() {
 
     super.initState();
+
+    // 工单六 §3.2：红点 800ms 透明度 1↔0.25 闪烁。
+    _tlBlink = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 800))
+      ..repeat(reverse: true);
 
     // 每 2s 轮询一次服务器，刷新延时摄影进度（有 job 时才有意义）。
 
@@ -347,6 +355,8 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   @override
 
   void dispose() {
+
+    _tlBlink.dispose();
 
     // 离开控制台发 stream_stop（仅在没人在雕、没延时录制时）—— 否则画面会持续推流。
 
@@ -700,68 +710,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
 
 
-  /// 右上角「延时摄影」图标（一键开关，按当前状态决定动作）：
-
-  /// - 关闭态 → 点 = 打开功能（armed=true），浮动按钮出现"开始录制"。
-
-  /// - 已 arm 但未开始 → 点 = 关闭功能（armed=false）。
-
-  /// - 采集中 → 点 = 停止并拼接生成。
-
-  /// - 已生成 → 点 = 查看视频（不销毁结果）。
-
-  /// - 失败 → 点 = 清除失败回到 idle（可以再录）。
-
-  Future<void> _toggleTimeLapse() async {
-
-    final jobId = _tlJobId;
-
-    if (jobId == null) {
-
-      // 无任务：切换「功能已打开」标记。开 → 出现「开始录制」；关 → 复位。
-
-      setState(() => _tlArmed = !_tlArmed);
-
-    } else if (_isTlRunning()) {
-
-      // 采集中：点击停止并拼接生成。
-
-      await TimeLapseClient.stop(jobId);
-
-      ref.read(timeLapseJobProvider.notifier).clear();
-
-      if (mounted) setState(() {
-
-        _tlStatus = null;
-
-        _tlArmed = false;
-
-      });
-
-    } else if (_isTlReady()) {
-
-      // 已生成：点击打开视频观看，结果不销毁（下载走状态卡入口）。
-
-      _openTimeLapseVideo(jobId);
-
-    } else if (_isTlFailed()) {
-
-      // 失败：清除失败状态回到 idle。
-
-      _tlDismissReady();
-
-    } else {
-
-      // 罕见的"jobId 有但状态不明确"分支：清理一下回到 idle。
-
-      _tlDismissReady();
-
-    }
-
-  }
-
-
-
   /// 画面内「开始录制」按钮：非雕刻态真正开始采样。
 
   ///
@@ -912,18 +860,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
 
 
-/// 画面内是否显示「开始录制/停止」浮动按钮：
-
-/// - 已打开延时功能且无任务 → 显示「开始录制」
-
-/// - 采集中 → 显示「停止」
-
-/// - 已生成/失败 → **不显示**（让位给下方状态卡的「查看/下载/再录一次/重试」）。
-
-///   这避免"视频已生成但仍卡在画面里一个无法关闭的'开始录制'按钮"这种死循环。
-
-  bool _tlShowRecordBtn() => _tlArmed || _isTlRunning();
-
 
 
   /// 清除已生成/失败的本地状态（清 status 与 jobId），回到 idle，
@@ -954,38 +890,20 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
 
 
-  /// 画面浮动按钮文案。
-
-  String _tlRecordLabel() {
-
-    if (_isTlRunning()) return '停止录制';
-
-    return '开始录制';
-
-  }
-
 
 
   String? get _tlJobId => ref.read(timeLapseJobProvider);
 
 
 
-  /// 延时状态卡仅生成完成/失败后显示（采集中/处理中由右上角图标 + 画面按钮表达）。
-
-  bool _tlShowCard() => _isTlReady() || _isTlFailed();
-
 
 
   Color _tlColor() {
-
+    // 工单六 §3.2：未开启灰 / 就绪·生成中 blue / 录制中·失败 danger / 已完成 primary。
     if (_isTlRunning() || _isTlFailed()) return CncColors.danger;
-
     if (_isTlReady()) return CncColors.primary;
-
-    if (_tlArmed) return CncColors.primary;
-
-    return CncColors.textSub;
-
+    if (_tlJobId != null || _tlArmed) return CncColors.blue;
+    return const Color(0xFF8B938E);
   }
 
 
@@ -1007,19 +925,144 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
 
   String _tlLabel() {
-
-    if (_isTlRunning()) return '延时采集中';
-
-    if (_isTlReady()) return '已生成';
-
-    if (_isTlFailed()) return '生成失败';
-
-    if (_tlArmed) return '已开启';
-
-    if (_tlJobId != null) return '处理中';
-
+    // 工单六 §3.2 状态机：录制中 → 已完成 → 失败 → 生成中 → 就绪 → 未开启。
+    if (_isTlRunning()) return '录制中';
+    if (_isTlReady()) return '已完成';
+    if (_isTlFailed()) return '失败';
+    if (_tlJobId != null) return '生成中';
+    if (_tlArmed) return '就绪';
     return '延时摄影';
+  }
 
+  /// 右上角 chip → 底部菜单（工单六 §3.3）：只列当前态可用操作；
+  /// 主操作 primary 底 onPrimary 字、次操作 card 底 textMain 字，高 44 圆角 10。
+  void _showTlMenu() {
+    final jobId = _tlJobId;
+    final running = _isTlRunning();
+    final ready = _isTlReady();
+    final failed = _isTlFailed();
+    final generating = jobId != null && !running && !ready && !failed;
+    const knowLabel = '知道了';
+
+    Widget item(
+        {required String label, required VoidCallback onTap, bool primary = false}) {
+      return SizedBox(
+        width: double.infinity,
+        height: 44,
+        child: TextButton(
+          onPressed: onTap,
+          style: TextButton.styleFrom(
+            backgroundColor: primary ? CncColors.primary : CncColors.card,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10)),
+          ),
+          child: Text(label,
+              style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: primary
+                      ? CncColors.onPrimary
+                      : CncColors.textMain)),
+        ),
+      );
+    }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: CncColors.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.4),
+      builder: (sheetCtx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (jobId == null && !_tlArmed)
+                item(
+                    label: '开启延时摄影',
+                    primary: true,
+                    onTap: () {
+                      Navigator.of(sheetCtx).pop();
+                      setState(() => _tlArmed = true);
+                    }),
+              if (jobId == null && _tlArmed) ...[
+                item(
+                    label: '开始录制',
+                    primary: true,
+                    onTap: () {
+                      Navigator.of(sheetCtx).pop();
+                      _tlStartRecording();
+                    }),
+                const SizedBox(height: 8),
+                item(
+                    label: '关闭功能',
+                    onTap: () {
+                      Navigator.of(sheetCtx).pop();
+                      setState(() => _tlArmed = false);
+                    }),
+              ],
+              if (running) ...[
+                Text('已采 ${_tlStatus?['count'] ?? 0} 帧',
+                    style:
+                        TextStyle(fontSize: 12, color: CncColors.textSub)),
+                const SizedBox(height: 10),
+                item(
+                    label: '停止录制',
+                    primary: true,
+                    onTap: () {
+                      Navigator.of(sheetCtx).pop();
+                      _tlStopRecording();
+                    }),
+              ],
+              if (generating)
+                Text('视频生成中…',
+                    style:
+                        TextStyle(fontSize: 12, color: CncColors.textSub)),
+              if (ready) ...[
+                item(
+                    label: '查看视频',
+                    primary: true,
+                    onTap: () {
+                      Navigator.of(sheetCtx).pop();
+                      _openTimeLapseVideo(jobId!);
+                    }),
+                const SizedBox(height: 8),
+                item(
+                    label: '下载',
+                    onTap: () {
+                      Navigator.of(sheetCtx).pop();
+                      _downloadTimeLapse(jobId!);
+                    }),
+                const SizedBox(height: 8),
+                item(
+                    label: knowLabel,
+                    onTap: () {
+                      Navigator.of(sheetCtx).pop();
+                      _tlDismissReady();
+                    }),
+              ],
+              if (failed) ...[
+                Text('${_tlStatus?['error'] ?? ''}',
+                    style:
+                        TextStyle(fontSize: 11, color: CncColors.danger)),
+                const SizedBox(height: 10),
+                item(
+                    label: knowLabel,
+                    primary: true,
+                    onTap: () {
+                      Navigator.of(sheetCtx).pop();
+                      _tlDismissReady();
+                    }),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
 
@@ -1280,22 +1323,24 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     final String jobName =
         job?.item.title ?? status.job ?? '（其他端发起的作业）';
 
-    // 视频区左上角机器标识圆点（规格 §2）：在线 blue / 离线灰 / 异常 danger。
-    final Color machineDot = isDeviceOffline ||
+    // 视频区左上角状态胶囊（工单六 §1.2）：圆点 + 机器名 + 状态短词。
+    // 映射口径见 _machineStateBadge（与 job_monitor 同源）；离线设备
+    // 机器帧会停在 idle，须经 presence 交叉核对强制「未连接」。
+    final _StateBadge capsule = isDeviceOffline ||
             status.state == MachineState.disconnected
-        ? const Color(0xFF8B938E)
-        : alarmNow
-            ? CncColors.danger
-            : CncColors.blue;
+        ? const _StateBadge(Color(0xFF8B938E), '未连接')
+        : _machineStateBadge(status.state);
 
     return Scaffold(
       backgroundColor: CncColors.bg,
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ---- 视频监控区（规格 §2：高 170 固定，深浅主题同值，属视频语义）----
-          Container(
-            height: 170,
+          // ---- 视频监控区（工单六 §2.1：AspectRatio 4:3 全宽充满无黑边；
+          // ---- 黑底 0xFF111111 保留为流未到时兜底色）----
+          AspectRatio(
+            aspectRatio: 4 / 3,
+            child: Container(
             color: const Color(0xFF111111),
             child: Stack(
               children: [
@@ -1304,6 +1349,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 // （8-29 决策：App 仅走服务器中继）。
                 Positioned.fill(
                   child: RtspPreviewWidget(
+                    statusBadge: true,
                     rtspUrl: null,
                     relayUrl:
                         (!realMode || loggedIn) ? _resolvedRelayUrl(cfg) : null,
@@ -1319,7 +1365,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     },
                   ),
                 ),
-                // 左上角机器标识：圆点 7×7 + 机器名（规格 §2 逐值）。
+                // 左上角状态胶囊：圆点 7×7 + 机器名 + 状态短词（工单六 §1.2）。
                 Positioned(
                   top: 10,
                   left: 12,
@@ -1337,66 +1383,31 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                           width: 7,
                           height: 7,
                           decoration: BoxDecoration(
-                              color: machineDot, shape: BoxShape.circle),
+                              color: capsule.color, shape: BoxShape.circle),
                         ),
                         const SizedBox(width: 5),
                         Text(machineTitle,
                             style: const TextStyle(
                                 fontSize: 11.5, color: Colors.white)),
+                        const SizedBox(width: 6),
+                        Text('·',
+                            style: TextStyle(
+                                fontSize: 11.5,
+                                color: capsule.color.withOpacity(0.6))),
+                        const SizedBox(width: 6),
+                        Text(capsule.word,
+                            style: TextStyle(
+                                fontSize: 11.5, color: capsule.color)),
                       ],
                     ),
                   ),
                 ),
-                if (_tlShowRecordBtn())
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 10,
-                    child: Center(
-                      child: GestureDetector(
-                        onTap: _isTlRunning()
-                            ? _tlStopRecording
-                            : _tlStartRecording,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: _isTlRunning()
-                                ? CncColors.danger
-                                : CncColors.primary,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                _isTlRunning()
-                                    ? Symbols.stop
-                                    : Symbols.fiber_manual_record,
-                                size: 16,
-                                color: Colors.white,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                _tlRecordLabel(),
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
                 // 右上角延时摄影 chip（现有组件；规格 §2：位置 top:10, right:10）。
                 Positioned(
                   top: 10,
                   right: 10,
                   child: GestureDetector(
-                    onTap: _toggleTimeLapse,
+                    onTap: _showTlMenu,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 4),
@@ -1408,21 +1419,18 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          if (_isTlRunning()) ...[
-                            Container(
-                              width: 6,
-                              height: 6,
-                              decoration: BoxDecoration(
-                                  color: CncColors.danger,
-                                  shape: BoxShape.circle),
-                            ),
-                            const SizedBox(width: 5),
-                          ],
-                          Container(
-                              width: 7,
-                              height: 7,
-                              decoration: BoxDecoration(
-                                  color: _tlColor(), shape: BoxShape.circle)),
+                          AnimatedBuilder(
+                              animation: _tlBlink,
+                              builder: (_, __) => Opacity(
+                                  opacity: _isTlRunning()
+                                      ? 1.0 - 0.75 * _tlBlink.value
+                                      : 1.0,
+                                  child: Container(
+                                      width: 7,
+                                      height: 7,
+                                      decoration: BoxDecoration(
+                                          color: _tlColor(),
+                                          shape: BoxShape.circle)))),
                           const SizedBox(width: 4),
                           Text(_tlLabel(),
                               style: TextStyle(
@@ -1436,7 +1444,15 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 ),
               ],
             ),
+            ),
           ),
+
+          // ---- 可滚动区（工单六 §2.1 布局保护：视频窗增高后小屏不溢出）----
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
 
           // ---- 功能横幅区（数据流不变；条件态，默认不渲染）----
           if (!realMode)
@@ -1480,32 +1496,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                             borderRadius: BorderRadius.circular(8)),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-          if (status.state == MachineState.disconnected)
-            Container(
-              margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: CncColors.dangerBg,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: CncColors.dangerBd),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                          color: CncColors.danger, shape: BoxShape.circle)),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                        '与机器断开连接：命令与状态无法同步，请检查网络后重连。',
-                        style: TextStyle(
-                            fontSize: 11, color: CncColors.danger)),
                   ),
                 ],
               ),
@@ -1568,17 +1558,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     ),
                   ],
                 ),
-              ),
-            ),
-          if (_tlShowCard())
-            Container(
-              margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-              child: _TimeLapseStatusCard(
-                jobId: _tlJobId!,
-                status: _tlStatus,
-                onView: () => _openTimeLapseVideo(_tlJobId!),
-                onDownload: () => _downloadTimeLapse(_tlJobId!),
-                onDone: _tlDismissReady,
               ),
             ),
 
@@ -1747,7 +1726,10 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
             ),
           ),
 
-          const Spacer(flex: 1),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -1778,6 +1760,34 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 // ===================== 通用装饰 =====================
 
 
+
+/// 机器状态 → 胶囊（点/字色, 短词）（工单六 §1.2 表格逐值）。
+class _StateBadge {
+  final Color color;
+  final String word;
+  const _StateBadge(this.color, this.word);
+}
+
+_StateBadge _machineStateBadge(MachineState s) {
+  switch (s) {
+    case MachineState.disconnected:
+      return const _StateBadge(Color(0xFF8B938E), '未连接');
+    case MachineState.unknown:
+      return const _StateBadge(Color(0xFF8B938E), '未知');
+    case MachineState.alarm:
+      return _StateBadge(CncColors.danger, '异常');
+    case MachineState.busy:
+      return _StateBadge(CncColors.primary, '加工中');
+    case MachineState.paused:
+      return _StateBadge(CncColors.warning, '已暂停');
+    case MachineState.homing:
+      return _StateBadge(CncColors.blue, '回零中');
+    case MachineState.idle:
+      return _StateBadge(CncColors.blue, '已连接');
+    default:
+      return const _StateBadge(Color(0xFF8B938E), '未知');
+  }
+}
 
 BoxDecoration _cardDeco() => BoxDecoration(
 
@@ -2296,226 +2306,6 @@ class _SpindlePageState extends ConsumerState<_SpindlePage> {
   }
 }
 
-
-// ===================== 延时摄影状态卡 =====================
-
-// 与向导 Step6 共用 timeLapseJobProvider：carve 联动或控制台手动开启都在此呈现，
-
-// 结束后提供「查看 / 下载」入口，视频全程只存服务器、本机不落照片。
-
-
-
-class _TimeLapseStatusCard extends StatelessWidget {
-
-  final String jobId;
-
-  final Map<String, dynamic>? status;
-
-  final VoidCallback onView;
-
-  final VoidCallback onDownload;
-
-
-
-  /// 「完成」（已生成）/「知道了」（失败）：这次延时摄影任务结束，收起卡片并清掉
-
-  /// 本地状态回到 idle。
-
-  ///
-
-  /// ⚠️ 刻意不叫「再录一次」—— 对客户来说每一次延时摄影都是**唯一的一次**，
-
-  /// 跟着当前这次雕刻走；给他一个"再录"按钮会暗示这是可重复操作，与真实场景不符
-
-  /// （录完就代表这次雕刻结束了）。
-
-  /// 状态的"可循环"体现在：清干净后下次雕刻仍能从零开始新一轮，而不是立即重录。
-
-  final VoidCallback? onDone;
-
-
-
-  const _TimeLapseStatusCard({
-
-    required this.jobId,
-
-    this.status,
-
-    required this.onView,
-
-    required this.onDownload,
-
-    this.onDone,
-
-  });
-
-
-
-  @override
-
-  Widget build(BuildContext context) {
-
-    final st = status?['status'];
-
-    final count = status?['count'] ?? 0;
-
-    final target = status?['frames_target'] ?? 0;
-
-    final ready = status?['video_ready'] == true;
-
-    final failed = st == 'failed';
-
-    return Container(
-
-      margin: const EdgeInsets.only(bottom: 12),
-
-      padding: const EdgeInsets.all(12),
-
-      decoration: BoxDecoration(
-
-        color: CncColors.blue.withOpacity(0.08),
-
-        borderRadius: BorderRadius.circular(10),
-
-        border: Border.all(color: CncColors.blue.withOpacity(0.3)),
-
-      ),
-
-      child: Column(
-
-        crossAxisAlignment: CrossAxisAlignment.start,
-
-        children: [
-
-          Row(
-
-            children: [
-
-              Text('延时摄影',
-
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: CncColors.textMain)),
-
-              const Spacer(),
-
-              if (st == 'running')
-
-                // 2026-09-05：frames_target 语义已改为「成片满 20 秒所需帧数」，
-
-                // 采样不再被它封顶，count 会继续增长 → 超过时不再显示 N/M 的比例，
-
-                // 改为「已采 N 帧」，避免出现「采集中 450/300」这种失真显示。
-
-                Text(count > target && target > 0 ? '采集中 · 已采 $count 帧'
-
-                        : '采集中 $count/$target',
-
-                    style: TextStyle(fontSize: 11, color: CncColors.blue)),
-
-            ],
-
-          ),
-
-          const SizedBox(height: 8),
-
-          if (st == 'running')
-
-            Text('服务器正自动抽样拍照，结束后拼接成最长 20 秒的回顾视频。',
-
-                style: TextStyle(fontSize: 11, color: CncColors.textSub))
-
-          else if (ready)
-
-            Column(
-
-              crossAxisAlignment: CrossAxisAlignment.start,
-
-              children: [
-
-                Text('回顾视频已生成',
-
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.primaryInk)),
-
-                const SizedBox(height: 6),
-
-                Row(
-
-                  children: [
-
-                    TextButton(onPressed: onView, child: Text('查看', style: TextStyle(color: CncColors.primary))),
-
-                    TextButton(onPressed: onDownload, child: Text('下载', style: TextStyle(color: CncColors.blue))),
-
-                    // 「完成」而不是「再录一次」：对客户来说每次延时摄影都是唯一的一次，
-
-                    // 看完/下载完点完成 = 这次任务结束、卡片收起。
-
-                    // 功能本身是可循环的 —— 回到干净状态后，下次雕刻仍可从零开始新一轮。
-
-                    if (onDone != null) ...[
-
-                      const Spacer(),
-
-                      TextButton(
-
-                        onPressed: onDone,
-
-                        child: Text('完成',
-
-                            style: TextStyle(color: CncColors.textSub)),
-
-                      ),
-
-                    ],
-
-                  ],
-
-                ),
-
-              ],
-
-            )
-
-          else if (failed)
-
-            Column(
-
-              crossAxisAlignment: CrossAxisAlignment.start,
-
-              children: [
-
-                Text('生成失败：${status?['error'] ?? ''}',
-
-                    style: TextStyle(fontSize: 11, color: CncColors.danger)),
-
-                const SizedBox(height: 6),
-
-                if (onDone != null)
-
-                  TextButton(
-
-                    onPressed: onDone,
-
-                    child: Text('知道了', style: TextStyle(color: CncColors.primary)),
-
-                  ),
-
-              ],
-
-            )
-
-          else
-
-            Text('处理中…', style: TextStyle(fontSize: 11, color: CncColors.textSub)),
-
-        ],
-
-      ),
-
-    );
-
-  }
-
-}
 
 // ===================== 三态门控引导 =====================
 

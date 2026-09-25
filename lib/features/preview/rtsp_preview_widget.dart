@@ -25,7 +25,7 @@ import 'mjpeg_stream_player.dart';
 
 
 
-/// 控制台顶部「实时监控」——机器内部雕刻过程画面。
+/// 控制台顶部机器内部雕刻过程画面（实时视频流）。
 
 ///
 
@@ -47,7 +47,8 @@ import 'mjpeg_stream_player.dart';
 
 ///   根治切换 tab 后的画面滞留与后台卡顿。
 
-/// - 交互精简（对齐体验优化）：标题栏只保留状态点 + 「实时监控」，不承载任何按钮；
+/// - 工单六 §2.2：38px 头栏已整体删除，画面标识改右下角状态角标
+///   （statusBadge=true 时显示；workbench 页右下已有全屏按钮，默认不显示避免重叠）；
 
 ///   左下角常驻「暂停/停止」、右下角常驻「截图」，不随点击隐藏、无内层全屏
 
@@ -95,6 +96,9 @@ class RtspPreviewWidget extends StatefulWidget {
 
   final VoidCallback? onBeforePlay;
 
+  /// 工单六 §2.2：右下角实时画面标签（无点无按钮纯角标）。默认关。
+  final bool statusBadge;
+
 
 
   const RtspPreviewWidget({
@@ -110,6 +114,8 @@ class RtspPreviewWidget extends StatefulWidget {
     this.onFullscreen,
 
     this.onBeforePlay,
+
+    this.statusBadge = false,
 
   });
 
@@ -985,87 +991,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
         children: [
 
-          _buildHeader(),
-
           Expanded(child: _buildVideoArea()),
-
-        ],
-
-      ),
-
-    );
-
-  }
-
-
-
-  /// 标题栏：状态点 + 「实时监控」，不承载任何按钮。
-
-  Widget _buildHeader() {
-
-    return Container(
-
-      height: 38,
-
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-
-      decoration: const BoxDecoration(
-
-        color: Color(0xFF1E1913),
-
-        border: Border(
-
-          bottom: BorderSide(color: Color(0xFF2B241B), width: 1),
-
-        ),
-
-      ),
-
-      child: Row(
-
-        children: [
-
-          Container(
-
-            width: 7,
-
-            height: 7,
-
-            decoration: BoxDecoration(
-
-              shape: BoxShape.circle,
-
-              color: _state == _CamState.ready
-
-                  ? CncColors.primary
-
-                  : _state == _CamState.connecting
-
-                      ? CncColors.primary
-
-                      : const Color(0xFFA69D8F),
-
-            ),
-
-          ),
-
-          const SizedBox(width: 8),
-
-          const Text(
-
-            '实时监控',
-
-            style: TextStyle(
-
-              fontSize: 12,
-
-              color: Color(0xFFF3EFE7),
-
-              fontWeight: FontWeight.w500,
-
-            ),
-
-          ),
 
         ],
 
@@ -1276,6 +1202,40 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
           ),
 
         if (_state == _CamState.ready) _buildPersistentControls(),
+
+        if (widget.statusBadge)
+
+          Positioned(
+
+            // 工单定值 bottom:10 与常驻「全屏/截图」按钮（bottom:10、高 46）重叠，
+
+            // 上移至 bottom:64 —— 右下角元素互不重叠优先。
+
+            right: 10,
+
+            bottom: 64,
+
+            child: Container(
+
+              padding:
+
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+
+              decoration: BoxDecoration(
+
+                color: Colors.black.withOpacity(0.35),
+
+                borderRadius: BorderRadius.circular(999),
+
+              ),
+
+              child: const Text('实时监控',
+
+                  style: TextStyle(fontSize: 10, color: Color(0xFFFFFFFF))),
+
+            ),
+
+          ),
 
       ],
 
