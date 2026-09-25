@@ -22,7 +22,7 @@ dependencies:
   # 可靠——后者可能拿到蜂窝网卡导致扫描错网段找不到摄像头）
   network_info_plus: ^6.1.0
   # 云端视频播放网络限制（修订单 20260925 §4：wifi_only 时拦截播放/保存）
-  connectivity_plus: ^6
+  connectivity_plus: ^6.0.0
   mqtt_client: 10.5.0
   http: ^1.2.0
   # 实时预览生命周期：检测控件是否可见，切走页面时自动暂停，切回时恢复，
