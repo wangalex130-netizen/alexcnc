@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:material_symbols_icons/material_symbols_icons.dart';
@@ -112,7 +113,10 @@ class ZGridData {
 ///   → **Z 放大**（把 mm 级凹凸拉到肉眼可见，上限保证不视觉切穿板厚）
 ///   → 巡边定位外框（z=0 平面）。
 ///
-/// 交互：单指拖动旋转 · 双指缩放/平移 · 双击复位。
+/// 交互（工单十三 v1.1，2026-09-26）：窗内手势独占 —— 指针按下即认领手势竞技场
+/// （EagerGestureRecognizer），页面滚动零触发，拖出窗外亦不滚；右下角 XYZ 三轴钮
+/// 切换旋转态：静止态拖动只消费不旋转；旋转态单指拖动旋转（数学沿用旧版零改动）、
+/// 双指缩放/平移、双击复位；再点钮退出且视角保留。四窗共用本组件自动同步。
 /// 3D 预览窗清空（2026-09-24 工单）：视角 chips / Z 放大滑块 / 手势提示 /
 /// 复位钮 / 数据来源行全部删除 —— 窗内除 3D 模型外无任何常驻文字与控件；
 /// Z 放大固定用默认倍数（[_zAmp]），手势行为不变。
@@ -175,12 +179,24 @@ class _ZGridSurfaceState extends State<ZGridSurface> {
   double _rotZ = _isoRotZ;
   double _zoom = 1.0;
   Offset _pan = Offset.zero;
-  Offset? _focal;
-  double? _baseScale;
 
-  /// Z 放大倍数（固定默认 4）：浅浮雕按真实比例几乎看不出层次。
-  /// 滑块已随「预览窗清空」删除，保留默认倍数供渲染用。
-  static const int _zAmp = 4;
+  /// 旋转态（工单十三 §2）：静止 → 点右下角 XYZ 钮 → 旋转 → 再点退出。
+  /// 静止态窗内拖动只被消费、不旋转；退出时视角保留当前值不复位。
+  bool _rotating = false;
+
+  // 原始指针跟踪：Listener 裸指针取 delta 自行推进（不依赖竞技场胜者），
+  // EagerGestureRecognizer 按下即认领 ⇒ 外层 ListView 滚动手势当场出局（§1）。
+  final Map<int, Offset> _pts = {};
+  double? _pinchDist;
+  Offset? _pinchMid;
+
+  // 双击复位检测（仅旋转态生效）：300ms 内两次按压且均未超出 tap slop。
+  Offset? _tapDownPos;
+  bool _tapMoved = false;
+  DateTime? _lastTapUp;
+  Offset? _lastTapUpPos;
+
+  static const double _kTapSlop = 18.0;
 
   void _reset() {
     setState(() {
@@ -191,78 +207,258 @@ class _ZGridSurfaceState extends State<ZGridSurface> {
     });
   }
 
-  void _onScaleStart(ScaleStartDetails d) {
-    _focal = d.focalPoint;
-    // ScaleStartDetails 无 scale（该属性只存在于 ScaleUpdateDetails）；
-    // 手势起始时缩放系数恒为 1.0，之后靠 d.scale 的增量推进。
-    _baseScale = 1.0;
+  void _toggleRotate() {
+    setState(() => _rotating = !_rotating);
   }
 
-  void _onScaleUpdate(ScaleUpdateDetails d) {
-    final focal = d.focalPoint;
-    final prev = _focal ?? focal;
-    final dx = focal.dx - prev.dx;
-    final dy = focal.dy - prev.dy;
-    setState(() {
-      if (d.pointerCount >= 2) {
-        _pan += Offset(dx, dy);
-        final b = _baseScale;
-        if (b != null && b > 0) {
-          _zoom = (_zoom * (d.scale / b)).clamp(0.4, 6.0);
-        }
-      } else {
-        _rotZ += dx * 0.008;
-        _rotX = (_rotX - dy * 0.008).clamp(0.06, math.pi / 2 - 0.03);
+  void _onDown(PointerDownEvent e) {
+    _pts[e.pointer] = e.position;
+    if (_pts.length == 1) {
+      _tapDownPos = e.position;
+      _tapMoved = false;
+    } else if (_pts.length == 2) {
+      final p = _pts.values.toList(growable: false);
+      _pinchDist = (p[0] - p[1]).distance;
+      _pinchMid = Offset((p[0].dx + p[1].dx) / 2, (p[0].dy + p[1].dy) / 2);
+    }
+  }
+
+  void _onMove(PointerMoveEvent e) {
+    final prev = _pts[e.pointer];
+    if (prev == null) return;
+    final d = e.position - prev;
+    _pts[e.pointer] = e.position;
+    if (_pts.length == 1) {
+      final down = _tapDownPos;
+      if (down != null && (e.position - down).distance > _kTapSlop) {
+        _tapMoved = true;
       }
-      _focal = focal;
-      _baseScale = d.scale;
-    });
+      // 单指旋转：数学沿用旧版零改动（§1 定值）。
+      if (_rotating && (d.dx != 0.0 || d.dy != 0.0)) {
+        setState(() {
+          _rotZ += d.dx * 0.008;
+          _rotX = (_rotX - d.dy * 0.008).clamp(0.06, math.pi / 2 - 0.03);
+        });
+      }
+    } else if (_rotating) {
+      // 双指缩放/平移（仅旋转态生效，§2）。
+      final p = _pts.values.toList(growable: false);
+      final dist = (p[0] - p[1]).distance;
+      final mid = Offset((p[0].dx + p[1].dx) / 2, (p[0].dy + p[1].dy) / 2);
+      final od = _pinchDist;
+      final om = _pinchMid;
+      setState(() {
+        if (od != null && od > 0) {
+          _zoom = (_zoom * (dist / od)).clamp(0.4, 6.0);
+        }
+        if (om != null) _pan += mid - om;
+      });
+      _pinchDist = dist;
+      _pinchMid = mid;
+      _tapMoved = true;
+    }
   }
 
-  void _onScaleEnd(ScaleEndDetails d) {
-    _focal = null;
-    _baseScale = null;
+  void _onUp(PointerUpEvent e) {
+    final wasSingle = _pts.length == 1;
+    _pts.remove(e.pointer);
+    final down = _tapDownPos;
+    if (wasSingle && _rotating && !_tapMoved && down != null) {
+      final now = DateTime.now();
+      final lt = _lastTapUp;
+      final lp = _lastTapUpPos;
+      if (lt != null &&
+          now.difference(lt) < const Duration(milliseconds: 300) &&
+          lp != null &&
+          (e.position - lp).distance < _kTapSlop) {
+        _lastTapUp = null;
+        _lastTapUpPos = null;
+        _reset();
+        return;
+      }
+      _lastTapUp = now;
+      _lastTapUpPos = e.position;
+    }
+    if (_pts.isEmpty) {
+      _pinchDist = null;
+      _pinchMid = null;
+    }
+  }
+
+  void _onCancel(PointerCancelEvent e) {
+    _pts.remove(e.pointer);
+    if (_pts.isEmpty) {
+      _pinchDist = null;
+      _pinchMid = null;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final hasData = !widget.data.isEmpty;
     return SizedBox(
       height: widget.height,
       child: Stack(
         children: [
           Positioned.fill(
-            child: GestureDetector(
+            child: RawGestureDetector(
               behavior: HitTestBehavior.opaque,
-              onScaleStart: _onScaleStart,
-              onScaleUpdate: _onScaleUpdate,
-              onScaleEnd: _onScaleEnd,
-              onDoubleTap: _reset,
-              child: CustomPaint(
-                painter: _ZGridPainter(
-                  data: widget.data,
-                  rotX: _rotX,
-                  rotZ: _rotZ,
-                  zoom: _zoom,
-                  pan: _pan,
-                  fallbackW: widget.fallbackWidthMm,
-                  fallbackH: widget.fallbackHeightMm,
-                  fallbackT: widget.fallbackThicknessMm,
-                  thickOverride: widget.thicknessMmOverride,
-                  zAmp: _zAmp,
-                  circle: widget.circleBoard,
-                  boardW: widget.boardWidthMm,
-                  boardH: widget.boardHeightMm,
-                  modelX: widget.modelOffsetX,
-                  modelY: widget.modelOffsetY,
+              // EagerGestureRecognizer：指针按下立刻认领竞技场 ⇒ 外层 ListView 的
+              // 滚动手势当场出局，窗内与拖出窗外均不滚页（§1 硬验收）。
+              gestures: <Type, GestureRecognizerFactory>{
+                EagerGestureRecognizer:
+                    GestureRecognizerFactoryWithHandlers<
+                        EagerGestureRecognizer>(
+                  () => EagerGestureRecognizer(),
+                  (EagerGestureRecognizer instance) {},
+                ),
+              },
+              child: Listener(
+                behavior: HitTestBehavior.opaque,
+                onPointerDown: _onDown,
+                onPointerMove: _onMove,
+                onPointerUp: _onUp,
+                onPointerCancel: _onCancel,
+                child: CustomPaint(
+                  painter: _ZGridPainter(
+                    data: widget.data,
+                    rotX: _rotX,
+                    rotZ: _rotZ,
+                    zoom: _zoom,
+                    pan: _pan,
+                    fallbackW: widget.fallbackWidthMm,
+                    fallbackH: widget.fallbackHeightMm,
+                    fallbackT: widget.fallbackThicknessMm,
+                    thickOverride: widget.thicknessMmOverride,
+                    zAmp: _zAmp,
+                    circle: widget.circleBoard,
+                    boardW: widget.boardWidthMm,
+                    boardH: widget.boardHeightMm,
+                    modelX: widget.modelOffsetX,
+                    modelY: widget.modelOffsetY,
+                  ),
                 ),
               ),
             ),
           ),
+          // §2：右下角 XYZ 三轴旋转钮；载荷缺数据时随窗口不渲染。
+          if (hasData)
+            Positioned(
+              right: 8,
+              bottom: 8,
+              child: _AxesButton(active: _rotating, onTap: _toggleRotate),
+            ),
         ],
       ),
     );
   }
+}
 
+/// 工单十三 §2：右下角三轴旋转钮 —— 36dp 圆钮（距右下角 8,8）、44dp 透明热区、
+/// 无投影；旋转态底 textMain + 图标反白 #F8F5F0，静止态底 card 92% + 描边 border。
+class _AxesButton extends StatelessWidget {
+  final bool active;
+  final VoidCallback onTap;
+
+  const _AxesButton({required this.active, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    const activeFg = Color(0xFFF8F5F0);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: SizedBox(
+        width: 44,
+        height: 44,
+        child: Center(
+          child: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: active
+                  ? CncColors.textMain
+                  : CncColors.card.withOpacity(0.92),
+              shape: BoxShape.circle,
+              border: Border.all(color: CncColors.border, width: 1.5),
+            ),
+            child: Center(
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CustomPaint(
+                  painter: _AxesIconPainter(
+                    color: active ? activeFg : CncColors.textMain,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 工单十三 §3：XYZ 三轴立体图标（24 视箱 · stroke 2 · 圆头圆角 · 等轴三轴）。
+/// Z 上 / X 右下 / Y 左下，互成 120°，不标字母。私有于本文件，不动 cnc_line_icons。
+class _AxesIconPainter extends CustomPainter {
+  final Color color;
+
+  const _AxesIconPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+    canvas.scale(size.width / 24);
+    final stroke = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    // Z 轴（上）+ 箭头 chevron
+    canvas.drawPath(
+        Path()
+          ..moveTo(12, 14.2)
+          ..lineTo(12, 3.8),
+        stroke);
+    canvas.drawPath(
+        Path()
+          ..moveTo(9.4, 6.2)
+          ..lineTo(12, 3.6)
+          ..lineTo(14.6, 6.2),
+        stroke);
+    // X 轴（右下 30°）+ 箭头 chevron
+    canvas.drawPath(
+        Path()
+          ..moveTo(12, 14.2)
+          ..lineTo(18.9, 18.2),
+        stroke);
+    canvas.drawPath(
+        Path()
+          ..moveTo(15.5, 18.2)
+          ..lineTo(18.9, 18.2)
+          ..lineTo(17.2, 15.3),
+        stroke);
+    // Y 轴（左下 30°）+ 箭头 chevron
+    canvas.drawPath(
+        Path()
+          ..moveTo(12, 14.2)
+          ..lineTo(5.1, 18.2),
+        stroke);
+    canvas.drawPath(
+        Path()
+          ..moveTo(8.5, 18.2)
+          ..lineTo(5.1, 18.2)
+          ..lineTo(6.8, 15.3),
+        stroke);
+    // 原点实心点
+    canvas.drawCircle(const Offset(12, 14.2), 1.6, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(covariant _AxesIconPainter old) => old.color != color;
 }
 
 /// 轻量 JSON 的 3D 预览（**按 URL 拉取**）：拉取成功即交给 [ZGridSurface] 渲染。
