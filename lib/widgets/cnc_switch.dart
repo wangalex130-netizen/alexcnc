@@ -9,7 +9,10 @@ import '../app/theme.dart';
 class CncSwitch extends StatelessWidget {
   final bool value;
   final ValueChanged<bool> onChanged;
-  const CncSwitch({super.key, required this.value, required this.onChanged});
+  /// 尺寸参数（工单十二 §2.4A/§2.5 等比缩小用；默认 44×26 原样不变）。
+  final double width;
+  final double height;
+  const CncSwitch({super.key, required this.value, required this.onChanged, this.width = 44, this.height = 26});
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -17,10 +20,10 @@ class CncSwitch extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOutCubic,
-        width: 44,
-        height: 26,
+        width: width,
+        height: height,
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(13),
+          borderRadius: BorderRadius.circular(height / 2),
           color: value ? CncColors.primary : CncColors.disabled,
         ),
         child: AnimatedAlign(
@@ -30,8 +33,8 @@ class CncSwitch extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(2),
             child: Container(
-              width: 22,
-              height: 22,
+              width: height - 4,
+              height: height - 4,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: value

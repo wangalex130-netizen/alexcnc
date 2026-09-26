@@ -17,7 +17,6 @@ import '../../app/runtime_config.dart';
 
 import '../../app/theme.dart';
 
-import '../../widgets/cnc_switch.dart';
 import '../../widgets/wan_blocked.dart';
 
 import '../../data/tool_library.dart';
@@ -58,6 +57,11 @@ import '../wizard/self_check_page.dart';
 
 
 import 'move_page.dart';
+
+// 工单十二：统一刻度滑条 / 线性图标 / 控制台新卡组
+import '../../widgets/cnc_tuned_slider.dart';
+import '../../widgets/cnc_line_icons.dart';
+import 'console_cards.dart';
 
 import '../machines/bind_page.dart';
 import '../../services/machines_service.dart';
@@ -1176,15 +1180,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
     final currentMachine = ref.watch(currentMachineProvider);
 
-    // 在线态真相来自常驻 presence 服务（与「我的机器」列表同源）。
-    // 离线设备不会回传状态帧，machineStatusProvider 会停在默认 idle，
-    // 故必须交叉核对 presence，否则选了离线的机器也显示「待机 / 已连接」。
-    final presenceMap = ref.watch(presenceMapProvider).valueOrNull;
-    final DevicePresence? curPresence = (currentMachine != null && presenceMap != null)
-        ? presenceMap[currentMachine.sn]
-        : null;
-    final bool isDeviceOffline =
-        curPresence != null && curPresence.online == false;
+    // 工单十二 §2.8：视频左上胶囊改固定「实时监控」，机器名/离线态不再
+    // 叠加在画面上——机器状态一律看下方状态卡（presence 服务本体不动，
+    // _MachinePickerGate 仍消费 presenceMapProvider）。
 
     // 2026-09-05（根治「首次登录必须先进全屏预览才有画面」）：
 
@@ -1226,15 +1224,6 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
 
 
-    final hasMachine = currentMachine != null &&
-
-        (currentMachine.name.isNotEmpty || currentMachine.sn.isNotEmpty);
-
-    final machineTitle = hasMachine
-
-        ? (currentMachine!.name.isNotEmpty ? currentMachine.name : currentMachine.sn)
-
-        : '未选择机器';
 
 
 
@@ -1323,25 +1312,23 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     final String jobName =
         job?.item.title ?? status.job ?? '（其他端发起的作业）';
 
-    // 视频区左上角状态胶囊（工单六 §1.2）：圆点 + 机器名 + 状态短词。
-    // 映射口径见 _machineStateBadge（与 job_monitor 同源）；离线设备
-    // 机器帧会停在 idle，须经 presence 交叉核对强制「未连接」。
-    final _StateBadge capsule = isDeviceOffline ||
-            status.state == MachineState.disconnected
-        ? const _StateBadge(Color(0xFF8B938E), '未连接')
-        : _machineStateBadge(status.state);
 
     return Scaffold(
       backgroundColor: CncColors.bg,
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ---- 视频监控区（工单六 §2.1：AspectRatio 4:3 全宽充满无黑边；
+          // ---- 视频区（工单十二 §2.8：宽 328 满幅 4:3、圆角 12、上边距 8；
           // ---- 黑底 0xFF111111 保留为流未到时兜底色）----
-          AspectRatio(
+          Container(
+            margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            decoration: BoxDecoration(
+              color: const Color(0xFF111111),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: AspectRatio(
             aspectRatio: 4 / 3,
-            child: Container(
-            color: const Color(0xFF111111),
             child: Stack(
               children: [
                 // 机器侧面固定头：纯裸画面（无叠加层）。A3 拉流解耦：
@@ -1349,7 +1336,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 // （8-29 决策：App 仅走服务器中继）。
                 Positioned.fill(
                   child: RtspPreviewWidget(
-                    statusBadge: true,
+                    // 工单十二 §2.8：「实时监控」胶囊由控制台自绘于左上，
+                    // 组件自带右下徽标关闭（组件本体零改动）
+                    statusBadge: false,
                     rtspUrl: null,
                     relayUrl:
                         (!realMode || loggedIn) ? _resolvedRelayUrl(cfg) : null,
@@ -1365,39 +1354,32 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     },
                   ),
                 ),
-                // 左上角状态胶囊：圆点 7×7 + 机器名 + 状态短词（工单六 §1.2）。
+                // 左上角「实时监控」胶囊（工单十二 §2.8：高 16、黑 45% 底、
+                // 10sp 白 85%、含 6dp 红点）。
                 Positioned(
                   top: 10,
                   left: 12,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 4),
+                    height: 16,
+                    padding: const EdgeInsets.symmetric(horizontal: 5),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.35),
+                      color: Colors.black.withOpacity(0.45),
                       borderRadius: BorderRadius.circular(999),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Container(
-                          width: 7,
-                          height: 7,
+                          width: 6,
+                          height: 6,
                           decoration: BoxDecoration(
-                              color: capsule.color, shape: BoxShape.circle),
+                              color: CncColors.laser, shape: BoxShape.circle),
                         ),
-                        const SizedBox(width: 5),
-                        Text(machineTitle,
-                            style: const TextStyle(
-                                fontSize: 11.5, color: Colors.white)),
-                        const SizedBox(width: 6),
-                        Text('·',
+                        const SizedBox(width: 3),
+                        Text('实时监控',
                             style: TextStyle(
-                                fontSize: 11.5,
-                                color: capsule.color.withOpacity(0.6))),
-                        const SizedBox(width: 6),
-                        Text(capsule.word,
-                            style: TextStyle(
-                                fontSize: 11.5, color: capsule.color)),
+                                fontSize: 10,
+                                color: Colors.white.withOpacity(0.85))),
                       ],
                     ),
                   ),
@@ -1457,7 +1439,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
           // ---- 功能横幅区（数据流不变；条件态，默认不渲染）----
           if (!realMode)
             Container(
-              margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+              margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: CncColors.warnBg,
@@ -1502,7 +1484,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
             ),
           if (status.awaitingConfirm)
             Container(
-              margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+              margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 color: CncColors.warnBg,
@@ -1527,7 +1509,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 MaterialPageRoute(builder: (_) => const JobMonitorPage()),
               ),
               child: Container(
-                margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: CncColors.successBg,
@@ -1643,86 +1625,79 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
             },
           ),
 
-          // ---- 分区标题（规格 §4）----
-          Container(
-            margin: const EdgeInsets.fromLTRB(14, 16, 14, 0),
-            alignment: Alignment.centerLeft,
-            child: Text('设备控制',
-                style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: CncColors.textMain)),
-          ),
-
-          // ---- 入口卡行（规格 §5：只写名称，禁副标题——文案零解释铁律）----
-          Container(
-            margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          // ---- 设备控制区（工单十二 §2.1–2.6：无区块小标题，间距 10）----
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _EntryCard(
-                  label: '移动',
+                ConsoleMoveCard(
+                  position: status.position,
+                  enabled: !busyNow,
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => MovePage(hw: hw)),
                   ),
                 ),
-                const SizedBox(width: 8),
-                _EntryCard(
-                  label: '主轴',
-                  onTap: () => _openSpindle(context),
-                ),
-                const SizedBox(width: 8),
-                _EntryCard(
-                  label: '刀仓',
-                  onTap: () => _openAtc(context, hw),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    children: [
+                      ConsoleSpindleCard(
+                        enabled: !busyNow,
+                        statusLine: status.spindleOn
+                            ? (status.spindleRpm != null
+                                ? '运行 · ${status.spindleRpm!.round()}rpm'
+                                : '运行')
+                            : '待机',
+                        onTap: () => _openSpindle(context),
+                      ),
+                      const SizedBox(height: 12),
+                      ConsoleLaserCard(
+                        enabled: !busyNow,
+                        onTap: () => _openLaser(context),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
 
-          // ---- 开关卡（规格 §6）----
-          Container(
-            margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _SwitchCard(
-                    label: '机箱照明',
-                    value: lightOn,
-                    onChanged: (v) {
-                      setState(() => _light = v);
-                      unawaited(hw.setAux('light', v));
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _SwitchCard(
-                    label: '红点激光',
-                    value: laserOn,
-                    onChanged: (v) {
-                      setState(() => _laser = v);
-                      hw.setAux('laser', v).then((sent) {
-                        if (!sent && mounted) {
-                          setState(() => _laser = false);
-                          _toastWanBlocked('红点激光');
-                        }
-                      });
-                    },
-                  ),
-                ),
-              ],
+          // ---- 刀仓卡（§2.4A 圆框工具表：刀仓盖 + D1–D4 + › 进入）----
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+            child: ConsoleToolMagazineCard(
+              enabled: !busyNow,
+              onEnterEditor: () => _openAtc(context, hw),
             ),
           ),
-          Container(
-            margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-            child: Row(
-              children: [
-                // 空气净化：接口未接入前正常外观、点击无响应，不显示任何「待接入」字样。
-                Expanded(
-                  child: _SwitchCard(label: '空气净化', value: false,
-                      onChanged: (_) {}),
-                ),
-              ],
+
+          // ---- 配件卡（§2.5 1×3：照明 / 红点激光 / 空气净化）----
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+            child: ConsoleAccessoryCard(
+              enabled: !busyNow,
+              lightOn: lightOn,
+              laserOn: laserOn,
+              onLight: (v) {
+                // §2.10 #1：回显优先逻辑不动；发送失败回滚原态
+                setState(() => _light = v);
+                hw.setAux('light', v).then((sent) {
+                  if (!sent && mounted) {
+                    setState(() => _light = !v);
+                    _toastWanBlocked('机箱照明');
+                  }
+                });
+              },
+              onLaser: (v) {
+                setState(() => _laser = v);
+                hw.setAux('laser', v).then((sent) {
+                  if (!sent && mounted) {
+                    setState(() => _laser = false);
+                    _toastWanBlocked('红点激光');
+                  }
+                });
+              },
             ),
           ),
 
@@ -1754,40 +1729,19 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     );
   }
 
+  void _openLaser(BuildContext context) {
+    // 工单十二 §2.9：激光调试页（驱动未联调，两卡不渲染、页面仅标题）
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const LaserTunePage()),
+    );
+  }
+
 }
 
 
 // ===================== 通用装饰 =====================
 
 
-
-/// 机器状态 → 胶囊（点/字色, 短词）（工单六 §1.2 表格逐值）。
-class _StateBadge {
-  final Color color;
-  final String word;
-  const _StateBadge(this.color, this.word);
-}
-
-_StateBadge _machineStateBadge(MachineState s) {
-  switch (s) {
-    case MachineState.disconnected:
-      return const _StateBadge(Color(0xFF8B938E), '未连接');
-    case MachineState.unknown:
-      return const _StateBadge(Color(0xFF8B938E), '未知');
-    case MachineState.alarm:
-      return _StateBadge(CncColors.danger, '异常');
-    case MachineState.busy:
-      return _StateBadge(CncColors.primary, '加工中');
-    case MachineState.paused:
-      return _StateBadge(CncColors.warning, '已暂停');
-    case MachineState.homing:
-      return _StateBadge(CncColors.blue, '回零中');
-    case MachineState.idle:
-      return _StateBadge(CncColors.blue, '已连接');
-    default:
-      return const _StateBadge(Color(0xFF8B938E), '未知');
-  }
-}
 
 BoxDecoration _cardDeco() => BoxDecoration(
 
@@ -1845,7 +1799,7 @@ class _StatusCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+        margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
         padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
         decoration: BoxDecoration(
           color: alarm ? CncColors.dangerBg : CncColors.card,
@@ -2020,74 +1974,6 @@ class _StopGlyph extends StatelessWidget {
       );
 }
 
-// ===================== 入口卡 / 开关卡（规格 §5/§6） =====================
-
-class _EntryCard extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-  const _EntryCard({required this.label, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-          decoration: BoxDecoration(
-            color: CncColors.card,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: CncColors.border),
-          ),
-          child: Row(
-            children: [
-              Text(label,
-                  style:
-                      TextStyle(fontSize: 12.5, color: CncColors.textMain)),
-              const Spacer(),
-              Icon(Symbols.chevron_right,
-                  size: 14, color: CncColors.icon),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SwitchCard extends StatelessWidget {
-  final String label;
-  final bool value;
-  final ValueChanged<bool>? onChanged;
-  const _SwitchCard({required this.label, required this.value, this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: CncColors.card,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: CncColors.border),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(label,
-                style: TextStyle(fontSize: 12, color: CncColors.textMain)),
-          ),
-          SizedBox(
-            height: 28,
-            child: CncSwitch(
-              value: value,
-              onChanged: (v) => onChanged?.call(v),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 
 // ===================== 主轴 =====================
@@ -2198,7 +2084,11 @@ class _SpindleCard extends StatelessWidget {
 
                   Expanded(
 
-                    child: Slider(
+                    // 工单十二 §2.11：统一刻度滑条（墨蓝灰填充+双层拇指+刻度线），
+
+                    // 仅换视觉；min/max/步进与数据流零改动。
+
+                    child: CncTunedSlider(
 
                       value: rpm.toDouble(),
 
@@ -2206,11 +2096,13 @@ class _SpindleCard extends StatelessWidget {
 
                       max: 24000,
 
-                      divisions: 24,
+                      step: 1000,
 
-                      activeColor: enabled ? CncColors.primary : CncColors.textSub,
+                      tickCount: 7,
 
-                      onChanged: enabled ? (v) => onRpm(v.round()) : null,
+                      enabled: enabled,
+
+                      onChanged: (v) => onRpm(v.round()),
 
                     ),
 

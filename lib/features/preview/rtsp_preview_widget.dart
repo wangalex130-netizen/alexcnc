@@ -1037,19 +1037,25 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
               children: [
 
+                // 工单十二 §2.8 播放占位键提亮：44dp 圆、黑 45% 底、
+
+                // 1.5dp 白 85% 描边、▶ 白 90%（仅配色与描边，逻辑零改动）。
+
                 Container(
 
-                  width: 48,
+                  width: 44,
 
-                  height: 48,
+                  height: 44,
 
                   decoration: BoxDecoration(
 
                     shape: BoxShape.circle,
 
-                    color: CncColors.primary.withOpacity(0.15),
+                    color: Colors.black.withOpacity(0.45),
 
-                    border: Border.all(color: CncColors.primary, width: 1.5),
+                    border: Border.all(
+
+                        color: Colors.white.withOpacity(0.85), width: 1.5),
 
                   ),
 
@@ -1057,9 +1063,9 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
                     Symbols.play_arrow,
 
-                    size: 28,
+                    size: 26,
 
-                    color: CncColors.primary,
+                    color: Colors.white.withOpacity(0.90),
 
                   ),
 
@@ -1075,7 +1081,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
                     fontSize: 12,
 
-                    color: CncColors.primaryInk,
+                    color: Colors.white70,
 
                     fontWeight: FontWeight.w500,
 
