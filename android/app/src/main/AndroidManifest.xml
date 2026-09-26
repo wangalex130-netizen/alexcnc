@@ -48,7 +48,7 @@
     <application android:usesCleartextTraffic="true"
         android:requestLegacyExternalStorage="true"
         android:allowBackup="false"
-        android:label="alexcnc"
+        android:label="OLDUVA"
         android:name=".MainApplication"
         android:icon="@mipmap/ic_launcher"
         tools:replace="android:label,android:icon,android:name,android:allowBackup,android:usesCleartextTraffic,android:requestLegacyExternalStorage">

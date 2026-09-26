@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 附录A 图标 v10「节奏环」前景（#F8F5F0 奶油白）：按定值代码绘制，不依赖位图描线。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="200"
+    android:viewportHeight="200">
+    <group
+        android:scaleX="0.86"
+        android:scaleY="0.86"
+        android:pivotX="100"
+        android:pivotY="100">
+        <path
+            android:strokeColor="#F8F5F0"
+            android:strokeWidth="13"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000"
+            android:pathData="M 160.73 79.80 A 64 64 0 0 1 160.73 120.20" />
+        <path
+            android:strokeColor="#F8F5F0"
+            android:strokeWidth="13"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000"
+            android:pathData="M 79.80 39.27 A 64 64 0 0 1 120.20 39.27" />
+        <path
+            android:strokeColor="#F8F5F0"
+            android:strokeWidth="13"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000"
+            android:pathData="M 39.27 120.20 A 64 64 0 0 1 39.27 79.80" />
+        <path
+            android:strokeColor="#F8F5F0"
+            android:strokeWidth="13"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000"
+            android:pathData="M 120.20 160.73 A 64 64 0 0 1 79.80 160.73" />
+        <path
+            android:strokeColor="#F8F5F0"
+            android:strokeWidth="13"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000"
+            android:pathData="M 136.44 47.38 A 64 64 0 0 1 152.62 63.57" />
+        <path
+            android:strokeColor="#F8F5F0"
+            android:strokeWidth="13"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000"
+            android:pathData="M 63.56 47.38 A 64 64 0 0 0 47.38 63.57" />
+        <path
+            android:strokeColor="#F8F5F0"
+            android:strokeWidth="13"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000"
+            android:pathData="M 63.56 152.62 A 64 64 0 0 1 47.38 136.43" />
+        <path
+            android:strokeColor="#F8F5F0"
+            android:strokeWidth="13"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000"
+            android:pathData="M 136.44 152.62 A 64 64 0 0 0 152.62 136.43" />
+        <path
+            android:fillColor="#F8F5F0"
+            android:pathData="M 88,100 a 12,12 0 1,0 24,0 a 12,12 0 1,0 -24,0 Z" />
+    </group>
+</vector>
