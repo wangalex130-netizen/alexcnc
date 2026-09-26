@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 附录A 图标 v10「短弧代点节奏环」前景（#F8F5F0 奶油白）。
-     几何为设计稿像素级实测定值（2026-09-26，大图标与解剖图两处一致）：
-     200 视箱，环半径 67 / 笔画 11 圆头 / 中心点 r12；
-     长弧 2 段（101°，弧心 100°/280°，一端距短弧 6°）+ 短弧 2 段（47°，弧心 0°/180°）；
-     间隙长→短 6°、短→长 26° 交替，如一条链均匀断开。
-     group 0.86 缩放：外径 145u → 62.4dp ≤ 安全区 66dp。 -->
+<!-- 图标 v11「对角断点节奏环」前景（#F8F5F0 奶油白）。
+     按昊总手绘图定稿（2026-09-26）：
+     200 视箱，环半径 62 / 笔画 13 平头（径向直切）/ 中心点 r11；
+     长弧 2 段（122°，弧心 135°/315°）+ 短块 2 段（18° 大点状，弧心 225°/45° 对角断点）；
+     断口均匀 20°，明显断开。
+     group 0.86 缩放：外径 137u → 59dp ≤ 安全区 66dp。 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
@@ -18,29 +18,29 @@
         <path
             android:strokeColor="#F8F5F0"
             android:strokeWidth="11"
-            android:strokeLineCap="round"
+            android:strokeLineCap="butt"
             android:fillColor="#00000000"
-            android:pathData="M 143.51 150.95 A 67 67 0 0 1 41.69 132.99" />
+            android:pathData="M 117.09 159.60 A 62 62 0 0 1 40.40 82.91" />
         <path
             android:strokeColor="#F8F5F0"
             android:strokeWidth="11"
-            android:strokeLineCap="round"
+            android:strokeLineCap="butt"
             android:fillColor="#00000000"
-            android:pathData="M 38.56 126.72 A 67 67 0 0 1 38.56 73.28" />
+            android:pathData="M 49.84 63.56 A 62 62 0 0 1 63.56 49.84" />
         <path
             android:strokeColor="#F8F5F0"
             android:strokeWidth="11"
-            android:strokeLineCap="round"
+            android:strokeLineCap="butt"
             android:fillColor="#00000000"
-            android:pathData="M 56.49 49.05 A 67 67 0 0 1 158.31 67.01" />
+            android:pathData="M 82.91 40.40 A 62 62 0 0 1 159.60 117.09" />
         <path
             android:strokeColor="#F8F5F0"
             android:strokeWidth="11"
-            android:strokeLineCap="round"
+            android:strokeLineCap="butt"
             android:fillColor="#00000000"
-            android:pathData="M 161.44 73.28 A 67 67 0 0 1 161.44 126.72" />
+            android:pathData="M 150.16 136.44 A 62 62 0 0 1 136.44 150.16" />
         <path
             android:fillColor="#F8F5F0"
-            android:pathData="M 88,100 a 12,12 0 1,0 24,0 a 12,12 0 1,0 -24,0 Z" />
+            android:pathData="M 89,100 a 11,11 0 1,0 22,0 a 11,11 0 1,0 -22,0 Z" />
     </group>
 </vector>

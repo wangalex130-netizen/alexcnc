@@ -316,8 +316,8 @@ class _SplashLogoPainter extends CustomPainter {
 }
 
 /// 节奏环终拍画笔（图标 v10「短弧代点节奏环」同构，200 视箱 →
-/// [_kRingSize]）：四段弧按链序依次描出（下长 → 左短 → 上长 → 右短，
-/// 与静态图标同一几何：长弧 101°/短弧 47°/缝 6°·26°）→ 中心点落定。
+/// [_kRingSize]）：四段弧按链序依次描出（下左长 → 左上短 → 右上长 → 右下短，
+/// 与静态图标同一几何：长弧 122°/短块 18°/断口 20°，对角断点平切）→ 中心点落定。
 /// 颜色与字标同白 #F5F5F7。
 class _RhythmRingPainter extends CustomPainter {
   _RhythmRingPainter({required this.elapsedMs});
@@ -325,16 +325,16 @@ class _RhythmRingPainter extends CustomPainter {
   final double elapsedMs;
 
   // 几何定值（200 视箱，圆心 (100,100)，设计稿 2026-09-26 像素级实测）。
-  static const double _c = 100, _r = 67, _stroke = 11, _dotR = 12;
-  static const double _longHalf = 50.5, _shortHalf = 23.5; // 度
+  static const double _c = 100, _r = 62, _stroke = 13, _dotR = 11;
+  static const double _longHalf = 61.0, _shortHalf = 9.0; // 度
 
   /// 链序弧表：(弧心屏幕角, 是否长弧)。屏幕角 y 向下、顺时针增，
-  /// 0°=右、90°=下、180°=左、270°=上；长弧风车式偏移 10°（100°/280°）。
+  /// 0°=右、90°=下、180°=左、270°=上；短块为对角断点（左上 225°/右下 45°）。
   static final List<(double, bool)> _chain = const <(double, bool)>[
-    (100, true),   // 长弧·下（一端搭向左短弧）
-    (180, false),  // 短弧·左
-    (280, true),   // 长弧·上（一端搭向右短弧）
-    (0, false),    // 短弧·右
+    (135, true),   // 长弧·下左
+    (225, false),  // 短块·左上（大点状断点）
+    (315, true),   // 长弧·右上
+    (45, false),   // 短块·右下（大点状断点）
   ];
 
   static double _deg2rad(double d) => d * 3.141592653589793 / 180.0;
@@ -355,7 +355,7 @@ class _RhythmRingPainter extends CustomPainter {
     final stroke = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = _stroke
-      ..strokeCap = StrokeCap.round
+      ..strokeCap = StrokeCap.butt
       ..color = const Color(0xFFF5F5F7);
     final traceEase = const Cubic(0.65, 0, 0.35, 1);
 
