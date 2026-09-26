@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:cached_network_image/cached_network_image.dart';
+
 import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
@@ -67,8 +69,6 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   ModelLibraryHome? _home;
 
   List<LibraryItem> _models = const [];
-
-  List<LibraryItem> _heroModels = const []; // 焦点大图（接口下发）
 
   List<String> _categories = const ['全部'];
 
@@ -225,7 +225,6 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
         setState(() {
           _home = snap;
           _categories = snap.categories.isNotEmpty ? snap.categories : ['全部'];
-          _heroModels = snap.heroModels;
           _models = snap.models;
           _pageNo = 1;
           _pages = 1;
@@ -258,8 +257,6 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
         _home = home;
 
         _categories = home.categories.isNotEmpty ? home.categories : ['全部'];
-
-        _heroModels = home.heroModels;
 
         _models = home.models;
 
@@ -346,8 +343,6 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
       setState(() {
 
         _models = page.items;
-
-        _heroModels = const []; // 筛选/搜索时不再显示焦点大图
 
         _pageNo = page.pageNo;
 
@@ -578,8 +573,6 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                         : _InspirationSliver(
 
                             items: _models,
-
-                            heroModels: _heroModels,
 
                             categories: _categories,
 
@@ -927,8 +920,6 @@ class _InspirationSliver extends StatelessWidget {
 
   final List<LibraryItem> items;
 
-  final List<LibraryItem> heroModels; // 焦点大图（接口权威来源）
-
   final List<String> categories; // 分类标签（接口权威来源，首项「全部」）
 
   final String category; // 当前分类（'' = 全部）
@@ -950,8 +941,6 @@ class _InspirationSliver extends StatelessWidget {
   const _InspirationSliver({
 
     required this.items,
-
-    required this.heroModels,
 
     required this.categories,
 
@@ -978,14 +967,6 @@ class _InspirationSliver extends StatelessWidget {
   @override
 
   Widget build(BuildContext context) {
-
-    // 焦点大图直接使用接口下发的 heroModels（home 接口才有，搜索/筛选时清空）。
-
-    final hero = (category.isEmpty && keyword.isEmpty && heroModels.isNotEmpty)
-
-        ? heroModels.first
-
-        : null;
 
     var grid = items.toList();
 
@@ -1173,41 +1154,9 @@ class _InspirationSliver extends StatelessWidget {
 
         const SizedBox(height: 14),
 
-        if (hero != null && category.isEmpty && kw.isEmpty) ...[
+        // 工单十一 §2：两列瀑布流（自实现矮列分配，零新增依赖；间距 12/12）。
 
-          _HeroCard(item: hero, onOpen: onOpen),
-
-          const SizedBox(height: 14),
-
-        ],
-
-        GridView.builder(
-
-          shrinkWrap: true,
-
-          physics: const NeverScrollableScrollPhysics(),
-
-          // 同上：模型卡常被详情页往返覆盖，关离屏缓存防返回后文字乱码。
-
-          addRepaintBoundaries: false,
-
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-
-            crossAxisCount: 2,
-
-            mainAxisSpacing: 12,
-
-            crossAxisSpacing: 12,
-
-            childAspectRatio: 0.82,
-
-          ),
-
-          itemCount: grid.length,
-
-          itemBuilder: (c, i) => _ModelCard(item: grid[i], onOpen: onOpen),
-
-        ),
+        _MasonryGrid(items: grid, onOpen: onOpen),
 
         if (grid.isEmpty)
 
@@ -1287,207 +1236,462 @@ class _InspirationSliver extends StatelessWidget {
 
 
 
-class _HeroCard extends StatelessWidget {
+/// 工单十一 §3：图片宽高比本地缓存（url→宽高比，shared_preferences 落盘）。
 
-  final LibraryItem item;
+/// 命中的图零跳动；未命中的首帧 4:3 占位，解码完成后写回并原地更新。
 
-  final void Function(LibraryItem) onOpen;
+class _ImgRatioCache {
 
-  const _HeroCard({required this.item, required this.onOpen});
+  static const String _kKey = 'lib_img_ratio_v1';
+
+  static Map<String, double>? _mem;
+
+  static Future<void>? _loading;
 
 
 
-  @override
+  static Future<void> ensureLoaded() => _loading ??= _load();
 
-  Widget build(BuildContext context) => ClipRRect(
 
-        borderRadius: BorderRadius.circular(16),
 
-        child: GestureDetector(
+  static Future<void> _load() async {
 
-          onTap: () => onOpen(item),
+    try {
 
-          child: SizedBox(
+      final sp = await SharedPreferences.getInstance();
 
-            height: 180,
+      final raw = sp.getString(_kKey);
 
-            child: Stack(
+      if (raw != null && raw.isNotEmpty) {
 
-              fit: StackFit.expand,
+        final decoded = jsonDecode(raw);
 
-              children: [
+        if (decoded is Map) {
 
-                _thumb(item.displayImageUrl),
+          _mem = decoded
 
-                Container(
+              .map((k, v) => MapEntry(k.toString(), (v as num).toDouble()));
 
-                  decoration: const BoxDecoration(
+        }
 
-                    gradient: LinearGradient(
+      }
 
-                      begin: Alignment.bottomCenter,
+    } catch (_) {}
 
-                      end: Alignment.topCenter,
+    _mem ??= <String, double>{};
 
-                      colors: [Colors.black87, Colors.transparent],
+  }
 
-                    ),
 
-                  ),
 
-                ),
+  static double? get(String url) => _mem?[url];
 
-                Positioned(
 
-                  left: 15,
 
-                  right: 15,
+  static Future<void> put(String url, double ratio) async {
 
-                  bottom: 14,
+    await ensureLoaded();
 
-                  child: Column(
+    _mem![url] = ratio;
 
-                    crossAxisAlignment: CrossAxisAlignment.start,
+    try {
 
-                    children: [
+      final sp = await SharedPreferences.getInstance();
 
-                      if (item.heroTag != null)
+      await sp.setString(_kKey, jsonEncode(_mem));
 
-                        Container(
+    } catch (_) {}
 
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-
-                          decoration: BoxDecoration(
-
-                            color: CncColors.primary,
-
-                            borderRadius: BorderRadius.circular(4),
-
-                          ),
-
-                          child: Text(item.heroTag!,
-
-                              style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: CncColors.onPrimary)),
-
-                        ),
-
-                      const SizedBox(height: 6),
-
-                      Text(item.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
-
-                      const SizedBox(height: 4),
-
-                      // 焦点大图底部信息：只保留时长。材质已删 —— 详情页有"默认材质"槽位，
-
-                      // 卡片上材质字小、位置易出格，对客户无增量价值（重复展示反而混淆）。
-
-                      Text('时长 ${item.duration ?? ''}',
-
-                          style: const TextStyle(fontSize: 10, color: Color(0xFFdddddd))),
-
-                    ],
-
-                  ),
-
-                ),
-
-              ],
-
-            ),
-
-          ),
-
-        ),
-
-      );
+  }
 
 }
 
 
 
-class _ModelCard extends StatelessWidget {
+/// 工单十一 §2：两列瀑布流（自实现，零新增依赖）——逐项放进当前累计高度
 
-  final LibraryItem item;
+/// 较矮的一列（预估高 = 卡宽/比例 + 标题区），两列等宽、列间/行间 12。
+
+/// 分页追加的 items 依序继续放矮列，已放置项不复排（滚动零跳动）；
+
+/// 分类/搜索切换以首项为哨兵整体重排。
+
+class _MasonryGrid extends StatefulWidget {
+
+  const _MasonryGrid({required this.items, required this.onOpen});
+
+
+
+  final List<LibraryItem> items;
 
   final void Function(LibraryItem) onOpen;
-
-  const _ModelCard({required this.item, required this.onOpen});
 
 
 
   @override
 
-  Widget build(BuildContext context) => GestureDetector(
+  State<_MasonryGrid> createState() => _MasonryGridState();
 
-        onTap: () => onOpen(item),
+}
 
-        child: Container(
 
-          decoration: BoxDecoration(
 
-            color: CncColors.card,
+class _MasonryGridState extends State<_MasonryGrid> {
 
-            borderRadius: BorderRadius.circular(12),
+  static const double _gap = 12;
 
-            border: Border.all(color: CncColors.border),
+  static const double _kFallbackRatio = 4 / 3;
 
-          ),
+  static const double _kTitleBlockH = 48; // 标题区估算高（padding 10 + 两行）
 
-          child: Column(
 
-            crossAxisAlignment: CrossAxisAlignment.start,
 
-            children: [
+  final Map<String, int> _colOf = <String, int>{}; // itemId → 列号
 
-              AspectRatio(aspectRatio: 1, child: ClipRRect(
+  List<double> _colH = <double>[0, 0];
 
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+  String? _firstId;
 
-                child: _thumb(item.displayImageUrl),
 
-              )),
 
-              Padding(
+  void _assign(double colW) {
 
-                padding: const EdgeInsets.all(10),
+    final items = widget.items;
 
-                child: Column(
+    final first = items.isEmpty ? null : items[0].id;
 
-                  crossAxisAlignment: CrossAxisAlignment.start,
+    if (first != _firstId) {
 
-                  children: [
+      _firstId = first;
 
-                    Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis,
+      _colOf.clear();
 
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+      _colH = <double>[0, 0];
 
-                    const SizedBox(height: 4),
+    }
 
-                    // 2026-09-03 删材质字：与"时长 · 材质"同理 —— 详情页已展示"默认材质"，
+    for (final it in items) {
 
-                    // 列表卡片空间有限，材质位置易出格，删除后卡片更整洁。
+      if (_colOf.containsKey(it.id)) continue;
 
-                    // 2026-09-04 删：卡片下方分类/属性小标签（如"宠物 纪念"），
+      final ratio =
 
-                    // 客户视角无增量价值且拥挤；分类信息保留在详情页。
+          _ImgRatioCache.get(it.displayImageUrl ?? '') ?? _kFallbackRatio;
 
-                  ],
+      final cardH = colW / ratio + _kTitleBlockH + _gap;
 
-                ),
+      final i = _colH[0] <= _colH[1] ? 0 : 1;
+
+      _colOf[it.id] = i;
+
+      _colH[i] += cardH;
+
+    }
+
+  }
+
+
+
+  @override
+
+  Widget build(BuildContext context) {
+
+    return LayoutBuilder(builder: (context, cons) {
+
+      final colW = (cons.maxWidth - _gap) / 2;
+
+      _assign(colW);
+
+      final cols = <List<LibraryItem>>[<LibraryItem>[], <LibraryItem>[]];
+
+      for (final it in widget.items) {
+
+        cols[_colOf[it.id] ?? 0].add(it);
+
+      }
+
+      List<Widget> buildCol(List<LibraryItem> list) {
+
+        final children = <Widget>[];
+
+        for (var i = 0; i < list.length; i++) {
+
+          if (i > 0) children.add(const SizedBox(height: _gap));
+
+          children.add(_ModelCard(
+
+            key: ValueKey(list[i].id),
+
+            item: list[i],
+
+            onOpen: widget.onOpen,
+
+          ));
+
+        }
+
+        if (children.isEmpty) children.add(const SizedBox.shrink());
+
+        return children;
+
+      }
+
+
+
+      return Row(
+
+        crossAxisAlignment: CrossAxisAlignment.start,
+
+        children: [
+
+          Expanded(child: Column(children: buildCol(cols[0]))),
+
+          const SizedBox(width: _gap),
+
+          Expanded(child: Column(children: buildCol(cols[1]))),
+
+        ],
+
+      );
+
+    });
+
+  }
+
+}
+
+
+
+/// 工单十一 §3/§4：模型卡 = 图（真实比例、圆角 16）+ 标题（最多 2 行省略）。
+
+/// 比例未知首帧用 4:3 灰底骨架；解码完成（走同一条磁盘缓存链路，无二次
+
+/// 网络请求）取 intrinsic 宽高写回比例缓存并原地更新，每图至多跳一次。
+
+class _ModelCard extends StatefulWidget {
+
+  const _ModelCard({super.key, required this.item, required this.onOpen});
+
+
+
+  final LibraryItem item;
+
+  final void Function(LibraryItem) onOpen;
+
+
+
+  @override
+
+  State<_ModelCard> createState() => _ModelCardState();
+
+}
+
+
+
+class _ModelCardState extends State<_ModelCard> {
+
+  static const double _kFallbackRatio = 4 / 3;
+
+
+
+  double? _ratio;
+
+  ImageStream? _stream;
+
+  ImageStreamListener? _listener;
+
+
+
+  @override
+
+  void initState() {
+
+    super.initState();
+
+    _resolveRatio();
+
+  }
+
+
+
+  @override
+
+  void didUpdateWidget(covariant _ModelCard oldWidget) {
+
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.item.id != widget.item.id) {
+
+      _cancelListen();
+
+      _ratio = null;
+
+      _resolveRatio();
+
+    }
+
+  }
+
+
+
+  @override
+
+  void dispose() {
+
+    _cancelListen();
+
+    super.dispose();
+
+  }
+
+
+
+  void _cancelListen() {
+
+    final st = _stream;
+
+    final li = _listener;
+
+    if (st != null && li != null) st.removeListener(li);
+
+    _stream = null;
+
+    _listener = null;
+
+  }
+
+
+
+  Future<void> _resolveRatio() async {
+
+    final url = widget.item.displayImageUrl;
+
+    if (url == null) return;
+
+    await _ImgRatioCache.ensureLoaded();
+
+    if (!mounted) return;
+
+    final cached = _ImgRatioCache.get(url);
+
+    if (cached != null) {
+
+      setState(() => _ratio = cached);
+
+      return;
+
+    }
+
+    final stream = CachedNetworkImageProvider(url,
+
+            cacheManager: CncImageCacheManager.instance)
+
+        .resolve(const ImageConfiguration());
+
+    final listener = ImageStreamListener((info, _) {
+
+      _cancelListen();
+
+      final w = info.image.width.toDouble();
+
+      final h = info.image.height.toDouble();
+
+      if (!mounted || w <= 0 || h <= 0) return;
+
+      final r = w / h;
+
+      _ImgRatioCache.put(url, r);
+
+      setState(() => _ratio = r);
+
+    }, onError: (_, __) => _cancelListen());
+
+    _listener = listener;
+
+    _stream = stream;
+
+    stream.addListener(listener);
+
+  }
+
+
+
+  @override
+
+  Widget build(BuildContext context) {
+
+    return GestureDetector(
+
+      onTap: () => widget.onOpen(widget.item),
+
+      child: Container(
+
+        decoration: BoxDecoration(
+
+          color: CncColors.card,
+
+          borderRadius: BorderRadius.circular(16),
+
+          border: Border.all(color: CncColors.border),
+
+        ),
+
+        child: Column(
+
+          crossAxisAlignment: CrossAxisAlignment.start,
+
+          children: [
+
+            // 工单十一 §4：图占真实比例（未知先 4:3），比例正确后 cover 不再裁内容。
+
+            AspectRatio(
+
+              aspectRatio: _ratio ?? _kFallbackRatio,
+
+              child: ClipRRect(
+
+                borderRadius:
+
+                    const BorderRadius.vertical(top: Radius.circular(16)),
+
+                child: _thumb(widget.item.displayImageUrl),
 
               ),
 
-            ],
+            ),
 
-          ),
+            Padding(
+
+              padding: const EdgeInsets.all(10),
+
+              child: Text(widget.item.title,
+
+                  maxLines: 2,
+
+                  overflow: TextOverflow.ellipsis,
+
+                  style: TextStyle(
+
+                      fontSize: 12,
+
+                      fontWeight: FontWeight.bold,
+
+                      color: CncColors.textMain)),
+
+            ),
+
+          ],
 
         ),
 
-      );
+      ),
 
+    );
 
+  }
 
 }
+
 
 
 
