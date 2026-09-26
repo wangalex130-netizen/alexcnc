@@ -345,8 +345,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               ),
             ),
             // 调试工具簇（修订单 §1.2：原「诊断（高级）」组取消，改为一枚开关；
-            // 仅非 release 构建可见 —— W-14 调试入口正式包隐藏的既有约定延续。
-            if (!kReleaseMode) ...[
+            // 非 release 或注入 DEBUG_TOOLS define 时可见 —— 工单十七联调期临时放开，
+            // 收口：正式客户包发布前移除 build.yml 的 DEBUG_TOOLS define 即自动隐藏。
+            if (!kReleaseMode || const bool.fromEnvironment('DEBUG_TOOLS')) ...[
               MenuItem(
                 icon: Symbols.bug_report,
                 title: '调试模式',

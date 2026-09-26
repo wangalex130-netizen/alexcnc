@@ -255,7 +255,10 @@ jobs:
             # 的 defaultValue（String.fromEnvironment 只在"未提供"时才回默认值）。
             # ⚠️ 收口条件：Broker 挂正式 CA 证书 + 正式凭据就位后，把本段改回
             #    `DEFINE_ARGS=""` + `if [ "${LAB_BUILD}" = "true" ]` 门控。
-            DEFINE_ARGS="--dart-define=MQTT_ALLOW_SELF_SIGNED=true"
+            # ⚠️ 收口条件（工单十七）：正式客户包发布前移除 DEBUG_TOOLS define；
+            #    届时 release 包自动回归隐藏（settings_page kReleaseMode 判据仍在），
+            #    无需改 dart 代码。同 MQTT_ALLOW_SELF_SIGNED 先例：联调期注入。
+            DEFINE_ARGS="--dart-define=MQTT_ALLOW_SELF_SIGNED=true --dart-define=DEBUG_TOOLS=true"
             if [ -n "${LAB_MQTT_USER}" ]; then
               DEFINE_ARGS="$DEFINE_ARGS --dart-define=MQTT_USER=${LAB_MQTT_USER}"
             fi
