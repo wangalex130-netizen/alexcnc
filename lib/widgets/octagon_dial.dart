@@ -33,6 +33,7 @@ class OctagonDial extends StatelessWidget {
     this.centerLabel = '',
     this.centerSub,
     this.centerActive = false,
+    this.centerLight = false,
     this.onCenter,
     this.labelUp = 'Y+',
     this.labelDown = 'Y−',
@@ -56,6 +57,10 @@ class OctagonDial extends StatelessWidget {
   final String centerLabel;
   final String? centerSub;
   final bool centerActive;
+
+  /// 工单十六 §2.1 浅底中心钮：纸白底 + 1.5dp 墨描边 + 墨字，任何状态
+  /// 不用深底。默认 false 保持既有样式（控制台移动页零改动）。
+  final bool centerLight;
   final VoidCallback? onCenter;
 
   /// 四直边文字键（拓竹圆盘：Y+/Y−/X−/X+）。
@@ -215,28 +220,39 @@ class OctagonDial extends StatelessWidget {
         width: min(58, side * 0.305),
         height: min(58, side * 0.305),
         decoration: BoxDecoration(
-          // 规格 §4.2-2：底 successBg、边 1.5 blue；active 态保持 primary 强调。
-          color: centerActive ? CncColors.primary : CncColors.successBg,
+          // 默认：规格 §4.2-2 底 successBg、边 1.5 blue；active 态保持 primary
+          // 强调。浅底（工单十六 §2.1）：纸白底 + 1.5dp 墨描边，任何状态不深底。
+          color: centerLight
+              ? CncColors.card
+              : (centerActive ? CncColors.primary : CncColors.successBg),
           shape: BoxShape.circle,
-          border: Border.all(color: CncColors.blue, width: 1.5),
+          border: Border.all(
+              color: centerLight ? CncColors.textMain : CncColors.blue,
+              width: 1.5),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(centerLabel,
                 style: TextStyle(
-                    fontSize: centerSub == null ? 12 : 10.5,
+                    fontSize: centerLight
+                        ? (centerSub == null ? 14 : 13)
+                        : (centerSub == null ? 12 : 10.5),
                     fontWeight: FontWeight.w600,
-                    color: centerActive
-                        ? CncColors.onPrimary
-                        : CncColors.successFg)),
+                    color: centerLight
+                        ? CncColors.textMain
+                        : (centerActive
+                            ? CncColors.onPrimary
+                            : CncColors.successFg))),
             if (centerSub != null)
               Text(centerSub!,
                   style: TextStyle(
-                      fontSize: 8.5,
-                      color: centerActive
-                          ? CncColors.onPrimary
-                          : CncColors.textSub)),
+                      fontSize: centerLight ? 9 : 8.5,
+                      color: centerLight
+                          ? CncColors.textSub
+                          : (centerActive
+                              ? CncColors.onPrimary
+                              : CncColors.textSub))),
           ],
         ),
       ),
