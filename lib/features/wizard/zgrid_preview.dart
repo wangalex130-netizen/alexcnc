@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import '../../app/theme.dart';
@@ -196,6 +198,62 @@ class _ZGridSurfaceState extends State<ZGridSurface> {
   DateTime? _lastTapUp;
   Offset? _lastTapUpPos;
 
+  // 引导气泡（工单十四）：全局只弹一次，点按钮/点窗内/8s 三路收起。
+  static const String _guideKey = 'cnc_zgrid_guide_v1';
+  static bool _guideClaimed = false; // 同 isolate 内四窗并发判定兜底
+  bool _guideArmed = false;  // 已决定要弹（气泡 subtree 上树）
+  bool _guideVisible = false; // 淡入/淡出目标态
+  Timer? _guideShowTimer;
+  Timer? _guideAutoTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _maybeShowGuide();
+  }
+
+  @override
+  void didUpdateWidget(covariant ZGridSurface oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 数据由空转有（本地载荷晚到等）：补触发一次判定。
+    if (oldWidget.data.isEmpty && !widget.data.isEmpty) {
+      _maybeShowGuide();
+    }
+  }
+
+  @override
+  void dispose() {
+    _guideShowTimer?.cancel();
+    _guideAutoTimer?.cancel();
+    super.dispose();
+  }
+
+  /// 触发判定（§2）：有数据 + flag≠'1' 才弹；读为异步先 await 再决定
+  /// （防闪现）；显示的同时**先写 '1' 再淡入**（防杀进程重进重复弹）。
+  Future<void> _maybeShowGuide() async {
+    if (widget.data.isEmpty || _guideArmed || _guideClaimed) return;
+    try {
+      final sp = await SharedPreferences.getInstance();
+      if (sp.getString(_guideKey) == '1') return;
+      _guideClaimed = true;
+      await sp.setString(_guideKey, '1');
+    } catch (_) {
+      return; // 存储不可用：宁可不弹，不可反复弹
+    }
+    if (!mounted) return;
+    _guideArmed = true;
+    _guideShowTimer = Timer(const Duration(milliseconds: 800), () {
+      if (!mounted || _rotating) return;
+      setState(() => _guideVisible = true);
+      _guideAutoTimer = Timer(const Duration(seconds: 8), _hideGuide);
+    });
+  }
+
+  void _hideGuide() {
+    if (!mounted || !_guideVisible) return;
+    setState(() => _guideVisible = false);
+  }
+
   static const double _kTapSlop = 18.0;
 
   /// Z 放大倍数（固定默认 4）：浅浮雕按真实比例几乎看不出层次。
@@ -212,10 +270,20 @@ class _ZGridSurfaceState extends State<ZGridSurface> {
   }
 
   void _toggleRotate() {
-    setState(() => _rotating = !_rotating);
+    // 点按钮 = 收气泡 + 进旋转态一步完成（工单十四 关闭①，引导闭环）。
+    _guideAutoTimer?.cancel();
+    setState(() {
+      _rotating = !_rotating;
+      _guideVisible = false;
+    });
   }
 
   void _onDown(PointerDownEvent e) {
+    // 点窗内任意位置：收气泡、不进旋转态（工单十四 关闭②）。
+    if (_guideVisible) {
+      _guideAutoTimer?.cancel();
+      setState(() => _guideVisible = false);
+    }
     _pts[e.pointer] = e.position;
     if (_pts.length == 1) {
       _tapDownPos = e.position;
@@ -352,6 +420,15 @@ class _ZGridSurfaceState extends State<ZGridSurface> {
               bottom: 8,
               child: _AxesButton(active: _rotating, onTap: _toggleRotate),
             ),
+          // 工单十四：一次性引导气泡，锚定按钮正上方 8dp；右缘内收 12dp 防溢出。
+          if (hasData && _guideArmed)
+            Positioned(
+              right: 12,
+              bottom: 60, // 按钮顶缘 8+44=52，再留 8dp
+              child: IgnorePointer(
+                child: _GuideBubble(visible: _guideVisible),
+              ),
+            ),
         ],
       ),
     );
@@ -463,6 +540,81 @@ class _AxesIconPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _AxesIconPainter old) => old.color != color;
+}
+
+/// 工单十四 §1：旋转钮一次性引导气泡 —— 恒定纸白底 #FFFDF9 + 墨字 #182735
+/// （两主题同一套配色，不随令牌翻色）、1dp 描边 #E7E0D4、圆角 8、微投影
+/// (0,2,6 黑 10%)；下方 9×9dp 旋转 45° 小箭头（右+下两边描边）指向按钮中心。
+/// 淡入/淡出 150ms；入场自下上浮约 4dp（Animated 隐式动画，无逐帧控制器）。
+class _GuideBubble extends StatelessWidget {
+  final bool visible;
+
+  const _GuideBubble({required this.visible});
+
+  @override
+  Widget build(BuildContext context) {
+    const paper = Color(0xFFFFFDF9);
+    const ink = Color(0xFF182735);
+    const edge = Color(0xFFE7E0D4);
+    return AnimatedOpacity(
+      opacity: visible ? 1 : 0,
+      duration: const Duration(milliseconds: 150),
+      child: AnimatedSlide(
+        offset: visible ? Offset.zero : const Offset(0, 0.12),
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOut,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: paper,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: edge),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x1A000000), // 黑 10%
+                    offset: Offset(0, 2),
+                    blurRadius: 6,
+                  ),
+                ],
+              ),
+              child: const Text(
+                '点击旋转模型',
+                style: TextStyle(
+                  fontSize: 12,
+                  height: 1.0,
+                  fontWeight: FontWeight.w600,
+                  color: ink,
+                ),
+              ),
+            ),
+            // 下方小箭头：气泡右缘距窗右缘 12、按钮中心距窗右缘 30
+            // ⇒ 箭头（视觉菱形）中心距气泡右缘 18dp。
+            Positioned(
+              right: 13.5, // 13.5 + 4.5(半宽) = 18
+              bottom: -4.5,
+              child: Transform.rotate(
+                angle: math.pi / 4,
+                child: Container(
+                  width: 9,
+                  height: 9,
+                  decoration: const BoxDecoration(
+                    color: paper,
+                    border: Border(
+                      right: BorderSide(color: edge),
+                      bottom: BorderSide(color: edge),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// 轻量 JSON 的 3D 预览（**按 URL 拉取**）：拉取成功即交给 [ZGridSurface] 渲染。
