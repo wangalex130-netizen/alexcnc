@@ -198,6 +198,10 @@ class _ZGridSurfaceState extends State<ZGridSurface> {
 
   static const double _kTapSlop = 18.0;
 
+  /// Z 放大倍数（固定默认 4）：浅浮雕按真实比例几乎看不出层次。
+  /// 滑块已随「预览窗清空」删除，保留默认倍数供渲染用。
+  static const int _zAmp = 4;
+
   void _reset() {
     setState(() {
       _rotX = _isoRotX;
