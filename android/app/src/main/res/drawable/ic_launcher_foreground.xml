@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 附录A 图标 v10「节奏环」前景（#F8F5F0 奶油白）：按定值代码绘制，不依赖位图描线。 -->
+<!-- 附录A 图标 v10「短弧代点节奏环」前景（#F8F5F0 奶油白）。
+     几何为设计稿像素级实测定值（2026-09-26，大图标与解剖图两处一致）：
+     200 视箱，环半径 67 / 笔画 11 圆头 / 中心点 r12；
+     长弧 2 段（101°，弧心 100°/280°，一端距短弧 6°）+ 短弧 2 段（47°，弧心 0°/180°）；
+     间隙长→短 6°、短→长 26° 交替，如一条链均匀断开。
+     group 0.86 缩放：外径 145u → 62.4dp ≤ 安全区 66dp。 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
@@ -12,52 +17,28 @@
         android:pivotY="100">
         <path
             android:strokeColor="#F8F5F0"
-            android:strokeWidth="13"
+            android:strokeWidth="11"
             android:strokeLineCap="round"
             android:fillColor="#00000000"
-            android:pathData="M 160.73 79.80 A 64 64 0 0 1 160.73 120.20" />
+            android:pathData="M 143.51 150.95 A 67 67 0 0 1 41.69 132.99" />
         <path
             android:strokeColor="#F8F5F0"
-            android:strokeWidth="13"
+            android:strokeWidth="11"
             android:strokeLineCap="round"
             android:fillColor="#00000000"
-            android:pathData="M 79.80 39.27 A 64 64 0 0 1 120.20 39.27" />
+            android:pathData="M 38.56 126.72 A 67 67 0 0 1 38.56 73.28" />
         <path
             android:strokeColor="#F8F5F0"
-            android:strokeWidth="13"
+            android:strokeWidth="11"
             android:strokeLineCap="round"
             android:fillColor="#00000000"
-            android:pathData="M 39.27 120.20 A 64 64 0 0 1 39.27 79.80" />
+            android:pathData="M 56.49 49.05 A 67 67 0 0 1 158.31 67.01" />
         <path
             android:strokeColor="#F8F5F0"
-            android:strokeWidth="13"
+            android:strokeWidth="11"
             android:strokeLineCap="round"
             android:fillColor="#00000000"
-            android:pathData="M 120.20 160.73 A 64 64 0 0 1 79.80 160.73" />
-        <path
-            android:strokeColor="#F8F5F0"
-            android:strokeWidth="13"
-            android:strokeLineCap="round"
-            android:fillColor="#00000000"
-            android:pathData="M 136.44 47.38 A 64 64 0 0 1 152.62 63.57" />
-        <path
-            android:strokeColor="#F8F5F0"
-            android:strokeWidth="13"
-            android:strokeLineCap="round"
-            android:fillColor="#00000000"
-            android:pathData="M 63.56 47.38 A 64 64 0 0 0 47.38 63.57" />
-        <path
-            android:strokeColor="#F8F5F0"
-            android:strokeWidth="13"
-            android:strokeLineCap="round"
-            android:fillColor="#00000000"
-            android:pathData="M 63.56 152.62 A 64 64 0 0 1 47.38 136.43" />
-        <path
-            android:strokeColor="#F8F5F0"
-            android:strokeWidth="13"
-            android:strokeLineCap="round"
-            android:fillColor="#00000000"
-            android:pathData="M 136.44 152.62 A 64 64 0 0 0 152.62 136.43" />
+            android:pathData="M 161.44 73.28 A 67 67 0 0 1 161.44 126.72" />
         <path
             android:fillColor="#F8F5F0"
             android:pathData="M 88,100 a 12,12 0 1,0 24,0 a 12,12 0 1,0 -24,0 Z" />

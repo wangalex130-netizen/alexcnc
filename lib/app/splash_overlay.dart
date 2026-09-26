@@ -11,8 +11,9 @@ import '../main.dart' show applySystemBars;
 /// - 200 起    六字母 O→L→D→U→V→A 依次描线（每字 420ms，间隔 120ms，
 ///             `Cubic(0.65, 0, 0.35, 1)`）
 /// - 1280 起   节奏环终拍（附录A 09-26 定稿：与 App 图标 v10 同构闭环）——
-///             四条长弧依次描出 → 四段短弧按对角次序补进（如节拍点入）→
-///             中心点落定，全片唯一收笔动作
+///             四段弧按链序依次描出（下长 → 左短 → 上长 → 右短，
+///             即图标 v10「长弧—短弧—长弧」链条）→ 中心点落定，
+///             全片唯一收笔动作
 /// - 200–1550  logo 下方细进度线（140×2dp，底槽白 10%，填充白 #F5F5F7，
 ///             40% / 75% 两段缓节奏；附录A 品牌全线去绿，原 #00D97E 作废）
 /// - 2250      覆盖层整层淡出（550ms，`Cubic(0.4, 0, 0.6, 1)`）
@@ -32,14 +33,12 @@ const int _kExitDurMs = 550;
 const int _kStaticMs = 200;
 const int _kLetterDurMs = 420;
 const int _kLetterGapMs = 120;
-/// 节奏环终拍参数（附录A 定值：环半径 64、笔画宽 13、圆头端帽、
-/// 中心点 r=12，200 视箱；长弧圆心角 36.8° 正四向，短弧 20.6° 对角位）。
+/// 节奏环终拍参数（图标 v10 设计稿实测定值：环半径 67、笔画宽 11、
+/// 圆头端帽、中心点 r=12，200 视箱；静态 4 段弧——长弧 101° 弧心
+/// 100°/280°，短弧 47° 弧心 0°/180°，间隙长→短 6°、短→长 26° 交替）。
 const int _kRingStartMs = 1280;
-const int _kRingLongDurMs = 180; // 每条长弧描出时长
-const int _kRingLongStaggerMs = 150; // 长弧错峰（顺序：0°→90°→180°→270°）
-const int _kRingShortStartMs = 1930; // 首段短弧起点（四长弧描完之后）
-const int _kRingShortDurMs = 80;
-const int _kRingShortStaggerMs = 70; // 短弧错峰（对角序：45°→135°→225°→315°）
+const int _kRingArcDurMs = 180; // 每段弧描出时长
+const int _kRingArcStaggerMs = 150; // 链序错峰（下长→左短→上长→右短）
 const int _kRingDotStartMs = 2100;
 const int _kRingDotDurMs = 150;
 const double _kRingSize = 96; // 环画布边长（200 视箱 → 96dp）
@@ -316,35 +315,36 @@ class _SplashLogoPainter extends CustomPainter {
       oldDelegate.elapsedMs != elapsedMs;
 }
 
-/// 节奏环终拍画笔（附录A 图标 v10 同构，200 视箱 → [_kRingSize]）：
-/// 四条长弧（正四向 36.8°）依次描出 → 四段短弧（对角位 20.6°）按对角次序
-/// 补进（如节拍点入）→ 中心点落定。颜色与字标同白 #F5F5F7。
+/// 节奏环终拍画笔（图标 v10「短弧代点节奏环」同构，200 视箱 →
+/// [_kRingSize]）：四段弧按链序依次描出（下长 → 左短 → 上长 → 右短，
+/// 与静态图标同一几何：长弧 101°/短弧 47°/缝 6°·26°）→ 中心点落定。
+/// 颜色与字标同白 #F5F5F7。
 class _RhythmRingPainter extends CustomPainter {
   _RhythmRingPainter({required this.elapsedMs});
 
   final double elapsedMs;
 
-  // 几何定值（200 视箱，圆心 (100,100)）。
-  static const double _c = 100, _r = 64, _stroke = 13, _dotR = 12;
-  static const double _longHalf = 18.4, _shortHalf = 10.3; // 度
+  // 几何定值（200 视箱，圆心 (100,100)，设计稿 2026-09-26 像素级实测）。
+  static const double _c = 100, _r = 67, _stroke = 11, _dotR = 12;
+  static const double _longHalf = 50.5, _shortHalf = 23.5; // 度
 
-  /// 长弧中心（屏幕角，y 向下 = 数学角取负）：右、上、左、下（描出顺序）。
-  static final List<double> _longAngles = <double>[
-    0, -90, -180, -270,
-  ].map(_deg2rad).toList();
-
-  /// 短弧中心（对角次序）：右上 45° → 左上 135° → 左下 225° → 右下 315°。
-  static final List<double> _shortAngles = <double>[
-    -45, -135, -225, -315,
-  ].map(_deg2rad).toList();
+  /// 链序弧表：(弧心屏幕角, 是否长弧)。屏幕角 y 向下、顺时针增，
+  /// 0°=右、90°=下、180°=左、270°=上；长弧风车式偏移 10°（100°/280°）。
+  static final List<(double, bool)> _chain = const <(double, bool)>[
+    (100, true),   // 长弧·下（一端搭向左短弧）
+    (180, false),  // 短弧·左
+    (280, true),   // 长弧·上（一端搭向右短弧）
+    (0, false),    // 短弧·右
+  ];
 
   static double _deg2rad(double d) => d * 3.141592653589793 / 180.0;
 
-  static Path _arc(double centerRad, double halfDeg) {
+  static Path _arc(double centerDeg, double halfDeg) {
     final rect = Rect.fromCircle(
         center: const Offset(_c, _c), radius: _r);
+    final center = _deg2rad(centerDeg);
     final half = _deg2rad(halfDeg);
-    return Path()..arcTo(rect, centerRad - half, half * 2, false);
+    return Path()..arcTo(rect, center - half, half * 2, false);
   }
 
   @override
@@ -359,27 +359,19 @@ class _RhythmRingPainter extends CustomPainter {
       ..color = const Color(0xFFF5F5F7);
     final traceEase = const Cubic(0.65, 0, 0.35, 1);
 
-    // 四条长弧依次描出。
-    for (var i = 0; i < _longAngles.length; i++) {
-      final start = _kRingStartMs + _kRingLongStaggerMs * i;
+    // 四段弧按链序依次描出（长弧全程描出；短弧描出 + 同步淡入，
+    // 保留「如节拍点入」的轻重感）。
+    for (var i = 0; i < _chain.length; i++) {
+      final (centerDeg, isLong) = _chain[i];
+      final start = _kRingStartMs + _kRingArcStaggerMs * i;
       final t = traceEase
-          .transform(((elapsedMs - start) / _kRingLongDurMs).clamp(0.0, 1.0));
+          .transform(((elapsedMs - start) / _kRingArcDurMs).clamp(0.0, 1.0));
       if (t > 0) {
         canvas.drawPath(
-            _SplashLogoPainter._trim(_arc(_longAngles[i], _longHalf), t),
-            stroke);
-      }
-    }
-
-    // 四段短弧按对角次序补进（如节拍点入：快速描出 + 淡入）。
-    for (var i = 0; i < _shortAngles.length; i++) {
-      final start = _kRingShortStartMs + _kRingShortStaggerMs * i;
-      final t = traceEase
-          .transform(((elapsedMs - start) / _kRingShortDurMs).clamp(0.0, 1.0));
-      if (t > 0) {
-        canvas.drawPath(
-            _SplashLogoPainter._trim(_arc(_shortAngles[i], _shortHalf), t),
-            stroke..color = Color.fromRGBO(245, 245, 247, t));
+            _SplashLogoPainter._trim(_arc(centerDeg, isLong ? _longHalf : _shortHalf), t),
+            isLong
+                ? stroke
+                : stroke..color = Color.fromRGBO(245, 245, 247, t));
       }
     }
 
