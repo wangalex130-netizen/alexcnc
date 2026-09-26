@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui' show PathEffect;
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -2882,7 +2881,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
             child: Text(labels[i],
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w600,
                     color: CncColors.textMain)),
@@ -2902,7 +2901,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
               child: Text(labels[i],
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 12.5, color: CncColors.textSub)),
             ),
           ]),
@@ -2961,7 +2960,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
             _stepPill('1', _jogStep == 1, () => setState(() => _jogStep = 1)),
             _stepPill('10', _jogStep == 10, () => setState(() => _jogStep = 10)),
             const Spacer(),
-            const Text('mm',
+            Text('mm',
                 style: TextStyle(fontSize: 11, color: CncColors.textSub)),
           ]),
         ]);
@@ -4304,16 +4303,21 @@ class _FramePreviewPainter extends CustomPainter {
       ..strokeWidth = 1.8
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
-    // 虚线矩形框（dash 3/3，随缩放等比）。
-    canvas.drawPath(
-      Path()
-        ..moveTo(4, 6)
-        ..lineTo(20, 6)
-        ..lineTo(20, 18)
-        ..lineTo(4, 18)
-        ..close(),
-      stroke..pathEffect = PathEffect.dashPathEffect(const [3, 3]),
-    );
+    // 虚线矩形框（dash 3/3，随缩放等比）。dart:ui 的 Paint 不暴露
+    // pathEffect（dash_path 包同理），用 PathMetrics.extractPath 手切虚线。
+    final box = Path()
+      ..moveTo(4, 6)
+      ..lineTo(20, 6)
+      ..lineTo(20, 18)
+      ..lineTo(4, 18)
+      ..close();
+    for (final m in box.computeMetrics()) {
+      var d = 0.0;
+      while (d < m.length) {
+        canvas.drawPath(m.extractPath(d, d + 3), stroke);
+        d += 6;
+      }
+    }
     // 底边走边箭头（实线）。
     canvas.drawPath(
       Path()
@@ -4322,7 +4326,7 @@ class _FramePreviewPainter extends CustomPainter {
         ..moveTo(12.5, 12.5)
         ..lineTo(16, 15.5)
         ..lineTo(12.5, 18.5),
-      stroke..pathEffect = null,
+      stroke,
     );
     canvas.restore();
   }
