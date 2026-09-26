@@ -149,11 +149,11 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     // 模型库 5 接口返回的 LibraryItem 已含加工参数、材质、刀具等全部字段，
     // 直接转 TaskMetadata，不再依赖旧的 /api/v1/tasks/{id} 接口（该接口后端未实现）。
     final task = widget.item.toTaskMetadata();
-    // 厚度输入框默认值 = **解析出的模型厚度**（下限），客户可改成自己那块料的真实厚度。
-    // controller 只建一次（稳定实例），避免 Step 来回切时丢失已输入内容。
+    // 工单十五 §3.3：输入框初始为空，客户从待填状态填写真实料厚；
+    // 下限只出现在右侧常驻「须 ≥ x」与 errorText。controller 只建一次（稳定实例），
+    // 避免 Step 来回切时丢失已输入内容；空值下游语义 = 0（预览退回模型厚度/门禁拦截）。
     if (!_thickCtlReady) {
-      _thickness = (task.boardThicknessMm > 0 ? task.boardThicknessMm : 3.0)
-          .toStringAsFixed(1);
+      _thickness = '';
       _thicknessCtl = TextEditingController(text: _thickness);
       _thickCtlReady = true;
     }
@@ -606,10 +606,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     String msg;
     if (_step == 0) {
       if (!_thickOk) {
-        msg = _thicknessVal <= 0
-            ? '请填写实物材料厚度（必须 ≥ ${_minThickness.toStringAsFixed(1)}mm）。'
-            : '材料厚度需 ≥ ${_minThickness.toStringAsFixed(1)}mm（模型厚度），'
-                '否则会切穿板材、伤及台面。';
+        // 工单十五 §3.5：厚度拦截语义由输入框 errorText + 门禁承担，页底零红字。
+        msg = '';
       } else {
         msg = '请逐项确认：实物尺寸 ≥ 图形尺寸、且材料已用夹具固定。';
       }
@@ -643,6 +641,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     } else {
       msg = '当前步骤未完成。';
     }
+    if (msg.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(left: 4),
       child: Text(msg,
@@ -862,9 +861,14 @@ class _StepMaterial extends StatelessWidget {
   Widget build(BuildContext context) {
     final def = materialByKey(materialKey);
     final hasSize = modelWidthMm > 0 && modelHeightMm > 0;
-    final sizeText = hasSize
+    // 工单十五 §2：雕刻图形尺寸 = 长×宽×高（高 = 模型厚度下限，缺数据退两维）；
+    // 平面两维串另存 —— 勾选框与「材料平面尺寸」行保持平面语义（板材无高度可比）。
+    final size2d = hasSize
         ? '${_mm(modelWidthMm)} × ${_mm(modelHeightMm)} mm'
         : '以模型标注为准';
+    final sizeText = hasSize && minThicknessMm > 0
+        ? '${_mm(modelWidthMm)} × ${_mm(modelHeightMm)} × ${_mm(minThicknessMm)} mm'
+        : size2d;
     final minT = minThicknessMm.toStringAsFixed(1);
     final thVal = double.tryParse(thickness) ?? 0;
     final tooThin = thVal > 0 && thVal < minThicknessMm;
@@ -928,7 +932,7 @@ class _StepMaterial extends StatelessWidget {
                   value: chkSize,
                   onChanged: onChkSize,
                   label:
-                      hasSize ? '实物板材尺寸 ≥ $sizeText' : '实物板材尺寸 ≥ 图形尺寸',
+                      hasSize ? '实物板材尺寸 ≥ $size2d' : '实物板材尺寸 ≥ 图形尺寸',
                 ),
                 _CheckTile(
                   value: chkFixture,
@@ -946,7 +950,7 @@ class _StepMaterial extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _title(Symbols.priority_high, '材料厚度'),
+                _title(Symbols.straighten, '材料厚度'),
                 const SizedBox(height: 6),
                 TextField(
                   controller: thicknessCtl,
@@ -960,11 +964,17 @@ class _StepMaterial extends StatelessWidget {
                   style: TextStyle(color: CncColors.textMain),
                   decoration: InputDecoration(
                     labelText: '材料厚度 (mm)',
-                    hintText: '须 ≥ $minT',
                     labelStyle: TextStyle(color: CncColors.textSub),
-                    hintStyle: TextStyle(color: CncColors.textSub),
-                    suffixText: 'mm',
-                    suffixStyle: TextStyle(color: CncColors.textSub),
+                    // 工单十五 §3.2：常驻后缀「须 ≥ x mm」（非 hint，输入中不消失）。
+                    suffix: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Text('须 ≥ $minT',
+                          style: TextStyle(
+                              fontSize: 12, color: CncColors.textSub)),
+                      const SizedBox(width: 4),
+                      Text('mm',
+                          style: TextStyle(
+                              fontSize: 12, color: CncColors.textSub)),
+                    ]),
                     errorText: tooThin ? '须 ≥ $minT mm（模型厚度）' : null,
                     filled: true,
                     fillColor: CncColors.bg,

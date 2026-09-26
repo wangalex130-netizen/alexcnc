@@ -173,6 +173,12 @@ class AppTheme {
 
       foregroundColor: CncColors.textMain,
 
+      // 工单十五 §1：全局页标题 17sp/w600（原 M3 默认 24sp 过大），全 App AppBar 自动跟随。
+      titleTextStyle: TextStyle(
+          fontSize: 17,
+          fontWeight: FontWeight.w600,
+          color: CncColors.textMain),
+
       elevation: 0,
 
     ),
@@ -298,6 +304,12 @@ class AppTheme {
       backgroundColor: CncColors.dBarBg,
 
       foregroundColor: CncColors.dTextMain,
+
+      // 工单十五 §1：全局页标题 17sp/w600（暗色，颜色与 foreground 同源）。
+      titleTextStyle: TextStyle(
+          fontSize: 17,
+          fontWeight: FontWeight.w600,
+          color: CncColors.dTextMain),
 
       elevation: 0,
 
