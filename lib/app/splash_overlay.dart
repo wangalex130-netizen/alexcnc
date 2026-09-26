@@ -240,7 +240,9 @@ class _SplashLogoPainter extends CustomPainter {
       ..moveTo(410, 20)
       ..relativeLineTo(0, 50)
       ..relativeCubicTo(0, 32, 17, 50, 43, 50)
-      ..relativeCubicTo(26, 0, 43, -18, 43, -50);
+      ..relativeCubicTo(26, 0, 43, -18, 43, -50)
+      // XML 收尾 V20（右竖笔回顶）——缺失会导致 U 没有右竖笔（昊总 09-26 实机指正）。
+      ..relativeLineTo(0, -50);
     final v = Path()
       ..moveTo(542, 20)
       ..relativeLineTo(34, 98)
