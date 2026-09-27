@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 
 import '../../app/theme.dart';
+import '../../widgets/olduva_brand.dart';
 
 import '../../state/auth_provider.dart';
 
@@ -169,18 +170,18 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
             children: [
 
-              Icon(Symbols.precision_manufacturing, size: 56, color: CncColors.primaryInk),
+              // 品牌 mark（2026-09-27 昊总）：节奏环 + OLDUVA 字标，墨色，
+              // 几何与 splash 启动屏同一套定值（olduva_brand.dart）。
+              CustomPaint(
+                size: const Size(64, 64),
+                painter: OlduvaRingPainter(color: CncColors.primaryInk),
+              ),
 
-              const SizedBox(height: 8),
+              const SizedBox(height: 20),
 
-              Text(
-
-                '登录 Smart CNC Pro',
-
-                textAlign: TextAlign.center,
-
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: CncColors.textMain),
-
+              CustomPaint(
+                size: const Size(190, 35),
+                painter: OlduvaWordmarkPainter(color: CncColors.primaryInk),
               ),
 
               const SizedBox(height: 4),
