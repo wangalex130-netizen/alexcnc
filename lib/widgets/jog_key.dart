@@ -178,8 +178,15 @@ class JogKeyState extends State<JogKey> {
             opacity: widget.enabled ? 1 : 0.45,
             child: Container(
               height: widget.height ?? (widget.tall ? 44 : 40),
+              // flat 平面键（八向盘直边/斜角、移动页 Z 钮）原样无按压视觉，
+              // 昊总 0927 实测「按了不知道按了没有」—— 按住时补一层灰底
+              // （textMain 8%~10% 透明度，两主题自动成立），手势/连发零改动。
               decoration: widget.flat
-                  ? null
+                  ? (_holding
+                      ? BoxDecoration(
+                          color: CncColors.textMain.withOpacity(0.10),
+                          borderRadius: BorderRadius.circular(8))
+                      : null)
                   : BoxDecoration(
                 color: _holding ? accent.withOpacity(0.22) : CncColors.panelAlt,
                 borderRadius: BorderRadius.circular(6),

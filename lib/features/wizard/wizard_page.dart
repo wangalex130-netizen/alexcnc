@@ -28,6 +28,7 @@ import '../../models/machine_status.dart';
 import '../../services/hardware_service.dart';
 import '../../state/providers.dart';
 import '../preview/timelapse_client.dart';
+import '../shell/app_shell.dart';
 import 'job_launch_banner.dart';
 import 'job_monitor_page.dart';
 import 'zgrid_preview.dart';
@@ -1666,6 +1667,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   DateTime? _noteAt; // A-12：反馈时刻（4 秒时效起点）
   Timer? _noteTimer; // A-12：到期清空反馈，让引导文案重新出现
   DateTime? _frameAt; // N2：状态帧新鲜度（本地接收时刻）
+  Timer? _staleTick; // 断帧自愈：过期期间每秒重算一次顶部连接灯，恢复即停
   Payload? _meta; // 载荷（两套字段形状都兼容，见 payload.dart）
   List<double>? _grid; // 解码后的高程网格（行主序 mm；null = 载荷无网格体）
 
@@ -1808,6 +1810,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     // 2) 业务清理包 try/catch：清理失败不影响「竖屏已恢复」这一事实。
     try {
       _noteTimer?.cancel();
+      _staleTick?.cancel();
       _frameAnim.dispose();
       LocalPayloadStore.instance.removeListener(_onLocalPayload);
       DebugSim.instance.removeListener(_onSim);
@@ -2067,9 +2070,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           DateTime.now().difference(_frameAt!) < const Duration(seconds: 2);
       if (!fresh) {
         _note(
-            '机器坐标已过期（状态帧超过 2 秒未更新）：现在取点会记下一个旧坐标，'
-            '不是主轴当前所在位置。请确认机器已开机、MQTT 已连并正在上报状态帧'
-            '后再取点',
+            '暂时收不到机器的最新位置（超过 2 秒未更新）：现在取点会记下旧位置，'
+            '不是主轴当前所在位置。请确认机器已开机、手机网络正常，恢复后再取点',
             bad: true);
         return;
       }
@@ -2167,6 +2169,21 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     return mp == null ? null : Offset(mp.x, mp.y);
   }
 
+  /// 状态帧新鲜度（与取点门禁同口径，C-2）：模拟态无真机，视为新鲜。
+  bool get _frameStale {
+    if (DebugSim.instance.enabled) return false;
+    final t = _frameAt;
+    return t == null ||
+        DateTime.now().difference(t) >= const Duration(seconds: 2);
+  }
+
+  /// 点动指令没能发出（MQTT 未连接，_publish 返回 false）：给一句直述，
+  /// 不再静默（昊总 0927 实测「按了没用」——机器页有 toast，向导页是黑洞）。
+  void _jogFailNote() {
+    _note('指令没有发出：手机与机器的连接断了，请检查手机网络和机器状态后重试',
+        bad: true);
+  }
+
   void _jog(String axis, double dir) {
     if (_busy) return;
     final d = dir * _jogStep;
@@ -2191,11 +2208,17 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         return;
       }
     }
+    if (_frameStale) {
+      _note('机器回应不稳定：如果机器没有动作，请确认机器已开机、网络正常后重试',
+          bad: true);
+    }
     if (!_wysiwyg) {
       // 手动模式：Jog 即移动雕刻原点
       _setDesign(widget.origin + delta);
     }
-    ref.read(hardwareServiceProvider).jog(axis, d);
+    ref.read(hardwareServiceProvider).jog(axis, d).then((ok) {
+      if (!ok && mounted) _jogFailNote();
+    });
   }
 
   /// 八向盘点按入口（§3.2a）：屏幕空间 (dx, dy)（dx 右正 / dy 下正）。
@@ -2234,9 +2257,16 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         return;
       }
     }
+    if (_frameStale) {
+      _note('机器回应不稳定：如果机器没有动作，请确认机器已开机、网络正常后重试',
+          bad: true);
+    }
     if (!_wysiwyg) _setDesign(widget.origin + delta);
     ref.read(hardwareServiceProvider).jogXY(mx, my,
-        feed: jogFeedForStep(_jogStep));
+            feed: jogFeedForStep(_jogStep))
+        .then((ok) {
+      if (!ok && mounted) _jogFailNote();
+    });
   }
 
   Future<void> _toggleLaser() async {
@@ -2546,6 +2576,15 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
 
     final guide = _guideText();
 
+    // 断帧自愈：状态帧停更时 provider 不再触发重建，连接灯会停在旧文案。
+    // 过期期间每秒自排一次重算，恢复新鲜后该链自然停止（不再排下一跳）。
+    if (!sim && st != null && _frameStale && _staleTick == null) {
+      _staleTick = Timer(const Duration(seconds: 1), () {
+        _staleTick = null;
+        if (mounted) setState(() {});
+      });
+    }
+
     return PopScope(
       // 返回/侧滑时，在路由真正弹出**之前**恢复系统栏：时序上比 dispose 更稳
       //（鸿蒙等机型实测更可靠；fullscreen_preview_page.dart 同款既有写法）。
@@ -2630,7 +2669,14 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
             decoration: BoxDecoration(shape: BoxShape.circle, color: dotColor),
           ),
           const SizedBox(width: 4),
-          Text(sim ? '模拟' : (linked ? '已连接' : '未连接'),
+          // 昊总 0927 实测「已连接」与过期横幅同屏：原口径 st!=null 会把
+          // 断帧前的旧状态当连接。改与取点门禁同口径 —— 过期 = 连接不稳定。
+          Text(
+              sim
+                  ? '模拟'
+                  : (!linked
+                      ? '未连接'
+                      : (_frameStale ? '连接不稳定' : '已连接')),
               style: TextStyle(fontSize: 10.5, color: CncColors.textSub)),
         ]),
         const SizedBox(width: 8),
@@ -3302,7 +3348,10 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       final sent = await ref
           .read(hardwareServiceProvider)
           .jogContinuous(axis, sign, feed: jogFeedForStep(_jogStep));
-      if (!sent) jogActive = false;
+      if (!sent) {
+        jogActive = false;
+        _jogFailNote();
+      }
     }
 
     Future<void> end() async {
@@ -4085,8 +4134,10 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
       showWanBlockedSnack(context, '开始雕刻');
       return;
     }
-    // 下发成功 → 清导航栈直接回控制台（工单十八 §2.3：准备中页退役，
-    // 状态迁移由控制台状态卡五态呈现；下发失败仍留本页走 JobLaunchBanner）。
+    // 下发成功 → 切控制台 tab 再清导航栈（昊总实机 20260927：不能落回模型库）。
+    // 两段式下「去机器屏幕按开始」的引导由控制台状态卡承载；监控页此刻只有
+    // 0.0% 空信息，点状态卡即可进监控。
+    ref.read(navIndexProvider.notifier).state = 1;
     Navigator.of(context).popUntil((route) => route.isFirst);
   }
 

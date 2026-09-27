@@ -308,13 +308,9 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
             ref.read(navIndexProvider.notifier).state = 1;
 
-            Navigator.of(context).pushAndRemoveUntil(
-
-              MaterialPageRoute(builder: (_) => const AppShell()),
-
-              (route) => false,
-
-            );
+            // 保留既有壳（懒挂载集合常驻），不重建 AppShell——重建后
+            // _mounted={0} 只挂图库，navIndex 指控制台会落白屏（20260927 实机）。
+            Navigator.of(context).popUntil((route) => route.isFirst);
 
           },
 
@@ -753,15 +749,13 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                     child: Container(
 
-                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      padding: const EdgeInsets.symmetric(vertical: 13),
 
                       decoration: BoxDecoration(
 
-                        color: CncColors.warnBg,
+                        color: CncColors.textMain,
 
-                        borderRadius: BorderRadius.circular(10),
-
-                        border: Border.all(color: CncColors.warning),
+                        borderRadius: BorderRadius.circular(12),
 
                       ),
 
@@ -775,7 +769,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                             Icon(paused ? Symbols.play_arrow : Symbols.pause,
 
-                                size: 18, color: CncColors.warning),
+                                size: 18, color: CncColors.card),
 
                             const SizedBox(width: 6),
 
@@ -783,11 +777,11 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                                 style: TextStyle(
 
-                                    fontSize: 13,
+                                    fontSize: 14,
 
                                     fontWeight: FontWeight.bold,
 
-                                    color: CncColors.warning)),
+                                    color: CncColors.card)),
 
                           ],
 
@@ -817,15 +811,13 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                     child: Container(
 
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    padding: const EdgeInsets.symmetric(vertical: 13),
 
                     decoration: BoxDecoration(
 
-                      color: CncColors.dangerBg,
+                      color: CncColors.danger,
 
-                      borderRadius: BorderRadius.circular(10),
-
-                      border: Border.all(color: CncColors.danger),
+                      borderRadius: BorderRadius.circular(12),
 
                     ),
 
@@ -837,7 +829,7 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                           children: [
 
-                            Icon(Symbols.stop, size: 18, color: CncColors.danger),
+                            Icon(Symbols.stop, size: 18, color: Colors.white),
 
                             const SizedBox(width: 6),
 
@@ -845,11 +837,11 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
                                 style: TextStyle(
 
-                                    fontSize: 13,
+                                    fontSize: 14,
 
                                     fontWeight: FontWeight.bold,
 
-                                    color: CncColors.danger)),
+                                    color: Colors.white)),
 
                           ],
 
@@ -1026,13 +1018,16 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
         backgroundColor: CncColors.card,
 
-        title: Text('确认停止雕刻吗？',
+        // 昊总 20260927：确认弹窗只留一句问话，不说教。
+        title: Text('停止本次雕刻？',
 
-            style: TextStyle(color: CncColors.danger)),
+            style: TextStyle(
 
-        content: Text('停止后主轴将刹停，本次加工会中断。',
+                color: CncColors.textMain,
 
-            style: TextStyle(color: CncColors.textMain)),
+                fontSize: 17,
+
+                fontWeight: FontWeight.bold)),
 
         actions: [
 
@@ -1040,11 +1035,11 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
             onPressed: () => Navigator.of(context).pop(),
 
-            child: Text('取消', style: TextStyle(color: CncColors.textMain)),
+            child: Text('取消', style: TextStyle(color: CncColors.textSub)),
 
           ),
 
-          TextButton(
+          FilledButton(
 
             onPressed: () {
 
@@ -1058,21 +1053,22 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
               Navigator.of(context).pop();
 
-              // 确认停止后回到控制台（而非模型库）
-
-              ref.read(navIndexProvider.notifier).state = 1;
-
-              Navigator.of(context).pushAndRemoveUntil(
-
-                MaterialPageRoute(builder: (_) => const AppShell()),
-
-                (route) => false,
-
-              );
+              // 停止后留在监控页（机器状态页），按钮自动转灰显待机态。
+              _showHint(context, '已停止');
 
             },
 
-            child: Text('确认停止', style: TextStyle(color: CncColors.danger)),
+            style: FilledButton.styleFrom(
+
+              backgroundColor: CncColors.danger,
+
+              foregroundColor: Colors.white,
+
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+
+            ),
+
+            child: const Text('停止'),
 
           ),
 
@@ -1135,16 +1131,11 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
               Navigator.of(context).pop();
 
               // 完成后回到控制台，便于查看「加工已完成」状态
+              // （保留既有壳，不重建 AppShell——同停止流程白屏根因）
 
               ref.read(navIndexProvider.notifier).state = 1;
 
-              Navigator.of(context).pushAndRemoveUntil(
-
-                MaterialPageRoute(builder: (_) => const AppShell()),
-
-                (route) => false,
-
-              );
+              Navigator.of(context).popUntil((route) => route.isFirst);
 
             },
 

@@ -167,6 +167,11 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
 
     ref.watch(devicePresenceServiceProvider);
 
+    // 程序化切 tab（发送后/停止后设 navIndex）时目标 tab 可能从未挂载
+    // （懒挂载集合只有图库）→ IndexedStack 落在 SizedBox.shrink 白屏。
+    // 此处在 build 内补挂，随后立即用于本帧 children，无需 setState。
+    if (!_mounted.contains(idx)) _mounted.add(idx);
+
     return Scaffold(
 
       body: SafeArea(

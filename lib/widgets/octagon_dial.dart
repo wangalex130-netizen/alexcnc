@@ -212,45 +212,92 @@ class OctagonDial extends StatelessWidget {
             style: TextStyle(fontSize: 11, color: CncColors.textSub)),
       );
     }
-    return GestureDetector(
+    // 按压态（昊总 0927 实测反馈）：中心动作键与四向键同口径，按下有灰底。
+    return _DialCenter(
       onTap: onCenter,
+      light: centerLight,
+      active: centerActive,
+      size: min(58, side * 0.305),
+      label: centerLabel,
+      sub: centerSub,
+    );
+  }
+}
+
+/// 中心动作键（昊总 0927 反馈）：加按压态 —— 按下加灰底（浅底键 textMain
+/// 10%、深底键黑 10% 压暗），松手恢复；onTap 为 null 时纯展示无手势。
+/// 视觉规格与原 _center 一致（170 盘 52 / 190 盘 58）。
+class _DialCenter extends StatefulWidget {
+  const _DialCenter({
+    this.onTap,
+    required this.light,
+    required this.active,
+    required this.size,
+    required this.label,
+    this.sub,
+  });
+  final VoidCallback? onTap;
+  final bool light;
+  final bool active;
+  final double size;
+  final String label;
+  final String? sub;
+
+  @override
+  State<_DialCenter> createState() => _DialCenterState();
+}
+
+class _DialCenterState extends State<_DialCenter> {
+  bool _down = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = widget;
+    return GestureDetector(
+      onTapDown: w.onTap == null ? null : (_) => setState(() => _down = true),
+      onTapUp: (_) => setState(() => _down = false),
+      onTapCancel: () => setState(() => _down = false),
+      onTap: w.onTap,
       child: Container(
-        // 规格 §4.2-2 / §7：本页 170 盘 → 中心 52；控制台 190 盘 → 58。
-        // side*0.305 在 170/190 两档恰好落在 52/58（±2px 容差内）。
-        width: min(58, side * 0.305),
-        height: min(58, side * 0.305),
+        width: w.size,
+        height: w.size,
         decoration: BoxDecoration(
           // 默认：规格 §4.2-2 底 successBg、边 1.5 blue；active 态保持 primary
           // 强调。浅底（工单十六 §2.1）：纸白底 + 1.5dp 墨描边，任何状态不深底。
-          color: centerLight
-              ? CncColors.card
-              : (centerActive ? CncColors.primary : CncColors.successBg),
+          color: w.light
+              ? (_down
+                  ? CncColors.textMain.withOpacity(0.10)
+                  : CncColors.card)
+              : (_down
+                  ? (w.active ? CncColors.primary : CncColors.successBg)
+                      .withOpacity(0.72)
+                  : (w.active ? CncColors.primary : CncColors.successBg)),
           shape: BoxShape.circle,
           border: Border.all(
-              color: centerLight ? CncColors.textMain : CncColors.blue,
+              color: w.light ? CncColors.textMain : CncColors.blue,
               width: 1.5),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(centerLabel,
+            Text(w.label,
                 style: TextStyle(
-                    fontSize: centerLight
-                        ? (centerSub == null ? 14 : 13)
-                        : (centerSub == null ? 12 : 10.5),
+                    fontSize: w.light
+                        ? (w.sub == null ? 14 : 13)
+                        : (w.sub == null ? 12 : 10.5),
                     fontWeight: FontWeight.w600,
-                    color: centerLight
+                    color: w.light
                         ? CncColors.textMain
-                        : (centerActive
+                        : (w.active
                             ? CncColors.onPrimary
                             : CncColors.successFg))),
-            if (centerSub != null)
-              Text(centerSub!,
+            if (w.sub != null)
+              Text(w.sub!,
                   style: TextStyle(
-                      fontSize: centerLight ? 9 : 8.5,
-                      color: centerLight
+                      fontSize: w.light ? 9 : 8.5,
+                      color: w.light
                           ? CncColors.textSub
-                          : (centerActive
+                          : (w.active
                               ? CncColors.onPrimary
                               : CncColors.textSub))),
           ],

@@ -1582,24 +1582,30 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 context: context,
                 builder: (_) => AlertDialog(
                   backgroundColor: CncColors.card,
-                  title: Text('确认停止雕刻吗？',
-                      style: TextStyle(color: CncColors.danger)),
-                  content: Text('停止后主轴将刹停，本次加工会中断。',
-                      style: TextStyle(color: CncColors.textMain)),
+                  // 昊总 20260927：与监控页同款一句话弹窗，不说教。
+                  title: Text('停止本次雕刻？',
+                      style: TextStyle(
+                          color: CncColors.textMain,
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold)),
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.of(context).pop(),
                       child: Text('取消',
-                          style: TextStyle(color: CncColors.textMain)),
+                          style: TextStyle(color: CncColors.textSub)),
                     ),
-                    TextButton(
+                    FilledButton(
                       onPressed: () {
                         hw.stopJob();
                         ref.read(activeJobProvider.notifier).clear();
                         Navigator.of(context).pop();
                       },
-                      child: Text('确认停止',
-                          style: TextStyle(color: CncColors.danger)),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: CncColors.danger,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                      ),
+                      child: const Text('停止'),
                     ),
                   ],
                 ),
