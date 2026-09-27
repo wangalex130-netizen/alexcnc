@@ -4278,7 +4278,7 @@ class _ReadyPhase extends StatelessWidget {
         if (blockedText != null)
           Padding(
             padding: const EdgeInsets.only(top: 10),
-            child: Text(blockedText,
+            child: Text(blockedText!,
                 style: TextStyle(fontSize: 11, color: CncColors.textSub)),
           ),
         const SizedBox(height: 14),
