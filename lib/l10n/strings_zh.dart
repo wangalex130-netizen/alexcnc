@@ -57,8 +57,8 @@ class S {
   static const stepOf = '第 {a}/{b} 步';
   static const step1Material = '第 1 步 · 材料确认与装夹';
   static const step3Magazine = '第 3 步 · 刀仓映射';
-  static const step4Leveling = '第 4 步 · 智能调平';
-  static const step5Summary = '第 5 步 · 作业参数与安全预检汇总';
+  static const step4Leveling = '第 4 步 · 雕刻设置';
+  static const step5Summary = '第 5 步 · 作业确认';
   static const stepJog = '{label} · 每步 {step} 毫米';
   static const stepJogLong = '每步 {step} 毫米 · 长按可连续移动';
   static const magazineCoverOpen = '自动开启刀仓防护盖';

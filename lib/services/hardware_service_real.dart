@@ -1179,8 +1179,9 @@ class RealHardwareService implements HardwareService {
     String sha256 = '',
   }) async {
     // 🔴 W-10 扩展（2026-09-10，昊总裁定）：`prepare_job` 是**开切主路径的第一个动作**
-    // —— 小屏 ACK 到达后本端会**自动接着发 `confirm`**（见 _handleCmdAck），
-    // 即「prepare 成功 ≈ 机器开始动刀」。契约 `wan_whitelist` 未列此命令，
+    // —— 两段式回归（工单十八 §2.3，2026-09-27）：prepare ACK 后 App **不再自动
+    // 补发 confirm**，等机器屏幕物理键触发（confirm_required / awaitingConfirm）。
+    // 契约 `wan_whitelist` 未列此命令，
     // 按「只放行 allowed 的 7 项、其余一律同网限定」处理：**仅同网可发起**。
     // （此前门禁只加在回退路径 startJob 上，主路径完全没覆盖 —— 2026-09-10 自审修复。）
     if (!await _allowLocalOnly()) return false;
@@ -1437,19 +1438,15 @@ class RealHardwareService implements HardwareService {
 
     switch (_carve.stage) {
       case CarveStage.preparing:
-        // prepare ACK 到 → G-code 就绪，自动接着发 confirm（D1 纯软件流程）
+        // prepare ACK 到 → G-code 就绪。**到此为止**（工单十八 §2.3，
+        // 2026-09-27 拆自动 confirm）：不再补发 confirm，机器下载完程序后
+        // 广播 confirm_required / status.awaitingConfirm=true，等客户在
+        // 机器屏幕按物理键触发 confirm（confirmJob 实现保留，接口契约不变）。
         _updateCarve(_carve.copyWith(
           stage: CarveStage.ready,
           jobId: jobId,
           download: 100,
         ));
-        // W-10 扩展：confirm 亦受同网门禁（纵深防御）。prepare 已在入口拦住外网，
-        // 正常不会走到这里；若真被拦下，不留「卡在就绪」而不给原因。
-        unawaited(confirmJob().then((ok) {
-          if (!ok && _carve.stage == CarveStage.ready) {
-            _failCarve('开切只能在机器同一局域网内执行（外网仅监视 / 可停机）');
-          }
-        }));
       case CarveStage.confirming:
         // confirm ACK 到 → 已进入流式传输
         _updateCarve(_carve.copyWith(stage: CarveStage.running, jobId: jobId));

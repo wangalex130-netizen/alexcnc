@@ -28,7 +28,6 @@ import '../../models/machine_status.dart';
 import '../../services/hardware_service.dart';
 import '../../state/providers.dart';
 import '../preview/timelapse_client.dart';
-import 'self_check_page.dart';
 import 'job_launch_banner.dart';
 import 'job_monitor_page.dart';
 import 'zgrid_preview.dart';
@@ -107,6 +106,11 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   Offset? _p0;
   Offset? _p1;
   StockShape _stockShape = StockShape.rect;
+
+  // ---- 延时摄影（工单十八 §2.1 #5：状态自 _StepTakeoffState 上移，Step4/5 透传共用，
+  // ---- 数据流零改动：onToggleTimeLapse / durationController 原样传给两步）----
+  bool _timeLapse = false;
+  final TextEditingController _durCtrl = TextEditingController(text: '120');
 
   // 2026-09-23 昊总裁定：**定原点排在刀仓映射之前**（原话「定完原点后才是
   // 确定刀具」）。原顺序让客户在还没有工件零点时就去分配刀仓，与车间实际
@@ -470,6 +474,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   void dispose() {
     LocalPayloadStore.instance.removeListener(_onLocalPayloadFlag);
     _thicknessFocus.dispose();
+    _durCtrl.dispose(); // 延时摄影时长框（工单十八：状态上移 _WizardPageState）
     if (_thickCtlReady) _thicknessCtl.dispose();
     super.dispose();
   }
@@ -549,8 +554,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
               ],
             )
           else
-            // Step5 的「开始自检并雕刻」按钮已内嵌在 _StepTakeoff 卡片中，
-            // 底部不再显示「上一步 / 一键开切」。
+            // Step5 的「发送到机器」按钮已内嵌在 _StepTakeoff 卡片中
+            // （工单十八 §2.2），底部不再显示「上一步 / 一键开切」。
             const SizedBox.shrink(),
           const SizedBox(height: 8),
           if (!_canProceed) _guardHint(t),
@@ -752,6 +757,9 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           mode: _leveling,
           task: _task,
           onMode: (m) => setState(() => _leveling = m),
+          timeLapse: _timeLapse,
+          onToggleTimeLapse: (v) => setState(() => _timeLapse = v),
+          durationController: _durCtrl,
         );
       case 4:
         return _StepTakeoff(
@@ -762,6 +770,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           laserParams: _laserParams,
           requiredTools: _task?.requiredTools ?? [],
           procSlot: _procSlot,
+          timeLapse: _timeLapse,
+          durationController: _durCtrl,
         );
       default:
         return const SizedBox();
@@ -1973,7 +1983,13 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       final my = av.max.dy - _h;
       if (mx < av.min.dx || my < av.min.dy) {
         of = true;
-        p = Offset(av.min.dx, av.min.dy);
+        // 昊总 20260927：模型盖不住可用区时**不再钉死在区原点** —— 原来会把
+        // 模型盘四向全部按死（「Y+ 没动」即此）。改夹进行程兜底区自由移动
+        // （拨盘/拖拽都能动，直观看到盖不住 → 换大料），overflow 旗照出红条。
+        p = Offset(
+          p.dx.clamp(_knifeR, max(_knifeR, _bedW - _w - _knifeR)),
+          p.dy.clamp(_knifeR, max(_knifeR, _bedH - _h - _knifeR)),
+        );
       } else {
         p = Offset(
           p.dx.clamp(av.min.dx, mx),
@@ -2834,7 +2850,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   bool get _done1 => widget.originSet && (_g54Written || !_wysiwyg);
 
   bool _doneAt(int i) => switch (i) {
-        0 => _done0,
+        // 昊总 20260927：材料盖不住模型 → 段①不算完成（段②圆徽锁定）。
+        0 => _done0 && _stockCoversModel,
         1 => _done1,
         _ => !widget.overflow &&
             (widget.safetyChecked || DebugSim.instance.enabled),
@@ -2955,36 +2972,34 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           ],
           SizedBox(height: crossH, child: _jogCross()),
           const SizedBox(height: 10),
-          Row(children: [
-            _stepPill('0.1', _jogStep == 0.1, () => setState(() => _jogStep = 0.1)),
-            _stepPill('1', _jogStep == 1, () => setState(() => _jogStep = 1)),
-            _stepPill('10', _jogStep == 10, () => setState(() => _jogStep = 10)),
-            const Spacer(),
-            Text('mm',
-                style: TextStyle(fontSize: 11, color: CncColors.textSub)),
-          ]),
+          _stepRow(),
         ]);
       case 1:
         // ② 定位模型：模型盘（中心=居中，复用 _centerModel）。
         // 拖动模型时抽屉自动收起 → 画布增高；点「▲ 展开工具」再展开。
-        return SizedBox(
-          height: crossH,
-          // 八向盘（§3.2a）：纯 App 运算（_setDesign 偏移），8 向全部支持
-          // 按住连发（旧模型 180ms）；斜向每轴分量 = 步长÷√2。屏幕上 = 设计 Y+。
-          child: OctagonDial(
-            enabled: !_busy,
-            onTap: (dx, dy) {
-              final comp =
-                  (dx != 0 && dy != 0) ? _jogStep / sqrt2 : _jogStep;
-              _setDesign(widget.origin + Offset(dx * comp, -dy * comp),
-                  quiet: true);
-            },
-            repeatFor: (_, __) => true,
-            centerLabel: '居中',
-            centerLight: true,
-            onCenter: _busy ? null : _centerModel,
+        // 昊总 20260927：补虚拟步长三选（与段①共用 _jogStep 选中态）。
+        return Column(children: [
+          SizedBox(
+            height: crossH,
+            // 八向盘（§3.2a）：纯 App 运算（_setDesign 偏移），8 向全部支持
+            // 按住连发（旧模型 180ms）；斜向每轴分量 = 步长÷√2。屏幕上 = 设计 Y+。
+            child: OctagonDial(
+              enabled: !_busy,
+              onTap: (dx, dy) {
+                final comp =
+                    (dx != 0 && dy != 0) ? _jogStep / sqrt2 : _jogStep;
+                _setDesign(widget.origin + Offset(dx * comp, -dy * comp),
+                    quiet: true);
+              },
+              repeatFor: (_, __) => true,
+              centerLabel: '居中',
+              centerLight: true,
+              onCenter: _busy ? null : _centerModel,
+            ),
           ),
-        );
+          const SizedBox(height: 10),
+          _stepRow(),
+        ]);
       default:
         // ③ 预览确认：雕刻预览（复用 _doFraming）+ 已目视确认（复用 _safetyTick）。
         final canPreview = !_busy && !_framePlaying && _datumDone;
@@ -3014,8 +3029,11 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     switch (seg) {
       case 0:
         if (_done0) {
-          enabled = !_busy;
-          label = '定位完成，去定位模型';
+          // 昊总 20260927：材料范围任一维盖不住模型 → 禁推进（直述原因）。
+          enabled = !_busy && _stockCoversModel;
+          label = _stockCoversModel
+              ? '定位完成，去定位模型'
+              : '材料小于模型，请重新取点';
           act = () async => setState(() => _seg = 1);
         } else {
           enabled = false;
@@ -3157,6 +3175,15 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   /// 步长胶囊（工单十六 §2.1）：70×44 整行热区、圆角 999、字 12；
   /// 选中 = 浅底：纸白底 + 1.5dp 墨描边 + 墨字 w600（§3.1，弃青绿底）；
   /// 未选 = 纸白底 + 1dp border + textSub。行末「mm」由调用行常驻。
+  /// 步长三选行（段①/②共用 —— 昊总 20260927：定位模型盘也要虚拟步长）。
+  Widget _stepRow() => Row(children: [
+        _stepPill('0.1', _jogStep == 0.1, () => setState(() => _jogStep = 0.1)),
+        _stepPill('1', _jogStep == 1, () => setState(() => _jogStep = 1)),
+        _stepPill('10', _jogStep == 10, () => setState(() => _jogStep = 10)),
+        const Spacer(),
+        Text('mm', style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+      ]);
+
   Widget _stepPill(String label, bool active, VoidCallback? onTap) =>
       GestureDetector(
         onTap: onTap,
@@ -3414,6 +3441,22 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   /// 两点够开且材料矩形成立（<10mm 视为没框好）。
   bool get _rectOk => _stockRectMm != null;
 
+  /// 材料取点范围（长×宽）**任一维 < 模型尺寸** → 盖不住模型（昊总 20260927
+  /// 门禁：段① CTA 禁用 + Stepper 段②锁定 + 顶部通栏换文案）。圆料取直径
+  /// 比；手动模式无模型尺寸可比 / 模型尺寸缺失 → 不拦（保持原行为）。
+  bool get _stockCoversModel {
+    if (!_wysiwyg || _w <= 0 || _h <= 0) return true;
+    if (widget.stockShape == StockShape.circle) {
+      final c = _circle();
+      if (c == null) return false;
+      final d = c.radius * 2;
+      return d >= _w - 0.01 && d >= _h - 0.01;
+    }
+    final s = _stockRectMm;
+    if (s == null) return false;
+    return s.width >= _w - 0.01 && s.height >= _h - 0.01;
+  }
+
   /// 工作指示窗 · 四态文案（工单 20260924 §3.3），随流程自动切换；
   /// 异常（红/黄）优先级更高。
   ({String text, int level}) _guideText() {
@@ -3435,9 +3478,16 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         level: 0
       );
     }
-    // ② 取点完成 → 先锁原点（预览/下一步都在锁定之后 —— 真机 09-24 定版）
+    // ② 取点完成 → 材料覆盖度先过关（昊总 20260927：原「按【确认原点】
+    // 锁定雕刻起点」取消 —— 新链路原点在段② CTA 写入，该句已失效）。
+    // 盖不住 = 红条直述；盖得住 = 引导去下一步。段②未写 G54 前按其 CTA 引导。
     if (!(widget.originSet && (_g54Written || !_wysiwyg))) {
-      return (text: '按【确认原点】锁定雕刻起点', level: 0);
+      if (_segEff == 0 && _rectOk) {
+        return _stockCoversModel
+            ? (text: '材料已定位，按下方按钮去定位模型', level: 0)
+            : (text: '材料雕刻面积无法覆盖模型尺寸，需重新选择', level: 2);
+      }
+      return (text: '按【位置确认，去预览】锁定雕刻起点', level: 0);
     }
     // ③ 锁定后 → 预览（可顺手拖模型摆位）
     if (!_framingDone) {
@@ -3725,13 +3775,23 @@ class _BedPainter extends CustomPainter {
 // ===================== Step 4 · 智能调平（不调平 / 标准 / 精细）=====================
 
 class _StepLeveling extends StatelessWidget {
+  // 浅底选中锚点色（工单十六 §3 同值）：墨 #182735 / 纸白 #FFFDF9。
+  static const Color _inkLv = Color(0xFF182735);
+  static const Color _paperLv = Color(0xFFFFFDF9);
   final int mode;
   final TaskMetadata? task; // 用于取云端下发的真实模型尺寸（cm）
   final void Function(int) onMode;
+  /// 延时摄影（工单十八 §2.1 #5：自 Step5 平移进本页）。
+  final bool timeLapse;
+  final ValueChanged<bool> onToggleTimeLapse;
+  final TextEditingController durationController;
   const _StepLeveling({
     required this.mode,
     this.task,
     required this.onMode,
+    required this.timeLapse,
+    required this.onToggleTimeLapse,
+    required this.durationController,
   });
 
   @override
@@ -3740,11 +3800,7 @@ class _StepLeveling extends StatelessWidget {
     // 调平点数由云端下发的真实模型尺寸（G 代码解析所得）决定，不再写死演示面积。
     final wCm = (task?.widthMm ?? 0) / 10;
     final hCm = (task?.heightMm ?? 0) / 10;
-    const modes = [
-      ('不调平', '跳过曲面调平，手动确认台面平整'),
-      ('标准调平', '约 5cm 网格间距，满足大部分雕刻'),
-      ('精细调平', '约 3cm 网格间距，复杂曲面更精准'),
-    ];
+    const modes = ['不调平', '标准调平', '精细调平'];
     final plan = _computeLeveling(mode, wCm, hCm);
     final grid = mode == 0
         ? '跳过调平'
@@ -3755,36 +3811,9 @@ class _StepLeveling extends StatelessWidget {
       children: [
         Text(S.step4Leveling,
             style: t.titleMedium?.copyWith(color: CncColors.textMain)),
-        const SizedBox(height: 8),
-        // 2026-09-03：屏幕端调平功能尚未开发完成，暂时只允许「不调平」。
-        // （闫安文档 §「不包含：自动调平」，本次雕刻主链路也不含调平。）
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: CncColors.warnBg,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: CncColors.warnBd),
-          ),
-          child: Row(
-            children: [
-              Icon(Symbols.info, size: 16, color: CncColors.warning),
-              SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  '曲面调平功能暂未启用（待机器屏幕端开发完成），当前默认跳过调平。',
-                  style: TextStyle(fontSize: 11, color: CncColors.textMain),
-                ),
-              ),
-            ],
-          ),
-        ),
         const SizedBox(height: 12),
-        Text(
-          mode == 0
-              ? '本次雕刻将跳过调平，请手动确认台面平整、耗材已压紧。'
-              : '基于加工面积自动匹配探测点。选择调平模式以平衡精度与耗时：',
-          style: TextStyle(fontSize: 12, color: CncColors.textSub)),
-        const SizedBox(height: 12),
+        // 警告条与解释行删除（工单十八 §2.1 #3/#4：内部开发状态上屏违反
+        // 零解释铁律；标准/精细置灰已表达不可用）。
         Row(
           children: List.generate(modes.length, (i) {
             // 只有「不调平」可用；标准/精细待屏幕端就绪后放开
@@ -3799,24 +3828,23 @@ class _StepLeveling extends StatelessWidget {
                     opacity: enabled ? 1.0 : 0.45,
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 14),
+                      // 浅底选中（工单十八 §2.1 #2）：纸白底 + 1.5dp 墨描边 +
+                      // 墨字 w600；弃 primary 绿描边浅绿底。
                       decoration: BoxDecoration(
-                        color: sel
-                            ? CncColors.primary.withOpacity(0.12)
-                            : CncColors.bg,
+                        color: sel ? _paperLv : CncColors.bg,
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(
-                            color: sel
-                                ? CncColors.primary
-                                : CncColors.border),
+                            width: sel ? 1.5 : 1.0,
+                            color: sel ? _inkLv : CncColors.border),
                       ),
                       child: Center(
-                        child: Text(modes[i].$1,
+                        child: Text(modes[i],
                             style: TextStyle(
                                 fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                                color: sel
-                                    ? CncColors.primary
-                                    : CncColors.textMain)),
+                                fontWeight: sel
+                                    ? FontWeight.w600
+                                    : FontWeight.bold,
+                                color: sel ? _inkLv : CncColors.textMain)),
                       ),
                     ),
                   ),
@@ -3838,12 +3866,52 @@ class _StepLeveling extends StatelessWidget {
             children: [
               _Param('基于图纸面积匹配阵列', grid),
               _Param('预估调平额外耗时', time),
-              const SizedBox(height: 4),
-              Text('执行方式：点击雕刻后自动完成，无需等待',
-                  style: TextStyle(fontSize: 10, color: CncColors.textSub)),
-              const SizedBox(height: 4),
-              Text(modes[mode].$2,
-                  style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+            ],
+          ),
+        ),
+        // 延时摄影卡（工单十八 §2.1 #5：自 Step5 整块平移，样式不变，
+        // activeColor 弃 blue 改 textMain 墨色对齐全局开关）。
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: CncColors.card,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: CncColors.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SwitchListTile(
+                title: Text('延时摄影',
+                    style: TextStyle(color: CncColors.textMain, fontSize: 13)),
+                subtitle: Text('雕刻时服务器自动拍照，结束后生成 15 秒回顾视频',
+                    style: TextStyle(fontSize: 11, color: CncColors.textMain)),
+                value: timeLapse,
+                onChanged: onToggleTimeLapse,
+                activeColor: CncColors.textMain,
+                contentPadding: EdgeInsets.zero,
+              ),
+              if (timeLapse)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: TextField(
+                    controller: durationController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: '预计雕刻时长（秒）',
+                      labelStyle: const TextStyle(fontSize: 12),
+                      hintText: '例如 120 = 2 分钟',
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 8),
+                    ),
+                    style: TextStyle(
+                        fontSize: 13, color: CncColors.textMain),
+                  ),
+                ),
             ],
           ),
         ),
@@ -3864,6 +3932,9 @@ class _StepTakeoff extends ConsumerStatefulWidget {
   final LaserParams? laserParams;
   final List<RequiredTool> requiredTools;
   final Map<int, int> procSlot;
+  /// 延时摄影（工单十八 §2.1 #5：状态上移 _WizardPageState，此处只读透传）。
+  final bool timeLapse;
+  final TextEditingController durationController;
   const _StepTakeoff({
     required this.item,
     required this.task,
@@ -3872,6 +3943,8 @@ class _StepTakeoff extends ConsumerStatefulWidget {
     required this.laserParams,
     required this.requiredTools,
     required this.procSlot,
+    required this.timeLapse,
+    required this.durationController,
   });
 
   @override
@@ -3879,18 +3952,9 @@ class _StepTakeoff extends ConsumerStatefulWidget {
 }
 
 class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
-  bool _timeLapse = false;
-  final TextEditingController _durCtrl = TextEditingController(text: '120');
-
   /// 两段式启动（2026-09-02）：点「开始」后按钮立刻进入「已下发」态并禁用，
   /// 避免在指令还没送达时用户连点造成重复下发。
   bool _launching = false;
-
-  @override
-  void dispose() {
-    _durCtrl.dispose();
-    super.dispose();
-  }
 
   Future<void> _start() async {
     final task = widget.task;
@@ -3900,7 +3964,7 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
 
     // 延时摄影：开启则让服务器从本刻起按雕刻时长抽样存图（与固件雕刻并行，
     // 手机/电脑/机器本身均不存照片，全部在服务器完成）。
-    if (_timeLapse) {
+    if (widget.timeLapse) {
       // 2026-09-05 修（P0）：与控制台同源注入设备码，并给 stream_start 带 deviceId。
       //
       // 原实现两处都没带设备码：
@@ -3934,7 +3998,7 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
               .sendCameraStream('stream_start', deviceId: dev);
         } catch (_) {}
       }
-      final dur = double.tryParse(_durCtrl.text) ?? 120.0;
+      final dur = double.tryParse(widget.durationController.text) ?? 120.0;
       final tlRes = await TimeLapseClient.start(durationSec: dur);
       if (tlRes.conflict && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -4021,25 +4085,31 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
       showWanBlockedSnack(context, '开始雕刻');
       return;
     }
-    // 清空导航栈进入自检页，避免加工过程中返回向导页
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(
-        builder: (_) => SelfCheckPage(
-          materialKey: widget.materialKey,
-          // 激光作业传空刀具列表（工单 §4.2）：自检页不出现刀具核对项。
-          requiredTools:
-              widget.isLaser ? const <RequiredTool>[] : widget.requiredTools,
-          procSlot: widget.procSlot,
-        ),
-      ),
-      (route) => false,
-    );
+    // 下发成功 → 清导航栈直接回控制台（工单十八 §2.3：准备中页退役，
+    // 状态迁移由控制台状态卡五态呈现；下发失败仍留本页走 JobLaunchBanner）。
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   @override
   Widget build(BuildContext context) {
     final mat = materialByKey(widget.materialKey);
     final req = widget.requiredTools;
+    // 发送门禁（工单十八 §2.2 #7）：机器 idle + 仓门关 + 无异常。刀仓盖
+    // cover 字段未联调（工单十二 §2.10 同一依赖），预留判定位：
+    // final bool coverClosed = st.aux['cover'] != true; // 接入后一行并入
+    final st = ref.watch(machineStatusProvider).value ?? const MachineStatus();
+    final bool doorOpen = st.door;
+    final bool hasAlarm = st.error != null || st.alarmCode != 0;
+    final bool canSend =
+        !doorOpen && !hasAlarm && st.state == MachineState.idle;
+    // 多项不满足按 仓门→异常→空闲 优先级直述第一条（§2.2 #8；全满足不显示）。
+    final String? blockedText = !canSend
+        ? (doorOpen
+            ? '关闭仓门后可发送'
+            : hasAlarm
+                ? '处理报警后可发送'
+                : '等机器空闲后可发送')
+        : null;
     return _ReadyPhase(
       mat: mat,
       requiredTools: req,
@@ -4048,9 +4118,8 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
       laserParams: widget.laserParams,
       durationText: widget.item.duration,
       durationSec: widget.item.durationSec,
-      timeLapse: _timeLapse,
-      onToggleTimeLapse: (v) => setState(() => _timeLapse = v),
-      durationController: _durCtrl,
+      canSend: canSend,
+      blockedText: blockedText,
       onStart: _start,
       launching: _launching,
     );
@@ -4065,9 +4134,10 @@ class _ReadyPhase extends StatelessWidget {
   /// 激光作业：显示只读激光参数卡、隐藏铣削参数与刀具区块（工单 §4.2）。
   final bool isLaser;
   final LaserParams? laserParams;
-  final bool timeLapse;
-  final ValueChanged<bool> onToggleTimeLapse;
-  final TextEditingController durationController;
+  /// 发送门禁（工单十八 §2.2 #7）：三条件全满足才可按；blockedText =
+  /// 第一条不满足项的直述文案（全满足为 null，不显示附加文字）。
+  final bool canSend;
+  final String? blockedText;
   final VoidCallback onStart;
 
   /// W-12（2026-09-10）：云端模型自带的真实预估耗时文案（如"12分30秒"）。
@@ -4084,9 +4154,8 @@ class _ReadyPhase extends StatelessWidget {
     required this.procSlot,
     required this.isLaser,
     required this.laserParams,
-    required this.timeLapse,
-    required this.onToggleTimeLapse,
-    required this.durationController,
+    required this.canSend,
+    required this.blockedText,
     required this.onStart,
     this.launching = false,
     this.durationText,
@@ -4196,65 +4265,27 @@ class _ReadyPhase extends StatelessWidget {
               Icon(Symbols.lock, size: 14, color: CncColors.blue),
               const SizedBox(width: 6),
               Expanded(
-                child: Text(
-                    '加工文件由云端直接发送到机器，手机不会留存任何文件，更安全。'
-                    '点击后设备将先执行自检流水线，完成后自动进入实时加工监控页。',
+                child: Text('作业由云端直发机器，手机不留存文件',
                     style: TextStyle(fontSize: 11, color: CncColors.textMain)),
               ),
             ],
           ),
         ),
-        Container(
-          margin: const EdgeInsets.only(top: 4),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: CncColors.card,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: CncColors.border),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SwitchListTile(
-                title: Text('延时摄影',
-                    style: TextStyle(color: CncColors.textMain, fontSize: 13)),
-                subtitle: Text('雕刻时服务器自动拍照，结束后生成 15 秒回顾视频',
-                    style: TextStyle(fontSize: 11, color: CncColors.textMain)),
-                value: timeLapse,
-                onChanged: onToggleTimeLapse,
-                activeColor: CncColors.blue,
-                contentPadding: EdgeInsets.zero,
-              ),
-              if (timeLapse)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: TextField(
-                    controller: durationController,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: '预计雕刻时长（秒）',
-                      labelStyle: const TextStyle(fontSize: 12),
-                      hintText: '例如 120 = 2 分钟',
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8)),
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 8),
-                    ),
-                    style: TextStyle(
-                        fontSize: 13, color: CncColors.textMain),
-                  ),
-                ),
-            ],
-          ),
-        ),
+        // 延时摄影块已平移 Step4（工单十八 §2.1 #5 / §2.2 #4）。
         // 雕刻启动三态（两段式，2026-09-02）：已下发 / 待确认 / 指令未送达
         const JobLaunchBanner(),
+        // 门禁直述（工单十八 §2.2 #8）：只报第一条不满足项；全满足不显示。
+        if (blockedText != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Text(blockedText,
+                style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+          ),
         const SizedBox(height: 14),
         SizedBox(
           width: double.infinity,
           child: FilledButton.icon(
-            onPressed: launching ? null : onStart,
+            onPressed: (launching || !canSend) ? null : onStart,
             icon: launching
                 ? const SizedBox(
                     width: 16,
@@ -4263,7 +4294,7 @@ class _ReadyPhase extends StatelessWidget {
                         strokeWidth: 2, color: Colors.black54),
                   )
                 : Icon(Symbols.play_arrow, color: CncColors.onPrimary),
-            label: Text(launching ? S.sentWaitingPlain : '开始自检并雕刻',
+            label: Text(launching ? S.sentWaitingPlain : '发送到机器',
                 style: const TextStyle(
                     fontSize: 14, fontWeight: FontWeight.bold)),
           ),

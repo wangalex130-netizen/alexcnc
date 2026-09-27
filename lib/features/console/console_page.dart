@@ -28,6 +28,7 @@ import '../../models/broadcast_message.dart';
 
 import '../../models/notify_event.dart';
 
+import '../../models/carve_session.dart';
 import '../../state/providers.dart';
 
 import '../../state/auth_provider.dart';
@@ -53,7 +54,6 @@ import '../wizard/job_launch_banner.dart';
 
 import '../wizard/job_monitor_page.dart';
 
-import '../wizard/self_check_page.dart';
 
 
 import 'move_page.dart';
@@ -1305,6 +1305,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     // 20260924 工单二 §4 / 控制台规格书 §1：主页 v2.2（拓竹式，全高固定区无滚动）。
     // 换皮+换位：状态源、命令下发、横幅数据流零改动（规格书 §9.4）。
     final job = ref.watch(activeJobProvider);
+    // 状态卡五态数据源（工单十八 §2.4）：启动阶段 + 雕刻会话 + 机器状态帧。
+    final launchPhase = ref.watch(jobLaunchPhaseProvider);
+    final carve = ref.watch(carveSessionProvider).valueOrNull;
     final bool alarmNow = status.state == MachineState.alarm;
     final bool busyNow = status.state == MachineState.busy ||
         status.state == MachineState.paused;
@@ -1482,27 +1485,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 ],
               ),
             ),
-          if (status.awaitingConfirm)
-            Container(
-              margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: CncColors.warnBg,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: CncColors.warnBd),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                        '等待机旁确认：请在机器面板按下确认键后继续加工。',
-                        style: TextStyle(
-                            fontSize: 11, color: CncColors.warning)),
-                  ),
-                ],
-              ),
-            ),
-          const JobLaunchBanner(),
+          // 「等待机旁确认」横幅删除（工单十八 §2.4）：待确认态移交状态卡。
+          // banner 只保留失败/重试职责（failureOnly），同一信息不两处同显。
+          const JobLaunchBanner(failureOnly: true),
           if (job != null && job.completed)
             GestureDetector(
               onTap: () => Navigator.of(context).push(
@@ -1543,34 +1528,31 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
               ),
             ),
 
-          // ---- 状态卡（三态互斥一张卡，规格 §3；『当前加工中·x%』并入本卡）----
+          // ---- 状态卡（五态互斥一张卡，工单十八 §2.4：雕刻状态唯一入口）----
           _StatusCard(
             mode: alarmNow
                 ? _StatusMode.alarm
-                : busyNow
-                    ? _StatusMode.busy
-                    : _StatusMode.idle,
+                : (launchPhase == JobLaunchPhase.awaitingConfirm ||
+                        carve?.stage == CarveStage.ready ||
+                        carve?.stage == CarveStage.confirming)
+                    ? _StatusMode.confirming
+                    : (launchPhase == JobLaunchPhase.dispatched ||
+                            carve?.stage == CarveStage.preparing)
+                        ? _StatusMode.sending
+                        : busyNow
+                            ? _StatusMode.busy
+                            : _StatusMode.idle,
             alarmText: status.alarmText ?? status.error ?? '机器报警',
             progressPct: progressPct,
             etaText: _fmtEta(status.eta),
             jobName: jobName,
             isPaused: isPaused,
+            // 状态卡 = 雕刻状态唯一入口（工单十八 §2.4）：统一进加工监控。
+            // 准备中页（SelfCheckPage）退役，向导成功路径不再进入（§2.3）。
             onTap: () {
-              if (job != null && !job.completed && !job.selfCheckDone) {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => SelfCheckPage(
-                      materialKey: job.materialKey,
-                      requiredTools: job.task.requiredTools,
-                      procSlot: job.procSlot,
-                    ),
-                  ),
-                );
-              } else {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const JobMonitorPage()),
-                );
-              }
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const JobMonitorPage()),
+              );
             },
             onPauseResume: () {
               // 仅在真正加工中/已暂停时才下发命令，避免 idle 时误触（沿用原逻辑）。
@@ -1765,10 +1747,11 @@ String _fmtEta(Duration? eta) {
   return h > 0 ? '剩余 ${h}h${m}m' : '剩余 ${m}m';
 }
 
-enum _StatusMode { idle, busy, alarm }
+/// 五态互斥（工单十八 §2.4）：空闲 / 下发中 / 待机器确认 / 雕刻中 / 报警。
+enum _StatusMode { idle, sending, confirming, busy, alarm }
 
-/// 三态互斥状态卡：空闲 / 加工中（进度+暂停/停止圆钮）/ 报警。
-/// 同一 widget 三种入参（规格 §3），整卡 onTap → 加工详情。
+/// 五态互斥状态卡（工单十八 §2.4）：空闲 / 下发中 / 待机器确认 /
+/// 雕刻中（进度+暂停/停止圆钮）/ 报警。整卡 onTap → 加工监控（唯一入口）。
 class _StatusCard extends StatelessWidget {
   final _StatusMode mode;
   final String alarmText;
@@ -1796,18 +1779,28 @@ class _StatusCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final alarm = mode == _StatusMode.alarm;
     final busy = mode == _StatusMode.busy;
+    // 待机器确认：黄底强调（承接被删除的机旁确认横幅视觉权重，工单十八 §2.4）。
+    final confirm = mode == _StatusMode.confirming;
     return GestureDetector(
       onTap: onTap,
       child: Container(
         margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
         padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
         decoration: BoxDecoration(
-          color: alarm ? CncColors.dangerBg : CncColors.card,
+          color: alarm
+              ? CncColors.dangerBg
+              : confirm
+                  ? CncColors.warnBg
+                  : CncColors.card,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-              color: alarm ? CncColors.dangerBd : CncColors.border),
+              color: alarm
+                  ? CncColors.dangerBd
+                  : confirm
+                      ? CncColors.warnBd
+                      : CncColors.border),
         ),
-        child: busy && !alarm ? _busyBody() : _simpleRow(alarm),
+        child: busy && !alarm ? _busyBody() : _simpleRow(mode),
       ),
     );
   }
@@ -1824,7 +1817,7 @@ class _StatusCard extends StatelessWidget {
       children: [
         Row(
           children: [
-            Text('加工中 $progressPct%',
+            Text('雕刻中 $progressPct%',
                 style: TextStyle(
                     fontSize: 13.5,
                     fontWeight: FontWeight.w600,
@@ -1870,8 +1863,30 @@ class _StatusCard extends StatelessWidget {
     );
   }
 
-  /// 空闲 / 报警态：左标题+副行，右箭头（报警态加停止圆钮，免确认直停）。
-  Widget _simpleRow(bool alarm) {
+  /// 空闲 / 下发中 / 待确认 / 报警态：左标题+副行，右箭头
+  /// （报警态加停止圆钮，免确认直停）。雕刻中走 _busyBody（工单十八 §2.4）。
+  Widget _simpleRow(_StatusMode mode) {
+    final alarm = mode == _StatusMode.alarm;
+    final confirm = mode == _StatusMode.confirming;
+    final String title = alarm
+        ? '报警 · $alarmText'
+        : confirm
+            ? '待机器确认'
+            : mode == _StatusMode.sending
+                ? '正在发送作业'
+                : '设备空闲';
+    final String sub = alarm
+        ? '点击处理'
+        : confirm
+            ? '请在机器屏幕上按「开始」键'
+            : mode == _StatusMode.sending
+                ? '正在传输加工程序…'
+                : '快来开始雕刻吧';
+    final Color titleColor = alarm
+        ? CncColors.danger
+        : confirm
+            ? CncColors.warning
+            : CncColors.textMain;
     return Row(
       children: [
         if (alarm) ...[
@@ -1882,16 +1897,15 @@ class _StatusCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(alarm ? '报警 · $alarmText' : '设备空闲',
+              Text(title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                       fontSize: 13.5,
                       fontWeight: FontWeight.w600,
-                      color:
-                          alarm ? CncColors.danger : CncColors.textMain)),
+                      color: titleColor)),
               const SizedBox(height: 2),
-              Text(alarm ? '点击处理' : '快来开始雕刻吧',
+              Text(sub,
                   style: TextStyle(fontSize: 11.5, color: CncColors.textSub)),
             ],
           ),

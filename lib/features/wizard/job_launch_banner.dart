@@ -24,7 +24,11 @@ import '../../state/providers.dart';
 ///
 /// 用法：放进任意页面的 Column 顶部即可；[JobLaunchPhase.idle] 时不占空间。
 class JobLaunchBanner extends ConsumerWidget {
-  const JobLaunchBanner({super.key});
+  /// [failureOnly]（工单十八 §2.4）：控制台状态卡承接「下发中/待确认/准备中」
+  /// 展示后，控制台只保留失败/重试职责，同一信息不两处同显。
+  /// 向导 Step5（用户停留页）保持全态展示（默认 false）。
+  final bool failureOnly;
+  const JobLaunchBanner({super.key, this.failureOnly = false});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -52,6 +56,8 @@ class JobLaunchBanner extends ConsumerWidget {
 
     switch (carve.stage) {
       case CarveStage.preparing:
+        // failureOnly（控制台）：准备中由状态卡五态呈现，此处去重。
+        if (failureOnly) return const SizedBox.shrink();
         title = '准备中';
         detail = carve.download > 0
             ? '机器正在接收加工程序 ${carve.download}%'
@@ -59,6 +65,8 @@ class JobLaunchBanner extends ConsumerWidget {
         color = CncColors.textSub;
       case CarveStage.ready:
       case CarveStage.confirming:
+        // failureOnly（控制台）：待确认态由状态卡呈现，此处去重。
+        if (failureOnly) return const SizedBox.shrink();
         title = '开始中';
         detail = '程序已就绪，正在开始雕刻…';
         color = CncColors.warning;
@@ -91,6 +99,8 @@ class JobLaunchBanner extends ConsumerWidget {
 
     switch (phase) {
       case JobLaunchPhase.awaitingConfirm:
+        // failureOnly（控制台）：待确认态由状态卡呈现，此处去重。
+        if (failureOnly) return const SizedBox.shrink();
         title = '待确认';
         detail = '请在机器上按开始键确认，确认后才会动刀。';
         color = CncColors.warning;
@@ -101,6 +111,8 @@ class JobLaunchBanner extends ConsumerWidget {
         color = CncColors.danger;
         icon = Symbols.cloud_off;
       case JobLaunchPhase.dispatched:
+        // failureOnly（控制台）：已下发/重试中由状态卡呈现，此处去重。
+        if (failureOnly) return const SizedBox.shrink();
         final retrying = pending?.state == CommandDeliveryState.retrying;
         final queued = pending?.state == CommandDeliveryState.queued;
         title = S.sent;
