@@ -108,6 +108,14 @@ class LibraryItem {
   /// 加工类型：'cnc' | 'laser'。云端缺省按 'cnc'（存量模型零回归）。
   final String? processType;
 
+  /// 激光作业判定（20260927 兜底口径）：云端显式 processType='laser'，
+  /// 或带任一激光专用参数（后端打标缺失时仍能按激光渲染详情/向导）。
+  bool get isLaserJob =>
+      processType == 'laser' ||
+      laserPowerPct != null ||
+      laserSpeedMmMin != null ||
+      laserPasses != null;
+
   /// 激光功率 %（laser 专用）。
   final int? laserPowerPct;
 

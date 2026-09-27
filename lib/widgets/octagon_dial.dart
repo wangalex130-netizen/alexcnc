@@ -225,7 +225,7 @@ class OctagonDial extends StatelessWidget {
 }
 
 /// 中心动作键（昊总 0927 反馈）：加按压态 —— 按下加灰底（浅底键 textMain
-/// 10%、深底键黑 10% 压暗），松手恢复；onTap 为 null 时纯展示无手势。
+/// 20%、深底键压暗），松手恢复；onTap 为 null 时纯展示无手势。
 /// 视觉规格与原 _center 一致（170 盘 52 / 190 盘 58）。
 class _DialCenter extends StatefulWidget {
   const _DialCenter({
@@ -266,7 +266,7 @@ class _DialCenterState extends State<_DialCenter> {
           // 强调。浅底（工单十六 §2.1）：纸白底 + 1.5dp 墨描边，任何状态不深底。
           color: w.light
               ? (_down
-                  ? CncColors.textMain.withOpacity(0.10)
+                  ? CncColors.textMain.withOpacity(0.20)
                   : CncColors.card)
               : (_down
                   ? (w.active ? CncColors.primary : CncColors.successBg)

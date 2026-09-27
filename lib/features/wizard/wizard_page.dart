@@ -128,6 +128,9 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   void initState() {
     super.initState();
     _step = widget.initialStep;
+    // 激光形态同步预判（昊总 20260927）：processType/激光参数在列表接口就有值，
+    // 首帧即按激光口径渲染 Step1（尺寸两维/无厚度门禁），不必等 payload 回包。
+    _isLaserJob = widget.item.isLaserJob;
     // 厚度输入框：输入过程中**不做强制吸附/改写**（否则客户敲 "1" 准备输 "18" 时
     // 会被判成"小于下限"并回写，光标乱跳），只在失焦/提交时吸附到下限 ——
     // 沿用历史上验证过的做法（`_thicknessFocus`）。
@@ -145,8 +148,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     if (_thicknessFocus.hasFocus) return;
     if (!mounted || !_thickCtlReady) return;
     final v = _thicknessVal;
-    if (v >= _minThickness) return;
-    final s = _minThickness.toStringAsFixed(1);
+    if (v >= _thickReq) return;
+    final s = _thickReq.toStringAsFixed(1);
     _thicknessCtl.text = s;
     setState(() => _thickness = s);
   }
@@ -196,11 +199,15 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   /// ② 定原点页 3D 预览按客户填的真实厚度模拟耗材。
   double get _minThickness => _task?.boardThicknessMm ?? 3.0;
 
+  /// 厚度门禁下限：激光作业为 0 —— 激光不打穿材料，不存在切穿伤台面，
+  /// 板材厚度对激光无语义（昊总 20260927），Step1 不显厚度卡、不拦厚度。
+  double get _thickReq => _isLaserJob ? 0 : _minThickness;
+
   /// 客户填写的实际材料厚度（mm）；空/非法 ⇒ 0（视作未填，门禁拦住）。
   double get _thicknessVal => double.tryParse(_thickness) ?? 0;
 
   /// 厚度是否达标：已填 且 ≥ 模型要求的下限。
-  bool get _thickOk => _thicknessVal >= _minThickness;
+  bool get _thickOk => _thicknessVal >= _thickReq;
 
   /// 刀仓映射是否就绪：每把工序刀都分配到不同刀仓、逐仓实物确认完成、
   /// 且已点「确认映射并同步到机器」。
@@ -661,6 +668,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       case 0:
         return _StepMaterial(
           materialKey: _materialKey,
+          isLaser: _isLaserJob,
           modelWidthMm: _task?.widthMm ?? 0,
           modelHeightMm: _task?.heightMm ?? 0,
           minThicknessMm: _minThickness,
@@ -792,6 +800,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
 ///   ⑤ 装夹确认（材料平放 + 夹具只夹在雕刻区域外）
 class _StepMaterial extends StatelessWidget {
   final String materialKey; // 模型指定材质 key（只读，不再可选）
+  final bool isLaser; // 激光作业：无厚度门禁/厚度卡，尺寸串两维（昊总 20260927）
   final double modelWidthMm; // 雕刻图形宽（mm）
   final double modelHeightMm; // 雕刻图形高（mm）
   final double minThicknessMm; // 材料厚度下限 = 模型厚度（mm）
@@ -807,6 +816,7 @@ class _StepMaterial extends StatelessWidget {
 
   const _StepMaterial({
     required this.materialKey,
+    required this.isLaser,
     required this.modelWidthMm,
     required this.modelHeightMm,
     required this.minThicknessMm,
@@ -878,9 +888,12 @@ class _StepMaterial extends StatelessWidget {
     final size2d = hasSize
         ? '${_mm(modelWidthMm)} × ${_mm(modelHeightMm)} mm'
         : '以模型标注为准';
-    final sizeText = hasSize && minThicknessMm > 0
-        ? '${_mm(modelWidthMm)} × ${_mm(modelHeightMm)} × ${_mm(minThicknessMm)} mm'
-        : size2d;
+    // 激光无厚度语义：尺寸串恒两维（CNC 保持 长×宽×高=厚度下限 口径，工单十五 §2）。
+    final sizeText = isLaser
+        ? size2d
+        : (hasSize && minThicknessMm > 0
+            ? '${_mm(modelWidthMm)} × ${_mm(modelHeightMm)} × ${_mm(minThicknessMm)} mm'
+            : size2d);
     final minT = minThicknessMm.toStringAsFixed(1);
     final thVal = double.tryParse(thickness) ?? 0;
     final tooThin = thVal > 0 && thVal < minThicknessMm;
@@ -958,7 +971,8 @@ class _StepMaterial extends StatelessWidget {
 
           // ④ 材料厚度：**客户填写实际厚度**（昊总 2026-09-18 改回输入模式）。
           // 基准 = 解析出的模型厚度（下限红线），必须 ≥ 该值。
-          _card(
+          // 激光作业整卡不渲染（无厚度语义，昊总 20260927）。
+          if (!isLaser) _card(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [

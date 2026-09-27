@@ -176,17 +176,33 @@ class JogKeyState extends State<JogKey> {
           onTapCancel: _stop,
           child: Opacity(
             opacity: widget.enabled ? 1 : 0.45,
-            child: Container(
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+            // 按压灰 v2（昊总 0927 二次反馈：灰加深 + 区域加大——手指按住
+            // 后四周仍可见）：22% 墨灰向内容框四周外扩 8dp；IgnorePointer
+            // 不抢热区、不参与布局、不改本键与邻键命中范围。
+            if (widget.flat && _holding)
+              Positioned(
+                left: -8,
+                top: -8,
+                right: -8,
+                bottom: -8,
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: CncColors.textMain.withOpacity(0.22),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+              ),
+            Container(
               height: widget.height ?? (widget.tall ? 44 : 40),
-              // flat 平面键（八向盘直边/斜角、移动页 Z 钮）原样无按压视觉，
-              // 昊总 0927 实测「按了不知道按了没有」—— 按住时补一层灰底
-              // （textMain 8%~10% 透明度，两主题自动成立），手势/连发零改动。
+              // flat 平面键（八向盘直边/斜角、移动页 Z 钮）：常态无底色，
+              // 按压灰由上方外扩层承载（v2），手势/连发零改动。
               decoration: widget.flat
-                  ? (_holding
-                      ? BoxDecoration(
-                          color: CncColors.textMain.withOpacity(0.10),
-                          borderRadius: BorderRadius.circular(8))
-                      : null)
+                  ? null
                   : BoxDecoration(
                 color: _holding ? accent.withOpacity(0.22) : CncColors.panelAlt,
                 borderRadius: BorderRadius.circular(6),
@@ -206,6 +222,8 @@ class JogKeyState extends State<JogKey> {
                               : CncColors.textMain)),
               ),
             ),
+            ],
+          ),
           ),
         );
   }

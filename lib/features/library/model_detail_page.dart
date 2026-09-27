@@ -18,6 +18,14 @@ import '../../widgets/tool_icon.dart';
 
 import '../wizard/wizard_page.dart';
 
+import '../machines/bind_page.dart';
+
+import '../../services/machines_service.dart';
+
+import '../../state/providers.dart';
+
+import '../preview/timelapse_client.dart';
+
 import 'toolpath_preview.dart';
 
 /// 模型库详情页：多图轮播 + 加工参数展示 + 「开始雕刻」入口。
@@ -41,7 +49,7 @@ import 'toolpath_preview.dart';
 ///   ④ 简介限 2 行（超出省略）。
 /// ListView 保留 —— `addRepaintBoundaries: false` 是 F-02 文字乱码的既有对策，
 /// 不能因为"看起来不用滚"就顺手删掉；内容已放得下，故实际不会滚动。
-class ModelDetailPage extends StatefulWidget {
+class ModelDetailPage extends ConsumerStatefulWidget {
 
   final LibraryItem item;
 
@@ -49,11 +57,11 @@ class ModelDetailPage extends StatefulWidget {
 
   @override
 
-  State<ModelDetailPage> createState() => _ModelDetailPageState();
+  ConsumerState<ModelDetailPage> createState() => _ModelDetailPageState();
 
 }
 
-class _ModelDetailPageState extends State<ModelDetailPage> {
+class _ModelDetailPageState extends ConsumerState<ModelDetailPage> {
 
   int _epoch = 0;
 
@@ -62,6 +70,19 @@ class _ModelDetailPageState extends State<ModelDetailPage> {
     // 2026-09-04：详情页已展示模型信息（材料/刀具/尺寸），"解析任务"步骤
 
     // 整段移除，进入向导即为材质确认（步骤 1）。
+
+    // 机器门禁（昊总 20260927）：未选当前机器 → 先进「选择/绑定机器」页，
+    // 选定后无缝续进向导；已选机器直接进向导。
+    if (ref.read(currentMachineProvider) == null) {
+      Navigator.of(context)
+          .push(MaterialPageRoute(
+              fullscreenDialog: true,
+              builder: (_) => _MachineGatePage(onDone: _openWizard)))
+          .then((_) {
+            if (mounted) setState(() => _epoch++);
+          });
+      return;
+    }
 
     Navigator.of(context)
 
@@ -271,7 +292,7 @@ class _DetailView extends ConsumerWidget {
 
                 const SizedBox(height: 10),
 
-                if (item.processType != 'laser') _ToolCard(item: item),
+                if (!item.isLaserJob) _ToolCard(item: item),
 
                 if ((item.description ?? '').isNotEmpty) ...[
 
@@ -450,25 +471,33 @@ class _ParamsGrid extends StatelessWidget {
 
     // 值最长的「尺寸」独占整行；其余 6 项两两并排（共 3 行）。
 
-    final sizeVal = '${_fmt(item.widthMm)} × ${_fmt(item.heightMm)} mm'
+    final isLaser = item.isLaserJob;
 
-        ' · 深 ${_fmt(item.depthMm)} mm';
+    // 激光无「深度/板材厚度」语义（昊总 20260927）：尺寸退两维、厚度行不渲染。
 
-    final isLaser = item.processType == 'laser';
+    final sizeVal = isLaser
+
+        ? '${_fmt(item.widthMm)} × ${_fmt(item.heightMm)} mm'
+
+        : '${_fmt(item.widthMm)} × ${_fmt(item.heightMm)} mm'
+
+            ' · 深 ${_fmt(item.depthMm)} mm';
 
     final rows = <(String, String)>[
 
-      (
+      if (!isLaser)
 
-        '板材厚度',
+        (
 
-        item.boardThicknessMm > 0
+          '板材厚度',
 
-            ? '${_fmt(item.boardThicknessMm)} mm'
+          item.boardThicknessMm > 0
 
-            : '—'
+              ? '${_fmt(item.boardThicknessMm)} mm'
 
-      ),
+              : '—'
+
+        ),
 
       (
 
@@ -939,6 +968,206 @@ class _BottomBar extends StatelessWidget {
 
   }
 
+}
+
+// ===================== 机器门禁页（昊总 20260927）=====================
+/// 「开始雕刻」前置：未选当前机器时先到本页。有绑定机器 → 点卡即选中并
+/// 回调续进向导；无绑定 → 绑定引导，绑完返回重拉列表。
+class _MachineGatePage extends ConsumerStatefulWidget {
+  final VoidCallback onDone;
+
+  const _MachineGatePage({required this.onDone});
+
+  @override
+
+  ConsumerState<_MachineGatePage> createState() => _MachineGatePageState();
+
+}
+
+class _MachineGatePageState extends ConsumerState<_MachineGatePage> {
+  bool _loading = false;
+
+  String? _error;
+
+  @override
+
+  void initState() {
+    super.initState();
+
+    _ensureLoaded();
+
+  }
+
+  Future<void> _ensureLoaded() async {
+    if (ref.read(boundMachinesProvider).isNotEmpty) return;
+    setState(() {
+      _loading = true;
+
+      _error = null;
+    });
+
+    try {
+      final list = await MachinesService(
+        baseUrl: ref.read(runtimeConfigProvider).resolvedBackendBaseUrl,
+      ).fetchMyMachines();
+
+      if (!mounted) return;
+
+      ref.read(boundMachinesProvider.notifier).state = list;
+
+      setState(() => _loading = false);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+
+          _error = e.toString().replaceFirst('Exception: ', '');
+        });
+      }
+    }
+  }
+
+  Future<void> _select(Machine m) async {
+    await ref.read(currentMachineProvider.notifier).select(m);
+
+    // 与控制台选机同款：配置延时摄影取流目标。
+    final device = m.sn.isNotEmpty ? m.sn : m.camDevice;
+
+    if (device.isNotEmpty) {
+      TimeLapseClient.configure(
+        base: AppConfig.cameraRelayBaseUrl,
+        device: device,
+      );
+    }
+
+    if (!mounted) return;
+
+    Navigator.of(context).pop();
+
+    widget.onDone();
+  }
+
+  void _openBind() {
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const BindPage()))
+        .then((_) => _ensureLoaded());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final machines = ref.watch(boundMachinesProvider);
+
+    return Scaffold(
+      backgroundColor: CncColors.bg,
+      appBar: AppBar(
+        backgroundColor: CncColors.panel,
+        title: Text('选择机器', style: TextStyle(color: CncColors.textMain)),
+      ),
+      body: _loading && machines.isEmpty
+          ? Center(
+              child: CircularProgressIndicator(color: CncColors.primary))
+          : machines.isEmpty
+              ? _guide()
+              : ListView.separated(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: machines.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  itemBuilder: (_, i) {
+                    final m = machines[i];
+                    final online = m.online == true;
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () => _select(m),
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: CncColors.card,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: CncColors.border),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: online
+                                    ? CncColors.successFg
+                                    : CncColors.disabled,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(m.name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                          color: CncColors.textMain)),
+                                  const SizedBox(height: 2),
+                                  Text('SN ${m.sn}',
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          color: CncColors.textSub)),
+                                ],
+                              ),
+                            ),
+                            Icon(Symbols.chevron_right,
+                                size: 18, color: CncColors.textSub),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+    );
+  }
+
+  Widget _guide() => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Symbols.add_to_queue, size: 44, color: CncColors.textSub),
+            const SizedBox(height: 12),
+            Text('还没有绑定机器',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: CncColors.textMain)),
+            const SizedBox(height: 6),
+            Text('先扫码绑定你的雕刻机，再回来开始雕刻。',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: CncColors.textSub)),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: CncColors.primary,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: _openBind,
+                child: Text('去绑定机器',
+                    style:
+                        TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+              ),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 10),
+              Text('清单拉取失败：$_error',
+                  style: TextStyle(fontSize: 11, color: CncColors.danger)),
+            ],
+          ],
+        ),
+      );
 }
 
 // ===================== 通用小徽章 =====================
