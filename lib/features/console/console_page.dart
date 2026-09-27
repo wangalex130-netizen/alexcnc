@@ -419,8 +419,10 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
     if (e.type == 'cmd_ack') return;
 
-    _showHint(e.message, alarm: e.isAlarm);
-
+    // 昊总 0927 定稿：机器回执/广播（如「未知命令」「找平完成」）不再弹黑条
+    // —— 机器在线不稳时每个页面底部时不时冒条，客户看不懂也不需要看。
+    // 事件仍由 MessageStore 全局落盘，「我的 → 系统消息与历史告警」可查；
+    // 报警态由控制台状态卡承载，此处静默即可。
   }
 
 
@@ -431,16 +433,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
     if (!mounted) return;
 
-    _showHint(
-
-      m.body.isNotEmpty ? '${m.title}：${m.body}' : m.title,
-
-      alarm: m.isAlarm,
-
-      warn: m.isWarn,
-
-    );
-
+    // 同 _onNotify：广播只落系统消息，不打扰客户（昊总 0927 定稿）。
   }
 
 

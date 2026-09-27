@@ -2083,10 +2083,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       final fresh = _frameAt != null &&
           DateTime.now().difference(_frameAt!) < const Duration(seconds: 2);
       if (!fresh) {
-        _note(
-            '暂时收不到机器的最新位置（超过 2 秒未更新）：现在取点会记下旧位置，'
-            '不是主轴当前所在位置。请确认机器已开机、手机网络正常，恢复后再取点',
-            bad: true);
+        _note('暂时收不到机器位置，恢复后才能继续取点', bad: true);
         return;
       }
     }
@@ -2101,8 +2098,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     if (widget.p0 == null) {
       widget.onP0(pt);
       _note(circle
-          ? '已记下圆周第 1 点 ($sx, $sy)。转到圆周「正对面」那点（连线过圆心），再按【取点】'
-          : '已记下第 1 点 ($sx, $sy)。移到材料的对角另一端，再按【取点】');
+          ? '已记下第 1 点，转到圆周正对面再按定位'
+          : '已记下第 1 点，移到对角再按定位');
     } else if (widget.p1 == null) {
       widget.onP1(pt);
       // 两点即完成标定（矩形 = 两点围出的横平竖直矩形，与先后无关；圆 = 两点连线为直径）。
@@ -2785,23 +2782,14 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
 
   // ---------- 状态条 / 抽屉 / CTA ----------
 
-  /// 状态条（工单 §3.1-5）：`机器名 · 加工模式 · 材料 W×H · 原点状态`；
-  /// 原点未设定=灰 → 已锁定=绿。
+  /// 状态条（昊总 0927 减负）：左侧仅机器名 —— 加工模式/材料尺寸是工程
+  /// 信息，客户不需要；结论「原点未设定/已锁定」保留在右侧。
   Widget _statusBar() {
     final sim = DebugSim.instance.enabled;
     final m = ref.watch(currentMachineProvider);
     final name = sim
         ? '模拟机器'
         : (m == null ? '未选机器' : (m.name.isNotEmpty ? m.name : m.sn));
-    final mode = _meta == null ? '手动' : (_meta!.isLaser ? '激光' : '主轴');
-    final circle = widget.stockShape == StockShape.circle;
-    final c = _circle();
-    final r = _stockRectMm;
-    final mat = !_datumDone || (circle ? c == null : r == null)
-        ? '材料未框定'
-        : (circle
-            ? '料 ⌀${(c!.radius * 2).toStringAsFixed(0)}'
-            : '料 ${r!.width.toStringAsFixed(0)}×${r!.height.toStringAsFixed(0)}');
     final locked = widget.originSet && (_g54Written || !_wysiwyg);
     return Container(
       height: 28,
@@ -2816,7 +2804,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           child: FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
-            child: Text('$name · $mode · $mat',
+            child: Text(name,
                 style: TextStyle(fontSize: 11, color: CncColors.textSub)),
           ),
         ),
@@ -4258,9 +4246,7 @@ class _ReadyPhase extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(S.step5Summary,
-            style: t.titleMedium?.copyWith(color: CncColors.textMain)),
-        const SizedBox(height: 10),
+        // 昊总 0927：「第 5 步 · 作业确认」标题删除 —— 步骤编号与页名对客户无意义。
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
@@ -4321,27 +4307,8 @@ class _ReadyPhase extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: CncColors.blue.withOpacity(0.08),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: CncColors.blue.withOpacity(0.3)),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Symbols.lock, size: 14, color: CncColors.blue),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text('作业由云端直发机器，手机不留存文件',
-                    style: TextStyle(fontSize: 11, color: CncColors.textMain)),
-              ),
-            ],
-          ),
-        ),
-        // 延时摄影块已平移 Step4（工单十八 §2.1 #5 / §2.2 #4）。
+        // 昊总 0927：「云端直发、不留存文件」说明卡删除 —— 设计侧信息，
+        // 客户不需要知道。延时摄影块已平移 Step4（工单十八 §2.1 #5 / §2.2 #4）。
         // 雕刻启动三态（两段式，2026-09-02）：已下发 / 待确认 / 指令未送达
         const JobLaunchBanner(),
         // 门禁直述（工单十八 §2.2 #8）：只报第一条不满足项；全满足不显示。

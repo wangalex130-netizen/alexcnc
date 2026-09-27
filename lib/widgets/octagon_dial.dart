@@ -258,9 +258,9 @@ class _OctagonDialState extends State<OctagonDial> {
   }
 }
 
-/// 披萨扇环按压显色（昊总 0927 反馈 v3）：按压中的方向键在盘面上按其方位角
-/// 画一块「没有角的披萨」—— 内环（中心键外 8dp）到外环（盘缘内 5dp）、
-/// 张角 40°（相邻块留缝），色 = textMain 20%。纯显色不参与命中。
+/// 披萨扇环按压显色（昊总 0927 反馈 v4）：按压中的方向键在盘面上按其方位角
+/// 画满一块「切开披萨」—— 内环贴中心键缘、外环贴盘缘、张角 42°（相邻块
+/// 留 3° 缝），色 = textMain 30%。纯显色不参与命中。
 class _DialSectorPainter extends CustomPainter {
   final Set<String> holding;
   _DialSectorPainter({required this.holding});
@@ -283,11 +283,13 @@ class _DialSectorPainter extends CustomPainter {
     final side = min(size.width, size.height);
     final r = side / 2;
     final c = Offset(r, r);
-    final innerR = min(58.0, side * 0.305) / 2 + 8;
-    final outerR = r - 5;
-    final sw = 40 * pi / 180;
+    // 昊总 0927 第四轮：显色覆盖「整个披萨角」—— 内环贴中心键缘、外环贴
+    // 盘缘、张角开到接近整角（45° 间距留 3° 缝），加深到 30%。
+    final innerR = min(58.0, side * 0.305) / 2 + 2;
+    final outerR = r - 2;
+    final sw = 42 * pi / 180;
     final pt = Paint()
-      ..color = CncColors.textMain.withOpacity(0.20)
+      ..color = CncColors.textMain.withOpacity(0.30)
       ..style = PaintingStyle.fill;
     for (final k in holding) {
       final a = _angles[k];

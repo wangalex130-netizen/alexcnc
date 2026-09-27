@@ -20,6 +20,9 @@ import '../wizard/wizard_page.dart';
 
 import '../machines/bind_page.dart';
 
+import '../auth/login_page.dart';
+import '../../state/auth_provider.dart';
+
 import '../../services/machines_service.dart';
 
 import '../../state/providers.dart';
@@ -77,7 +80,7 @@ class _ModelDetailPageState extends ConsumerState<ModelDetailPage> {
       Navigator.of(context)
           .push(MaterialPageRoute(
               fullscreenDialog: true,
-              builder: (_) => _MachineGatePage(onDone: _openWizard)))
+              builder: (_) => _MachineGatePage(item: widget.item)))
           .then((_) {
             if (mounted) setState(() => _epoch++);
           });
@@ -971,12 +974,14 @@ class _BottomBar extends StatelessWidget {
 }
 
 // ===================== 机器门禁页（昊总 20260927）=====================
-/// 「开始雕刻」前置：未选当前机器时先到本页。有绑定机器 → 点卡即选中并
-/// 回调续进向导；无绑定 → 绑定引导，绑完返回重拉列表。
+/// 「开始雕刻」前置：未选当前机器时先到本页。未登录 → 先登录（昊总 0927
+/// bug2：登录后回本页选机器，不直落扫码页）；有绑定机器 → 点卡即选中并
+/// **原地换页**进向导（pushReplacement，返回栈不残留选机页，bug1）；
+/// 无绑定 → 绑定引导，绑完返回重拉列表。
 class _MachineGatePage extends ConsumerStatefulWidget {
-  final VoidCallback onDone;
+  final LibraryItem item;
 
-  const _MachineGatePage({required this.onDone});
+  const _MachineGatePage({required this.item});
 
   @override
 
@@ -1042,9 +1047,10 @@ class _MachineGatePageState extends ConsumerState<_MachineGatePage> {
 
     if (!mounted) return;
 
-    Navigator.of(context).pop();
-
-    widget.onDone();
+    // 昊总 0927 bug1：原地换页进向导（pushReplacement）—— pop+回调 push 会
+    // 把选机页留在返回栈里，向导按返回会退回选机页。换页后栈 = 详情 → 向导。
+    Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => WizardPage(item: widget.item)));
   }
 
   void _openBind() {
@@ -1056,6 +1062,7 @@ class _MachineGatePageState extends ConsumerState<_MachineGatePage> {
   @override
   Widget build(BuildContext context) {
     final machines = ref.watch(boundMachinesProvider);
+    final loggedIn = ref.watch(authProvider).isLoggedIn;
 
     return Scaffold(
       backgroundColor: CncColors.bg,
@@ -1063,7 +1070,9 @@ class _MachineGatePageState extends ConsumerState<_MachineGatePage> {
         backgroundColor: CncColors.panel,
         title: Text('选择机器', style: TextStyle(color: CncColors.textMain)),
       ),
-      body: _loading && machines.isEmpty
+      body: !loggedIn
+          ? _loginGuide()
+          : _loading && machines.isEmpty
           ? Center(
               child: CircularProgressIndicator(color: CncColors.primary))
           : machines.isEmpty
@@ -1165,6 +1174,44 @@ class _MachineGatePageState extends ConsumerState<_MachineGatePage> {
               Text('清单拉取失败：$_error',
                   style: TextStyle(fontSize: 11, color: CncColors.danger)),
             ],
+          ],
+        ),
+      );
+
+  /// 昊总 0927 bug2：未登录先登录，回来仍在本页选机器 —— 不直落扫码绑定页。
+  Widget _loginGuide() => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Symbols.person, size: 44, color: CncColors.textSub),
+            const SizedBox(height: 12),
+            Text('先登录，再选择你的机器',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: CncColors.textMain)),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: CncColors.primary,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: () async {
+                  final ok = await Navigator.of(context).push<bool>(
+                    MaterialPageRoute(builder: (_) => const LoginPage()),
+                  );
+                  if (ok == true && mounted) _ensureLoaded();
+                },
+                child: Text('去登录',
+                    style:
+                        TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+              ),
+            ),
           ],
         ),
       );
