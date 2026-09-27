@@ -3045,6 +3045,11 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
             // 按住连发（旧模型 180ms）；斜向每轴分量 = 步长÷√2。屏幕上 = 设计 Y+。
             child: OctagonDial(
               enabled: !_busy,
+              // 模型移动纯 App 本地计算（零信号等待）。昊总 0927 反馈「移动
+              // 慢、按住半秒才连发」：连发启动 240ms、节奏 70ms；机器 jog 盘
+              // 不受影响（仍走 JogKey 默认 500/180ms）。
+              repeatDelay: const Duration(milliseconds: 240),
+              repeatInterval: const Duration(milliseconds: 70),
               onTap: (dx, dy) {
                 final comp =
                     (dx != 0 && dy != 0) ? _jogStep / sqrt2 : _jogStep;

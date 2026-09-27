@@ -50,7 +50,6 @@ import '../preview/timelapse_video_page.dart';
 
 import '../../services/network_auth.dart';
 
-import '../wizard/job_launch_banner.dart';
 
 import '../wizard/job_monitor_page.dart';
 
@@ -1309,6 +1308,8 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     final launchPhase = ref.watch(jobLaunchPhaseProvider);
     final carve = ref.watch(carveSessionProvider).valueOrNull;
     final bool alarmNow = status.state == MachineState.alarm;
+    // 机器在线 pill 数据源（昊总 0927 反馈）：与机器列表同源（MQTT presence）。
+    final curSn = currentMachine?.sn;
     final bool busyNow = status.state == MachineState.busy ||
         status.state == MachineState.paused;
     final int progressPct = (status.progress.clamp(0.0, 1.0) * 100).round();
@@ -1485,9 +1486,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 ],
               ),
             ),
-          // 「等待机旁确认」横幅删除（工单十八 §2.4）：待确认态移交状态卡。
-          // banner 只保留失败/重试职责（failureOnly），同一信息不两处同显。
-          const JobLaunchBanner(failureOnly: true),
+          // 失败/重试提示（昊总 0927 反馈）：不再以横幅插在监控与状态卡
+          // 之间——失败态集中由状态卡红态呈现（未能开始 + 原因），且状态卡
+          // 行内常驻机器在线 pill，未联网可预判，不再「弹个位置不对的条」。
           if (job != null && job.completed)
             GestureDetector(
               onTap: () => Navigator.of(context).push(
@@ -1528,21 +1529,31 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
               ),
             ),
 
-          // ---- 状态卡（五态互斥一张卡，工单十八 §2.4：雕刻状态唯一入口）----
+          // ---- 状态卡（六态互斥一张卡：雕刻状态唯一入口）----
           _StatusCard(
             mode: alarmNow
                 ? _StatusMode.alarm
-                : (launchPhase == JobLaunchPhase.awaitingConfirm ||
-                        carve?.stage == CarveStage.ready ||
-                        carve?.stage == CarveStage.confirming)
-                    ? _StatusMode.confirming
-                    : (launchPhase == JobLaunchPhase.dispatched ||
-                            carve?.stage == CarveStage.preparing)
-                        ? _StatusMode.sending
-                        : busyNow
-                            ? _StatusMode.busy
-                            : _StatusMode.idle,
+                : (carve?.stage == CarveStage.failed ||
+                        launchPhase == JobLaunchPhase.failed)
+                    ? _StatusMode.failed
+                    : (launchPhase == JobLaunchPhase.awaitingConfirm ||
+                            carve?.stage == CarveStage.ready ||
+                            carve?.stage == CarveStage.confirming)
+                        ? _StatusMode.confirming
+                        : (launchPhase == JobLaunchPhase.dispatched ||
+                                carve?.stage == CarveStage.preparing)
+                            ? _StatusMode.sending
+                            : busyNow
+                                ? _StatusMode.busy
+                                : _StatusMode.idle,
             alarmText: status.alarmText ?? status.error ?? '机器报警',
+            failedText: (carve?.stage == CarveStage.failed
+                    ? carve?.error
+                    : null) ??
+                '网络连接已断开，请检查网络后重新开始',
+            machineOnline: curSn != null &&
+                (ref.watch(presenceMapProvider).valueOrNull?[curSn]?.online ??
+                    false),
             progressPct: progressPct,
             etaText: _fmtEta(status.eta),
             jobName: jobName,
@@ -1753,14 +1764,76 @@ String _fmtEta(Duration? eta) {
   return h > 0 ? '剩余 ${h}h${m}m' : '剩余 ${m}m';
 }
 
-/// 五态互斥（工单十八 §2.4）：空闲 / 下发中 / 待机器确认 / 雕刻中 / 报警。
-enum _StatusMode { idle, sending, confirming, busy, alarm }
+/// 下发中标题呼吸闪烁（昊总 0927 反馈）：1.1s 往返透明度，提醒性更好。
+class _PulseText extends StatefulWidget {
+  final String text;
+  final TextStyle style;
+  const _PulseText(this.text, {required this.style});
+  @override
+  State<_PulseText> createState() => _PulseTextState();
+}
+
+class _PulseTextState extends State<_PulseText>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1100))
+    ..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: Tween<double>(begin: 0.35, end: 1.0)
+          .animate(CurvedAnimation(parent: _c, curve: Curves.easeInOut)),
+      child: Text(widget.text,
+          maxLines: 1, overflow: TextOverflow.ellipsis, style: widget.style),
+    );
+  }
+}
+
+/// 机器在线 pill（昊总 0927 反馈）：在线=绿点绿字、离线=灰点灰字，一眼区分。
+class _MachinePill extends StatelessWidget {
+  final bool online;
+  const _MachinePill({required this.online});
+  @override
+  Widget build(BuildContext context) {
+    final c = online ? CncColors.successFg : CncColors.textSub;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: online ? CncColors.successBg : CncColors.panelAlt,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
+        const SizedBox(width: 4),
+        Text(online ? '在线' : '离线',
+            style: TextStyle(
+                fontSize: 10.5, fontWeight: FontWeight.w600, color: c)),
+      ]),
+    );
+  }
+}
+
+/// 六态互斥：空闲 / 下发中 / 待机器确认 / 雕刻中 / 报警 / 未能开始
+/// （昊总 0927 反馈：失败提示不再横幅插入，集中到状态卡红态呈现）。
+enum _StatusMode { idle, sending, confirming, busy, alarm, failed }
 
 /// 五态互斥状态卡（工单十八 §2.4）：空闲 / 下发中 / 待机器确认 /
 /// 雕刻中（进度+暂停/停止圆钮）/ 报警。整卡 onTap → 加工监控（唯一入口）。
 class _StatusCard extends StatelessWidget {
   final _StatusMode mode;
   final String alarmText;
+  final String failedText;
+  final bool machineOnline;
   final int progressPct;
   final String etaText;
   final String jobName;
@@ -1772,6 +1845,8 @@ class _StatusCard extends StatelessWidget {
   const _StatusCard({
     required this.mode,
     required this.alarmText,
+    required this.failedText,
+    required this.machineOnline,
     required this.progressPct,
     required this.etaText,
     required this.jobName,
@@ -1784,6 +1859,7 @@ class _StatusCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final alarm = mode == _StatusMode.alarm;
+    final failed = mode == _StatusMode.failed;
     final busy = mode == _StatusMode.busy;
     // 待机器确认：黄底强调（承接被删除的机旁确认横幅视觉权重，工单十八 §2.4）。
     final confirm = mode == _StatusMode.confirming;
@@ -1793,14 +1869,14 @@ class _StatusCard extends StatelessWidget {
         margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
         padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
         decoration: BoxDecoration(
-          color: alarm
+          color: (alarm || failed)
               ? CncColors.dangerBg
               : confirm
                   ? CncColors.warnBg
                   : CncColors.card,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-              color: alarm
+              color: (alarm || failed)
                   ? CncColors.dangerBd
                   : confirm
                       ? CncColors.warnBd
@@ -1869,30 +1945,38 @@ class _StatusCard extends StatelessWidget {
     );
   }
 
-  /// 空闲 / 下发中 / 待确认 / 报警态：左标题+副行，右箭头
-  /// （报警态加停止圆钮，免确认直停）。雕刻中走 _busyBody（工单十八 §2.4）。
+  /// 空闲 / 下发中 / 待确认 / 未能开始 / 报警态：左标题+副行，右机器在线
+  /// pill+箭头（报警态加停止圆钮，免确认直停）。雕刻中走 _busyBody。
   Widget _simpleRow(_StatusMode mode) {
     final alarm = mode == _StatusMode.alarm;
+    final failed = mode == _StatusMode.failed;
     final confirm = mode == _StatusMode.confirming;
+    final sending = mode == _StatusMode.sending;
     final String title = alarm
         ? '报警 · $alarmText'
-        : confirm
-            ? '待机器确认'
-            : mode == _StatusMode.sending
-                ? '正在发送作业'
-                : '设备空闲';
+        : failed
+            ? '未能开始'
+            : confirm
+                ? '待机器确认'
+                : sending
+                    ? '正在发送作业'
+                    : '设备空闲';
     final String sub = alarm
         ? '点击处理'
-        : confirm
-            ? '请在机器屏幕上按「开始」键'
-            : mode == _StatusMode.sending
-                ? '正在传输加工程序…'
-                : '快来开始雕刻吧';
-    final Color titleColor = alarm
+        : failed
+            ? failedText
+            : confirm
+                ? '请在机器屏幕上按「开始」键'
+                : sending
+                    ? '正在传输加工程序…'
+                    : '快来开始雕刻吧';
+    final Color titleColor = (alarm || failed)
         ? CncColors.danger
         : confirm
             ? CncColors.warning
             : CncColors.textMain;
+    final TextStyle titleStyle = TextStyle(
+        fontSize: 13.5, fontWeight: FontWeight.w600, color: titleColor);
     return Row(
       children: [
         if (alarm) ...[
@@ -1903,19 +1987,27 @@ class _StatusCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w600,
-                      color: titleColor)),
+              // 下发中标题呼吸闪烁（昊总 0927 反馈）：提醒性更好。
+              if (sending)
+                _PulseText('正在发送作业', style: titleStyle)
+              else
+                Text(title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: titleStyle),
               const SizedBox(height: 2),
               Text(sub,
-                  style: TextStyle(fontSize: 11.5, color: CncColors.textSub)),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style:
+                      TextStyle(fontSize: 11.5, color: CncColors.textSub)),
             ],
           ),
         ),
+        const SizedBox(width: 8),
+        // 机器在线 pill（昊总 0927 反馈）：在线状态回归常驻——挂状态卡行内，
+        // 与实时监控位置解耦；看任务区即知机器在不在线。
+        _MachinePill(online: machineOnline),
         const SizedBox(width: 8),
         if (alarm) ...[
           _roundBtn(

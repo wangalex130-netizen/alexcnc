@@ -680,7 +680,9 @@ class _MachineCard extends StatelessWidget {
 
       statusText = '在线';
 
-      statusColor = CncColors.primary;
+      // 昊总 0927 反馈：primary 太浅看不出在线——改用成功绿（点+字同色），
+      // 与灰色「不在线」拉开明显区分。
+      statusColor = CncColors.successFg;
 
     } else {
 
@@ -818,9 +820,9 @@ class _MachineCard extends StatelessWidget {
 
                         Container(
 
-                          width: 7,
+                          width: 9,
 
-                          height: 7,
+                          height: 9,
 
                           decoration: BoxDecoration(
 
@@ -844,11 +846,7 @@ class _MachineCard extends StatelessWidget {
 
                             fontWeight: FontWeight.bold,
 
-                            color: statusColor == CncColors.primary
-
-                                ? CncColors.primaryInk
-
-                                : statusColor,
+                            color: statusColor,
 
                           ),
 

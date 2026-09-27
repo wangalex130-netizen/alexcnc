@@ -20,7 +20,7 @@ import 'jog_key.dart';
 ///
 /// 方向回调一律用**屏幕空间** (dx, dy)：dx 右正、dy 下正。本 App 机床朝向：
 /// 屏幕右 = X+、屏幕上 = Y+，调用方换算 my = -dy。
-class OctagonDial extends StatelessWidget {
+class OctagonDial extends StatefulWidget {
   const OctagonDial({
     super.key,
     required this.onTap,
@@ -30,6 +30,8 @@ class OctagonDial extends StatelessWidget {
     this.onHoldEnd,
     this.onHoldKeepalive,
     this.repeatFor,
+    this.repeatDelay,
+    this.repeatInterval,
     this.centerLabel = '',
     this.centerSub,
     this.centerActive = false,
@@ -54,6 +56,11 @@ class OctagonDial extends StatelessWidget {
   /// 旧模型（未启用 continuous / 模拟态）下哪些方向按住连发（null = 不连发）。
   final bool Function(int dx, int dy)? repeatFor;
 
+  /// 旧模型连发节奏透传（模型盘提速用，昊总 0927 反馈；null = JogKey 默认
+  /// 500/180ms —— 机器 jog 盘不传即不受影响）。
+  final Duration? repeatDelay;
+  final Duration? repeatInterval;
+
   final String centerLabel;
   final String? centerSub;
   final bool centerActive;
@@ -70,6 +77,18 @@ class OctagonDial extends StatelessWidget {
   final String labelRight;
 
   @override
+  State<OctagonDial> createState() => _OctagonDialState();
+}
+
+class _OctagonDialState extends State<OctagonDial> {
+  /// 按压中的方向键（'dx,dy'）——披萨扇环显色数据源（昊总 0927 v3）。
+  final Set<String> _holding = {};
+
+  void _setHold(String k, bool v) {
+    setState(() => v ? _holding.add(k) : _holding.remove(k));
+  }
+
+  @override
   Widget build(BuildContext context) {
     // 斜角小箭头：浅色 #B9BFBA（视觉稿定值）/ 深色用 icon 令牌。
     final diagColor = Theme.of(context).brightness == Brightness.dark
@@ -82,17 +101,24 @@ class OctagonDial extends StatelessWidget {
       final r = side / 2;
 
       // 方向键：复用 JogKey 手势原件（flat = 透明底，视觉由盘面承载）。
+      // 按压显色（昊总 0927 反馈 v3）：矩形灰与盘面形状不符——改由盘面按
+      // 「披萨扇环」绘制（_DialSectorPainter），JogKey 自身矩形灰关闭。
       Widget key(int dx, int dy, Widget child) {
-        final hold = (holdFor?.call(dx, dy) ?? false) && onHoldStart != null;
+        final hold = (widget.holdFor?.call(dx, dy) ?? false) &&
+            widget.onHoldStart != null;
         return JogKey(
           '',
-          () => onTap(dx, dy),
-          enabled: enabled,
+          () => widget.onTap(dx, dy),
+          enabled: widget.enabled,
           flat: true,
-          repeat: repeatFor?.call(dx, dy) ?? false,
-          onJogStart: hold ? () => onHoldStart!(dx, dy) : null,
-          onJogEnd: hold ? onHoldEnd : null,
-          onJogKeepalive: hold ? onHoldKeepalive : null,
+          ghost: false,
+          repeat: widget.repeatFor?.call(dx, dy) ?? false,
+          repeatDelay: widget.repeatDelay,
+          repeatInterval: widget.repeatInterval,
+          onHoldChanged: (v) => _setHold('$dx,$dy', v),
+          onJogStart: hold ? () => widget.onHoldStart!(dx, dy) : null,
+          onJogEnd: hold ? widget.onHoldEnd : null,
+          onJogKeepalive: hold ? widget.onHoldKeepalive : null,
           child: Center(child: child),
         );
       }
@@ -131,34 +157,42 @@ class OctagonDial extends StatelessWidget {
                   ),
                 ),
               ),
+              // 披萨扇环按压显色层（纯显色，IgnorePointer 不抢热区）。
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: CustomPaint(
+                    painter: _DialSectorPainter(holding: _holding),
+                  ),
+                ),
+              ),
               // 四直边文字键（长按连续 / 旧模型连发）。
               Positioned(
                 left: r - keyW / 2,
                 top: eEdge - keyH / 2,
                 width: keyW,
                 height: keyH,
-                child: key(0, -1, edgeLabel(labelUp)),
+                child: key(0, -1, edgeLabel(widget.labelUp)),
               ),
               Positioned(
                 left: r - keyW / 2,
                 top: side - eEdge - keyH / 2,
                 width: keyW,
                 height: keyH,
-                child: key(0, 1, edgeLabel(labelDown)),
+                child: key(0, 1, edgeLabel(widget.labelDown)),
               ),
               Positioned(
                 left: eEdge - keyW / 2,
                 top: r - keyH / 2,
                 width: keyW,
                 height: keyH,
-                child: key(-1, 0, edgeLabel(labelLeft)),
+                child: key(-1, 0, edgeLabel(widget.labelLeft)),
               ),
               Positioned(
                 left: side - eEdge - keyW / 2,
                 top: r - keyH / 2,
                 width: keyW,
                 height: keyH,
-                child: key(1, 0, edgeLabel(labelRight)),
+                child: key(1, 0, edgeLabel(widget.labelRight)),
               ),
               // 四斜角：仅点按（jogXY 多轴帧）。
               Positioned(
@@ -201,27 +235,77 @@ class OctagonDial extends StatelessWidget {
   /// 中心键：onCenter 非空 = 圆形动作键（取点/重新/归中，active 高亮）；
   /// 为空 = 静态方位标识（'XY'，不可点）。
   Widget _center(double side) {
-    if (onCenter == null) {
+    if (widget.onCenter == null) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
           color: CncColors.bg,
           borderRadius: BorderRadius.circular(6),
         ),
-        child: Text(centerLabel,
+        child: Text(widget.centerLabel,
             style: TextStyle(fontSize: 11, color: CncColors.textSub)),
       );
     }
     // 按压态（昊总 0927 实测反馈）：中心动作键与四向键同口径，按下有灰底。
     return _DialCenter(
-      onTap: onCenter,
-      light: centerLight,
-      active: centerActive,
+      onTap: widget.onCenter,
+      light: widget.centerLight,
+      active: widget.centerActive,
       size: min(58, side * 0.305),
-      label: centerLabel,
-      sub: centerSub,
+      label: widget.centerLabel,
+      sub: widget.centerSub,
     );
   }
+}
+
+/// 披萨扇环按压显色（昊总 0927 反馈 v3）：按压中的方向键在盘面上按其方位角
+/// 画一块「没有角的披萨」—— 内环（中心键外 8dp）到外环（盘缘内 5dp）、
+/// 张角 40°（相邻块留缝），色 = textMain 20%。纯显色不参与命中。
+class _DialSectorPainter extends CustomPainter {
+  final Set<String> holding;
+  _DialSectorPainter({required this.holding});
+
+  /// 方向键 → 盘面方位角（屏幕坐标，0=右、顺时针为正，单位弧度）。
+  static const Map<String, double> _angles = {
+    '0,-1': -pi / 2,
+    '1,-1': -pi / 4,
+    '1,0': 0.0,
+    '1,1': pi / 4,
+    '0,1': pi / 2,
+    '-1,1': 3 * pi / 4,
+    '-1,0': pi,
+    '-1,-1': -3 * pi / 4,
+  };
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (holding.isEmpty) return;
+    final side = min(size.width, size.height);
+    final r = side / 2;
+    final c = Offset(r, r);
+    final innerR = min(58.0, side * 0.305) / 2 + 8;
+    final outerR = r - 5;
+    final sw = 40 * pi / 180;
+    final pt = Paint()
+      ..color = CncColors.textMain.withOpacity(0.20)
+      ..style = PaintingStyle.fill;
+    for (final k in holding) {
+      final a = _angles[k];
+      if (a == null) continue;
+      canvas.drawPath(
+        Path()
+          ..addArc(Rect.fromCircle(center: c, radius: outerR), a - sw / 2, sw)
+          ..addArc(Rect.fromCircle(center: c, radius: innerR), a + sw / 2, -sw)
+          ..close(),
+        pt,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DialSectorPainter oldDelegate) =>
+      oldDelegate.holding.length != holding.length ||
+      !oldDelegate.holding.containsAll(holding);
 }
 
 /// 中心动作键（昊总 0927 反馈）：加按压态 —— 按下加灰底（浅底键 textMain

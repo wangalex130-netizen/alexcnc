@@ -37,6 +37,15 @@ class JogKey extends StatefulWidget {
   /// 平面键（拓竹圆盘用）：无底色/描边/固定高度底色，仅保留手势
   /// （长按/连发/保活行为不变）。视觉由外层容器（圆盘面）承载，避免双重描边。
   final bool flat;
+  /// flat 按压矩形灰开关（默认开）。八向盘传 false：按压显色由盘面按
+  /// 「披萨扇环」绘制（昊总 0927 反馈 v3：矩形灰与盘面形状不符）。
+  final bool ghost;
+  /// 按压状态上抛（八向盘据此画扇环显色）。true=按下 / false=松手或取消。
+  final ValueChanged<bool>? onHoldChanged;
+  /// 旧模型连发启动延迟（null = 默认 500ms）。纯本地运算的模型盘传短值。
+  final Duration? repeatDelay;
+  /// 旧模型连发间隔（null = 默认 180ms）。
+  final Duration? repeatInterval;
 
   /// 自定义高度（null = 默认 40 / tall 44）。
   final double? height;
@@ -55,6 +64,10 @@ class JogKey extends StatefulWidget {
       this.onJogKeepalive,
       this.child,
       this.flat = false,
+      this.ghost = true,
+      this.onHoldChanged,
+      this.repeatDelay,
+      this.repeatInterval,
       this.continuousEnabled = AppConfig.jogContinuousEnabled,
       this.height});
 
@@ -93,7 +106,10 @@ class JogKeyState extends State<JogKey> {
   /// [widget.repeat] 为 false 时只触发一次（动作键走这条路径）。
   void _start() {
     if (!widget.enabled) return;
-    if (mounted) setState(() => _holding = true);
+    if (mounted) {
+      setState(() => _holding = true);
+      widget.onHoldChanged?.call(true);
+    }
 
     if (_useContinuous) {
       _holdTimer?.cancel();
@@ -117,8 +133,10 @@ class JogKeyState extends State<JogKey> {
     widget.onTap();
     if (!widget.repeat) return;
     _repeat?.cancel();
-    _repeat = Timer(const Duration(milliseconds: 500), () {
-      _repeat = Timer.periodic(const Duration(milliseconds: 180), (_) {
+    _repeat = Timer(widget.repeatDelay ?? const Duration(milliseconds: 500),
+        () {
+      _repeat = Timer.periodic(
+          widget.repeatInterval ?? const Duration(milliseconds: 180), (_) {
         if (widget.enabled) widget.onTap();
       });
     });
@@ -144,6 +162,7 @@ class JogKeyState extends State<JogKey> {
       }
     }
     if (mounted && _holding) setState(() => _holding = false);
+    widget.onHoldChanged?.call(false);
   }
 
   @override
@@ -182,7 +201,7 @@ class JogKeyState extends State<JogKey> {
             // 按压灰 v2（昊总 0927 二次反馈：灰加深 + 区域加大——手指按住
             // 后四周仍可见）：22% 墨灰向内容框四周外扩 8dp；IgnorePointer
             // 不抢热区、不参与布局、不改本键与邻键命中范围。
-            if (widget.flat && _holding)
+            if (widget.flat && widget.ghost && _holding)
               Positioned(
                 left: -8,
                 top: -8,
