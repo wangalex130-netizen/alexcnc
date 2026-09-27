@@ -994,13 +994,9 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
 
       hw.resumeJob();
 
-      _showHint(context, '已发送继续请求');
-
     } else {
 
       hw.pauseJob();
-
-      _showHint(context, '已发送暂停请求');
 
     }
 
@@ -1054,7 +1050,6 @@ class _JobMonitorPageState extends ConsumerState<JobMonitorPage>
               Navigator.of(context).pop();
 
               // 停止后留在监控页（机器状态页），按钮自动转灰显待机态。
-              _showHint(context, '已停止');
 
             },
 

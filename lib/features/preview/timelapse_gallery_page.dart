@@ -194,7 +194,6 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
     if (ok) {
 
-      _snack('已删除 ${ids.length} 项');
 
       setState(() { _selectedIds.clear(); _isManageMode = false; });
 

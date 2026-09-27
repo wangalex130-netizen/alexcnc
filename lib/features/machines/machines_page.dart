@@ -148,18 +148,6 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
     if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-
-      SnackBar(
-
-        content: Text('已选择当前机器：${m.name.isNotEmpty ? m.name : m.sn}'),
-
-        duration: const Duration(seconds: 2),
-
-      ),
-
-    );
-
     Navigator.of(context).pop();
 
   }

@@ -62,13 +62,6 @@ class _WorkbenchPageState extends ConsumerState<WorkbenchPage> {
     _bannerTimer = Timer(const Duration(seconds: 8), () {
       if (mounted) setState(() => _bannerEv = null);
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(e.message, style: const TextStyle(fontSize: 13)),
-        duration: const Duration(seconds: 3),
-        backgroundColor: e.isAlarm ? CncColors.danger : CncColors.card,
-      ),
-    );
   }
 
   /// 系统级广播 → 一次性提示（error 用红色强调，warn 用警示色，info 用主题色）。
@@ -79,18 +72,6 @@ class _WorkbenchPageState extends ConsumerState<WorkbenchPage> {
     _bannerBmTimer = Timer(const Duration(seconds: 8), () {
       if (mounted) setState(() => _bannerBm = null);
     });
-    final text = m.body.isNotEmpty ? '${m.title}：${m.body}' : m.title;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(text, style: const TextStyle(fontSize: 13)),
-        duration: const Duration(seconds: 3),
-        backgroundColor: m.isAlarm
-            ? CncColors.danger
-            : m.isWarn
-                ? CncColors.warning
-                : CncColors.card,
-      ),
-    );
   }
 
   @override

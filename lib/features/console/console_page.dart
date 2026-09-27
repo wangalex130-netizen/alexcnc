@@ -1111,7 +1111,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
     if (!mounted) return;
 
-    _showHint(path != null ? '已保存到相册' : '保存失败，请重试');
+    if (path == null) _showHint('保存失败，请重试');
 
   }
 
@@ -1568,11 +1568,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
               if (isPaused) {
                 setState(() => _pausedLocal = false);
                 hw.resumeJob();
-                _showHint('已发送继续请求');
               } else {
                 setState(() => _pausedLocal = true);
                 hw.pauseJob();
-                _showHint('已发送暂停请求');
               }
             },
             onStop: () {

@@ -151,12 +151,11 @@ class _WorkHistoryPageState extends ConsumerState<WorkHistoryPage> {
     final cloud = ref.read(cloudServiceProvider);
     final done = await cloud.deleteWorkRecord(r.id);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content:
-            Text(done ? '已删除' : '暂时还不能删除'),
-      ),
-    );
+    if (!done) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('暂时还不能删除')),
+      );
+    }
     if (done) _load(reset: true);
   }
 

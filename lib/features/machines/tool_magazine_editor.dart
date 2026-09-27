@@ -91,9 +91,6 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
         _saved = Map<int, String?>.of(m);
         _saving = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已保存并同步到机器')),
-      );
       return;
     }
     // 失败：乐观 UI 用服务器真实状态回滚（工单 §3D.3，必须做，防漂移）。

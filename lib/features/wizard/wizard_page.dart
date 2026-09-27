@@ -751,14 +751,6 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           onToggleConfirm: _toggleProcConfirm,
           onSync: () {
             setState(() => _syncedToMachine = true);
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('刀仓映射已同步到机器'),
-                behavior: SnackBarBehavior.floating,
-                margin: EdgeInsets.fromLTRB(16, 0, 16, 90),
-                duration: Duration(seconds: 2),
-              ),
-            );
           },
         );
       case 3:
@@ -768,7 +760,6 @@ class _WizardPageState extends ConsumerState<WizardPage> {
           onMode: (m) => setState(() => _leveling = m),
           timeLapse: _timeLapse,
           onToggleTimeLapse: (v) => setState(() => _timeLapse = v),
-          durationController: _durCtrl,
         );
       case 4:
         return _StepTakeoff(
@@ -2092,8 +2083,6 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       _note(S.notConnected, bad: true);
       return;
     }
-    final sx = pt.dx.toStringAsFixed(1);
-    final sy = pt.dy.toStringAsFixed(1);
     final circle = widget.stockShape == StockShape.circle;
     if (widget.p0 == null) {
       widget.onP0(pt);
@@ -2112,18 +2101,14 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       final h = r?.height ?? 0;
       if (circle) {
         if ((c?.radius ?? 0) * 2 < 10) {
-          _note('两点太近（直径 ${((c?.radius ?? 0) * 2).toStringAsFixed(0)} mm）：'
-              '请取圆周正对面的两点', bad: true);
+          _note('两点太近，请取圆周正对面的两点', bad: true);
         } else {
-          _note('圆料已确认：直径 ${((c?.radius ?? 0) * 2).toStringAsFixed(1)} mm'
-              '（圆心已定）。拖动模型摆好位置，按【确认原点】锁定');
+          _note('圆料直径 ${((c?.radius ?? 0) * 2).toStringAsFixed(0)} mm');
         }
       } else if (w < 10 || h < 10) {
-        _note('两点太近（${w.toStringAsFixed(0)} × ${h.toStringAsFixed(0)} mm）：'
-            '请取到材料的两个对角', bad: true);
+        _note('两点太近，请取材料的两个对角', bad: true);
       } else {
-        _note('材料已确认 ${w.toStringAsFixed(1)} × ${h.toStringAsFixed(1)} mm。'
-            '拖动模型摆好位置，按【确认原点】锁定');
+        _note('材料 ${w.toStringAsFixed(0)} × ${h.toStringAsFixed(0)} mm');
       }
     } else {
       // 已取满两点时再按 = 以当前位置做新的 P0（只留 1 点）。
@@ -2133,7 +2118,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       widget.onP0(pt);
       widget.onP1(null);
       _invalidateDatum(); // B-5：同「完成标定」，重取也必须作废旧 G54
-      _note('已重新开始标定：P0 = ($sx, $sy)');
+      _note('已重新开始标定');
     }
   }
 
@@ -2220,7 +2205,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       }
     }
     if (_frameStale) {
-      _note('机器回应不稳定：如果机器没有动作，请确认机器已开机、网络正常后重试',
+      _note('机器回应不稳定，请检查机器与网络',
           bad: true);
     }
     if (!_wysiwyg) {
@@ -2269,7 +2254,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       }
     }
     if (_frameStale) {
-      _note('机器回应不稳定：如果机器没有动作，请确认机器已开机、网络正常后重试',
+      _note('机器回应不稳定，请检查机器与网络',
           bad: true);
     }
     if (!_wysiwyg) _setDesign(widget.origin + delta);
@@ -2285,7 +2270,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     final ok = await ref.read(hardwareServiceProvider).setAux('laser', on);
     if (!mounted) return;
     if (ok) setState(() => _laserOn = on);
-    _note(ok ? (on ? '激光十字已开：用它对齐材料边角' : '激光十字已关') : '激光开关被拦下（仅同网可开）',
+    _note(ok ? (on ? '激光十字已开' : '激光十字已关') : '激光未开启，请检查连接',
         bad: !ok);
   }
 
@@ -2395,7 +2380,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           _framingFail = '机器未回复巡边结果';
           _framingNotSent = false;
         });
-        _note('30 秒未收到机器巡边回执，无法确认机器是否执行（目视确认仍是最终闸门）',
+        _note('30 秒未收到机器回应，请目视确认巡边结果',
             bad: true);
       });
     }
@@ -3554,7 +3539,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       return (text: '确认轨迹在耗材内、避开压板，勾选「已目视确认」', level: 0);
     }
     // ④ 可下一步：已勾选
-    return (text: '位置确认无误，按【下一步】继续', level: 0);
+    return (text: '位置确认无误，按【锁定原点并继续】', level: 0);
   }
 
   /// 4 秒内的操作反馈（A-12）。
@@ -3597,7 +3582,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         );
       }
       if (_g54Written && _g54JobId.isNotEmpty && _g54JobId != m.jobId) {
-        return (text: '换了模型：请重新按【确认原点】', level: 2);
+        return (text: '换了模型：请重新按【位置确认，去预览】', level: 2);
       }
       if (!m.withinContract) {
         return (text: '模型数据异常：请重新选择模型', level: 2);
@@ -3840,14 +3825,12 @@ class _StepLeveling extends StatelessWidget {
   /// 延时摄影（工单十八 §2.1 #5：自 Step5 平移进本页）。
   final bool timeLapse;
   final ValueChanged<bool> onToggleTimeLapse;
-  final TextEditingController durationController;
   const _StepLeveling({
     required this.mode,
     this.task,
     required this.onMode,
     required this.timeLapse,
     required this.onToggleTimeLapse,
-    required this.durationController,
   });
 
   @override
@@ -3948,26 +3931,6 @@ class _StepLeveling extends StatelessWidget {
                 activeColor: CncColors.textMain,
                 contentPadding: EdgeInsets.zero,
               ),
-              if (timeLapse)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: TextField(
-                    controller: durationController,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: '预计雕刻时长（秒）',
-                      labelStyle: const TextStyle(fontSize: 12),
-                      hintText: '例如 120 = 2 分钟',
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8)),
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 8),
-                    ),
-                    style: TextStyle(
-                        fontSize: 13, color: CncColors.textMain),
-                  ),
-                ),
             ],
           ),
         ),

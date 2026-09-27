@@ -98,9 +98,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       // 清理失败不打断使用；提示保持一致（工单 §4 不引入错误分支文案）。
     }
     if (!mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      const SnackBar(content: Text('已清理'), duration: Duration(seconds: 2)),
-    );
   }
 
   /// 检查本 App 是否有新版本（原样搬移自 profile_page._checkAppUpdate，零改动）。

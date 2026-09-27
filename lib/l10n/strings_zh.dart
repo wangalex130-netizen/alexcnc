@@ -37,7 +37,7 @@ class S {
   static const framingOn = '已开启激光巡边，请确认光点避开夹具';
   static const noJobData = '请先选择作业数据';
   static const originConfirmed = '原点已确认';
-  static const envelopeLocked = '原点未锁定：请先按【确认原点】';
+  static const envelopeLocked = '原点未锁定：请先按【位置确认，去预览】';
   static const jobMismatch = '作业数据不一致，请重新定原点';
   static const jobTooLarge = '作业数据过大，请重新选择模型';
   static const originLocked = '原点已锁定，可点【雕刻预览】确认落点';

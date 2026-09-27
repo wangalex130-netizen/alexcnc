@@ -165,30 +165,6 @@ class _BindPageState extends ConsumerState<BindPage> {
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-
-        SnackBar(
-
-          content: Text(
-
-            selected != null
-
-                ? '绑定成功，已设为当前机器：${m.sn}'
-
-                : '绑定成功：${m.sn}',
-
-            style: const TextStyle(fontSize: 13),
-
-          ),
-
-          backgroundColor: const Color(0xFF1E1913),
-
-          duration: const Duration(seconds: 2),
-
-        ),
-
-      );
-
       Navigator.of(context).pushAndRemoveUntil(
 
         MaterialPageRoute(builder: (_) => const MachinesPage()),

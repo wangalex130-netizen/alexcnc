@@ -875,7 +875,6 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
     }
 
-    _showHint('截图已保存到相册');
 
   }
 
@@ -915,7 +914,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
           (result['isSuccess'] == true || result['success'] == true);
 
-      _showHint(ok ? '截图已保存到相册' : '截图保存失败，请重试');
+      if (!ok) _showHint('截图保存失败，请重试');
 
     } catch (e) {
 

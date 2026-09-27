@@ -434,15 +434,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
               title: '在线售后客服',
 
-              onTap: () {
-
-                ScaffoldMessenger.of(context).showSnackBar(
-
-                  const SnackBar(content: Text('正在接通在线客服...')),
-
-                );
-
-              },
+              onTap: () {},
 
             ),
 

@@ -488,10 +488,6 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
     if (ok) {
 
-      ScaffoldMessenger.of(context).showSnackBar(
-
-          const SnackBar(content: Text('已删除该模型'), duration: Duration(seconds: 1)));
-
       setState(_refreshHome);
 
     } else {
