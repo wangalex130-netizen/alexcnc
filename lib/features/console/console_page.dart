@@ -51,7 +51,7 @@ import '../preview/timelapse_video_page.dart';
 import '../../services/network_auth.dart';
 
 
-import '../wizard/job_monitor_page.dart';
+import 'toolpath_live_view.dart';
 
 
 
@@ -110,8 +110,33 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   int _rpm = 12000;
 
 
+  /// 工单二十 §2.1：视频区轮播控制（雕刻中两页）+ 当前页下标（页点高亮）。
 
-  /// notify 事件订阅（toast / 横幅），dispose 时取消。
+  final PageController _carCtrl = PageController();
+
+  int _carPage = 0;
+
+  /// 轮播页点：当前页实心、另一枚半透明（深色画面底取白系保证可读）。
+
+  Widget _carDot(int i) => Container(
+
+        width: 6,
+
+        height: 6,
+
+        decoration: BoxDecoration(
+
+          shape: BoxShape.circle,
+
+          color: i == _carPage
+
+              ? Colors.white
+
+              : Colors.white.withOpacity(0.35),
+
+        ),
+
+      );
 
   StreamSubscription<NotifyEvent>? _notifySub;
 
@@ -360,6 +385,8 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
   void dispose() {
 
     _tlBlink.dispose();
+
+    _carCtrl.dispose();
 
     // 离开控制台发 stream_stop（仅在没人在雕、没延时录制时）—— 否则画面会持续推流。
 
@@ -1309,6 +1336,42 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     final String jobName =
         job?.item.title ?? status.job ?? '（其他端发起的作业）';
 
+    // 工单二十 §2.1：摄像头页（原 Positioned.fill 内容原样提匣，拉流逻辑零改动）。
+
+    Widget cameraPane() => RtspPreviewWidget(
+
+          // 工单十二 §2.8：「实时监控」胶囊由控制台自绘于左上，
+
+          // 组件自带右下徽标关闭（组件本体零改动）
+
+          statusBadge: false,
+
+          rtspUrl: null,
+
+          relayUrl: (!realMode || loggedIn) ? _resolvedRelayUrl(cfg) : null,
+
+          onBeforePlay: _sendCameraStart,
+
+          onFullscreen: () {
+
+            Navigator.of(context).push(
+
+              MaterialPageRoute(
+
+                builder: (_) => FullscreenPreviewPage(
+
+                  machine: ref.read(currentMachineProvider),
+
+                ),
+
+              ),
+
+            );
+
+          },
+
+        );
+
 
     return Scaffold(
       backgroundColor: CncColors.bg,
@@ -1332,24 +1395,18 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 // 优先「当前绑定机器」后端返回的 relay_url；统一走云中继
                 // （8-29 决策：App 仅走服务器中继）。
                 Positioned.fill(
-                  child: RtspPreviewWidget(
-                    // 工单十二 §2.8：「实时监控」胶囊由控制台自绘于左上，
-                    // 组件自带右下徽标关闭（组件本体零改动）
-                    statusBadge: false,
-                    rtspUrl: null,
-                    relayUrl:
-                        (!realMode || loggedIn) ? _resolvedRelayUrl(cfg) : null,
-                    onBeforePlay: _sendCameraStart,
-                    onFullscreen: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => FullscreenPreviewPage(
-                            machine: ref.read(currentMachineProvider),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+                  // 工单二十 §2.1：视频区轮播——空闲/无作业单页仅摄像头
+                  //（与现状一致，无页点）；雕刻中两页，左滑出刀路实时模拟。
+                  child: busyNow
+                      ? PageView(
+                          controller: _carCtrl,
+                          onPageChanged: (i) => setState(() => _carPage = i),
+                          children: [
+                            cameraPane(),
+                            const ToolpathLiveView(),
+                          ],
+                        )
+                      : cameraPane(),
                 ),
                 // 左上角「实时监控」胶囊（工单十二 §2.8：高 16、黑 45% 底、
                 // 10sp 白 85%、含 6dp 红点）。
@@ -1421,6 +1478,22 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     ),
                   ),
                 ),
+                // 轮播页点（工单二十 §2.1 #2）：仅雕刻中两页时出现，底部中央；
+                // 深色画面底取白系（当前页实心白 / 另一枚白 35%）保证可读。
+                if (busyNow)
+                  Positioned(
+                    bottom: 8,
+                    left: 0,
+                    right: 0,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _carDot(0),
+                        const SizedBox(width: 5),
+                        _carDot(1),
+                      ],
+                    ),
+                  ),
               ],
             ),
             ),
@@ -1484,9 +1557,8 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
           // 行内常驻机器在线 pill，未联网可预判，不再「弹个位置不对的条」。
           if (job != null && job.completed)
             GestureDetector(
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const JobMonitorPage()),
-              ),
+              // 工单二十：监控页退役，完成横幅点击不再导航（右端 × 可消除）。
+              onTap: null,
               child: Container(
                 margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
                 padding: const EdgeInsets.all(12),
@@ -1551,13 +1623,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
             etaText: _fmtEta(status.eta),
             jobName: jobName,
             isPaused: isPaused,
-            // 状态卡 = 雕刻状态唯一入口（工单十八 §2.4）：统一进加工监控。
-            // 准备中页（SelfCheckPage）退役，向导成功路径不再进入（§2.3）。
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const JobMonitorPage()),
-              );
-            },
+            // 工单二十：监控页退役，状态卡全态点击不再导航（雕刻状态就地
+            // 呈现于任务行；报警处理走行内常驻停止钮）。
+            onTap: () {},
             onPauseResume: () {
               // 仅在真正加工中/已暂停时才下发命令，避免 idle 时误触（沿用原逻辑）。
               final st = ref.read(machineStatusProvider).value?.state;
@@ -1634,16 +1702,30 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     children: [
                       ConsoleSpindleCard(
                         enabled: !busyNow,
-                        statusLine: status.spindleOn
-                            ? (status.spindleRpm != null
+                        // 工单二十 §2.3：实时转速进卡；缺帧回退作业推荐转速。
+                        statusLine: status.spindleRpm != null
+                            ? (status.spindleOn
                                 ? '运行 · ${status.spindleRpm!.round()}rpm'
-                                : '运行')
-                            : '待机',
+                                : '${status.spindleRpm!.round()}rpm')
+                            : (status.spindleOn
+                                ? (job?.item.recommendedSpindleRpm != null
+                                    ? '运行 · ${job!.item.recommendedSpindleRpm!.round()}rpm'
+                                    : '运行')
+                                : '待机'),
                         onTap: () => _openSpindle(context),
                       ),
                       const SizedBox(height: 12),
                       ConsoleLaserCard(
                         enabled: !busyNow,
+                        // 工单二十 §2.3：激光作业功率进卡；记录未打标不显示
+                        // 该行（数据侧欠账已知）；铣削作业直述「未启用」。
+                        statusLine: job == null
+                            ? null
+                            : (job.item.isLaserJob
+                                ? (job.item.laserPowerPct != null
+                                    ? '功率 ${job.item.laserPowerPct}%'
+                                    : null)
+                                : '未启用'),
                         onTap: () => _openLaser(context),
                       ),
                     ],
@@ -1880,22 +1962,26 @@ class _StatusCard extends StatelessWidget {
 
   /// 加工中态：标题行 + 进度条（高 6）+ 副行（规格 §3 逐值）。
   Widget _busyBody() {
-    final sub = [
-      if (etaText.isNotEmpty) etaText,
-      jobName,
-      '点击查看详情',
-    ].join(' · ');
+    // 工单二十 §2.2：作业名上标题行，副行只留剩余时间（监控页退役，
+    // 「点击查看详情」随之删除）。
+    final sub = etaText.isNotEmpty ? etaText : '剩余时间估算中';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Text('雕刻中 $progressPct%',
-                style: TextStyle(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w600,
-                    color: CncColors.textMain)),
-            const Spacer(),
+            // 工单二十 §2.2：标题行 = 作业名 + 进度（作业名长时截断）。
+            Expanded(
+              child: Text(jobName.isNotEmpty
+                  ? '$jobName · $progressPct%'
+                  : '雕刻中 $progressPct%',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                      color: CncColors.textMain)),
+            ),
             _roundBtn(
               bg: CncColors.primary,
               onTap: onPauseResume,
@@ -1913,12 +1999,17 @@ class _StatusCard extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 9),
-        // 进度条：高 6、底 panelAlt、填充 primary、圆角 3。
+        const SizedBox(height: 6),
+        Text(sub,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+        const SizedBox(height: 7),
+        // 进度条：高 4 贴行底、底 panelAlt、填充 primary、圆角 2（工单二十 §2.2）。
         ClipRRect(
-          borderRadius: BorderRadius.circular(3),
+          borderRadius: BorderRadius.circular(2),
           child: Container(
-            height: 6,
+            height: 4,
             color: CncColors.panelAlt,
             child: FractionallySizedBox(
               alignment: Alignment.centerLeft,
@@ -1927,11 +2018,6 @@ class _StatusCard extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: 6),
-        Text(sub,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 11, color: CncColors.textSub)),
       ],
     );
   }

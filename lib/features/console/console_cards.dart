@@ -167,9 +167,13 @@ class ConsoleSpindleCard extends StatelessWidget {
 
 class ConsoleLaserCard extends StatelessWidget {
   final bool enabled;
+
+  /// 工单二十 §2.3：副行（功率 xx% / 未启用）；null = 不渲染副行，
+  /// 保持空闲态与现网逐像素一致（单行居中）。
+  final String? statusLine;
   final VoidCallback? onTap;
   const ConsoleLaserCard(
-      {super.key, this.enabled = true, this.onTap});
+      {super.key, this.statusLine, this.enabled = true, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -183,20 +187,44 @@ class ConsoleLaserCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: CncColors.border),
         ),
-        child: Center(
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CncLaserHeadIcon(size: 22, color: enabled ? CncColors.icon : CncColors.textSub),
-              const SizedBox(width: 8),
-              Text('激光雕刻头',
-                  style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: enabled ? CncColors.textMain : CncColors.textSub)),
-            ],
-          ),
-        ),
+        child: statusLine == null
+            ? Center(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CncLaserHeadIcon(size: 22, color: enabled ? CncColors.icon : CncColors.textSub),
+                    const SizedBox(width: 8),
+                    Text('激光雕刻头',
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: enabled ? CncColors.textMain : CncColors.textSub)),
+                  ],
+                ),
+              )
+            : Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CncLaserHeadIcon(size: 22, color: enabled ? CncColors.icon : CncColors.textSub),
+                      const SizedBox(width: 8),
+                      Text('激光雕刻头',
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: enabled ? CncColors.textMain : CncColors.textSub)),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(statusLine!,
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: CncColors.textSub,
+                          fontFeatures: const [FontFeature.tabularFigures()])),
+                ],
+              ),
       ),
     );
   }
@@ -218,9 +246,15 @@ class ConsoleToolMagazineCard extends ConsumerStatefulWidget {
 }
 
 class _ConsoleToolMagazineCardState
-    extends ConsumerState<ConsoleToolMagazineCard> {
+    extends ConsumerState<ConsoleToolMagazineCard>
+    with SingleTickerProviderStateMixin {
   /// 当前弹名称气泡的圆框下标（0..3）；null = 无。
   int? _bubble;
+
+  /// 工单二十 §2.3：当前工作刀（isCurrent）呼吸圈动画。
+  late final AnimationController _breathe = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1600))
+    ..repeat();
 
   /// §2.4A #4 内置防呆映射（colorHex 缺失时兜底；示例色值，
   /// 交核时与昊总对实物色环定稿）。
@@ -243,7 +277,7 @@ class _ConsoleToolMagazineCardState
       ? '${def.type}刀 · ${def.diameterMm}'
       : '${def.type}刀';
 
-  Widget _circle(int slot, String? toolId, bool en) {
+  Widget _circle(int slot, String? toolId, bool en, int? curSlot) {
     final def = toolId == null ? null : toolById(toolId);
     final Widget inner;
     if (def == null) {
@@ -276,20 +310,49 @@ class _ConsoleToolMagazineCardState
                   fontSize: 10,
                   fontWeight: FontWeight.w700,
                   color: CncColors.textSub)),
-          Container(
-            width: 44,
-            height: 44,
-            margin: const EdgeInsets.only(top: 1),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: def == null
-                    ? CncColors.disabled
-                    : (en ? _foolColor(def) : CncColors.textSub),
-                width: 2,
+          // 工单二十 §2.3：当前工作刀呼吸圈（54dp 外环，primary 呼吸透明度；
+          // 不改 44dp 圆框本体，布局零位移）。
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                margin: const EdgeInsets.only(top: 1),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: def == null
+                        ? CncColors.disabled
+                        : (en ? _foolColor(def) : CncColors.textSub),
+                    width: 2,
+                  ),
+                ),
+                child: inner,
               ),
-            ),
-            child: inner,
+              if (curSlot == slot)
+                Positioned(
+                  left: -5,
+                  top: -4,
+                  child: IgnorePointer(
+                    child: AnimatedBuilder(
+                      animation: _breathe,
+                      builder: (_, __) => Container(
+                        width: 54,
+                        height: 54,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: CncColors.primary
+                                .withOpacity(0.15 + 0.45 * _breathe.value),
+                            width: 2,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
         ],
       ),
@@ -335,9 +398,24 @@ class _ConsoleToolMagazineCardState
   }
 
   @override
+  void dispose() {
+    _breathe.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final slots = ref.watch(toolMagazineProvider);
     final en = widget.enabled;
+    // 工单二十 §2.3：当前工作刀位（状态帧 tools[].isCurrent，V1.1 cur_tool
+    // 回显；老固件无回显 → null，不高亮、零兜底提示）。
+    int? curSlot;
+    for (final t in (ref.watch(machineStatusProvider).value?.tools ?? const [])) {
+      if (t.isCurrent) {
+        curSlot = t.index;
+        break;
+      }
+    }
     return LayoutBuilder(builder: (context, cons) {
       final stackW = cons.maxWidth;
       final innerW = stackW - 24; // 卡内边距 12×2
@@ -389,7 +467,7 @@ class _ConsoleToolMagazineCardState
                   const Spacer(),
                   for (var i = 1; i <= 4; i++) ...[
                     if (i > 1) const SizedBox(width: 6),
-                    _circle(i, slots[i], en),
+                    _circle(i, slots[i], en, curSlot),
                   ],
                   const SizedBox(width: 8),
                   // 进入标志：› → 现有 ToolMagazineEditor 弹层

@@ -30,7 +30,6 @@ import '../../state/providers.dart';
 import '../preview/timelapse_client.dart';
 import '../shell/app_shell.dart';
 import 'job_launch_banner.dart';
-import 'job_monitor_page.dart';
 import 'zgrid_preview.dart';
 import 'origin_canvas.dart';
 import 'payload.dart';

@@ -23,7 +23,7 @@ import '../shell/app_shell.dart';
 
 import 'job_launch_banner.dart';
 
-import 'job_monitor_page.dart';
+import '../console/console_page.dart';
 
 
 
@@ -35,7 +35,7 @@ import 'job_monitor_page.dart';
 
 /// 用户关闭本页、切到后台或返回控制台后，机器自检仍继续进行；
 
-/// 完成后可重新从控制台「当前加工中」入口进入 [JobMonitorPage]。
+/// 完成后自动切到控制台任务行（工单二十：监控页退役）。
 
 class SelfCheckPage extends ConsumerStatefulWidget {
 
@@ -327,7 +327,9 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
         Navigator.of(context).pushReplacement(
 
-          MaterialPageRoute(builder: (_) => const JobMonitorPage()),
+          // 工单二十：监控页退役 → 自检完成雕刻已开始，回控制台看任务行。
+
+          MaterialPageRoute(builder: (_) => const ConsolePage()),
 
         );
 

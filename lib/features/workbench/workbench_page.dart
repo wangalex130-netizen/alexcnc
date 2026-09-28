@@ -17,7 +17,6 @@ import '../../state/providers.dart';
 import '../console/console_page.dart';
 import '../preview/rtsp_preview_widget.dart';
 import '../shell/app_shell.dart';
-import '../wizard/job_monitor_page.dart';
 import '../wizard/self_check_page.dart';
 import '../wizard/wizard_page.dart';
 import 'jog_sheet.dart';
@@ -128,8 +127,9 @@ class _WorkbenchPageState extends ConsumerState<WorkbenchPage> {
               onMonitor: () {
                 if (job == null) return;
                 if (job.completed || job.selfCheckDone) {
+                  // 工单二十：监控页退役 → 作业状态回控制台任务行查看。
                   Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const JobMonitorPage()),
+                    MaterialPageRoute(builder: (_) => const ConsolePage()),
                   );
                 } else {
                   Navigator.of(context).push(
