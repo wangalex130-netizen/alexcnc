@@ -652,7 +652,7 @@ class LaserTuneSheet extends StatelessWidget {
     // 联调通过为准，未联调前不渲染（弹层仅标题，无空占位零标记）。
     return Container(
       width: double.infinity,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: CncColors.bg,
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),

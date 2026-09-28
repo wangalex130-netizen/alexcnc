@@ -14,6 +14,7 @@ import '../../app/theme.dart';
 
 import '../../data/tool_library.dart';
 import '../../models/library_item.dart';
+import '../../models/task_metadata.dart';
 import '../../widgets/tool_icon.dart';
 
 import '../wizard/wizard_page.dart';

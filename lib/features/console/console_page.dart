@@ -2361,7 +2361,7 @@ class _SpindleSheetState extends ConsumerState<_SpindleSheet> {
 
     // 昊总 0928 #3：小弹层（原全屏页仅一张卡，大片留白）。
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: CncColors.bg,
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
