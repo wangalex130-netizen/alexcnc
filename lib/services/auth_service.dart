@@ -126,13 +126,17 @@ class AuthService {
     if (res.statusCode == 429 || code == 429) {
       throw const AuthException('尝试次数过多，请稍后再试');
     }
-    // 后端失败常为 HTTP 200 + code=500 + 错误码，需转成用户可读提示。
+    // 后端失败常为 HTTP 200 + code=500 + 业务错误码（2026-09-28 生产实测）：
+    // 10020101=账号不存在（含邮箱大小写不一致）、10020201=密码错误、
+    // 10020601=密码错误 —— 同属 1002 认证族，统一「账号或密码错误」，
+    // 不区分账号/密码哪个错（安全惯例，也防止用「账号不存在」探测注册用户）。
+    // 昊总 0928 定：认证类拒绝一律不显示「登录失败，请稍后重试」。
     if (code != null && code != 200 && code != '200') {
       final message = body['message']?.toString() ?? '';
-      if (message == '10020201' || message == '10020601') {
+      if (message.startsWith('1002')) {
         throw const AuthException('账号或密码错误');
       }
-      // message 是后端错误码/诊断串（如 10020201），一律不上屏。
+      // 其余为非认证类故障/诊断串，一律不上屏。
       throw const AuthException('登录失败，请稍后重试');
     }
     throw const AuthException('登录失败，请稍后重试');
