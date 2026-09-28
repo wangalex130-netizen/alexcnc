@@ -1915,7 +1915,7 @@ class _MachinePill extends ConsumerWidget {
       bg = CncColors.panelAlt;
       stateText = '报警';
     } else if (st?.awaitingConfirm == true) {
-      c = CncColors.warn;
+      c = CncColors.warning;
       bg = CncColors.panelAlt;
       stateText = '待确认';
     } else if (st?.state == MachineState.busy ||
@@ -2077,7 +2077,7 @@ class _MachineSwitchRow extends StatelessWidget {
       dot = CncColors.danger;
       stateLabel = '报警';
     } else if (st?.awaitingConfirm == true) {
-      dot = CncColors.warn;
+      dot = CncColors.warning;
       stateLabel = '待确认';
     } else if (st?.state == MachineState.busy ||
         st?.state == MachineState.paused) {
