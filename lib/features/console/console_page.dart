@@ -1619,6 +1619,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
             machineOnline: curSn != null &&
                 (ref.watch(presenceMapProvider).valueOrNull?[curSn]?.online ??
                     false),
+            machineLabel: (currentMachine?.name.isNotEmpty == true
+                ? currentMachine!.name
+                : (curSn ?? '')),
             progressPct: progressPct,
             etaText: _fmtEta(status.eta),
             jobName: jobName,
@@ -1795,16 +1798,21 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     );
   }
 
+  // 昊总 0928 #3：主轴/激光由全屏二级页改小弹层（全屏页大片留白浪费）。
   void _openSpindle(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const _SpindlePage()),
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _SpindleSheet(),
     );
   }
 
   void _openLaser(BuildContext context) {
-    // 工单十二 §2.9：激光调试页（驱动未联调，两卡不渲染、页面仅标题）
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const LaserTunePage()),
+    // 工单十二 §2.9：驱动未联调，两卡不渲染、弹层仅标题（零标记）
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const LaserTuneSheet(),
     );
   }
 
@@ -1872,7 +1880,10 @@ class _PulseTextState extends State<_PulseText>
 /// 机器在线 pill（昊总 0927 反馈）：在线=绿点绿字、离线=灰点灰字，一眼区分。
 class _MachinePill extends StatelessWidget {
   final bool online;
-  const _MachinePill({required this.online});
+
+  /// 机器标识（昊总 0928 #4）：名字优先、空则 SN；超长省略不撑破卡。
+  final String label;
+  const _MachinePill({required this.online, this.label = ''});
   @override
   Widget build(BuildContext context) {
     final c = online ? CncColors.successFg : CncColors.textSub;
@@ -1888,9 +1899,16 @@ class _MachinePill extends StatelessWidget {
             height: 6,
             decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
         const SizedBox(width: 4),
-        Text(online ? '在线' : '离线',
-            style: TextStyle(
-                fontSize: 10.5, fontWeight: FontWeight.w600, color: c)),
+        Flexible(
+          child: Text(
+              label.isEmpty
+                  ? (online ? '在线' : '离线')
+                  : '$label ${online ? '在线' : '离线'}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  fontSize: 10.5, fontWeight: FontWeight.w600, color: c)),
+        ),
       ]),
     );
   }
@@ -1907,6 +1925,9 @@ class _StatusCard extends StatelessWidget {
   final String alarmText;
   final String failedText;
   final bool machineOnline;
+
+  /// 机器标识（昊总 0928 #4）：pill 带机器名/SN，看卡即知哪台在线。
+  final String machineLabel;
   final int progressPct;
   final String etaText;
   final String jobName;
@@ -1920,6 +1941,7 @@ class _StatusCard extends StatelessWidget {
     required this.alarmText,
     required this.failedText,
     required this.machineOnline,
+    required this.machineLabel,
     required this.progressPct,
     required this.etaText,
     required this.jobName,
@@ -2084,7 +2106,7 @@ class _StatusCard extends StatelessWidget {
         const SizedBox(width: 8),
         // 机器在线 pill（昊总 0927 反馈）：在线状态回归常驻——挂状态卡行内，
         // 与实时监控位置解耦；看任务区即知机器在不在线。
-        _MachinePill(online: machineOnline),
+        _MachinePill(online: machineOnline, label: machineLabel),
         const SizedBox(width: 8),
         if (alarm) ...[
           _roundBtn(
@@ -2095,9 +2117,6 @@ class _StatusCard extends StatelessWidget {
           ),
           const SizedBox(width: 8),
         ],
-        Icon(Symbols.chevron_right,
-            size: 16,
-            color: alarm ? CncColors.danger : CncColors.icon),
       ],
     );
   }
@@ -2318,14 +2337,14 @@ class _SpindleCard extends StatelessWidget {
 // ===================== 主轴二级页（规格 §5 入口卡） =====================
 
 /// 主轴调试页：承载原控制台内嵌的 _SpindleCard（数据流零改动）。
-class _SpindlePage extends ConsumerStatefulWidget {
-  const _SpindlePage();
+class _SpindleSheet extends ConsumerStatefulWidget {
+  const _SpindleSheet();
 
   @override
-  ConsumerState<_SpindlePage> createState() => _SpindlePageState();
+  ConsumerState<_SpindleSheet> createState() => _SpindleSheetState();
 }
 
-class _SpindlePageState extends ConsumerState<_SpindlePage> {
+class _SpindleSheetState extends ConsumerState<_SpindleSheet> {
   int _rpm = 12000;
   bool _spindleOn = false;
 
@@ -2340,27 +2359,23 @@ class _SpindlePageState extends ConsumerState<_SpindlePage> {
         (hasMachine || !cfg.resolvedUseRealBackend);
     final hw = ref.read(hardwareServiceProvider);
 
-    return Scaffold(
-      backgroundColor: CncColors.bg,
-      appBar: AppBar(
-        backgroundColor: CncColors.card,
-        surfaceTintColor: CncColors.card,
-        toolbarHeight: 48,
-        elevation: 0,
-        iconTheme: IconThemeData(color: CncColors.textMain),
-        leading: IconButton(
-          icon: const Icon(Symbols.chevron_left, size: 22),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Text('主轴',
-            style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                color: CncColors.textMain)),
+    // 昊总 0928 #3：小弹层（原全屏页仅一张卡，大片留白）。
+    return Container(
+      decoration: const BoxDecoration(
+        color: CncColors.bg,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Text('主轴',
+              style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                  color: CncColors.textMain)),
+          const SizedBox(height: 10),
           _SpindleCard(
             enabled: canControl,
             rpm: _rpm,

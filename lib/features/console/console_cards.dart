@@ -643,30 +643,31 @@ class ConsoleAccessoryCard extends StatelessWidget {
 /// - 命令帧 `{'cmd':'laser','on':bool,'power':pct}`（驱动翻 M3 S…/M5，
 ///   与 aux key='laser' 红点激光是两条命令，勿混用）；
 /// - 门禁：仅空闲 + door==false；WAN 拒绝。
-class LaserTunePage extends StatelessWidget {
-  const LaserTunePage({super.key});
+class LaserTuneSheet extends StatelessWidget {
+  const LaserTuneSheet({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: CncColors.bg,
-      appBar: AppBar(
-        backgroundColor: CncColors.card,
-        surfaceTintColor: CncColors.card,
-        toolbarHeight: 48,
-        elevation: 0,
-        iconTheme: IconThemeData(color: CncColors.textMain),
-        leading: IconButton(
-          icon: const Icon(Symbols.chevron_left, size: 22),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Text('激光雕刻头',
-            style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                color: CncColors.textMain)),
+    // 昊总 0928 #3：全屏页改小弹层。§2.9：出光测试/功率滑条两卡以驱动
+    // 联调通过为准，未联调前不渲染（弹层仅标题，无空占位零标记）。
+    return Container(
+      width: double.infinity,
+      decoration: const BoxDecoration(
+        color: CncColors.bg,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      body: const SizedBox.expand(),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('激光雕刻头',
+              style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                  color: CncColors.textMain)),
+        ],
+      ),
     );
   }
 }

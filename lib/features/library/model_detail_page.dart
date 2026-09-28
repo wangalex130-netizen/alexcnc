@@ -693,15 +693,32 @@ class _ToolCard extends StatelessWidget {
 
   Widget build(BuildContext context) {
 
-    // 控制台规格书 §8 刀具分行：requiredTools 数组本身有序（先粗雕后精雕），
-
-    // 逐把一行 = 序号圆点 19×19（successBg 底 / blue 1.5 边 / successFg 字）
+    // 控制台规格书 §8 刀具分行（20260928 改：3020 自动换刀按 total 语义
+    // 同刀合并，行数=要备的刀数）= 序号圆点 19×19（successBg 底 / blue 1.5 边 / successFg 字）
 
     // + 刀具全名 13 textMain（可两行）+ 右侧角色徽章（panelAlt 底、字 10 textSub）。
 
     // 行距 7；标题「默认刀具」10.5 textSub 在首行上方。空数组回退原文显示。
 
-    final tools = item.requiredTools;
+    final rawTools = item.requiredTools;
+
+    // 20260928 昊总定（3020 自动换刀机型）：刀具卡按 total 完整程序语义显示，
+    // 同一把刀的多道工序合并为一行（如 平底刀：粗雕+精雕），行数=实际要备的刀数。
+    // 数据源仍是模型记录的 requiredTools（切片生成、覆盖 total 全程序，显示层
+    // 去重不回写）；未来无自动换刀机型的「粗/精分开读取」等机型定义后扩展。
+    final mergedRoles = <String, List<String>>{};
+    final toolOrder = <String>[];
+    for (final t in rawTools) {
+      mergedRoles.putIfAbsent(t.toolId, () {
+        toolOrder.add(t.toolId);
+        return <String>[];
+      }).add(t.role);
+    }
+    final tools = [
+      for (final id in toolOrder)
+        RequiredTool(
+            id, mergedRoles[id]!.where((r) => r.isNotEmpty).join('+')),
+    ];
 
     final display = (item.tools?.trim().isNotEmpty ?? false)
 
@@ -853,6 +870,8 @@ class _ToolCard extends StatelessWidget {
 
                       ),
 
+                      if (tools[i].role.isNotEmpty) ...[
+
                       const SizedBox(width: 8),
 
                       Container(
@@ -876,6 +895,8 @@ class _ToolCard extends StatelessWidget {
                                 fontSize: 10, color: CncColors.textSub)),
 
                       ),
+
+                      ],
 
                     ],
 
