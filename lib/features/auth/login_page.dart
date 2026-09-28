@@ -172,16 +172,29 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
               // 品牌 mark（2026-09-27 昊总）：节奏环 + OLDUVA 字标，墨色，
               // 几何与 splash 启动屏同一套定值（olduva_brand.dart）。
-              CustomPaint(
-                size: const Size(64, 64),
-                painter: OlduvaRingPainter(color: CncColors.primaryInk),
+              // 本列是 stretch（全宽紧约束），会覆盖 CustomPaint 的 size 且画笔
+              // 不裁剪 → 超界绘制互相叠压；必须 Center 松约束 + SizedBox 定尺寸
+              //（09-28 实机修复）。
+              Center(
+                child: SizedBox(
+                  width: 64,
+                  height: 64,
+                  child: CustomPaint(
+                    painter: OlduvaRingPainter(color: CncColors.primaryInk),
+                  ),
+                ),
               ),
 
               const SizedBox(height: 20),
 
-              CustomPaint(
-                size: const Size(190, 35),
-                painter: OlduvaWordmarkPainter(color: CncColors.primaryInk),
+              Center(
+                child: SizedBox(
+                  width: 190,
+                  height: 35,
+                  child: CustomPaint(
+                    painter: OlduvaWordmarkPainter(color: CncColors.primaryInk),
+                  ),
+                ),
               ),
 
               const SizedBox(height: 4),
