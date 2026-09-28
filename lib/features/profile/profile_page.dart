@@ -444,7 +444,8 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
 
 
-        // 沉底：设置入口（§1 #4：右侧显示当前主题名，同款 Consumer 写法）
+        // 沉底：设置入口（0928 昊总：删「浅色」尾注——本行是纯导航入口，
+        // 主题名只会造成困惑；当前主题值在设置页「外观」行展示）
 
         const SizedBox(height: 18),
 
@@ -457,16 +458,6 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
               icon: Symbols.settings,
 
               title: '设置',
-
-              trailing: Consumer(
-
-                builder: (context, ref, _) => Text(
-
-                    themeModeLabel(ref.watch(themeModeProvider)),
-
-                    style: TextStyle(fontSize: 12, color: CncColors.textSub)),
-
-              ),
 
               onTap: () => Navigator.push(
 

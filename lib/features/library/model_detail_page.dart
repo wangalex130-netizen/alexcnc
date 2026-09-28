@@ -704,7 +704,9 @@ class _ToolCard extends StatelessWidget {
     final rawTools = item.requiredTools;
 
     // 20260928 昊总定（3020 自动换刀机型）：刀具卡按 total 完整程序语义显示，
-    // 同一把刀的多道工序合并为一行（如 平底刀：粗雕+精雕），行数=实际要备的刀数。
+    // 同一把刀的多道工序合并为一行，行数=实际要备的刀数。
+    // 工序徽章（粗雕/精雕/半精加工）0928 二次反馈删除——内部工序语言，
+    // 客户无需理解（机器自动换刀，装刀向导仍按工序序列走）。
     // 数据源仍是模型记录的 requiredTools（切片生成、覆盖 total 全程序，显示层
     // 去重不回写）；未来无自动换刀机型的「粗/精分开读取」等机型定义后扩展。
     final mergedRoles = <String, List<String>>{};
@@ -870,34 +872,6 @@ class _ToolCard extends StatelessWidget {
                         ),
 
                       ),
-
-                      if (tools[i].role.isNotEmpty) ...[
-
-                      const SizedBox(width: 8),
-
-                      Container(
-
-                        padding: const EdgeInsets.symmetric(
-
-                            horizontal: 8, vertical: 2),
-
-                        decoration: BoxDecoration(
-
-                          color: CncColors.panelAlt,
-
-                          borderRadius: BorderRadius.circular(6),
-
-                        ),
-
-                        child: Text(tools[i].role,
-
-                            style: TextStyle(
-
-                                fontSize: 10, color: CncColors.textSub)),
-
-                      ),
-
-                      ],
 
                     ],
 

@@ -8,6 +8,7 @@ import '../../app/theme.dart';
 import '../../widgets/olduva_brand.dart';
 
 import '../../state/auth_provider.dart';
+import '../../services/auth_service.dart';
 
 import '../../state/providers.dart';
 
@@ -136,9 +137,14 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
       if (mounted) Navigator.of(context).pop(true);
 
-    } catch (e) {
+    } on AuthException catch (e) {
 
-      if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (mounted) setState(() => _error = e.message);
+
+    } catch (_) {
+
+      // 超时/断网/DNS 等 http 层异常：统一规范文案，内部堆栈不上屏。
+      if (mounted) setState(() => _error = '网络连接失败，请检查网络后重试');
 
     }
 

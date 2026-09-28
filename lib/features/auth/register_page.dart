@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/theme.dart';
 
 import '../../state/auth_provider.dart';
+import '../../services/auth_service.dart';
 
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
@@ -97,13 +98,19 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
       if (mounted) Navigator.of(context).pop(true);
 
-    } catch (e) {
+    } on AuthException catch (e) {
 
       if (mounted) {
 
-        setState(
+        setState(() => _error = e.message);
 
-            () => _error = e.toString().replaceFirst('Exception: ', ''));
+      }
+
+    } catch (_) {
+
+      if (mounted) {
+
+        setState(() => _error = '网络连接失败，请检查网络后重试');
 
       }
 

@@ -17,6 +17,17 @@ import '../app/config.dart';
 /// - 登录成功后 token 存本地，后续所有接口 `Authorization: Bearer <token>`（Bearer 后带空格）。
 ///
 /// token/userId 持久化到 SharedPreferences（后续升级 flutter_secure_storage）。
+
+/// 登录/注册失败异常：`message` 恒为面向客户的安全文案（0928 昊总定：
+/// 内部诊断串/后端原始码一律不上屏）。页面按本类型分流——非本类型
+/// （超时/断网等 http 层异常）一律显示「网络连接失败」规范文案。
+class AuthException implements Exception {
+  final String message;
+  const AuthException(this.message);
+  @override
+  String toString() => message;
+}
+
 class AuthService {
   AuthService({http.Client? client, String? baseUrl})
       : _client = client ?? http.Client(),
@@ -72,7 +83,7 @@ class AuthService {
     try {
       body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
     } catch (_) {
-      throw Exception('服务器响应异常（${res.statusCode}）');
+      throw const AuthException('登录失败，请稍后重试');
     }
     // PC 工程师契约：code=200 成功；兼容直接返回 {userId, token} 与
     // 包裹式 {code:200, data:{...}} 两种结构。
@@ -90,7 +101,8 @@ class AuthService {
           '';
       final token = data['token']?.toString() ?? '';
       if (userId.isEmpty || token.isEmpty) {
-        throw Exception('登录响应缺少 userId/token');
+        // 后端契约异常（非客户操作问题）：不暴露内部字段名，统一规范文案。
+        throw const AuthException('登录失败，请稍后重试');
       }
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_kUserId, userId);
@@ -98,26 +110,32 @@ class AuthService {
       await prefs.setString(_kUsername, email);
       return (userId, token);
     }
-    if (res.statusCode == 409 || code == 409) throw Exception('该邮箱已注册');
-    if (res.statusCode == 401 || code == 401) throw Exception('账号或密码错误');
+    if (res.statusCode == 409 || code == 409) {
+      throw const AuthException('该邮箱已注册');
+    }
+    if (res.statusCode == 401 || code == 401) {
+      throw const AuthException('账号或密码错误');
+    }
     if (res.statusCode == 400 || code == 400) {
-      throw Exception(body['error']?.toString() ?? body['message']?.toString() ?? '请求参数有误');
+      // 后端 400 的 error/message 是内部诊断串，禁止透传上屏。
+      throw const AuthException('登录失败，请稍后重试');
     }
     if (res.statusCode == 403 || code == 403) {
-      throw Exception('登录被拒绝，请稍后重试');
+      throw const AuthException('登录被拒绝，请稍后重试');
     }
     if (res.statusCode == 429 || code == 429) {
-      throw Exception('尝试次数过多，请稍后再试');
+      throw const AuthException('尝试次数过多，请稍后再试');
     }
     // 后端失败常为 HTTP 200 + code=500 + 错误码，需转成用户可读提示。
     if (code != null && code != 200 && code != '200') {
       final message = body['message']?.toString() ?? '';
       if (message == '10020201' || message == '10020601') {
-        throw Exception('账号或密码错误');
+        throw const AuthException('账号或密码错误');
       }
-      throw Exception(message.isEmpty ? '登录失败，请稍后重试' : message);
+      // message 是后端错误码/诊断串（如 10020201），一律不上屏。
+      throw const AuthException('登录失败，请稍后重试');
     }
-    throw Exception('服务不可用（${res.statusCode}）');
+    throw const AuthException('登录失败，请稍后重试');
   }
 
   /// 退出登录：清本地 session。
