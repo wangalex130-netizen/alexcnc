@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'app/app.dart';
+import 'features/profile/settings_page.dart' show kStartupTabKey;
+import 'features/shell/app_shell.dart' show StartupPrefs;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -14,6 +18,13 @@ Future<void> main() async {
   // 改为「亮底用深色图标、暗底用浅色图标」，由 AlexCncApp 在 MaterialApp 的
   // builder 里按**当前实际生效的 Brightness** 下发（见 app/app.dart）。
   applySystemBars(Brightness.light);
+  // 工单二十一 §2.8：启动首选项在首帧前读好（native splash 覆盖期，零闪烁）。
+  try {
+    final sp = await SharedPreferences.getInstance();
+    StartupPrefs.tab = sp.getString(kStartupTabKey) ?? 'devices';
+  } catch (_) {
+    // 偏好读取失败按默认「设备」走，不阻塞启动。
+  }
   runApp(const ProviderScope(child: AlexCncApp()));
 }
 

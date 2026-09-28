@@ -13,10 +13,16 @@ class DevicePresence {
   final MachineState? state;
   final DateTime lastSeen;
 
+  /// 完整状态快照（工单二十一 §2.3）：presence 连接只做传输，解析复用
+  /// MachineStatus.fromJson —— 设备页/胶囊直接读进度、待确认、job 名，
+  /// 无需新增任何连接。
+  final MachineStatus? status;
+
   const DevicePresence({
     this.online = false,
     this.state,
     required this.lastSeen,
+    this.status,
   });
 }
 

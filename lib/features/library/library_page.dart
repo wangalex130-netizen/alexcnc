@@ -153,7 +153,9 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
         if (prev == next) return;
 
-        if (next == 0) {
+        // 工单二十一 §2.1：四栏后图库 = index 1（0 = 设备）。
+
+        if (next == 1) {
 
           // 切回图库 Tab：如果当前是「我的云端空间」则刷新我的空间，
 

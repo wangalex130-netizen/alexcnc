@@ -12,6 +12,8 @@ import '../../state/providers.dart';
 
 import '../console/console_page.dart';
 
+import '../devices/devices_page.dart';
+
 import '../library/library_page.dart';
 
 import '../profile/profile_page.dart';
@@ -31,7 +33,18 @@ import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 /// 用户头），因此这里不再套通用 AppBar，严格对齐 HTML 原稿。
 
-final navIndexProvider = StateProvider<int>((ref) => 0);
+/// 启动首选项（工单二十一 §2.8）：main 在 runApp 前预载（native splash
+/// 覆盖期完成读取），首帧 navIndex 即定值，无可见闪烁。
+/// 'devices'（默认）/ 'library'，仅两值；key 见 settings_page.kStartupTabKey。
+class StartupPrefs {
+  StartupPrefs._();
+  static String tab = 'devices';
+  static int get startIndex => tab == 'library' ? 1 : 0;
+}
+
+/// 工单二十一 §2.1：四栏（设备/图库/控制台/我的），index 0 = 设备。
+final navIndexProvider =
+    StateProvider<int>((ref) => StartupPrefs.startIndex);
 
 
 
@@ -76,11 +89,9 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
     WidgetsBinding.instance.addObserver(this);
 
     // 工单十 §2：「我的」页轻量，首帧后 800ms 后台预挂，消首次点入顿挫。
-
+    // 工单二十一 §2.1：四栏后「我的」= index 3。
     _preloadTimer = Timer(const Duration(milliseconds: 800), () {
-
-      if (mounted && !_mounted.contains(2)) setState(() => _mounted.add(2));
-
+      if (mounted && !_mounted.contains(3)) setState(() => _mounted.add(3));
     });
 
   }
@@ -125,6 +136,8 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
 
   static const _pages = <Widget>[
 
+    DevicesPage(),
+
     LibraryPage(),
 
     ConsolePage(),
@@ -135,9 +148,8 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
 
 
 
-  // 工单十 §2 懒挂载：首帧只挂图库；控制台首次点入才挂载（挂载后常驻，
-
-  // 保留既有「常驻」语义）；「我的」由 initState 的 800ms 预挂兜底。
+  // 工单十 §2 懒挂载：首帧只挂首屏页（工单二十一 §2.1 后 = 设备）；其余
+  // 首次点入才挂载（挂载后常驻，「我的」由 initState 的 800ms 预挂兜底。
 
   // 已知取舍（工单 §2 如实转告）：控制台首次点入那一次 build 仍会完整执行，
 
@@ -149,11 +161,16 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
 
 
 
-  static const _labels = ['图库', '控制台', '我的'];
+  static const _labels = ['设备', '图库', '控制台', '我的'];
 
   // 统一线性图标（Material Symbols Outlined）
 
-  static const _icons = [Symbols.apps, Symbols.tune, Symbols.person];
+  static const _icons = [
+    Symbols.devices,
+    Symbols.apps,
+    Symbols.tune,
+    Symbols.person
+  ];
 
 
 
@@ -166,6 +183,11 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
     // 保持常驻在线监听服务存活（订阅全部绑定设备的 cnc/<id>/status）
 
     ref.watch(devicePresenceServiceProvider);
+
+    // 工单二十一 §2.0：作业状态监听管道常驻挂载（与 presence 同模式）。
+    // watcher 无自身状态，切机时随 machineStatusProvider 重建无害——
+    // 作业数据本体在 ActiveJobNotifier 里，不受重建影响。
+    ref.watch(jobStatusWatcherProvider);
 
     // 程序化切 tab（发送后/停止后设 navIndex）时目标 tab 可能从未挂载
     // （懒挂载集合只有图库）→ IndexedStack 落在 SizedBox.shrink 白屏。

@@ -35,6 +35,9 @@ const String helpUrl = '';
 /// 调试模式偏好 key（修订单 §1.2：开关迁入「关于」组末尾，控制调试入口显隐）。
 const String kDebugModeKey = 'debug_mode';
 
+/// 启动页面偏好 key（工单二十一 §2.8）：'devices' 默认 / 'library' 图库。
+const String kStartupTabKey = 'startup_tab_v1';
+
 /// 工单七 + 修订单：设置页（低频项归置终点）。
 ///
 /// 结构 = 修订单 §6 最终版：通用（外观/语言/视频播放/检查更新）、
@@ -49,6 +52,7 @@ class SettingsPage extends ConsumerStatefulWidget {
 class _SettingsPageState extends ConsumerState<SettingsPage> {
   String _videoNet = 'any';
   bool _debugMode = false;
+  String _startupTab = 'devices';
 
   @override
   void initState() {
@@ -62,6 +66,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     setState(() {
       _videoNet = sp.getString(kVideoPlayNetworkKey) ?? 'any';
       _debugMode = sp.getBool(kDebugModeKey) ?? false;
+      _startupTab = sp.getString(kStartupTabKey) ?? 'devices';
     });
   }
 
@@ -77,6 +82,67 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     await sp.setBool(kDebugModeKey, v);
     if (!mounted) return;
     setState(() => _debugMode = v);
+  }
+
+  /// 工单二十一 §2.8：启动页面（设备/图库），下次冷启动生效。
+  Future<void> _setStartupTab(String v) async {
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString(kStartupTabKey, v);
+    if (!mounted) return;
+    setState(() => _startupTab = v);
+  }
+
+  /// 启动页面选择抽屉（复用视频播放抽屉同款骨架）。
+  void _openStartupSheet() {
+    openSheet(
+      context,
+      Container(
+        decoration: BoxDecoration(
+          color: CncColors.panel,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 16),
+              Text('启动页面',
+                  style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: CncColors.textMain)),
+              const SizedBox(height: 4),
+              MenuItem(
+                icon: Symbols.devices,
+                title: '设备',
+                trailing: _startupTab != 'library'
+                    ? Icon(Symbols.check_circle,
+                        size: 20, color: CncColors.primaryInk)
+                    : null,
+                onTap: () {
+                  _setStartupTab('devices');
+                  Navigator.of(context).pop();
+                },
+              ),
+              MenuItem(
+                icon: Symbols.apps,
+                title: '图库',
+                trailing: _startupTab == 'library'
+                    ? Icon(Symbols.check_circle,
+                        size: 20, color: CncColors.primaryInk)
+                    : null,
+                onTap: () {
+                  _setStartupTab('library');
+                  Navigator.of(context).pop();
+                },
+              ),
+              const SizedBox(height: 10),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   /// 工单十 §4：清空图片磁盘缓存 + 延时视频临时文件，完成后提示「已清理」。
@@ -268,6 +334,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     style: TextStyle(fontSize: 12, color: CncColors.textSub)),
               ),
               onTap: () => openSheet(context, const AppearanceSheet()),
+            ),
+            // 工单二十一 §2.8：启动页面（默认设备，可改图库），下次启动生效。
+            MenuItem(
+              icon: Symbols.home,
+              title: '启动页面',
+              trailing: Text(_startupTab == 'library' ? '图库' : '设备',
+                  style: TextStyle(fontSize: 12, color: CncColors.textSub)),
+              onTap: _openStartupSheet,
             ),
             // 语言：本期无响应（全 App 无 i18n 基建，真切换属 i18n 改造专项
             // 单独立项）。入口先立住、值如实显示当前语言（修订单 §3）。

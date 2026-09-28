@@ -221,7 +221,9 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
   void _leaveToConsole() {
 
-    ref.read(navIndexProvider.notifier).state = 1;
+    // 工单二十一 §2.1：四栏后控制台 index 0→1→2。
+
+    ref.read(navIndexProvider.notifier).state = 2;
 
     Navigator.of(context).pushAndRemoveUntil(
 

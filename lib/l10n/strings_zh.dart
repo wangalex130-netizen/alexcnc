@@ -91,4 +91,22 @@ class S {
 
   // ---- 图库（W1-4：真实账号名）----
   static const accountLabel = '账号：{name}';
+
+  // ---- 设备 Tab（工单二十一 §2.2/2.6/2.7，2026-09-29）----
+  static const devicesTitle = '设备';
+  static const devicesLoginTitle = '登录后管理设备';
+  static const devicesLoginSubtitle = '登录账号即可查看和管理你的雕刻机。';
+  static const devicesGoLogin = '去登录';
+  static const devicesNoMachine = '还没有绑定机器';
+  static const devicesScanBind = '扫码绑定';
+  static const devicesConfirmHint = '到机器前按确认键开始加工';
+  static const devicesGoConsole = '去控制台';
+  static const devicesSnLabel = '机器码';
+  static const devicesTypeLabel = '机型';
+  static const jobFromOtherClient = '（其他端发起的作业）';
+
+  // ---- 切机提示三态（工单二十一 §2.5 拍板原文；空闲/离线不提示）----
+  static const switchBusyToast = '{name} 加工中 · 作业会继续，可在设备页查看';
+  static const switchConfirmToast = '{name} 等待确认 · 请到机器前操作';
+  static const switchAlarmToast = '{name} 报警中 · 状态可在设备页查看';
 }

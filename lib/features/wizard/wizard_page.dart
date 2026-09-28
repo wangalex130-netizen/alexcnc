@@ -4107,7 +4107,7 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
     // 下发成功 → 切控制台 tab 再清导航栈（昊总实机 20260927：不能落回模型库）。
     // 两段式下「去机器屏幕按开始」的引导由控制台状态卡承载；监控页此刻只有
     // 0.0% 空信息，点状态卡即可进监控。
-    ref.read(navIndexProvider.notifier).state = 1;
+    ref.read(navIndexProvider.notifier).state = 2;
     Navigator.of(context).popUntil((route) => route.isFirst);
   }
 

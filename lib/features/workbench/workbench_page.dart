@@ -148,7 +148,7 @@ class _WorkbenchPageState extends ConsumerState<WorkbenchPage> {
           SliverToBoxAdapter(
             child: _FlowCard(
               activeStep: job != null ? 6 : step,
-              onStart: () => ref.read(navIndexProvider.notifier).state = 1,
+              onStart: () => ref.read(navIndexProvider.notifier).state = 2,
             ),
           ),
           SliverToBoxAdapter(child: _RecentCard()),

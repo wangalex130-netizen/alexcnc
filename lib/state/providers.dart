@@ -728,6 +728,9 @@ class ActiveJob {
   final LibraryItem item;
   final TaskMetadata task;
   final String materialKey;
+  /// 目标机器（工单二十一 §2.0）：本作业所属机器 sn；空串 = 未指定
+  /// （Mock/调试），状态门禁放行帧。
+  final String machineSn;
   final Map<int, int> procSlot; // 工序 index → 物理刀仓
   final DateTime startedAt;
   final DateTime? finishedAt;
@@ -743,6 +746,7 @@ class ActiveJob {
     required this.item,
     required this.task,
     required this.materialKey,
+    this.machineSn = '',
     required this.procSlot,
     required this.startedAt,
     this.finishedAt,
@@ -758,6 +762,7 @@ class ActiveJob {
     LibraryItem? item,
     TaskMetadata? task,
     String? materialKey,
+    String? machineSn,
     Map<int, int>? procSlot,
     DateTime? startedAt,
     DateTime? finishedAt,
@@ -772,6 +777,7 @@ class ActiveJob {
         item: item ?? this.item,
         task: task ?? this.task,
         materialKey: materialKey ?? this.materialKey,
+        machineSn: machineSn ?? this.machineSn,
         procSlot: procSlot ?? this.procSlot,
         startedAt: startedAt ?? this.startedAt,
         finishedAt: finishedAt ?? this.finishedAt,
@@ -801,11 +807,17 @@ class ActiveJobNotifier extends StateNotifier<ActiveJob?> {
 
   final void Function()? onCleared;
 
+  /// 当前激活机 sn（工单二十一 §2.0）：按需读取、不建立响应式依赖；
+  /// start() 时自动盖进作业 —— 向导侧零改动。
+  final String Function() currentSn;
+
   ActiveJobNotifier({
     required this.startJob,
     this.prepareJob,
     this.onCleared,
-  }) : super(null);
+    String Function()? currentSn,
+  })  : currentSn = currentSn ?? (() => ''),
+        super(null);
 
   /// 启动一次雕刻。
   ///
@@ -821,7 +833,9 @@ class ActiveJobNotifier extends StateNotifier<ActiveJob?> {
   }) async {
     // 固件拥有自检流水线：App 仅下发启动指令，阶段推进由固件广播驱动
     // （见 docs/功能逻辑与分工梳理.md 决策②）。App 不再自己计时。
-    state = job.copyWith(selfCheckIndex: -1, selfCheckTotal: 0);
+    // 工单二十一 §2.0：自动盖当前机器 sn（未选机器 = 空串，Mock/调试）。
+    state = job.copyWith(
+        machineSn: currentSn(), selfCheckIndex: -1, selfCheckTotal: 0);
 
     final url = gcodeUrl?.trim() ?? '';
     final accepted = (url.isNotEmpty && prepareJob != null)
@@ -899,28 +913,42 @@ final activeJobProvider = StateNotifierProvider<ActiveJobNotifier, ActiveJob?>(
                 sha256: sha256 ?? '',
               ),
       onCleared: () => ref.read(hardwareServiceProvider).stopJob(),
+      // 工单二十一 §2.0：当前机器 sn 按需读取（read 不建立响应式依赖）
+      // → 切机不再连带本 provider 销毁重建，作业状态跨切机存活；
+      // 状态帧监听统一由下方 jobStatusWatcherProvider 承担。
+      currentSn: () => ref.read(currentMachineProvider)?.sn ?? '',
     );
-    // 全局监听机器状态（固件广播的 SSOT）：
-    // 1) 同步自检阶段进度（固件拥有自检流水线）；
-    // 2) 仅当机器真正完成（state==idle 且 progress>=1）时标记 completed，
-    //    与当前停留在哪个页面无关，确保控制台/监控页完成态一致同步；
-    //    暂停/手动停止不会误判为完成。
-    final sub = ref.watch(machineStatusProvider.stream).listen((status) {
-      final job = notifier.state;
-      if (job == null) return;
-      if (status.selfCheckTotal > 0) {
-        notifier.syncSelfCheck(status.selfCheckIndex, status.selfCheckTotal);
-      }
-      if (!job.completed &&
-          status.state == MachineState.idle &&
-          status.progress >= 1.0) {
-        notifier.markCompleted();
-      }
-    });
-    ref.onDispose(sub.cancel);
     return notifier;
   },
 );
+
+/// 作业状态监听管道（工单二十一 §2.0）：与 activeJobProvider 解耦。
+///
+/// 本 provider 无自身状态，切机时随 machineStatusProvider 重建无害 ——
+/// 作业数据本体在 ActiveJobNotifier（上面的 provider）里，不受影响。
+/// 解耦前 listen 写在 activeJobProvider 的 create 内：watch 链
+/// activeJob→machineStatus→hardwareService→currentMachine，切机整链
+/// dispose 重建，作业状态当场清零。挂载点：app_shell.build。
+final jobStatusWatcherProvider = Provider<void>((ref) {
+  final notifier = ref.read(activeJobProvider.notifier);
+  final curSn = ref.watch(currentMachineProvider)?.sn ?? '';
+  final sub = ref.watch(machineStatusProvider.stream).listen((status) {
+    final job = notifier.state;
+    if (job == null) return;
+    // sn 门禁：作业不属于当前激活机 → 忽略帧
+    // （空串 sn = Mock/调试作业，放行，行为不变）。
+    if (job.machineSn.isNotEmpty && job.machineSn != curSn) return;
+    if (status.selfCheckTotal > 0) {
+      notifier.syncSelfCheck(status.selfCheckIndex, status.selfCheckTotal);
+    }
+    if (!job.completed &&
+        status.state == MachineState.idle &&
+        status.progress >= 1.0) {
+      notifier.markCompleted();
+    }
+  });
+  ref.onDispose(sub.cancel);
+});
 
 // ===================== 延时摄影 job =====================
 /// 保存本次雕刻开启的延时摄影 jobId，供「查看视频」入口读取。

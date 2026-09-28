@@ -1333,8 +1333,12 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
     final bool busyNow = status.state == MachineState.busy ||
         status.state == MachineState.paused;
     final int progressPct = (status.progress.clamp(0.0, 1.0) * 100).round();
-    final String jobName =
-        job?.item.title ?? status.job ?? '（其他端发起的作业）';
+    // 工单二十一 §2.4：作业名只在 activeJob 属于当前机器时读取；
+    // 属于其他机器（sn 不匹配）→ 回落本机帧自带的 job 字段。
+    final String jobName = (job != null &&
+            (job.machineSn.isEmpty || job.machineSn == curSn))
+        ? job.item.title
+        : (status.job ?? S.jobFromOtherClient);
 
     // 工单二十 §2.1：摄像头页（原 Positioned.fill 内容原样提匣，拉流逻辑零改动）。
 
@@ -1616,6 +1620,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     ? carve?.error
                     : null) ??
                 '网络连接已断开，请检查网络后重新开始',
+            machineSn: curSn ?? '',
             machineOnline: curSn != null &&
                 (ref.watch(presenceMapProvider).valueOrNull?[curSn]?.online ??
                     false),
@@ -1878,38 +1883,251 @@ class _PulseTextState extends State<_PulseText>
 }
 
 /// 机器在线 pill（昊总 0927 反馈）：在线=绿点绿字、离线=灰点灰字，一眼区分。
-class _MachinePill extends StatelessWidget {
+/// 机器胶囊（工单二十一 §2.5）：五态色点 + 机器名 + ▾，点开切机面板。
+/// 常见态（在线/雕刻中）维持 0927 拍板的绿 pill 视觉，报警/待确认以
+/// 中性底 + 彩点/彩字表达（卡身已着色，避免同色叠同色）。
+class _MachinePill extends ConsumerWidget {
   final bool online;
+
+  /// 机器 sn（工单二十一 §2.5）：据此读 presence 五态；空 = 调试回退二态。
+  final String sn;
 
   /// 机器标识（昊总 0928 #4）：名字优先、空则 SN；超长省略不撑破卡。
   final String label;
-  const _MachinePill({required this.online, this.label = ''});
+  const _MachinePill(
+      {required this.online, this.sn = '', this.label = ''});
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final p = sn.isEmpty
+        ? null
+        : ref.watch(presenceMapProvider).valueOrNull?[sn];
+    final st = p?.status;
+    final bool on = (p?.online ?? false) || online;
+    final Color c;
+    final Color bg;
+    final String stateText;
+    if (!on) {
+      c = CncColors.textSub.withOpacity(.38);
+      bg = CncColors.panelAlt;
+      stateText = '离线';
+    } else if (st?.state == MachineState.alarm) {
+      c = CncColors.danger;
+      bg = CncColors.panelAlt;
+      stateText = '报警';
+    } else if (st?.awaitingConfirm == true) {
+      c = CncColors.warn;
+      bg = CncColors.panelAlt;
+      stateText = '待确认';
+    } else if (st?.state == MachineState.busy ||
+        st?.state == MachineState.paused) {
+      c = CncColors.successFg;
+      bg = CncColors.successBg;
+      stateText = '雕刻中';
+    } else {
+      c = CncColors.successFg;
+      bg = CncColors.successBg;
+      stateText = '在线';
+    }
+    return GestureDetector(
+      onTap: () => _openMachineSwitcher(context, ref),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+                label.isEmpty ? stateText : '$label $stateText',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontSize: 10.5, fontWeight: FontWeight.w600, color: c)),
+          ),
+          const SizedBox(width: 2),
+          Icon(Symbols.expand_more, size: 12, color: CncColors.textSub),
+        ]),
+      ),
+    );
+  }
+}
+
+/// 切机面板（工单二十一 §2.5）：列全部绑定机器 + presence 实时状态，
+/// 离线禁选、当前激活机打勾。
+void _openMachineSwitcher(BuildContext context, WidgetRef ref) {
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (_) => const _MachineSwitcherSheet(),
+  );
+}
+
+class _MachineSwitcherSheet extends ConsumerWidget {
+  const _MachineSwitcherSheet();
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final machines = ref.watch(boundMachinesProvider);
+    final presence = ref.watch(presenceMapProvider).valueOrNull ??
+        const <String, DevicePresence>{};
+    final current = ref.watch(currentMachineProvider);
+    return Container(
+      decoration: BoxDecoration(
+        color: CncColors.panel,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 16),
+            Text('切换机器',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: CncColors.textMain)),
+            const SizedBox(height: 6),
+            for (final m in machines)
+              _MachineSwitchRow(
+                machine: m,
+                presence: presence[m.sn],
+                selected: current?.sn == m.sn && m.sn.isNotEmpty,
+                onTap: () => _switchMachine(context, ref, m),
+              ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 切机动作（工单二十一 §2.5）：与 _MachinePickerGate._select 同款
+/// （select + 延时摄影取流目标切换）；三态提示先切后 toast，不阻塞操作。
+Future<void> _switchMachine(
+    BuildContext context, WidgetRef ref, Machine m) async {
+  // 切换前读旧激活机 presence，供三态提示。
+  final old = ref.read(currentMachineProvider);
+  final oldSn = old?.sn ?? '';
+  final oldP = oldSn.isEmpty
+      ? null
+      : ref.read(presenceMapProvider).valueOrNull?[oldSn];
+  final oldName = (old?.name.isNotEmpty == true) ? old!.name : oldSn;
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  await ref.read(currentMachineProvider.notifier).select(m);
+  final device = m.sn.isNotEmpty ? m.sn : m.camDevice;
+  if (device.isNotEmpty) {
+    TimeLapseClient.configure(
+      base: AppConfig.cameraRelayBaseUrl,
+      device: device,
+    );
+  }
+  if (context.mounted) Navigator.of(context).pop();
+  final msg = _switchToast(oldP, oldName);
+  if (msg != null) {
+    messenger?.showSnackBar(SnackBar(
+        content: Text(msg), duration: const Duration(seconds: 3)));
+  }
+}
+
+/// 切机提示三态（工单二十一 §2.5 拍板原文）；空闲/离线不提示。
+String? _switchToast(DevicePresence? p, String name) {
+  final st = p?.status;
+  if (st?.state == MachineState.busy) {
+    return S.t(S.switchBusyToast, {'name': name});
+  }
+  if (st?.awaitingConfirm == true) {
+    return S.t(S.switchConfirmToast, {'name': name});
+  }
+  if (st?.state == MachineState.alarm) {
+    return S.t(S.switchAlarmToast, {'name': name});
+  }
+  return null;
+}
+
+class _MachineSwitchRow extends StatelessWidget {
+  final Machine machine;
+  final DevicePresence? presence;
+  final bool selected;
+  final VoidCallback onTap;
+  const _MachineSwitchRow({
+    required this.machine,
+    required this.presence,
+    required this.selected,
+    required this.onTap,
+  });
   @override
   Widget build(BuildContext context) {
-    final c = online ? CncColors.successFg : CncColors.textSub;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: online ? CncColors.successBg : CncColors.panelAlt,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
-        const SizedBox(width: 4),
-        Flexible(
-          child: Text(
-              label.isEmpty
-                  ? (online ? '在线' : '离线')
-                  : '$label ${online ? '在线' : '离线'}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  fontSize: 10.5, fontWeight: FontWeight.w600, color: c)),
+    final st = presence?.status;
+    // 在线判定与选机门控页同源：presence 优先，后端 online 字段兜底。
+    final bool online =
+        (presence?.online ?? false) || machine.online == true;
+    final Color dot;
+    final String stateLabel;
+    if (!online) {
+      dot = CncColors.textSub.withOpacity(.38);
+      stateLabel = '离线';
+    } else if (st?.state == MachineState.alarm) {
+      dot = CncColors.danger;
+      stateLabel = '报警';
+    } else if (st?.awaitingConfirm == true) {
+      dot = CncColors.warn;
+      stateLabel = '待确认';
+    } else if (st?.state == MachineState.busy ||
+        st?.state == MachineState.paused) {
+      dot = CncColors.successFg;
+      stateLabel = st?.state == MachineState.paused ? '已暂停' : '雕刻中';
+    } else {
+      dot = CncColors.textSub;
+      stateLabel = '空闲';
+    }
+    return Opacity(
+      opacity: online ? 1 : .55,
+      child: InkWell(
+        onTap: online ? onTap : null,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                  width: 8,
+                  height: 8,
+                  decoration:
+                      BoxDecoration(color: dot, shape: BoxShape.circle)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                        machine.name.isNotEmpty ? machine.name : machine.sn,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w600,
+                            color: CncColors.textMain)),
+                    const SizedBox(height: 2),
+                    Text('$stateLabel · ${machine.sn}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            TextStyle(fontSize: 11, color: CncColors.textSub)),
+                  ],
+                ),
+              ),
+              if (selected)
+                Icon(Symbols.check, size: 18, color: CncColors.primary),
+            ],
+          ),
         ),
-      ]),
+      ),
     );
   }
 }
@@ -1928,6 +2146,9 @@ class _StatusCard extends StatelessWidget {
 
   /// 机器标识（昊总 0928 #4）：pill 带机器名/SN，看卡即知哪台在线。
   final String machineLabel;
+
+  /// 工单二十一 §2.5：机器 sn —— 胶囊据此读 presence 显示五态色点。
+  final String machineSn;
   final int progressPct;
   final String etaText;
   final String jobName;
@@ -1942,6 +2163,7 @@ class _StatusCard extends StatelessWidget {
     required this.failedText,
     required this.machineOnline,
     required this.machineLabel,
+    required this.machineSn,
     required this.progressPct,
     required this.etaText,
     required this.jobName,
@@ -2106,7 +2328,8 @@ class _StatusCard extends StatelessWidget {
         const SizedBox(width: 8),
         // 机器在线 pill（昊总 0927 反馈）：在线状态回归常驻——挂状态卡行内，
         // 与实时监控位置解耦；看任务区即知机器在不在线。
-        _MachinePill(online: machineOnline, label: machineLabel),
+        _MachinePill(
+            sn: machineSn, online: machineOnline, label: machineLabel),
         const SizedBox(width: 8),
         if (alarm) ...[
           _roundBtn(
