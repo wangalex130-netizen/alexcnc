@@ -125,15 +125,28 @@ class LibraryItem {
   /// 雕刻遍数（laser 专用）。
   final int? laserPasses;
 
-  /// 两个 G-code 均未配置（未切片）；只存在其一不算异常（后端明确约定）。
+  /// 三份 G-code（total/粗/精）均未配置（未切片）；只存在其一不算异常
+  /// （后端明确约定）。2026-09-28 云端每模型存 total+粗+精 三份素材，
+  /// 只有 total 的模型（如激光件）也算已切片。
   bool get hasAnyGcode =>
       (roughingGcodeUrl != null && roughingGcodeUrl!.isNotEmpty) ||
-      (finishingGcodeUrl != null && finishingGcodeUrl!.isNotEmpty);
+      (finishingGcodeUrl != null && finishingGcodeUrl!.isNotEmpty) ||
+      (totalGcodeUrl != null && totalGcodeUrl!.isNotEmpty);
 
-  /// 优先返回粗加工 G-code（url + 元数据），无粗加工则返回精加工。
+  /// 下发用 G-code（url + 元数据）：**total 优先** —— 粗+精+换刀完整程序，
+  /// 适配当前包覆款自动换刀机型（2026-09-28 云端补齐 total 素材后接线，
+  /// 之前粗雕优先会漏掉精雕与换刀）；无 total 回退粗→精（存量模型旧链路，
+  /// 零回归）。未来无自动换刀机型的分段下发（粗/精两段）等机型接入时再扩展。
   /// 用于 prepare_job 的 files[0]（V1 只支持单文件）。
   /// 返回 null 表示模型没有加工程序。
   ({String url, int sizeBytes, String sha256})? get primaryGcode {
+    if (totalGcodeUrl != null && totalGcodeUrl!.isNotEmpty) {
+      return (
+        url: totalGcodeUrl!,
+        sizeBytes: totalGcodeSizeBytes ?? 0,
+        sha256: totalGcodeSha256 ?? '',
+      );
+    }
     if (roughingGcodeUrl != null && roughingGcodeUrl!.isNotEmpty) {
       return (
         url: roughingGcodeUrl!,
@@ -244,9 +257,12 @@ class LibraryItem {
         toolId: j['toolId'] as String?,
         tools: j['tools'] as String?,
         durationSec: (j['durationSec'] as num?)?.toInt(),
-        // gcodeStatus 后端不回传时，按约定由刀路 URL 推导（任一非空即已切片）。
+        // gcodeStatus 后端不回传时，按约定由刀路 URL 推导（任一非空即已切片；
+        // 2026-09-28 起 total 也算——只有 total 的模型不再误判未切片）。
         gcodeStatus: (j['gcodeStatus'] as String?) ??
-            ((j['roughingGcodeUrl'] != null || j['finishingGcodeUrl'] != null)
+            ((j['roughingGcodeUrl'] != null ||
+                    j['finishingGcodeUrl'] != null ||
+                    j['totalGcodeUrl'] != null)
                 ? 'sliced'
                 : 'unsliced'),
         description: j['description'] as String?,
@@ -512,6 +528,9 @@ class LibraryItem {
     String? roughingGcodeSha256,
     int? finishingGcodeSizeBytes,
     String? finishingGcodeSha256,
+    String? totalGcodeUrl,
+    int? totalGcodeSizeBytes,
+    String? totalGcodeSha256,
     String? processType,
     int? laserPowerPct,
     int? laserSpeedMmMin,
@@ -562,6 +581,9 @@ class LibraryItem {
             finishingGcodeSizeBytes ?? this.finishingGcodeSizeBytes,
         finishingGcodeSha256:
             finishingGcodeSha256 ?? this.finishingGcodeSha256,
+        totalGcodeUrl: totalGcodeUrl ?? this.totalGcodeUrl,
+        totalGcodeSizeBytes: totalGcodeSizeBytes ?? this.totalGcodeSizeBytes,
+        totalGcodeSha256: totalGcodeSha256 ?? this.totalGcodeSha256,
         processType: processType ?? this.processType,
         laserPowerPct: laserPowerPct ?? this.laserPowerPct,
         laserSpeedMmMin: laserSpeedMmMin ?? this.laserSpeedMmMin,

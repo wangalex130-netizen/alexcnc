@@ -4076,8 +4076,9 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
     // 雕刻主链路 v2（2026-09-03）：模型带加工程序 URL 时走
     // prepare_job → confirm 两阶段 —— **App 只把 URL + 元数据传给小屏，
     // 自己不下载、不上传 G-code**（D2 守住铁律）。
-    // primaryGcode 优先粗加工、回退精加工；sizeBytes/sha256 由后端
-    // 2026-09-03 补字段提供（roughingGcodeSizeBytes / roughingGcodeSha256 等）。
+    // primaryGcode：total（粗+精+换刀完整程序，适配自动换刀机型，09-28
+    // 云端补素材后接线）优先，回退粗→精（存量模型）；sizeBytes/sha256 由
+    // 后端补字段提供（totalGcodeSizeBytes / roughingGcodeSizeBytes 等）。
     final gcode = widget.item.primaryGcode;
 
     // 🔴 W-10 扩展（2026-09-10）：开切走 prepare_job（→ 自动 confirm）或回退 startJob，
