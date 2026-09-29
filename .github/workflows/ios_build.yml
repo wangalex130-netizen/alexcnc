@@ -1,12 +1,13 @@
 # ============================================================
 # iOS 出包（未签名 IPA，Windows 上用 Sideloadly 签名装机）
 # ------------------------------------------------------------
-# 用法：
-#   1. 放到仓库 .github/workflows/ios_build.yml
-#   2. push 到 main/master 自动构建（与 Android APK 同步出包）
-#   3. 也可在 GitHub Actions 页面手动 Run workflow
-# 产物：Releases 页 ipa-<短sha> 附件 alexcnc_ios_unsigned.ipa
-#       （Release 附件不占 artifact 存储配额，优先走这里）
+# v2（2026-09-29）：
+#   - Flutter 固定 3.29.0，与 build.yml 的 Android 构建同版本
+#   - iOS 平台脚手架每次现场生成（不提交回仓库），沿用 build.yml
+#     注释掉的既定方案：org com.alexcnc + main.dart/pubspec 备份恢复
+#     + Info.plist 局域网权限（连机器/摄像头必需）
+#   - dart-define 注入口径与 Android push 构建对齐
+#   - 交付走 Release（不占 artifact 配额）；artifact 仅备份、失败不阻断
 # 注意：私有仓库 macOS 分钟数按 10 倍计费（免费额度 2000/月 ≈ 20 次）
 # ============================================================
 name: iOS Build (unsigned IPA)
@@ -23,55 +24,85 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # Flutter 版本自动读 pubspec.yaml 的 environment 声明，与 Android 侧保持一致
-      - name: Setup Flutter
+      - name: Setup Flutter (stable)
         uses: subosito/flutter-action@v2
         with:
-          channel: stable
-          flutter-version-file: pubspec.yaml
+          flutter-version: '3.29.0'
+          channel: 'stable'
           cache: true
 
-      # 仓库目前没有 ios/ 目录：首次运行用 Flutter 自动生成平台脚手架，
-      # 并把部署目标抬高到 13.0（新版插件 network_info_plus 等的常见要求）
-      - name: Bootstrap ios platform if missing
+      # 沿用 build.yml 注释方案的既定口径：备份入口文件 → 生成 iOS 脚手架 → 恢复
+      - name: Generate iOS platform
         run: |
-          if [ ! -d ios ]; then
-            flutter create . --platforms=ios --project-name alexcnc
-            echo "### IOS_BOOTSTRAP scaffold created"
-          else
-            echo "### IOS_BOOTSTRAP ios/ already present"
-          fi
+          cp lib/main.dart /tmp/main.dart.bak
+          cp pubspec.yaml /tmp/pubspec.yaml.bak
+          flutter create --platforms=ios --org com.alexcnc .
+          cp /tmp/main.dart.bak lib/main.dart
+          cp /tmp/pubspec.yaml.bak pubspec.yaml
+          # 部署目标抬到 13.0（network_info_plus 等新版插件的常见最低要求）
           sed -i '' -e 's/IPHONEOS_DEPLOYMENT_TARGET = 11\.0/IPHONEOS_DEPLOYMENT_TARGET = 13.0/g' -e 's/IPHONEOS_DEPLOYMENT_TARGET = 12\.0/IPHONEOS_DEPLOYMENT_TARGET = 13.0/g' ios/Runner.xcodeproj/project.pbxproj || true
+
+      # 局域网发现/连接权限（App 连雕刻机与摄像头必需），grep 守卫保证幂等
+      - name: Inject iOS network permissions (Info.plist)
+        run: |
+          PLIST=ios/Runner/Info.plist
+          grep -q NSLocalNetworkUsageDescription "$PLIST" || /usr/libexec/PlistBuddy -c "Add :NSLocalNetworkUsageDescription string '用于发现并连接局域网内的 CNC 雕刻机与摄像头'" "$PLIST"
+          grep -q NSBonjourServices "$PLIST" || /usr/libexec/PlistBuddy -c "Add :NSBonjourServices array" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Print :NSBonjourServices" "$PLIST" | grep -q _alexcnc._tcp || /usr/libexec/PlistBuddy -c "Add :NSBonjourServices:0 string _alexcnc._tcp" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Print :NSBonjourServices" "$PLIST" | grep -q _http._tcp || /usr/libexec/PlistBuddy -c "Add :NSBonjourServices:1 string _http._tcp" "$PLIST"
+          grep -q NSAppTransportSecurity "$PLIST" || /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Print :NSAppTransportSecurity" "$PLIST" | grep -q NSAllowsArbitraryLoads || /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" "$PLIST"
 
       - name: Pub get
         run: flutter pub get
 
-      # DEBUG_TOOLS 与 build.yml 的 Android 注入口径一致
-      #（收口：正式客户包前移除该 define 即自动隐藏调试模式）
+      # dart-define 注入口径与 build.yml 的 Android push 构建一致（值不落仓库）
       - name: Build iOS (no codesign)
-        run: >
-          flutter build ios --release --no-codesign
-          --dart-define=DEBUG_TOOLS=true
+        env:
+          LAB_MQTT_USER: ${{ secrets.LAB_MQTT_USER }}
+          LAB_MQTT_PASS: ${{ secrets.LAB_MQTT_PASS }}
+          LAB_CAMERA_USER: ${{ secrets.LAB_CAMERA_USER }}
+          LAB_CAMERA_PASS: ${{ secrets.LAB_CAMERA_PASS }}
+          LAB_RELAY_TOKEN: ${{ secrets.LAB_RELAY_TOKEN }}
+        run: |
+          DEFINE_ARGS="--dart-define=MQTT_ALLOW_SELF_SIGNED=true --dart-define=DEBUG_TOOLS=true"
+          if [ -n "${LAB_MQTT_USER}" ]; then DEFINE_ARGS="$DEFINE_ARGS --dart-define=MQTT_USER=${LAB_MQTT_USER}"; fi
+          if [ -n "${LAB_MQTT_PASS}" ]; then DEFINE_ARGS="$DEFINE_ARGS --dart-define=MQTT_PASS=${LAB_MQTT_PASS}"; fi
+          if [ -n "${LAB_CAMERA_USER}" ]; then DEFINE_ARGS="$DEFINE_ARGS --dart-define=CAMERA_USER=${LAB_CAMERA_USER}"; fi
+          if [ -n "${LAB_CAMERA_PASS}" ]; then DEFINE_ARGS="$DEFINE_ARGS --dart-define=CAMERA_PASS=${LAB_CAMERA_PASS}"; fi
+          if [ -n "${LAB_RELAY_TOKEN}" ]; then DEFINE_ARGS="$DEFINE_ARGS --dart-define=CAMERA_RELAY_TOKEN=${LAB_RELAY_TOKEN}"; fi
+          APP_LINE="$(grep -E '^version:' pubspec.yaml | head -1 | sed 's/^version:[[:space:]]*//' | tr -d '\r')"
+          APP_VER="${APP_LINE%%+*}"
+          APP_BUILD="0"
+          case "$APP_LINE" in
+            *+*) APP_BUILD="${APP_LINE##*+}" ;;
+          esac
+          case "$APP_BUILD" in
+            ''|*[!0-9]*) APP_BUILD=0 ;;
+          esac
+          SHA_SHORT="$(printf '%s' "${GITHUB_SHA}" | cut -c1-7)"
+          DEFINE_ARGS="$DEFINE_ARGS --dart-define=APP_VERSION=${APP_VER} --dart-define=APP_BUILD_NUMBER=${APP_BUILD} --dart-define=BUILD_SHA=${SHA_SHORT}"
+          echo "### DEFINE_KEYS: $(printf '%s' "$DEFINE_ARGS" | tr ' ' '\n' | sed 's/^--dart-define=//' | sed 's/=.*//' | tr '\n' ' ')"
+          flutter build ios --release --no-codesign $DEFINE_ARGS
 
       # 未签名 .app 打包成 IPA（Payload 结构），供 Sideloadly 签名
       - name: Package unsigned IPA
         run: |
+          cd build/ios/iphoneos
           mkdir -p Payload
-          cp -R build/ios/iphoneos/Runner.app Payload/
-          zip -qry alexcnc_ios_unsigned.ipa Payload
-          echo "### IPA_DIAG size=$(stat -f %z alexcnc_ios_unsigned.ipa)"
+          cp -R Runner.app Payload/
+          zip -qry alexcnc-ios-unsigned.ipa Payload
+          echo "### IPA_DIAG size=$(stat -f %z alexcnc-ios-unsigned.ipa)"
 
       # 备份通道：配额(账户级,500MB)耗尽时失败不算错，交付靠下面的 Release
       - name: Upload IPA artifact
-        if: always()
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: alexcnc-ios-unsigned
-          path: alexcnc_ios_unsigned.ipa
+          path: build/ios/iphoneos/alexcnc-ios-unsigned.ipa
           retention-days: 7
 
       # 交付通道（幂等）：Release 附件不占 artifact 配额
@@ -80,8 +111,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="ipa-${GITHUB_SHA::7}"
+          IPA=build/ios/iphoneos/alexcnc-ios-unsigned.ipa
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" alexcnc_ios_unsigned.ipa --clobber || echo "upload failed (non-fatal)"
+            gh release upload "$TAG" "$IPA" --clobber || echo "upload failed (non-fatal)"
           else
-            gh release create "$TAG" alexcnc_ios_unsigned.ipa --title "iOS unsigned IPA ${GITHUB_SHA::7}" --notes "未签名 IPA，下载后用 Sideloadly 签名安装（7 天有效）" || echo "release create failed (non-fatal)"
+            gh release create "$TAG" "$IPA" --title "iOS unsigned IPA ${GITHUB_SHA::7}" --notes "未签名 IPA，下载后用 Sideloadly 签名安装（7 天有效）" || echo "release create failed (non-fatal)"
           fi
