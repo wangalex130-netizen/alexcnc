@@ -58,6 +58,32 @@ jobs:
       - name: Pub get
         run: flutter pub get
 
+      # Swift 运行库 overlay 链接修复：Xcode 16.3+ 下 Flutter 3.29 模板链接
+      # Runner 时找不到 swift_Builtin_float/errno/math 等 overlay tbd，
+      # 显式补 -lswift_* + 工具链 Swift 库路径 + Always Embed Swift。
+      # 锚点为 Runner 的 bundle id（3 个 build configuration 各一处）。
+      - name: Patch Runner link settings (Swift overlay libs)
+        run: |
+          python3 - << 'PYEOF'
+          import io
+          p = "ios/Runner.xcodeproj/project.pbxproj"
+          s = io.open(p, encoding="utf-8").read()
+          anchor = "PRODUCT_BUNDLE_IDENTIFIER = com.alexcnc.alexcnc;"
+          inject = ('OTHER_LDFLAGS = "$(inherited) -lswift_Builtin_float -lswift_errno -lswift_math -lswift_signal -lswift_stdio -lswift_time -lswiftsys_time -lswiftunistd";\n'
+                    '\t\t\t\tLIBRARY_SEARCH_PATHS = "$(inherited) $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME)";\n'
+                    '\t\t\t\tLD_ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;')
+          n = s.count(anchor)
+          print("### PATCH anchor count =", n)
+          if n == 0:
+              raise SystemExit("patch anchor not found - template changed?")
+          if "libswiftunistd" not in s:
+              s = s.replace(anchor, anchor + "\n\t\t\t\t" + inject)
+              io.open(p, "w", encoding="utf-8", newline="").write(s)
+              print("### PATCH applied to", n, "configurations")
+          else:
+              print("### PATCH already present, skip")
+          PYEOF
+
       # dart-define 注入口径与 build.yml 的 Android push 构建一致（值不落仓库）
       - name: Build iOS (no codesign)
         env:
