@@ -30,11 +30,15 @@ import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 /// 整机只有一个升级口：发现新版本 → 查看版本号与更新内容 → 一键升级。
 
-/// 内部仍按设备逐个查询/升级（本轮 camera 有真实服务），UI 全程整体呈现。
+/// 内部仍按设备逐个查询/升级（camera 触发全链路、主板检查已接），UI 全程整体呈现。
 
 ///
 
-/// 本轮边界：只接 camera（fw_server 8090 已就绪）；screen/board 服务未上线。
+/// 本轮边界（2026-09-29 云端转发版）：
+/// - 摄像头触发：MQTT 云转发（`{"action":"ota_upgrade"}`，外网可用），
+///   同网保留 /ota/status 轮询观察进度；
+/// - 主板：检查更新已接（app_key=mainboard，当前版本未知时不查不提示）；
+/// - 屏幕/主板的升级触发：待固件协议帧（状态帧字段+触发指令）落地后接入。
 
 class FirmwarePage extends ConsumerStatefulWidget {
 
@@ -72,6 +76,9 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
   bool _failed = false; // 最近一次升级失败
 
+  /// 无法做云端比对（摄像头当前版本未知且不同网）。true 时页底显示连接提示。
+  bool _checkBlocked = false;
+
 
 
   @override
@@ -90,7 +97,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
   void _initDevices() {
 
-    // 本轮 screen/board 服务未上线：卡片不展示，仅参与内部聚合（占位无更新）。
+    // 屏幕/主板：当前版本未知时不查不提示（状态帧固件字段落地后自动生效）。
 
     _devices[FwDeviceType.camera] = FwDeviceStatus(
 
@@ -230,100 +237,64 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
 
 
-  /// 检查更新。**必须先拿到机器局域网地址（同网）才做云端比对**，否则直接返回且
-  /// 不改动绿点（原因见下方 P1-1 注释）。
-
-  /// 本轮只有 camera 参与：`screen` 缺当前版本来源（见 docs/56 §3.8.3 F-04），
-  /// `board` 在更新接口中没有对应 app_key。
-
+  /// 检查更新（2026-09-29 云转发改造：解除同网门禁）。
+  ///
+  /// 当前版本来源（**有真实当前版本才与云端比对**，防假提示）：
+  /// - 摄像头：同网时 /ota/status 实读；读不到则用上次落盘的真实版本兜底；
+  /// - 屏幕 / 主板：来自机器状态帧（固件字段未落地，F-04 欠账），
+  ///   落盘有值才查，没有就跳过（宁可少提示，也不谎报）。
   Future<void> _checkAll() async {
-
     setState(() {
-
       _checking = true;
-
       _failed = false;
-
     });
 
-    String curVer = '0.0.0';
-
+    var camVer = '0.0.0';
+    var camKnown = false;
     _cameraIp = await _service.discoverCameraIp();
 
     if (_cameraIp != null) {
-
       final st = await _service.pollCameraStatus(_cameraIp!);
-
       final v = st == null ? null : FirmwareService.parseFwVer(st);
-
       if (v != null && v.isNotEmpty) {
-
-        curVer = v;
-
+        camVer = v;
+        camKnown = true;
         // 记录本次在局域网内读到的真实版本：外网静默检查（绿点）用它做比较基准。
-
-        // 没有这一步，绿点会因「当前版本未知」而永不提示（见 checkCloudUpdate）。
-
         unawaited(FirmwareService.saveKnownVersion(FwDeviceType.camera, v));
-
       }
-
+    }
+    if (!camKnown) {
+      // 外网兜底：不同网时用上次落盘的真实版本做比对基准（与 checkCloudUpdate 绿点同源）。
+      final kv = await FirmwareService.knownVersion(FwDeviceType.camera);
+      if (kv != null) {
+        camVer = kv;
+        camKnown = true;
+      }
     }
 
-    // 🟠 P1-1（2026-09-10 自审修复）：**拿不到机器局域网地址时不做云端比对**。
-
-    // 更新检查接口是按「客户端上报的当前版本」比对的；外网时 curVer 仍是 '0.0.0'，
-
-    // 服务端必然判为「有新版本」→ ①页面显示假信息 ②把假状态回写绿点，
-
-    // 破坏 checkCloudUpdate 刻意做的「当前版本未知就不提示」。
-
-    // 因此这里直接返回，并且**不改动全局绿点**（它可能是同网时查到的真实结果）。
-
-    if (_cameraIp == null) {
-
-      setState(() {
-
-        _checking = false;
-
-        _devices[FwDeviceType.camera] = FwDeviceStatus(
-
-          type: FwDeviceType.camera,
-
-          curVer: '0.0.0',
-
-          phase: FwPhase.idle,
-
-        );
-
-      });
-
-      return;
-
+    final found = <FwDeviceType, FwDeviceStatus>{};
+    if (camKnown) {
+      final cam = await _service.checkLatest(FwDeviceType.camera, camVer);
+      if (cam != null) found[FwDeviceType.camera] = cam;
     }
-
-    final cam = await _service.checkLatest(FwDeviceType.camera, curVer);
+    for (final t in const [FwDeviceType.screen, FwDeviceType.board]) {
+      // 当前版本未知 → 不查、不提示（避免上报 0.0.0 被服务端判为必然有新版）。
+      final kv = await FirmwareService.knownVersion(t);
+      if (kv == null) continue;
+      final st = await _service.checkLatest(t, kv);
+      if (st != null) found[t] = st;
+    }
 
     if (!mounted) return;
-
     setState(() {
-
       _checking = false;
-
-      if (cam != null) {
-
-        _devices[FwDeviceType.camera] =
-
-            cam.copyWith(phase: FwPhase.idle);
-
-      }
-
+      _checkBlocked = !found.containsKey(FwDeviceType.camera);
+      found.forEach((t, st) {
+        _devices[t] = st.copyWith(phase: FwPhase.idle);
+      });
     });
-
-    // 回写「我的」页入口绿点：把本页查到的「可升级」态同步到全局状态；
-    // 升级完成/失败或云端无更新时，绿点也随之消失。
+    // 回写「我的」页入口绿点：把本页查到的「可升级」态同步到全局状态。
     ref.read(fwUpdateAvailableProvider.notifier).state = _hasUpdate;
-
   }
 
 
@@ -448,50 +419,47 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
 
 
-  /// 升级单台设备（本轮 camera 走同网 /ota/do + 轮询完成）。
-
+  /// 升级单台设备（2026-09-29 云转发版）。
+  ///
+  /// camera：MQTT 发布 `{"action":"ota_upgrade"}` 到 `cnc/<机器统一码>/cmd`
+  /// （复用流命令通道，摄像头固件按 action 统一解析），摄像头自主拉云包升级。
+  /// 同网时轮询 /ota/status 观察进度；外网暂无进度 MQTT 帧（固件欠账），
+  /// 发出指令后按固定时长等待，版本号在下次同网实读时自我纠正。
   Future<bool> _upgradeOne(FwDeviceType type) async {
-
-    if (type != FwDeviceType.camera) return false; // screen/board 未上线，跳过
-
-    if (_cameraIp == null) return false; // 外网无法触发
-
-    final started = await _service.triggerCameraUpgrade(_cameraIp!);
-
-    if (!started) return false;
-
-    for (var i = 0; i < 30; i++) {
-
-      await Future.delayed(const Duration(seconds: 3));
-
-      final st = await _service.pollCameraStatus(_cameraIp!);
-
-      if (st == null) continue;
-
-      final state = int.tryParse(st['state'] ?? '-2') ?? -2;
-
-      if (state == 3) return true; // 完成
-
-      if (state == -1) return false; // 失败
-
-      if (mounted) {
-
-        setState(() {
-
-          _devices[type] = _devices[type]!.copyWith(
-
-            phaseText: _phaseTextByState(state, st['running'] ?? ''),
-
-          );
-
-        });
-
-      }
-
+    if (type != FwDeviceType.camera) {
+      // 屏幕/主板触发指令帧待固件协议，本轮只接检查、不接触发。
+      return false;
     }
-
+    final sn = ref.read(currentMachineProvider)?.sn ?? '';
+    if (sn.isEmpty) return false;
+    try {
+      ref
+          .read(hardwareServiceProvider)
+          .sendCameraStream('ota_upgrade', deviceId: sn);
+    } catch (_) {
+      return false;
+    }
+    if (_cameraIp == null) {
+      // 外网：指令已发出。摄像头升级约 1-2 分钟，无进度帧可观察，等待后收尾。
+      await Future.delayed(const Duration(seconds: 100));
+      return mounted;
+    }
+    for (var i = 0; i < 30; i++) {
+      await Future.delayed(const Duration(seconds: 3));
+      final st = await _service.pollCameraStatus(_cameraIp!);
+      if (st == null) continue;
+      final state = int.tryParse(st['state'] ?? '-2') ?? -2;
+      if (state == 3) return true; // 完成
+      if (state == -1) return false; // 失败
+      if (mounted) {
+        setState(() {
+          _devices[type] = _devices[type]!.copyWith(
+            phaseText: _phaseTextByState(state, st['running'] ?? ''),
+          );
+        });
+      }
+    }
     return false;
-
   }
 
 
@@ -842,13 +810,13 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
             _buildActionButton(),
 
-            if (_cameraIp == null)
+            if (_checkBlocked)
 
               Padding(
 
                 padding: EdgeInsets.only(top: 10),
 
-                child: Text('当前不在设备所在 WiFi，无法检查更新。请连接与设备相同的 WiFi 后重试',
+                child: Text('暂未获取到设备当前版本，请连接设备 WiFi 后检查更新',
 
                     textAlign: TextAlign.center,
 

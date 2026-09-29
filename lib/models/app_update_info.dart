@@ -6,7 +6,8 @@
 /// 响应体：`{schema_version, update_available, latest_version,
 ///           latest_build_number, release_notes, download_url}`
 ///
-/// 同一接口服务三类目标：`android`（本 App）/ `camera`（摄像头）/ `screen`（屏幕）。
+/// 同一接口服务四类目标：`android`（本 App）/ `camera`（摄像头）/ `screen`（屏幕）/
+/// `mainboard`（主板，后台 2026-09-29 新增）。
 /// 服务端按「客户端上报的当前 version / build_number」与后台配置比对，得出
 /// `update_available`；只有**存在新版本且后台已填下载地址**时才为 true。
 ///
@@ -76,7 +77,10 @@ enum AppUpdateTarget {
   camera('camera'),
 
   /// 屏幕固件。
-  screen('screen');
+  screen('screen'),
+
+  /// 主板固件（后台 2026-09-29 新增「主板」类型，生产接口实测 200 生效）。
+  mainboard('mainboard');
 
   /// 接口 `app_key` 取值 —— **与接口文档字面量一致，不可改名**。
   /// （接口另有 `name` 参数，可选值 `Android` / `摄像头` / `屏幕`；

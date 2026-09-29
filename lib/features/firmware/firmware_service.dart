@@ -11,10 +11,12 @@ import 'firmware_models.dart';
 /// 契约（2026-09-10 更新）：
 /// - **查询是否有新版本**：`POST {cloudBaseUrl}/api/app/updates/check`
 ///   （PC 工程师《APP 手动检查更新接口》；旧的 `GET {fwBaseUrl}/fw/<type>/latest` 已弃用）
-/// - 触发（同网直连摄像头）：`GET http://<摄像头IP>/ota/check|do|status`
+/// - 触发（云端转发，2026-09-29 定稿）：MQTT 发布 `{"action":"ota_upgrade"}` 到
+///   `cnc/<机器统一码>/cmd`（摄像头固件 v2.2.6+ 订阅该主题并自主拉云包升级）；
+///   同网 `GET http://<摄像头IP>/ota/status` 仅保留用于升级进度观察。
 ///
-/// 摄像头走局域网直连触发升级；`screen` 的版本比对走云端接口（见 [checkCloudUpdate]）。
-/// `board` 在更新接口中没有对应 `app_key`，保持占位（无更新）。
+/// 摄像头走云端转发触发升级（外网可用）；`screen` 的版本比对走云端接口（见 [checkCloudUpdate]）。
+/// 主板 `app_key=mainboard`（后台 2026-09-29 新增，生产接口实测生效）。
 class FirmwareService {
   FirmwareService({http.Client? client, AppUpdateService? updates})
       : _client = client ?? http.Client(),
@@ -38,7 +40,7 @@ class FirmwareService {
   }) async {
     final target = _targetOf(type);
     if (target == null) {
-      // `board` 在更新接口中没有对应 app_key（只有 android / camera / screen）。
+      // 防御分支：当前三类固件均已接入 app_key（mainboard 于 2026-09-29 接入）。
       return FwDeviceStatus(type: type, curVer: curVer, available: false);
     }
     final info = await _updates.check(
@@ -59,21 +61,25 @@ class FirmwareService {
 
   /// App 打开时一次性静默检查「是否有可升级固件」（**拉取式**：服务端不主动推送）。
   ///
-  /// 走更新检查接口（`POST /api/app/updates/check`），对摄像头 / 屏幕各查一次。
+  /// 走更新检查接口（`POST /api/app/updates/check`），对摄像头 / 屏幕 / 主板各查一次。
   ///
   /// ⚠️ 关键取舍：**只有已知该设备的当前版本时才提示**。当前版本来自上次在局域网内
   /// 通过 `/ota/status` 读到的真实值（由 [saveKnownVersion] 落盘）。从未读到过 → 不提示。
   /// 理由：接口按「客户端上报的当前版本」比对；若在未知情况下上报 0.0.0，服务端必然
   /// 判为「有新版本」→ 绿点常亮，属假提示。宁可少提示，也不谎报。
   Future<bool> checkCloudUpdate() async {
-    for (final type in const [FwDeviceType.camera, FwDeviceType.screen]) {
+    for (final type in const [
+      FwDeviceType.camera,
+      FwDeviceType.screen,
+      FwDeviceType.board,
+    ]) {
       final target = _targetOf(type);
       if (target == null) continue;
       final cur = await knownVersion(type);
       // 当前版本未知 → 不猜、不提示。
-      // ⚠️ 现实上 `screen` **必然走到这里**：全库只有 camera 会调
-      // saveKnownVersion（屏幕的当前版本 App 拿不到，见 docs/56 §3.8.3 F-04）。
-      // 保留 screen 分支是为了 F-04 落地后零改动生效，别误读为「屏幕已支持」。
+      // ⚠️ 现实上 `screen` / `board` **必然走到这里**：当前只有 camera 会调
+      // saveKnownVersion（屏幕/主板当前版本 App 还拿不到，F-04 欠账；
+      // 机器状态帧出固件版本字段后，此处零改动自动生效）。
       if (cur == null) continue;
       final info = await _updates.check(
         target: target,
@@ -92,7 +98,8 @@ class FirmwareService {
       case FwDeviceType.screen:
         return AppUpdateTarget.screen;
       case FwDeviceType.board:
-        return null;
+        // 后台 2026-09-29 新增「主板」类型 app_key=mainboard（生产实测：HTTP 200）。
+        return AppUpdateTarget.mainboard;
     }
   }
 
@@ -133,23 +140,6 @@ class FirmwareService {
       if (host.isNotEmpty) return host;
     } catch (_) {}
     return null;
-  }
-
-  /// 触发摄像头升级：先 /ota/check 校验有新版，再 /ota/do 开始。
-  /// [ip] 摄像头局域网 IP。返回是否成功触发。
-  Future<bool> triggerCameraUpgrade(String ip) async {
-    try {
-      final check = await _client
-          .get(Uri.parse('http://$ip/ota/check'))
-          .timeout(const Duration(seconds: 8));
-      if (check.statusCode != 200) return false;
-      final doRes = await _client
-          .get(Uri.parse('http://$ip/ota/do'))
-          .timeout(const Duration(seconds: 8));
-      return doRes.statusCode == 200;
-    } catch (_) {
-      return false;
-    }
   }
 
   /// 轮询摄像头 OTA 状态。
