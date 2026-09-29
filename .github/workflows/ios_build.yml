@@ -26,6 +26,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 关键修复：镜像默认 Xcode 15.4，而依赖里的预编译库（Google MLKit 等）
+      # 是用 Xcode 16 编译的，引用了 16 才有的 Swift overlay 库
+      # （libswift_Builtin_float 等），15.4 链接必挂。切到 16.x 即解。
+      - name: Select Xcode 16.x
+        run: |
+          ls /Applications | grep -i xcode || true
+          for V in 16.4 16.3 16.2 16.1 16.0; do
+            if [ -d "/Applications/Xcode_${V}.app" ]; then
+              sudo xcode-select -s "/Applications/Xcode_${V}.app"
+              echo "### XCODE selected ${V}"
+              break
+            fi
+          done
+          xcodebuild -version
+
       # 环境诊断：Xcode 版本 + Swift overlay 库实际位置（一次跑清，避免盲试）
       - name: Diagnose Xcode / Swift overlays
         run: |
