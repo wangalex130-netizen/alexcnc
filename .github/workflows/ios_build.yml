@@ -26,6 +26,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 环境诊断：Xcode 版本 + Swift overlay 库实际位置（一次跑清，避免盲试）
+      - name: Diagnose Xcode / Swift overlays
+        run: |
+          xcodebuild -version
+          ls /Applications | grep -i xcode || true
+          TC="$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain"
+          echo "### toolchain=$TC"
+          echo "### find libswift_Builtin_float:"
+          find "$(xcode-select -p)" -name 'libswift_Builtin_float*' 2>/dev/null || true
+          echo "### find libswift_errno:"
+          find "$(xcode-select -p)" -name 'libswift_errno*' 2>/dev/null || true
+          echo "### SDK usr/lib/swift:"
+          ls "$(xcrun --show-sdk-path)/usr/lib/swift" 2>/dev/null | head -20 || true
+          echo "### done"
+
       - name: Setup Flutter (stable)
         uses: subosito/flutter-action@v2
         with:
@@ -70,7 +85,7 @@ jobs:
           s = io.open(p, encoding="utf-8").read()
           anchor = "PRODUCT_BUNDLE_IDENTIFIER = com.alexcnc.alexcnc;"
           inject = ('OTHER_LDFLAGS = "$(inherited) -lswift_Builtin_float -lswift_errno -lswift_math -lswift_signal -lswift_stdio -lswift_time -lswiftsys_time -lswiftunistd";\n'
-                    '\t\t\t\tLIBRARY_SEARCH_PATHS = "$(inherited) $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift_static/$(PLATFORM_NAME)";\n'
+                    '\t\t\t\tLIBRARY_SEARCH_PATHS = "$(inherited) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift_static/$(PLATFORM_NAME)";\n'
                     '\t\t\t\tLD_ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;')
           n = s.count(anchor)
           print("### PATCH anchor count =", n)
