@@ -179,14 +179,6 @@ class RealHardwareService implements HardwareService {
   ///  {event:device_offline|..., deviceId, ts}
   String get mqttSystemTopic => 'cnc/broadcast/system';
 
-  /// 雕刻作业明细主题（docs/03 §10.5）：cnc/<deviceId>/job（QoS1 + retain）
-  ///  {file, line, total, percent, phase}
-  String get mqttJobProgressTopic => 'cnc/$deviceId/job';
-
-  /// 机器系统帧主题（docs/03 §10.6）：cnc/<deviceId>/sys（QoS1 + retain，上电一次）
-  ///  {id, model, fw, ip, bootAt}
-  String get mqttSysInfoTopic => 'cnc/$deviceId/sys';
-
   /// 摄像头状态主题（docs/03 §camera-on-demand）：cnc/<deviceId>/cam
   ///  摄像头固件发布 {"streaming":true/false}（流控回执）与 {"online":true/false}（上下线）。
   ///  注意：**不是** cnc/<deviceId>/status —— status 是机器状态专用主题，
@@ -363,12 +355,10 @@ class RealHardwareService implements HardwareService {
         //    在开通前这一行会被静默拒绝（deny_action=ignore，SUBACK 0x80 无提示），
         //    由 onSubscribeFail 回调暴露出来，不会影响其它订阅。
         client.subscribe(mqttCamStatusTopic, MqttQos.atLeastOnce);
-        // V1.1（docs/03 §10.5/§10.6）设备→服务器上行主题（QoS1 + retain）。
-        // 受 broker ACL 限制，默认不订阅；等服务器 ACL 开放后再启用。
-        if (AppConfig.v11MqttTopicsEnabled) {
-          client.subscribe(mqttJobProgressTopic, MqttQos.atLeastOnce);
-          client.subscribe(mqttSysInfoTopic, MqttQos.atLeastOnce);
-        }
+        // APP-17（2026-10-07 工单）：`cnc/<id>/job` 与 `cnc/<id>/sys` 两个订阅
+        // 已删除 —— 固件从不向这两个主题发布（只发 cmd/status/notify/tool_catalog/
+        // telemetry + 系统级 sys/register），订阅是死的；作业明细改用 status 帧
+        // 的 jobId/jobState/jobMessage。
         // 上线即发布 online（retain），覆盖 LWT 的离线态
         final ob = MqttClientPayloadBuilder();
         ob.addString(jsonEncode({'online': true}));
@@ -512,16 +502,8 @@ class RealHardwareService implements HardwareService {
         _handleSystem(payload);
         continue;
       }
-      // V1.1（docs/03 §10.5）雕刻作业明细帧：emit 到 jobStream，不进 statusStream。
-      if (ev.topic == mqttJobProgressTopic) {
-        _handleJob(payload);
-        continue;
-      }
-      // V1.1（docs/03 §10.6）机器系统帧：emit 到 sysStream，不进 statusStream。
-      if (ev.topic == mqttSysInfoTopic) {
-        _handleSys(payload);
-        continue;
-      }
+      // APP-17（2026-10-07）：cnc/<id>/job 与 cnc/<id>/sys 的路由分支已随死订阅
+      // 一并删除（固件从不发布这两个主题，见订阅处注释）。
       // 摄像头推流状态帧（cnc/<deviceId>/cam）：emit 到 cameraStream，不进 statusStream。
       // 注意：绝不能让摄像头帧流进 _parseAndEmit —— status 主题是机器状态专用，
       // 摄像头帧没有 state/pos，会被解析成 idle 从而误解锁 Jog（08-29 安全修复）。
@@ -564,10 +546,57 @@ class RealHardwareService implements HardwareService {
   /// 主题入口都过这里：固件最终把回执发在哪个主题都能接住；命中返回 true，
   /// 调用方据此跳过既有解析路径。回执只 emit 到 notifyStream（与 cmd_ack 同理：
   /// 不进状态流，防被机器状态解析回落成 idle 误解锁 Jog）。
+  ///
+  /// APP-04（2026-10-07 / CAM-02 定稿）：摄像头 OTA 事件并入同一单点 ——
+  /// `ota_progress` / `ota_done` / `ota_fail`（2.3.2 起就有）；
+  /// `ota_checking` / `ota_idle` 是 2.3.3 才补齐，**只容忍不依赖**。
+  /// ⚠️ 字段在**顶层**（`{"evt":..,"state":..,"progress":..,"ver":..,"err":..}`），
+  /// NotifyEvent.fromJson 只读 type/msg/code/data 接不住，必须在这里显式读。
+  /// ⚠️ 只白名单 `ota_*` 这几个，绝不"凡有 evt 就转换"（防冒 unknown 提示）。
   bool _handleFramingEvent(Map<String, dynamic> j) {
     final evt = j['evt']?.toString() ?? '';
-    if (evt != 'framing_done' && evt != 'framing_fail') return false;
+    const otaEvts = {
+      'ota_progress', 'ota_done', 'ota_fail', 'ota_checking', 'ota_idle',
+    };
+    final isOta = otaEvts.contains(evt);
+    // A3（2026-10-07 固件最终版工单）：巡边自检告警（轮廓与刀路可能差得多，
+    // 固件超 2 mm 触发）—— 只提示、不拦截；`msg` 是英文原词，不出端，
+    // 文案在本函数翻成大白话（客户文案准则：不出现 evt 等工程词）。
+    final isOutlineCheck = evt == 'outline_check';
+    if (evt != 'framing_done' &&
+        evt != 'framing_fail' &&
+        !isOta &&
+        !isOutlineCheck) {
+      return false;
+    }
     if (_notifyCtrl.isClosed) return true;
+    if (isOutlineCheck) {
+      _notifyCtrl.add(NotifyEvent(
+        type: evt,
+        message: '轮廓位置可能不对，请先目视确认一下',
+        at: DateTime.now(),
+      ));
+      return true;
+    }
+    if (isOta) {
+      final data = <String, dynamic>{
+        if (j['state'] != null) 'state': j['state'],
+        if (j['progress'] != null) 'progress': j['progress'],
+        if (j['ver'] != null) 'ver': j['ver'],
+        if (j['err'] != null) 'err': j['err'],
+      };
+      _notifyCtrl.add(NotifyEvent(
+        type: evt,
+        message: evt == 'ota_done'
+            ? '摄像头升级完成'
+            : evt == 'ota_fail'
+                ? '摄像头升级失败'
+                : evt,
+        at: DateTime.now(),
+        data: data.isEmpty ? null : data,
+      ));
+      return true;
+    }
     // framing_fail 的原因字段候选 reason / msg / message（与既有命令失败
     // 文案「双键并读」的惯例一致，防固件落在任意一个键上漏接）。
     final reason = (j['reason'] ?? j['msg'] ?? j['message'])?.toString() ?? '';
@@ -624,32 +653,6 @@ class RealHardwareService implements HardwareService {
       }
     } catch (_) {
       // 非预期事件帧静默忽略
-    }
-  }
-
-  /// V1.1（docs/03 §10.5）雕刻作业明细帧解析：emit 到 jobStream。
-  /// 字段缺失安全回退 null；脏数据静默忽略。
-  void _handleJob(String payload) {
-    try {
-      final j = jsonDecode(payload) as Map<String, dynamic>;
-      if (!_jobCtrl.isClosed) {
-        _jobCtrl.add(JobProgress.fromJson(j));
-      }
-    } catch (_) {
-      // 非预期作业帧静默忽略
-    }
-  }
-
-  /// V1.1（docs/03 §10.6）机器系统帧解析：emit 到 sysStream（上电一次，retain）。
-  /// 脏数据静默忽略。
-  void _handleSys(String payload) {
-    try {
-      final j = jsonDecode(payload) as Map<String, dynamic>;
-      if (!_sysCtrl.isClosed) {
-        _sysCtrl.add(SysInfo.fromJson(j));
-      }
-    } catch (_) {
-      // 非预期系统帧静默忽略
     }
   }
 
@@ -768,25 +771,16 @@ class RealHardwareService implements HardwareService {
             if (_carve.isActive) {
               _failCarve('机器报警，本次作业已中止，请处理报警后重试');
             }
-          case 'confirm_required':
-            notifyStatus = const MachineStatus(
-              state: MachineState.busy,
-              awaitingConfirm: true,
-              message: '等待机旁确认',
-            );
-          case 'confirm_timeout':
-            // 雕刻启动两段式（2026-09-02）：客户未在机器上按物理键，机器已取消
-            // 本次启动。固件后补该事件，**收到才显示**，老固件无此事件即无此提示。
-            // 状态回到 idle（机器确实取消了），并把待处理命令标记为已送达 ——
-            // 命令送到了、机器明确回应"不执行"，绝不能再重发。
-            notifyStatus = MachineStatus(
-              state: MachineState.idle,
-              message: msg.isEmpty ? '确认超时已取消' : msg,
-            );
-            _settlePendingAcked();
-            // 机器已取消本次启动 → 雕刻会话一并结束，横幅不能继续转圈。
+          case 'job_failed':
+            // APP-15（2026-10-07 工单）：固件加工失败时发布 `job_failed`
+            // （cnc_net.c），此前落 default 分支只弹提示、不改状态 → 雕刻会话
+            // 永远停在 running。现与 job_completed **对称收尾**：结束会话进
+            // 失败态（显示原因、可重试）。状态流不伪造：机器真实状态
+            // （alarm/idle）由状态帧自行到达，避免覆盖报警态误解锁 Jog（W-02 同族）。
+            notifyStatus = MachineStatus(message: msg.isEmpty ? '加工失败' : msg);
+            pushStatusToStream = false;
             if (_carve.isActive) {
-              _cancelCarve();
+              _failCarve(msg.isEmpty ? '机器报告加工失败，请检查后重试' : msg);
             }
           default:
             notifyStatus = MachineStatus(message: msg.isEmpty ? type : msg);
@@ -834,6 +828,11 @@ class RealHardwareService implements HardwareService {
       }
       _checkCmdAck(parsed);
       _syncCarveFromStatus(j);
+      // APP-19（PRODUCT-02「机旁确认不超时」，2026-10-07）：confirming 阶段
+      // 机器持续回报 awaitingConfirm=true ⇒ 每帧续期看门狗 —— 机器在等操作员，
+      // App 不许先判死。只有状态帧**停更**（失联）满 90s 才判失败（见
+      // _rearmConfirmWatchdog：提示改为"失去联系"而非"等待超时"）。
+      if (parsed.awaitingConfirm) _rearmConfirmWatchdog();
       _ctrl.add(parsed);
     } catch (_) {
       // 非 JSON 行（如 Grbl 原始 <...>）可在此扩展解析
@@ -1030,21 +1029,6 @@ class RealHardwareService implements HardwareService {
     }
   }
 
-  /// 判定待处理命令为「已送达」并停止重发。
-  ///
-  /// 用于机器已明确回应（如 `confirm_timeout` 取消启动）的场景：命令确实送到
-  /// 了，只是机器决定不执行。此时**绝不能重发** —— 重发等于绕过客户取消。
-  void _settlePendingAcked() {
-    final p = _pending;
-    if (p == null) return;
-    if (p.state == CommandDeliveryState.acked ||
-        p.state == CommandDeliveryState.failed) return;
-    _pending = p.copyWith(state: CommandDeliveryState.acked);
-    _ackTimer?.cancel();
-    _ackTimer = null;
-    _emitCmd(CommandDeliveryState.acked);
-  }
-
   /// 收到机器帧时调用：若达到该命令的期待状态即判定「已送达」。
   void _checkCmdAck(MachineStatus s) {
     final p = _pending;
@@ -1129,6 +1113,45 @@ class RealHardwareService implements HardwareService {
   /// 显式传入的设备码**（全屏预览、延时启动传入的 machine.sn / camDevice），
   /// 在「进页面时 MQTT 尚未连上」这一常见时序下，命令会被发到错误的设备。
   String? _pendingCameraDeviceId;
+
+  @override
+  Future<OtaTriggerResult> triggerOta(String target) async {
+    // APP-01（2026-10-05 协议定稿 v1.1）：{"cmd":"ota","target":"screen","reqId":...}
+    // 外网可用（指令经云转发），不做同网门禁；固件"收到即回"cmd_ack（异步任务不被阻塞）。
+    final reqId = _newId();
+    final waiter = Completer<NotifyEvent>();
+    _ackWaiters[reqId] = waiter;
+    final sent = _publish({'cmd': 'ota', 'target': target, 'reqId': reqId});
+    if (!sent) {
+      _ackWaiters.remove(reqId);
+      return const OtaTriggerResult(sent: false);
+    }
+    NotifyEvent ack;
+    try {
+      // 10 秒无回执 = 设备无响应。**不得判失败**：可能设备离线/回执丢包，
+      // 调用方按"离线不判失败"（APP-03）继续等 status 帧的 ota_state 终态。
+      ack = await waiter.future.timeout(const Duration(seconds: 10));
+    } on TimeoutException {
+      _ackWaiters.remove(reqId);
+      return const OtaTriggerResult(sent: true);
+    }
+    return OtaTriggerResult(
+      sent: true,
+      acked: true,
+      ok: ack.ok == true,
+      code: ack.code,
+      message: ack.message,
+    );
+  }
+
+  @override
+  void cancelPendingConfirm() {
+    // APP-19 / FW-04（屏幕固件 1.1.7+）：机旁确认「不超时」（PRODUCT-02），
+    // 客户从 App 主动取消。固件幂等：无待确认作业也回 ok；正在加工回
+    // E409（提示改用停止）；下载中回 EBUSY。成功后固件主动发布
+    // awaitingConfirm=false 的状态帧 → 提示卡以状态帧为准隐藏，不靠本地状态。
+    _dispatch({'cmd': 'job', 'action': 'cancel', 'reqId': _newId()});
+  }
 
   // ---- 雕刻主链路 v2（闫安文档 §6.8/6.9/6.11，2026-09-03）----
   /// 雕刻作业阶段广播流（UI 订阅以显示"准备中 / 下载 x% / 加工中"）。
@@ -1261,93 +1284,42 @@ class RealHardwareService implements HardwareService {
     return true;
   }
 
-  // ===================== D-1 · 模型预读（2026-09-23 昊总新增）=====================
-  /// 下发 `preload_model`：告知小屏「客户计划雕刻这个模型」，请它先把该模型的
-  /// **轻量 JSON（高程网格）**从服务器拉下来并预读。
-  ///
-  /// 触发点：向导 Step 1（材料确认与装夹）点【下一步】。那一刻客户已经核对完
-  /// 实物料与装夹，去定原点/映射刀仓/选调平还要几分钟 —— 用这段时间做预读。
-  ///
-  /// 🔴 关于门禁：**故意不加 `_allowLocalOnly()`**。
-  /// 契约 `wan_whitelist` 的口径是「只放行 allowed 的 7 项，未列命令一律同网」，
-  /// 该口径要防的是「可能让机器动作 / 覆盖操作员意图」的命令。本条：
-  ///   - 不产生任何运动指令（不进 GRBL、无 jog/home/G0）；
-  ///   - 不写 G54、不改刀仓、不改调平方案；
-  ///   - 不覆盖当前作业文件（落的是独立的预读缓存，正式下载仍走 [prepareJob]）；
-  ///   - 唯一可见副作用是小屏界面显示「客户准备雕刻：<标题>」—— 这恰恰是
-  ///     操作员在机旁想知道的信息，属于正向透明，不是越权。
-  /// 因此归入 `allowed` 一侧。若后续评审要收紧，只需在本方法开头补一行
-  /// `if (!await _allowLocalOnly()) return false;`，调用方无需改动。
-  ///
-  /// 🔴 关于失败：预读是**加速项**，不是流程前提。
-  ///   - 小屏未实现该命令 ⇒ 回 `cmd_ack{ok:false,code:'unknown cmd'}`，
-  ///     其 reqId 与 [_awaitingReqId] 不匹配 ⇒ [_handleCmdAck] 直接忽略，
-  ///     既不会把雕刻会话打成 failed，也不会弹"机器没能准备好"。
-  ///   - 这样处理是**有意的**：客户此时看到的任何"失败"都与他的下一步无关，
-  ///     弹错误只会让他以为机器坏了。调用方仅在「压根没发出去」时提示一句。
-  ///   - 本命令走 [_dispatch] 的默认分支（非启动类、非幂等控制类）⇒
-  ///     **尽力而为、绝不重发**，避免重复下载。
-  @override
-  Future<bool> preloadModel({
-    required String modelId,
-    required String jsonUrl,
-    String title = '',
-    int sizeBytes = 0,
-    String sha256 = '',
-    double widthMm = 0,
-    double heightMm = 0,
-    double depthMm = 0,
-    double boardThicknessMm = 0,
-    String materialKey = '',
-  }) async {
-    final trimmed = jsonUrl.trim();
-    // 没有轻量 JSON（L0/L1 级模型）⇒ 小屏无从预读，直接如实返回 false，
-    // 由调用方给客户一句说明（不静默、也不假装成功）。
-    if (trimmed.isEmpty) return false;
-
-    final cmd = <String, dynamic>{
-      'cmd': 'preload_model',
-      'protocolVersion': 1,
-      // 与 prepare_job 的 `'type': 'gcode_ready'` 同族：本帧携带的是模型轻量数据
-      'type': 'model_json',
-      'deviceId': deviceId,
-      'modelId': modelId,
-      'title': title,
-      'jsonUrl': trimmed,
-      // 云端暂未下发该 JSON 的字节数 / SHA（同 prepareJob 的既有口径）：
-      // 小屏按"方案 A"跳过完整性校验；字段位先占住，后台补齐后无需改结构。
-      'sizeBytes': sizeBytes,
-      'sha256': sha256,
-      // 尺寸 / 料厚一并带上：小屏可据此先画预览，客户改料厚时也能就地重算
-      'widthMm': widthMm,
-      'heightMm': heightMm,
-      'depthMm': depthMm,
-      'boardThicknessMm': boardThicknessMm,
-      'materialKey': materialKey,
-      'source': 'mobile',
-      'issuedAt': DateTime.now().millisecondsSinceEpoch,
-    };
-    // reqId 由 _publish 自动注入（同一模型重复点【下一步】时，小屏按
-    // 「10s 内相同 reqId 丢弃」去重；不同 reqId 则按同 modelId 复用缓存）。
-    return _dispatch(cmd);
-  }
+  // ===================== D-1 · 模型预读：已整体下线 =====================
+  // 2026-10-07 固件最终版工单：固件从未实现布局预读（preload_model 恒回
+  // E501），App 停止发送。"布局没就绪不得进定原点"的门禁改由 App 自己的
+  // 下载/解析结果承载（wizard_page._cloudPayloadFailed / APP-20）。
 
   void _updateCarve(CarveSession s) {
     _carve = s;
     if (s.stage == CarveStage.preparing ||
         s.stage == CarveStage.confirming) {
       // （重新）武装看门狗：下载进度刷新会反复走到这里，等于自动续期。
+      // APP-19（2026-10-07）：confirming 阶段另由 _rearmConfirmWatchdog 按
+      // awaitingConfirm 状态帧续期 —— 机旁确认不超时，失联才判失败。
       _carveWatchdog?.cancel();
       _carveWatchdog = Timer(const Duration(seconds: 90), () {
         if (_carve.stage == CarveStage.preparing ||
             _carve.stage == CarveStage.confirming) {
-          _failCarve('等待机器响应超时，请检查机器屏幕后重试');
+          _failCarve('与机器失去联系，请检查机器屏幕后重试');
         }
       });
     } else {
       _carveWatchdog?.cancel();
     }
     if (!_carveCtrl.isClosed) _carveCtrl.add(s);
+  }
+
+  /// APP-19：confirming 阶段收到 awaitingConfirm=true 状态帧时续期看门狗。
+  /// 语义 = 「失联检测」而非「操作超时」：机器只要还在广播，App 就一直等。
+  void _rearmConfirmWatchdog() {
+    if (_carve.stage != CarveStage.confirming) return;
+    _carveWatchdog?.cancel();
+    _carveWatchdog = Timer(const Duration(seconds: 90), () {
+      if (_carve.stage == CarveStage.preparing ||
+          _carve.stage == CarveStage.confirming) {
+        _failCarve('与机器失去联系，请检查机器屏幕后重试');
+      }
+    });
   }
 
   /// 客户/机器主动取消：会话直接回 idle（横幅立即消失，不显示失败面板）。
@@ -1364,7 +1336,7 @@ class RealHardwareService implements HardwareService {
   /// cmd_ack 失败信息 → 客户能看懂的中文（工程师对照表 2026-09-04）。
   /// - message 已是中文（含 CJK）→ 原样展示（小屏以后补中文 message 时直接生效）；
   /// - 英文技术文案（GRBL reply timeout / unknown cmd / machine busy…）→ 查表转译；
-  /// - 无 message / 未命中 → 按 code（E400/E409/EVERIFY…）映射（[_ackCodeText]）。
+  /// - 无 message / 未命中 → 按 code（E400/E409/ESTALE…）映射（[_ackCodeText]）。
   static String _friendlyAckText(String message, String? code) {
     if (message.isNotEmpty && message != 'cmd_ack') {
       if (message.contains(RegExp(r'[\u4e00-\u9fff]'))) return message;
@@ -1393,10 +1365,17 @@ class RealHardwareService implements HardwareService {
       'E501': '机器暂不支持这个功能',
       'ETIMEOUT': '机器等待控制板回复超时，请重试',
       'ENETDOWN': '机器的 Wi-Fi 已离线，请检查机器网络',
-      'EVERIFY': '加工程序下载或校验失败，请重新开始',
-      // P0-1（2026-09-11）：机身确认采用"延迟回执"——收到 confirm 后不立即开切，
-      // 需在机器上按开始键；超时（默认 60s）由固件回此码。
-      'ECONFIRM_TIMEOUT': '等待机旁确认超时：请在机器上按"开始"键后重试',
+      // APP-17（2026-10-07 工单）：EVERIFY / ECONFIRM_TIMEOUT 已删 —— 固件从不
+      // 发这两个码（「机旁确认不超时」决定后 confirm_timeout 永不出现），
+      // 留着会让人误以为还有超时机制。
+      // APP-17：ESTALE = 离线期间积压的指令被机器丢弃（cnc_net.c）。
+      'ESTALE': '这条指令已过期，被机器丢弃了，请重新操作一次',
+      // 2026-10-05（雕刻向导协议定稿 v1.0 §5.1）：固件 1.1.6 新增门禁码补齐。
+      // EBUSY=同类操作执行中（巡边连发第二次）；E423=报警/舱门开；
+      // E503=GRBL 离线（set_work_origin/framing 的 manual_gate 门禁）。
+      'EBUSY': '机器正在执行同类操作，请稍候再试',
+      'E423': '机器处于报警状态（或舱门未关），请解除后再试',
+      'E503': '机器控制板未连线，请检查机器电源与连接',
     };
     if (map.containsKey(code)) return map[code]!;
     if (code.startsWith('GRBL_error')) return '控制板拒绝了这条指令（$code）';
@@ -1927,13 +1906,21 @@ class RealHardwareService implements HardwareService {
 
   @override
   Future<void> pauseJob() async {
+    // APP-12（2026-10-05）：作业控制带 jobId+reqId 供跨端对账（固件侧 FW-02
+    // 「带了才校验」，其发版前多出的键被忽略，向后兼容）。
+    final jid = _carve.jobId;
     final cmd = {'cmd': 'job', 'action': 'pause'};
+    if (jid != null) cmd['jobId'] = jid;
+    cmd['reqId'] = _newId();
     _dispatch(cmd);
   }
 
   @override
   Future<void> resumeJob() async {
+    final jid = _carve.jobId;
     final cmd = {'cmd': 'job', 'action': 'resume'};
+    if (jid != null) cmd['jobId'] = jid;
+    cmd['reqId'] = _newId();
     _dispatch(cmd);
   }
 
@@ -1941,19 +1928,31 @@ class RealHardwareService implements HardwareService {
   Future<void> stopJob() async {
     // 客户点「停止」= 放弃本次作业：先终结雕刻会话（横幅立即消失），
     // 再下发停机命令。否则报警/无响应时「准备中」会永远转圈。
+    // APP-12：先取 jobId 再 cancel（cancel 会清 _carve），随帧下发供对账。
+    final jobId = _carve.jobId;
     if (_carve.isActive) {
       _cancelCarve();
     }
     final cmd = {'cmd': 'job', 'action': 'stop'};
+    if (jobId != null) cmd['jobId'] = jobId;
+    cmd['reqId'] = _newId();
     _dispatch(cmd);
   }
 
   @override
-  Future<bool> updateToolMap(List<Tool> tools) async {
+  Future<String?> updateToolMap(List<Tool> tools) async {
     // P0-04 扩展（2026-09-10，昊总裁定）：契约 `wan_whitelist` **未列出**本命令。
     // 按「只放行 allowed 的 7 项、其余一律同网限定」的口径处理 —— 刀仓映射错误
     // 会让下一次加工用错刀（撞刀 / 废件），与 setWorkZero 属同类风险。
-    if (!await _allowLocalOnly()) return false;
+    // APP-16（2026-10-07 工单）：「已同步」必须以固件 cmd_ack 为准 —— 发布成功
+    // ≠ 机器接受（固件会回 E400 missing tools array / busy 等）。返回
+    // null=同步成功；非 null=客户可读的失败原因。无回执也不许当成功。
+    if (!await _allowLocalOnly()) {
+      return '刀仓映射同步需要在与机器同一网络下进行';
+    }
+    final reqId = _newId();
+    final waiter = Completer<NotifyEvent>();
+    _ackWaiters[reqId] = waiter;
     final cmd = {
       'cmd': 'toolMap',
       'tools': tools
@@ -1962,9 +1961,21 @@ class RealHardwareService implements HardwareService {
                 'installed': t.installed,
               })
           .toList(),
+      'reqId': reqId,
     };
-    _dispatch(cmd);
-    return true;
+    if (!_dispatch(cmd)) {
+      _ackWaiters.remove(reqId);
+      return '刀仓映射同步失败：未连接到机器';
+    }
+    try {
+      final ack = await waiter.future.timeout(const Duration(seconds: 10));
+      if (ack.ok == true) return null;
+      final reason = _friendlyAckText(ack.message, ack.code);
+      return '机器未接受刀仓映射：$reason';
+    } on TimeoutException {
+      // 无回执（丢包/机器忙）：宁可不显示「已同步」，也不能假成功（APP-16）。
+      return '未收到机器确认，请检查机器后重新同步';
+    }
   }
 
   @override

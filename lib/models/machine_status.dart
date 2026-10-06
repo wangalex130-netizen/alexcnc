@@ -74,6 +74,26 @@ class MachineStatus {
   /// 与 false（明确未回零）区分：未上报时 UI 只黄字提醒，不硬拦（老固件兼容）。
   final bool? homed;
 
+  // --- OTA 协议定稿 v1.1（2026-10-05）状态帧 6 字段 ---
+  /// 屏幕固件版本（fw_ver_screen）：空串归一为 null（未知，不展示）。
+  final String? fwVerScreen;
+  /// 主板固件版本（fw_ver_board）：当前固件上报空串占位 → null（协议 §3）。
+  final String? fwVerBoard;
+  /// OTA 状态（ota_state）：0 空闲 / 1 下载中 / 2 刷写中 / 3 完成 / -1 失败；
+  /// **3 与 -1 仅升级流程中为终态**，事后判定一律用 fw_ver_screen 变化（协议 §4.1）。
+  final int? otaState;
+  /// 本次升级目标（ota_target）：screen / board；非升级期为 null。
+  final String? otaTarget;
+  /// OTA 进度百分比（ota_progress）：0..100；非升级期为 null。
+  final int? otaProgress;
+  /// OTA 失败码（ota_err）：协议 §4.2 码表；无失败为 null。
+  final String? otaErr;
+
+  /// 原点设定来源（originSource，固件 1.1.7+）：'screen'=操作员在机器屏幕上
+  /// 设的 / 'app'=App 设的 / **缺省=还没人设过**。枚举三种取值**不是全集**
+  /// （工单明确：不当全集 assert）；App 只在 == 'screen' 时做一次告知展示。
+  final String? originSource;
+
   const MachineStatus({
     this.state = MachineState.idle,
     this.position = const Position(),
@@ -96,6 +116,13 @@ class MachineStatus {
     this.spindleOn = false,
     this.grblOnline = false,
     this.homed,
+    this.fwVerScreen,
+    this.fwVerBoard,
+    this.otaState,
+    this.otaTarget,
+    this.otaProgress,
+    this.otaErr,
+    this.originSource,
   });
 
   MachineStatus copyWith({
@@ -120,6 +147,13 @@ class MachineStatus {
     bool? spindleOn,
     bool? grblOnline,
     bool? homed,
+    String? fwVerScreen,
+    String? fwVerBoard,
+    int? otaState,
+    String? otaTarget,
+    int? otaProgress,
+    String? otaErr,
+    String? originSource,
   }) =>
       MachineStatus(
         state: state ?? this.state,
@@ -143,6 +177,13 @@ class MachineStatus {
         spindleOn: spindleOn ?? this.spindleOn,
         grblOnline: grblOnline ?? this.grblOnline,
         homed: homed ?? this.homed,
+        fwVerScreen: fwVerScreen ?? this.fwVerScreen,
+        fwVerBoard: fwVerBoard ?? this.fwVerBoard,
+        otaState: otaState ?? this.otaState,
+        otaTarget: otaTarget ?? this.otaTarget,
+        otaProgress: otaProgress ?? this.otaProgress,
+        otaErr: otaErr ?? this.otaErr,
+        originSource: originSource ?? this.originSource,
       );
 
   /// 物理在位刀位数（installed==true 计入）。
@@ -256,6 +297,18 @@ class MachineStatus {
       grblOnline: j['grbl_online'] == true,
       // N1：区分「未上报（null）」与「明确未回零（false）」
       homed: j.containsKey('homed') ? j['homed'] == true : null,
+      // OTA 协议定稿 v1.1（2026-10-05）§3：6 字段，缺失/空串 → null。
+      // 字符串走 _parseFwStr（空串占位如 fw_ver_board 不当真）；
+      // ota_state/ota_progress 为 int，非 num 一律 null（不猜 0）。
+      fwVerScreen: _parseFwStr(j['fw_ver_screen']),
+      fwVerBoard: _parseFwStr(j['fw_ver_board']),
+      otaState: (j['ota_state'] is num) ? (j['ota_state'] as num).toInt() : null,
+      otaTarget: _parseFwStr(j['ota_target']),
+      otaProgress:
+          (j['ota_progress'] is num) ? (j['ota_progress'] as num).toInt() : null,
+      otaErr: _parseFwStr(j['ota_err']),
+      // A1（2026-10-07 固件最终版工单）：原点设定来源，缺失/空串 → null。
+      originSource: _parseFwStr(j['originSource']),
     );
   }
 
@@ -324,6 +377,14 @@ class MachineStatus {
     }
     return null;
   }
+}
+
+/// 安全解析 OTA 字符串字段：null / 空串一律归一为 null（"未知"），
+/// 避免把固件的空串占位（fw_ver_board 现状）当成真实值展示。
+String? _parseFwStr(dynamic raw) {
+  if (raw == null) return null;
+  final s = raw.toString();
+  return s.isEmpty ? null : s;
 }
 
 /// 安全解析辅助输出回显：仅保留已知的 4 个键（light/laser/fan/timelapse），

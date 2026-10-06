@@ -201,12 +201,14 @@ abstract class HardwareService {
     String wcs = 'G54',
   });
 
-  /// 走边框巡边（Framing，开发文档 §6）。契约未列 → 同网限定。
+  /// 走边框巡边（Framing）。契约未列 → 同网限定。
   ///
-  /// 下位机**本地闭环执行**（抬 Z 至安全高度 → 逐点走位 → 回起点 → 自动关激光
-  /// → `framing_done`）。三个硬锁：① Z 已抬至最高安全位（V1 定型，不要求已对刀）
-  /// ② 外框 ⊆ [0,300]×[0,200] ③ 期间锁定控制器（仅 abort/急停可打断）。
-  /// 断连时本地继续跑完并关激光（§6.3）。
+  /// 下位机**本地闭环执行**（逐点走位 → 回起点 → `framing_done` 回执）。
+  /// **固件不动 Z、不碰激光输出**（2026-10-05 雕刻向导协议定稿安全决策 1/2）：
+  /// App 不下发任何 Z；"安全高度"取决于机器配置（回零方向/软限位/行程），
+  /// 固件无从得知 —— 由操作者在预览前**自行抬 Z**；光点可见性取决于
+  /// 「激光定位」开关（客户自开）。旧版「机器抬 Z 至最高安全位后巡边」
+  /// 的说法是 V1 设计意图、固件从未实现，**已废弃**，不得据此写文案。
   Future<bool> framing({
     required List<List<double>> points,
     double feed = 1200,
@@ -254,38 +256,10 @@ abstract class HardwareService {
   /// [sizeBytes]/[sha256] 后台暂未提供，先传 0/空；按工程师确认的方案 A，
   /// 小屏此时**跳过完整性校验**，只下载即可继续流程。
   /// 后台接口补齐这两个字段后，App 传入真值即可（无需改结构）。
-  /// 🟢 D-1（2026-09-23 昊总新增）：生成前**预读**命令 `preload_model`。
   ///
-  /// 出点：客户在「材料确认与装夹」点【下一步】时下发，语义是
-  /// **「我打算雕这个模型了」**（不是「现在开始」）。小屏收到后从 [jsonUrl]
-  /// 下载该模型的**轻量 JSON（高程网格）**并预读驻留 —— 客户接下来还要定原点、
-  /// 映射刀仓、选调平，这几分钟正好用来把下载与解析提前做完。
-  ///
-  /// 🔴 与 [prepareJob] 的三点本质差别（务必不要合并这两个命令）：
-  /// 1. [prepareJob] 带 `files[]=G-code`，且本端收到它的 ACK 后会**自动接着发
-  ///    `confirm`** ⇒ 等于开切，故必须同网；本命令**不动机器、不写 G54、
-  ///    不覆盖作业文件**，因此**不受同网门禁限制**（实现注释里有完整理由）。
-  /// 2. 本命令带 `modelId` 而非 G-code：小屏此时还没有刀路，只是提前读模型数据。
-  /// 3. 失败**不得阻塞向导** —— 它是加速项。小屏尚未实现该命令时回
-  ///    `cmd_ack{ok:false, code:'unknown cmd'}`，本端按"忽略"处理：该回执的
-  ///    reqId 与「本端正在等待的开切 reqId」不匹配，真机实现的回执处理天然
-  ///    不会把它当成开切失败。
-  ///
-  /// 返回值语义 = **命令是否真的发出去了**（false = 未连 MQTT 或该模型没有
-  /// 轻量 JSON）。调用方只在 false 时给一句软提示，其余情况安静放行。
-  Future<bool> preloadModel({
-    required String modelId,
-    required String jsonUrl,
-    String title = '',
-    int sizeBytes = 0,
-    String sha256 = '',
-    double widthMm = 0,
-    double heightMm = 0,
-    double depthMm = 0,
-    double boardThicknessMm = 0,
-    String materialKey = '',
-  });
-
+  /// 🔴 D-1 / preload_model 已**整体下线**（2026-10-07 固件最终版工单）：
+  /// 固件从未实现布局预读（恒回 E501），App 停止发送；"布局没就绪"门禁改由
+  /// App 自己的下载/解析结果承载（wizard_page _cloudPayloadFailed / APP-20）。
   Future<bool> prepareJob({
     required String fileUrl,
     String fileName = 'job.gc',
@@ -313,7 +287,11 @@ abstract class HardwareService {
   void clearCarve();
 
   // --- ATC ---
-  Future<bool> updateToolMap(List<Tool> tools);
+  /// 下发刀仓映射（APP-16，2026-10-07）：等固件 `cmd_ack` 对账后才算成功。
+  /// 返回 null = 机器已确认同步成功；非 null = 客户可读失败原因
+  /// （同网门禁 / 未连接 / 机器拒绝 E400 等 / 无回执）。
+  /// 「已同步」必须以机器回执为准 —— 发布成功 ≠ 机器接受。
+  Future<String?> updateToolMap(List<Tool> tools);
 
   // --- Leveling plan ---
   /// 向导 Step5：App 根据云端下发的模型尺寸 + 用户所选模式算好探测点阵，
@@ -328,6 +306,23 @@ abstract class HardwareService {
   /// 终局方案下机器控制命令也走同一主题，靠 payload 区分（机器 `cmd` / 摄像头 `action`）。
   /// [deviceId] 省略时取当前实例 deviceId（= 机器码 = 摄像头 ID）。
   void sendCameraStream(String action, {String? deviceId});
+
+  // --- 固件 OTA 触发（APP-01 · OTA 协议定稿 v1.1 §3/§5，2026-10-05）---
+  /// 触发设备固件 OTA：向 `cnc/<sn>/cmd`（QoS1）发
+  /// `{"cmd":"ota","target":<target>,"reqId":...}`，并在 notify 主题等
+  /// `cmd_ack`（reqId 对账，复用 _ackWaiters）。
+  ///
+  /// ⚠️ 与摄像头触发（[sendCameraStream] 的 `{"action":"ota_upgrade"}`）是
+  /// **两套并存格式**，勿混用。屏幕 target 固定 "screen"（发 mainboard 会被
+  /// 固件以 E400 有意拒绝）；主板无 IAP，**不得调用本方法**。
+  /// 外网可用（OTA 指令走云转发），不做同网门禁。
+  Future<OtaTriggerResult> triggerOta(String target);
+
+  /// 机旁确认「取消」（APP-19 / FW-04，屏幕固件 1.1.7+）：发
+  /// `{"cmd":"job","action":"cancel","reqId":...}`。固件幂等（无待确认作业也回
+  /// ok）；正在加工回 E409（应改用停止）；下载中回 EBUSY。成功后固件主动发布
+  /// `awaitingConfirm=false` 的状态帧 —— 提示卡以状态帧为准隐藏，不靠本地状态。
+  void cancelPendingConfirm();
 
   /// 当前是否为云端模式（终局方案：命令走外网 MQTT，不自动连局域网 TCP）。
   bool get isCloudMode;
@@ -371,4 +366,27 @@ abstract class HardwareService {
 
   /// 释放底层连接（MQTT / TCP socket）。由 Provider 在 dispose 时调用。
   void dispose();
+}
+
+/// OTA 触发回执（APP-01，2026-10-05 协议定稿 v1.1 §5）。
+///
+/// - [sent]=false：指令根本没发出去（MQTT 未连接）；
+/// - [sent]=true 且 [acked]=false：10 秒内未收到 cmd_ack —— **不等于失败**
+///   （设备离线/回执丢失都有可能），调用方按"离线不判失败"继续等 status 终态；
+/// - [acked]=true：[ok] / [code] / [message] 为固件原样回执
+///   （OK / EBUSY / E409 / E400 / E500）。
+class OtaTriggerResult {
+  final bool sent;
+  final bool acked;
+  final bool ok;
+  final String? code;
+  final String? message;
+
+  const OtaTriggerResult({
+    required this.sent,
+    this.acked = false,
+    this.ok = false,
+    this.code,
+    this.message,
+  });
 }

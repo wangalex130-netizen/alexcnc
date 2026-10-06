@@ -98,7 +98,8 @@ class LibraryItem {
   /// 当前云端为 null，生成链路落地后补（工单 C-3 第 1 条）。
   final String? totalJson;
 
-  /// 轻量布局 JSON 字节数；未生成为 null（preloadModel 校验参数接真值，A-6-4）。
+  /// 轻量布局 JSON 字节数；未生成为 null（App 侧载荷下载校验参数，A-6-4；
+  /// 原拟供 preload_model 使用，该命令 2026-10-07 下线后仅作元数据保留）。
   final int? totalJsonSizeBytes;
 
   /// 轻量布局 JSON SHA-256；未生成为 null。

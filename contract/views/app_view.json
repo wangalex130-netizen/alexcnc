@@ -2,6 +2,7 @@
   "view": "app",
   "owner": "App 任务（alexcnc）",
   "snapshot_at": "2026-09-18T12:10:00+08:00",
+  "revised": "2026-10-05（APP-13）：moveTo / manual_gcode 相关条目标记废弃——该能力从未实装，App 全仓零发送；雕刻向导（jog / set_work_origin / framing）以《雕刻向导协议定稿 v1.0（2026-1005）》为唯一权威",
   "basis": "lib/services/hardware_service_real.dart / lib/models/machine_status.dart / lib/app/config.dart / docs/三任务一致性终稿.md",
   "broker": {
     "uri": "mqtts://<私有broker>:8883",
@@ -48,7 +49,7 @@
   "capabilities": {
     "jog": "点动",
     "home": "回机械原点",
-    "setWorkZero": "设置工件原点",
+    "setWorkZero": "G92 语义（≠定原点，勿混淆）：App 零调用死代码，勿启用；向导定原点用 set_work_origin，见《雕刻向导协议定稿 v1.0》",
     "startSpindle": "主轴起转",
     "stopSpindle": "主轴停止",
     "setAux": "辅助开关（light/laser/timelapse/fan）",
@@ -59,7 +60,7 @@
     "setLevelingPlan": "下发调平方案",
     "updateToolMap": "下发刀仓映射",
     "confirm": "联调/演示用安全确认",
-    "moveTo": "绝对定位（拖动十字 → 移动到此；先抬 Z 再走 XY 直线）"
+    "moveTo": "【已废弃 2026-10-05】该能力从未实装：App 全仓零发送 manual_gcode / move_to（详见 move_to 节 status）"
   },
   "capability_mapping": {
     "setWorkZero": "set_origin",
@@ -73,7 +74,7 @@
     "setLevelingPlan": "set_leveling",
     "updateToolMap": "tool_map",
     "confirm": "confirm",
-    "moveTo": "move_to"
+    "moveTo": "【已废弃 2026-10-05】未实装"
   },
   "lan_direct": {
     "tcp_8899": true,
@@ -115,8 +116,8 @@
     "note": "阿里云 API 服务器常驻 broker 客户端，单一通道；ACL 同步走 cnc/sys/acl 控制消息"
   },
   "move_to": {
-    "owner": "App 任务（alexcnc）—— 2026-09-18 昊总裁定，App 侧已实现并下发",
-    "status": "App 已实现且当前可用（走 manual_gcode 过渡通道）；move_to 正式指令待固件交付（F6）",
+    "owner": "App 任务（alexcnc）—— 2026-09-18 昊总裁定",
+    "status": "【已废弃 2026-10-05，APP-13】App 侧从未实现「移动到此」，全仓零发送 manual_gcode（该过渡通道亦已按协议退役，见 hardware_service_real.dart setWcsOffset 注释）。本节整体仅作历史记录，任何人不得据本节验收。当前权威协议：《雕刻向导协议定稿 v1.0（2026-1005）》—— jog / 定原点 set_work_origin / 巡边 framing 以该文档为准",
     "purpose": "「拖动十字 → 移动到此」：把取点从按 ~15 次 jog 变成 拖一次 + 点一次",
     "app_channel_now": {
       "cmd": "manual_gcode",

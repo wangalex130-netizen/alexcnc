@@ -374,25 +374,7 @@ class MockHardwareService implements HardwareService {
     return confirmJob();
   }
 
-  /// 🟢 D-1（2026-09-23）：Mock 下没有真小屏可预读，恒返回「发出去了」。
-  ///
-  /// 为什么不返回 false：向导 Step 1 的【下一步】不因预读失败而变灰（预读只是
-  /// 加速项），返回 false 会让 Mock/演示环境平白多一条"未连线"提示，误导联调。
-  /// 唯一返回 false 的情况与真机一致：模型压根没有轻量 JSON。
-  @override
-  Future<bool> preloadModel({
-    required String modelId,
-    required String jsonUrl,
-    String title = '',
-    int sizeBytes = 0,
-    String sha256 = '',
-    double widthMm = 0,
-    double heightMm = 0,
-    double depthMm = 0,
-    double boardThicknessMm = 0,
-    String materialKey = '',
-  }) async =>
-      jsonUrl.trim().isNotEmpty;
+  // D-1 / preload_model 已整体下线（2026-10-07 固件最终版工单），见接口注释。
 
   @override
   Future<bool> confirmJob() async {
@@ -433,10 +415,17 @@ class MockHardwareService implements HardwareService {
   }
 
   @override
-  Future<bool> updateToolMap(List<Tool> tools) async {
-    // mock: accept mapping from UI
+  Future<String?> updateToolMap(List<Tool> tools) async {
+    // mock: accept mapping from UI（null = 同步成功，APP-16 新契约）
     _emit();
-    return true;
+    return null;
+  }
+
+  @override
+  void cancelPendingConfirm() {
+    // mock: 模拟固件清掉待确认态（awaitingConfirm=false 由状态帧带出）
+    _current = _current.copyWith(awaitingConfirm: false);
+    _emit();
   }
 
   @override
@@ -450,6 +439,13 @@ class MockHardwareService implements HardwareService {
   @override
   void sendCameraStream(String action, {String? deviceId}) {
     // mock: 无真实摄像头，空实现
+  }
+
+  @override
+  Future<OtaTriggerResult> triggerOta(String target) async {
+    // mock: 无真实固件，直接给成功回执
+    return const OtaTriggerResult(
+        sent: true, acked: true, ok: true, code: 'OK');
   }
 
   bool getAux(String key) => _aux[key] ?? false;

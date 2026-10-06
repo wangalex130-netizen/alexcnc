@@ -74,6 +74,11 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   /// 未定 / 拉取失败 / 无字段 一律 false（= 铣削 5 步，安全默认）。
   bool _isLaserJob = false;
 
+  /// APP-20（2026-10-07 固件最终版工单）：**App 自己**下载/解析布局载荷的结果
+  /// —— null=未判定（无云端 payloadUrl / 还在取）；true=失败；false=成功。
+  /// 固件没有布局预读（preload_fail 永不存在），这是"布局没就绪"的唯一证据。
+  bool? _cloudPayloadFailed;
+
   /// 云端下发的激光加工参数（只读展示用；null = 未下发，卡片各行显示 "—"）。
   LaserParams? _laserParams;
 
@@ -284,19 +289,17 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   void _next() {
     // 兜底：任何入口都不得绕过门禁（定原点页的「下一步」按钮走同一判定）。
     if (!_canProceed) return;
-    // 🟢 D-2（2026-09-23 昊总）：离开「材料确认与装夹」= 客户已对照实物确认过
-    // 料与装夹，这时就告诉机器屏幕「我打算雕这个模型」，让它趁客户去定原点 /
-    // 映射刀仓的这几分钟，先把该模型的轻量 JSON 从服务器拉下来并预读驻留
-    // （命令定义见 HardwareService.preloadModel）。
-    if (_step == 0) _preloadOnMachine();
-    // A-6-6（2026-09-24 协议②）：job topic phase=failed ⇒ 屏幕下载/解析布局
-    // 失败 —— 协议明文要求此时**不得进入定原点**（没有有效布局，原点必错）。
+    // APP-20（2026-10-07 固件最终版工单，替代旧 A-6-6 job-topic 守卫与 D-2 预读）：
+    // ① 固件**没有**布局预读（preload_model 恒回 E501），App 停止发送；
+    // ② 「布局没就绪不得进定原点」改以 **App 自己**的下载/解析结果为准 ——
+    //    没有有效布局时原点必错。拦截时给出路：清标记并自动重拉，再点【下一步】即重试。
     if (_step == 0 && (widget.item.previewPayloadUrl ?? '').isNotEmpty) {
-      final jp = ref.read(jobProgressProvider).valueOrNull;
-      if (jp?.phase == 'failed') {
+      if (_cloudPayloadFailed ?? false) {
+        _cloudPayloadFailed = null;
+        unawaited(_prefetchLaserFlag());
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-          content: const Text('布局文件在屏幕端下载失败，暂不能进入定原点；'
-              '请返回重试或检查机器网络'),
+          content: const Text('模型数据没有准备好，暂时不能定原点；'
+              '请检查网络后再试一次'),
           duration: const Duration(seconds: 4),
         ));
         return;
@@ -330,63 +333,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     }
   }
 
-  /// 下发 `preload_model`：把「客户计划雕刻这个模型」告诉机器屏幕（D-2）。
-  ///
-  /// 🔴 **失败不阻塞、不报错**：预读只是加速项。小屏没实现该命令时回的
-  /// `cmd_ack unknown cmd` 不会被本端当成流程失败（reqId 不匹配，
-  /// 真机实现的命令回执处理会天然忽略它）——这是有意为之：客户此时看到的
-  /// 任何「失败」都与他的下一步无关，弹错误只会让他以为机器坏了。
-  /// 只在**压根没发出去**（模型没有轻量 JSON / MQTT 未连）时给一句软提示，
-  /// 做到「不静默」但不制造焦虑。
-  void _preloadOnMachine() {
-    final item = widget.item;
-    final url = item.previewPayloadUrl ?? '';
-    if (url.trim().isEmpty) {
-      // L0/L1 级模型没有轻量 JSON ⇒ 无从预读。明确说一句，不让客户以为已预载。
-      _softSay('该模型没有轻量预览数据，机器屏幕不会提前加载（不影响后续步骤）');
-      return;
-    }
-    unawaited(
-      ref
-          .read(hardwareServiceProvider)
-          .preloadModel(
-            modelId: item.id,
-            jsonUrl: url,
-            title: item.title,
-            // A-6-4（09-24）：接列表接口真值 —— 轻量 JSON 侧用 totalJson 的
-            // size/sha（云端生成链路落地后即有值，C-3 #1）；当前 null 时保持
-            // 0/'' 既有口径（预读不校验，失败不阻塞）。
-            sizeBytes: item.totalJsonSizeBytes ?? 0,
-            sha256: item.totalJsonSha256 ?? '',
-            widthMm: item.widthMm,
-            heightMm: item.heightMm,
-            depthMm: item.depthMm,
-            boardThicknessMm: item.boardThicknessMm,
-            materialKey: item.materialKey ?? '',
-          )
-          .then((sent) {
-        if (!sent) {
-          _softSay('机器未连线，模型预读指令没发出去（不影响继续）');
-        }
-      }, onError: (Object _) {
-        // 异常不得变成未处理的 Future 错误（同 P2-7 口径）。
-        _softSay(S.preloadSendFail);
-      }),
-    );
-  }
-
-  /// 一句软提示：不阻塞、不打断流程，仅用浮动 SnackBar 说明。
-  void _softSay(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 90),
-        duration: const Duration(seconds: 3),
-      ),
-    );
-  }
+  // _softSay 已随 preload_model 下线一并移除（2026-10-07）：唯一调用点是
+  // 预读的软提示，命令停发后无消费者（APP-20 的拦截走 SnackBar 直显）。
 
   // ---------- 激光/铣削形态判定（2026-09-23 工单 v2） ----------
 
@@ -404,7 +352,9 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   ///  - 取到 → 解析 isLaser 更新可见步骤表；结果进 PayloadFetchCache，
   ///    定原点步（_StepOrigin._loadMeta）二次加载直接命中，不重复请求；
   ///  - 无 payloadUrl → 本地调试载荷兜底（LocalPayloadStore，云端永远优先）；
-  ///  - 取不到 / 解析失败 / 无字段 → 保持铣削 5 步（安全默认），不阻塞不弹框。
+  ///  - 取不到 / 解析失败 / 无字段 → 保持铣削 5 步（安全默认），不弹框；
+  ///    但**记录失败结果**（APP-20）：向导第 1 步【下一步】时拦截进定原点，
+  ///    并自动重拉一次 —— 没有有效布局，原点必错。
   Future<void> _prefetchLaserFlag() async {
     final url = widget.item.previewPayloadUrl ?? '';
     Payload? m;
@@ -414,6 +364,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
       if (hit != null) {
         m = hit.meta;
         grid = hit.grid;
+        _cloudPayloadFailed = false; // 缓存命中 = 上次已成功
       } else {
         try {
           final resp = await http
@@ -427,8 +378,10 @@ class _WizardPageState extends ConsumerState<WizardPage> {
             }
           }
         } catch (_) {
-          m = null; // 弱网/断网：按铣削走，绝不阻塞向导
+          m = null; // 弱网/断网：按铣削走（安全默认），并在【下一步】时拦截定原点
         }
+        // APP-20：失败也记账（成功与否都记录，供门禁判定）。
+        _cloudPayloadFailed = m == null;
         if (m != null) PayloadFetchCache.put(url, m, grid);
       }
     } else {
@@ -1404,10 +1357,17 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                     // P0-04 扩展（2026-09-10，昊总裁定）：刀仓映射在契约
                     // `wan_whitelist` 中未列出 → 同网限定。失败不静默：
                     // 明确提示原因，且**不标记为已同步**（避免界面说谎）。
-                    final ok = await hw.updateToolMap(tools);
+                    // APP-16（2026-10-07）：返回 null 才算成功 —— 必须
+                    // 等到固件 cmd_ack，「发布成功」不再当「机器已接受」。
+                    final syncErr = await hw.updateToolMap(tools);
                     if (!context.mounted) return;
-                    if (!ok) {
-                      showWanBlockedSnack(context, '刀仓映射同步');
+                    if (syncErr != null) {
+                      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                        SnackBar(
+                          content: Text(syncErr),
+                          duration: const Duration(seconds: 5),
+                        ),
+                      );
                       return;
                     }
                     widget.onSync();
@@ -2284,6 +2244,12 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   List<String> _framingLocks() {
     final fails = <String>[];
     if (!_datumDone) fails.add('还没取完点（需 $_needPts 个点）');
+    // APP-09（2026-10-05）：homed=false = GRBL 报警态，坐标不可信 ⇒ 硬拦；
+    // homed 键缺失（未知）保持既有软提示（_topIssue），兼容老固件三态语义。
+    if (!DebugSim.instance.enabled) {
+      final st = ref.read(machineStatusProvider).valueOrNull;
+      if (st?.homed == false) fails.add('机器还没回零：请在屏幕上先回零');
+    }
     final m = _meta;
     if (m != null) {
       if (!_g54Written) {
@@ -2304,6 +2270,14 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   ///  - framing_fail：机器明确拒绝 ⇒ 撤回预览结论与目视确认，红条带原因。
   void _onFramingReceipt(NotifyEvent ev) {
     if (!mounted) return;
+    // A3（2026-10-07 固件最终版工单）：巡边自检告警 —— 只提示、可继续，
+    // 不改任何门禁/预览状态（它是提醒，不是门禁）。
+    if (ev.type == 'outline_check') {
+      _note(ev.message.isEmpty
+          ? '轮廓位置可能不对，请先目视确认一下'
+          : ev.message);
+      return;
+    }
     if (ev.type != 'framing_done' && ev.type != 'framing_fail') return;
     _framingRctTimer?.cancel();
     _framingRctArrived = true;
@@ -2359,7 +2333,10 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     if (!ok) widget.onSafety(false);
     setState(() {
       _busy = false;
-      _framingDone = ok;
+      // APP-07（2026-10-05）：真机「发布成功」不再置「已预览」——只有收到
+      // 机器 framing_done 回执（_onFramingReceipt）才算；30s 无回执按未确认
+      // 处理（超时回调里撤回目视勾选）。模拟态无回执通道，发布即视为预览。
+      _framingDone = sim && ok;
       _framePlaying = ok; // 框内同步模拟巡边光点（与机器激光同步）
       _framingNotSent = !ok;
       _framingFail = ok
@@ -2375,6 +2352,9 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       _framingRctArrived = false;
       _framingRctTimer = Timer(const Duration(seconds: 30), () {
         if (!mounted || _framingRctArrived) return;
+        // APP-07：超时 = 未确认 ⇒ 撤回既有目视勾选。机器没回执就不能
+        // 带着上一次的「已目视确认」一路走到开切。
+        widget.onSafety(false);
         setState(() {
           _framingFail = '机器未回复巡边结果';
           _framingNotSent = false;
@@ -2384,12 +2364,13 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       });
     }
     _note(
-      // v11：原来这里写「机器抬 Z 至最高安全位后激光巡边一圈」—— 
-      // 那是**未经核实的承诺**：小屏固件尚未实现 framing（会回 E400
-      // unknown cmd），App 只能确认「指令已发出」，确认不了机器执行。
-      // 无条件宣称成功会让联调时把「固件没做」误判成「App 做完了」。
+      // v11→APP-11（2026-10-05）：固件不抬 Z、也不自己点亮激光（安全决策 1/2）。
+      // 「机器抬 Z 至最高安全位」是 V1 意图、固件从未实现——不得再宣称。
+      // 未开「激光定位」时巡边是空走，明说看不见光点，避免误判机器没动。
       ok
-          ? S.framingOn
+          ? (_laserOn
+              ? S.framingOn
+              : '巡边已开始（未开激光定位，看不到光点）')
           : S.notConnected,
       bad: !ok,
     );
@@ -2405,6 +2386,15 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     if (!_datumDone) {
       _note(S.t(S.calibrationNeeded, {'n': '$_needPts'}), bad: true);
       return;
+    }
+    // APP-09：homed=false = 报警态，此时写入的 G54 基于不可信坐标 ⇒ 硬拦。
+    // homed 键缺失（未知）不拦，兼容老固件。
+    if (!DebugSim.instance.enabled) {
+      final st = ref.read(machineStatusProvider).valueOrNull;
+      if (st?.homed == false) {
+        _note('机器还没回零：请在屏幕上先回零', bad: true);
+        return;
+      }
     }
     // §4.1：G54 = DesignPos − camOriginOffset。**允许为负**（严禁 max(0,·)）。
     final g = m.g54For(widget.origin.dx, widget.origin.dy);
@@ -2591,6 +2581,16 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       child: Column(
         children: [
           _topBar(),
+          // A1（2026-10-07 固件最终版工单）：原点由谁设定 —— 只告知、不阻塞、
+          // 不比较（originSource=='screen' 才显示；工程词不出端）。
+          if (!sim && st?.originSource == 'screen')
+            Container(
+              width: double.infinity,
+              color: CncColors.panelAlt,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              child: Text('原点已在机器屏幕上设定',
+                  style: TextStyle(fontSize: 12, color: CncColors.textSub)),
+            ),
           // 提示通栏（昊总 09-24「彻底改」）：从画布内悬浮胶囊改为画布上方
           // 独立通栏 —— 全宽、自动换行，拒绝清单完整显示不再截半句。
           _noticeBanner(guide.text, guide.level),
@@ -3045,8 +3045,37 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
               canPreview ? _doFraming : null),
           const SizedBox(height: 12),
           _safetyTick(),
+          // APP-08（2026-10-05）：原点写入成功后常驻显示锁定值，客户能直接
+          // 确认"原点设上了"（此前只有后台回读校验，界面无任何可见证据）。
+          if (_g54Written)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                _originRowText(),
+                style:
+                    TextStyle(fontSize: 12, color: CncColors.textSub),
+              ),
+            ),
         ]);
+  }
+  }
+
+  /// APP-08（2026-10-05 校核补完；二轮复核建议后提为**类成员方法**，
+  /// 不再用方法内局部函数先用后声明）——起点行**优先显示机器回读值**：
+  /// machinePosition − workPosition = 机器当前实际持有的 G54 偏置（状态帧
+  /// 实时回报），写入失败/被覆盖时与 App 意图值不一致一眼可见；旧固件
+  /// 不回报 wpos 时回退显示 App 意图值（写入内容本身仍真实）。
+  String _originRowText() {
+    final st = ref.watch(machineStatusProvider).valueOrNull;
+    final wp = st?.workPosition;
+    final mp = st?.machinePosition;
+    if (wp != null) {
+      final rx = (mp!.x - wp.x).toStringAsFixed(1);
+      final ry = (mp.y - wp.y).toStringAsFixed(1);
+      return '雕刻起点：X $rx，Y $ry';
     }
+    return '雕刻起点：X ${_g54x.toStringAsFixed(1)}，'
+        'Y ${_g54y.toStringAsFixed(1)}';
   }
 
   /// 唯一 CTA（工单十六 §3.2/§2.7）：高 56dp 全宽圆角 14，随段换文案 ——
@@ -3128,9 +3157,10 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
 
   /// 「已目视确认」勾选框（P5 第三层）。
   ///
-  /// **必须由客户手动勾**：App 只能确认 framing 指令已发出（固件 F2 未交付时机器
-  /// 可能毫无动作），若由「命令已发出」自动置位，联调时就会把「固件没做」误判成
-  /// 「客户已确认」，且画面里的巡边光点动画还会强化「机器走过了」的错觉。
+  /// **必须由客户手动勾**，且前置条件是**机器 framing_done 回执已到**（APP-07，
+  /// 2026-10-05 起「发布成功」不再置「已预览」，_framingDone 只由回执置位）：
+  /// 机器没动 / 未回执 = 不可勾，堵住「机器没动也能开切」的安全假象。
+  /// 模拟态无回执通道，发布即视为预览。
   /// 未按过【雕刻预览】前禁用 —— 没看过落点就勾 = 自己骗自己。
   Widget _safetyTick() {
     final enabled = _framingDone && !_busy;
@@ -3531,7 +3561,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     }
     // ③ 锁定后 → 预览（可顺手拖模型摆位）
     if (!_framingDone) {
-      return (text: '拖动模型摆好位置，按【雕刻预览】', level: 0);
+      // APP-11：预览前提示抬 Z（固件不抬 Z、不碰激光——协议安全决策 1/2）。
+      return (text: '拖动模型摆好位置，抬好 Z 后按【雕刻预览】', level: 0);
     }
     // ③ 预览确认：预览完成、未勾选
     if (!widget.safetyChecked) {

@@ -1689,6 +1689,9 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 ),
               );
             },
+            // APP-19（FW-04 配套）：机旁确认「不超时」，客户可从 App 取消。
+            // 成功后固件广播 awaitingConfirm=false → 状态卡自动退出确认态。
+            onCancel: () => hw.cancelPendingConfirm(),
           ),
 
           // ---- 设备控制区（工单十二 §2.1–2.6：无区块小标题，间距 10）----
@@ -2157,6 +2160,10 @@ class _StatusCard extends StatelessWidget {
   final VoidCallback onPauseResume;
   final VoidCallback onStop;
 
+  /// APP-19（FW-04 配套）：确认态「取消」回调 —— 发 job/cancel，固件清待确认
+  /// 后广播 awaitingConfirm=false，状态卡随之退出确认态（以状态帧为准）。
+  final VoidCallback onCancel;
+
   const _StatusCard({
     required this.mode,
     required this.alarmText,
@@ -2171,6 +2178,7 @@ class _StatusCard extends StatelessWidget {
     required this.onTap,
     required this.onPauseResume,
     required this.onStop,
+    required this.onCancel,
   });
 
   @override
@@ -2337,6 +2345,18 @@ class _StatusCard extends StatelessWidget {
             border: CncColors.danger,
             onTap: onStop,
             child: _StopGlyph(CncColors.danger),
+          ),
+          const SizedBox(width: 8),
+        ],
+        // APP-19（FW-04 配套）：确认态行内「取消」圆钮 —— 机旁确认不超时，
+        // 客户改主意时从 App 主动取消；成功后固件广播 awaitingConfirm=false，
+        // 卡片随之消失（以状态帧为准，不靠本地状态）。
+        if (confirm) ...[
+          _roundBtn(
+            bg: CncColors.warnBg,
+            border: CncColors.warning,
+            onTap: onCancel,
+            child: Icon(Symbols.close, size: 16, color: CncColors.warning),
           ),
           const SizedBox(width: 8),
         ],

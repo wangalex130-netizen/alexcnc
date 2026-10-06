@@ -45,7 +45,6 @@ class S {
   static const readyNotHomed = '就绪 · 未回零';
   static const etaPending = '—';
   static const lanPlanAction = '发送调平方案';
-  static const preloadSendFail = '模型预读发送失败（不影响继续）';
   static const sentWaiting = '{what}已发送，等待机器响应…';
   static const sentWaitingPlain = '已发送，等待机器响应…';
   static const cloudSimNote1 =
