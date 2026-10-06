@@ -183,6 +183,20 @@ jobs:
 
           echo "### flutter test exit=$?"
 
+      # APP-14（2026-10-07 固件最终版工单）：真正的 analyze 门禁。
+
+      # 独立步骤、不吞退出码 —— analyze 有 error 即让整条流水线变红。
+
+      # pub get 先行：analyze 依赖 .dart_tool/package_config.json。
+
+      - name: Analyze (gate)
+
+        run: |
+
+          flutter pub get
+
+          flutter analyze --no-fatal-infos --no-fatal-warnings
+
       - name: Build APK (capture full log)
 
         id: build
