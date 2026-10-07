@@ -7,6 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../app/config.dart';
 import 'network_auth.dart';
 
+import '../l10n/app_strings.dart';
+
 /// 局域网 UDP 信标（固件每 3s 广播一次）。
 ///
 /// 格式：`CNC-SCREEN|<ip>|<tcpPort>|screen-<deviceId>`
@@ -94,7 +96,7 @@ class DeviceDiscovery {
     // 兜底②：调用方运行时配置的固定地址（联调设置 / DHCP 绑定），最后编译期默认值。
     final cfgHost = fallbackHost ?? AppConfig.deviceTcpHost;
     if (cfgHost.isEmpty) {
-      lastDiscoverDetail = '信标/mDNS/网段扫描均未发现机器，且未配置机器地址';
+      lastDiscoverDetail = T.current.ddNotFound;
     }
     return cfgHost;
   }
@@ -125,10 +127,12 @@ class DeviceDiscovery {
   static Future<String?> _subnetScan(int port) async {
     final base = await _localSubnetPrefix();
     if (base == null) {
-      lastDiscoverDetail = '无法确定本机网段（手机当前无局域网/外网出口）';
+      lastDiscoverDetail = T.current.ddNoSubnet;
       return null;
     }
-    lastDiscoverDetail = '正在扫描网段 $base.1~254:$port …';
+    lastDiscoverDetail = T.current.ddScanning
+        .replaceAll('{b}', base)
+        .replaceAll('{p}', '$port');
     const concurrency = 48;
     const perTry = Duration(milliseconds: 400);
     final hosts = [for (var i = 1; i <= 254; i++) '$base.$i'];
@@ -140,13 +144,17 @@ class DeviceDiscovery {
           batch.map((h) => NetworkProbe.probe(h, port, timeout: perTry)));
       for (var k = 0; k < batch.length; k++) {
         if (rs[k]) {
-          lastDiscoverDetail = '网段扫描发现机器 ${batch[k]}:$port 端口开放';
+          lastDiscoverDetail = T.current.ddFound
+              .replaceAll('{ip}', '${batch[k]}')
+              .replaceAll('{p}', '$port');
           return batch[k];
         }
       }
     }
     lastDiscoverDetail =
-        '网段扫描完成：$base.0/24 无 $port 开放主机（若确认同一 Wi-Fi，请检查路由器 AP/客户端隔离）';
+        T.current.ddDone
+            .replaceAll('{b}', base)
+            .replaceAll('{p}', '$port');
     return null;
   }
 

@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../l10n/app_strings.dart';
+
 /// 修订单（工单七设置页四项）§4：视频播放网络限制。
 ///
 /// 只管云端视频流量（延时摄影回顾页/播放页的「播放」与「保存到相册」），
@@ -28,8 +30,9 @@ Future<bool> videoPlayGate(BuildContext context) async {
   if (await videoPlayAllowed()) return true;
   if (!context.mounted) return false;
   ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(
-      content: Text('当前为移动网络，可在 设置－通用－视频播放 中允许'),
+    // ★ 不能 const：T.of(context) 是运行时值（第19/20/21 批同源坑）
+    SnackBar(
+      content: Text(T.of(context).vpMobileNet),
     ),
   );
   return false;

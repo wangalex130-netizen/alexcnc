@@ -29,6 +29,9 @@ import 'bind_page.dart';
 import 'tool_magazine_editor.dart';
 
 import 'package:material_symbols_icons/material_symbols_icons.dart';
+import '../../widgets/cnc_skeleton.dart';
+
+import '../../l10n/app_strings.dart';
 
 
 /// 我的机器列表（A3）。
@@ -162,9 +165,11 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
       ScaffoldMessenger.of(context).showSnackBar(
 
-        const SnackBar(
+        // ★ 不能用 const：T.of(context) 是运行时值，const 要求编译期可求值。
 
-          content: const Text('该机器尚未配置摄像头，暂不能预览'),
+        SnackBar(
+
+          content: Text(T.of(context).mcNoCamera),
 
           duration: Duration(seconds: 2),
 
@@ -210,7 +215,7 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
         backgroundColor: CncColors.bg,
 
-        appBar: AppBar(title: const Text('我的机器')),
+        appBar: AppBar(title: Text(T.of(context).mcMyMachines)),
 
         body: Center(
 
@@ -226,7 +231,7 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
               const SizedBox(height: 12),
 
-              Text('登录后查看我的机器',
+              Text(T.of(context).mcLoginToSee,
 
                   style:
 
@@ -248,7 +253,7 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
                 },
 
-                child: const Text('去登录'),
+                child: Text(T.of(context).mdGoLogin),
 
               ),
 
@@ -270,7 +275,7 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
       appBar: AppBar(
 
-        title: const Text('我的机器'),
+        title: Text(T.of(context).mcMyMachines),
 
         actions: [
 
@@ -278,7 +283,7 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
             icon: Icon(Symbols.add, color: CncColors.textMain),
 
-            tooltip: '扫码绑定机器',
+            tooltip: T.of(context).mcScanBind,
 
             onPressed: () async {
 
@@ -312,9 +317,7 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
                   Center(
 
-                    child: CircularProgressIndicator(
-
-                        color: CncColors.primary),
+                    child: const CncSkeletonList(rows: 4, showLeading: false),
 
                   ),
 
@@ -342,7 +345,7 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
                       Center(
 
-                        child: Text('还没有绑定的机器',
+                        child: Text(T.of(context).mcNoneYet,
 
                             style: TextStyle(
 
@@ -356,7 +359,7 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
                       Center(
 
-                        child: Text('点右上角 + 扫码绑定',
+                        child: Text(T.of(context).mcTapPlus,
 
                             style: TextStyle(
 
@@ -390,7 +393,7 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
                               size: 18),
 
-                          label: const Text('扫码绑定'),
+                          label: Text(T.of(context).mcScan),
 
                         ),
 
@@ -526,19 +529,19 @@ class _PresenceDiagnosticBar extends ConsumerWidget {
 
           case PresenceConnectionState.connecting:
 
-            text = '正在同步机器在线状态…';
+            text = T.current.mcSyncing;
 
             color = CncColors.primary;
 
           case PresenceConnectionState.disconnected:
 
-            text = '在线状态同步已断开，正在重连…';
+            text = T.current.mcSyncLost;
 
-            color = CncColors.danger;
+            color = CncColors.dangerFg;
 
           default:
 
-            text = '在线状态同步未启动';
+            text = T.current.mcSyncOff;
 
             color = CncColors.textSub;
 
@@ -556,7 +559,7 @@ class _PresenceDiagnosticBar extends ConsumerWidget {
 
             color: color.withOpacity(0.08),
 
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(CncRadius.control),
 
             border: Border.all(color: color.withOpacity(0.3)),
 
@@ -572,13 +575,7 @@ class _PresenceDiagnosticBar extends ConsumerWidget {
 
                 height: 14,
 
-                child: CircularProgressIndicator(
-
-                  strokeWidth: 2,
-
-                  valueColor: AlwaysStoppedAnimation(color),
-
-                ),
+                child: const CncSkeletonList(rows: 4, showLeading: false),
 
               ),
 
@@ -660,13 +657,13 @@ class _MachineCard extends StatelessWidget {
 
     if (machine.sn.isEmpty) {
 
-      statusText = '未配置';
+      statusText = T.current.mcNotSet;
 
       statusColor = CncColors.textSub;
 
     } else if (online == true) {
 
-      statusText = '在线';
+      statusText = T.current.mcOnline;
 
       // 昊总 0927 反馈：primary 太浅看不出在线——改用成功绿（点+字同色），
       // 与灰色「不在线」拉开明显区分。
@@ -674,7 +671,7 @@ class _MachineCard extends StatelessWidget {
 
     } else {
 
-      statusText = '不在线';
+      statusText = T.current.mcOffline;
 
       statusColor = CncColors.textSub;
 
@@ -686,7 +683,7 @@ class _MachineCard extends StatelessWidget {
 
       onTap: onTap,
 
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(CncRadius.card),
 
       child: Container(
 
@@ -696,7 +693,7 @@ class _MachineCard extends StatelessWidget {
 
           color: CncColors.card,
 
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(CncRadius.card),
 
           border: Border.all(
 
@@ -726,7 +723,7 @@ class _MachineCard extends StatelessWidget {
 
                       : CncColors.primary.withOpacity(0.15),
 
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(CncRadius.card),
 
                 ),
 
@@ -784,7 +781,7 @@ class _MachineCard extends StatelessWidget {
 
                             ),
 
-                            child: Text('当前控制',
+                            child: Text(T.of(context).mcCurrent,
 
                                 style: TextStyle(
 
@@ -846,7 +843,7 @@ class _MachineCard extends StatelessWidget {
 
                           child: Text(
 
-                            machine.sn.isEmpty ? '未配置机器码' : machine.sn,
+                            machine.sn.isEmpty ? T.of(context).mcNoSn : machine.sn,
 
                             style: TextStyle(
 
@@ -872,7 +869,7 @@ class _MachineCard extends StatelessWidget {
 
                         padding: const EdgeInsets.only(top: 2),
 
-                        child: Text('绑定于 ${machine.boundAt}',
+                        child: Text(T.of(context).mcBoundAt.replaceAll('{d}', machine.boundAt ?? ''),
 
                             style: TextStyle(
 
@@ -894,7 +891,7 @@ class _MachineCard extends StatelessWidget {
 
                     color: CncColors.primaryInk, size: 20),
 
-                tooltip: '刀仓配置',
+                tooltip: T.of(context).mcBayCfg,
 
                 onPressed: onBitConfig,
 
@@ -906,7 +903,7 @@ class _MachineCard extends StatelessWidget {
 
                     color: CncColors.textSub, size: 20),
 
-                tooltip: '实时预览',
+                tooltip: T.of(context).mcLivePreview,
 
                 onPressed: onPreview,
 

@@ -7,6 +7,9 @@ environment:
   sdk: '>=3.4.0 <4.0.0'
 
 dependencies:
+  # i18n：零 codegen 手写 Map 方案里用来取系统 Locale（flutter_localizations 自带）
+  flutter_localizations:
+    sdk: flutter
   flutter:
     sdk: flutter
   flutter_riverpod: ^2.5.1

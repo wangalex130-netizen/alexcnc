@@ -24,6 +24,8 @@ import 'machines_page.dart';
 
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
+import '../../l10n/app_strings.dart';
+
 
 /// 扫码绑定机器（A2）。
 
@@ -231,7 +233,7 @@ class _BindPageState extends ConsumerState<BindPage> {
 
         backgroundColor: CncColors.bg,
 
-        appBar: AppBar(title: const Text('绑定机器')),
+        appBar: AppBar(title: Text(T.of(context).bdTitle)),
 
         body: Center(
 
@@ -245,7 +247,7 @@ class _BindPageState extends ConsumerState<BindPage> {
 
               const SizedBox(height: 12),
 
-              Text('请先登录后再绑定机器',
+              Text(T.of(context).bdLoginFirst,
 
                   style: TextStyle(fontSize: 14, color: CncColors.textMain)),
 
@@ -265,7 +267,7 @@ class _BindPageState extends ConsumerState<BindPage> {
 
                 },
 
-                child: const Text('去登录'),
+                child: Text(T.of(context).bdGoLogin),
 
               ),
 
@@ -283,7 +285,7 @@ class _BindPageState extends ConsumerState<BindPage> {
 
       backgroundColor: CncColors.bg,
 
-      appBar: AppBar(title: const Text('扫码绑定机器')),
+      appBar: AppBar(title: Text(T.of(context).bdScanTitle)),
 
       body: SafeArea(
 
@@ -299,7 +301,7 @@ class _BindPageState extends ConsumerState<BindPage> {
 
               child: ClipRRect(
 
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(CncRadius.card),
 
                 child: Stack(
 
@@ -325,13 +327,16 @@ class _BindPageState extends ConsumerState<BindPage> {
 
                               color: CncColors.primary, width: 2),
 
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(CncRadius.card),
 
                         ),
 
-                        child: const Center(
+                        child: Center(
 
-                          child: Text('对准机器上的二维码',
+                          // ★ T.current 而非 T.of(context)：Center 是纯布局，
+                          // 且外层 const 上下文不允许 context 依赖。
+
+                          child: Text(T.current.bdAimQr,
 
                               style: TextStyle(
 
@@ -371,7 +376,7 @@ class _BindPageState extends ConsumerState<BindPage> {
 
                     size: 18, color: CncColors.primaryInk),
 
-                label: Text(_showManual ? '收起手动输入' : '扫码不清晰？手动输入机器码',
+                label: Text(_showManual ? T.of(context).bdManualHide : T.of(context).bdManualShow,
 
                     style:
 
@@ -411,11 +416,51 @@ class _BindPageState extends ConsumerState<BindPage> {
 
                     border: OutlineInputBorder(
 
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(CncRadius.control),
 
                       borderSide:
 
                           BorderSide(color: CncColors.border),
+
+                    ),
+
+                    // ★ 2026-10-04：InputDecoration 有五个边框字段。即使自带
+                    // border，enabled/focused/error/focusedError 缺省仍会继承
+                    // 全局 inputDecorationTheme（focusedBorder 深海墨 1.5px）
+                    // ⇒ 聚焦时卓易通上出现黑框。必须写全。
+                    enabledBorder: OutlineInputBorder(
+
+                      borderRadius: BorderRadius.circular(CncRadius.control),
+
+                      borderSide: BorderSide(color: CncColors.border),
+
+                    ),
+
+                    focusedBorder: OutlineInputBorder(
+
+                      borderRadius: BorderRadius.circular(CncRadius.control),
+
+                      borderSide:
+
+                          BorderSide(color: CncColors.primary, width: 1.5),
+
+                    ),
+
+                    errorBorder: OutlineInputBorder(
+
+                      borderRadius: BorderRadius.circular(CncRadius.control),
+
+                      borderSide: BorderSide(color: CncColors.danger),
+
+                    ),
+
+                    focusedErrorBorder: OutlineInputBorder(
+
+                      borderRadius: BorderRadius.circular(CncRadius.control),
+
+                      borderSide:
+
+                          BorderSide(color: CncColors.danger, width: 1.5),
 
                     ),
 
@@ -439,7 +484,7 @@ class _BindPageState extends ConsumerState<BindPage> {
 
                     style: TextStyle(
 
-                        fontSize: 12, color: CncColors.danger)),
+                        fontSize: 12, color: CncColors.dangerFg)),
 
               ),
 
@@ -459,7 +504,7 @@ class _BindPageState extends ConsumerState<BindPage> {
 
                         _bind(_manual.text.trim()),
 
-                child: Text(_busy ? '绑定中…' : '确认绑定'),
+                child: Text(_busy ? T.of(context).bdBinding : T.of(context).bdConfirm),
 
               ),
 

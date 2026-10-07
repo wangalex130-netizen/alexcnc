@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import '../l10n/app_strings.dart';
+
 /// 本地通知服务：把「云端事件」以系统通知栏的形式展示给用户。
 ///
 /// 联调阶段不依赖任何厂商通道（FCM/极光/友盟），App 自己轮询云端
@@ -12,8 +14,9 @@ class LocalNotifyService {
   static final LocalNotifyService instance = LocalNotifyService._();
 
   static const String _channelId = 'push_events';
-  static const String _channelName = '加工通知';
-  static const String _channelDesc = '雕刻完成 / 机器告警等云端事件提醒';
+  // ★ 不能 const：T.current 是运行时值（第19/20 批同源坑）
+  static final String _channelName = T.current.lnChanName;
+  static final String _channelDesc = T.current.lnChanDesc;
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
@@ -94,14 +97,15 @@ class LocalNotifyService {
       await ensureInitialized();
       if (!_initialized) return; // 初始化超时/失败：本轮跳过，避免卡死轮询
     }
-    const android = AndroidNotificationDetails(
+    // ★ 不能const：_channelName/_channelDesc 是 static final（T.current 是运行时值）
+    final android = AndroidNotificationDetails(
       _channelId,
       _channelName,
       channelDescription: _channelDesc,
       importance: Importance.high,
       priority: Priority.high,
     );
-    const details = NotificationDetails(android: android);
+    final details = NotificationDetails(android: android);
     try {
       _lastAction = 'show-start';
       await _plugin

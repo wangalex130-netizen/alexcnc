@@ -6,6 +6,7 @@ import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import '../../app/theme.dart';
 import '../../app/theme_mode_controller.dart';
+import '../../app/visual_depth.dart';
 import '../../services/message_store.dart';
 
 import '../../state/auth_provider.dart';
@@ -27,6 +28,8 @@ import 'profile_widgets.dart';
 import 'settings_page.dart';
 import 'sys_bits_page.dart';
 import 'work_history_page.dart';
+
+import '../../l10n/app_strings.dart';
 
 /// Core 5: personal hub & device manager.
 ///
@@ -108,7 +111,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
         ? auth.username!
 
-        : (auth.userId ?? '未登录');
+        : (auth.userId ?? T.current.meNotLogin);
 
     return ListView(
 
@@ -126,7 +129,11 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
             color: CncColors.panelAlt,
 
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(CncRadius.card),
+
+            // 2026-10-04 第 2 批：用户头是大块容器，纳入 CncDepth 体系，
+            // 用 raised 档（比 rest 更浮，因为它是一屏顶部的身份卡）。
+            boxShadow: CncDepth.raisedBox(),
 
             border: Border.all(color: CncColors.border),
 
@@ -178,7 +185,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
                   children: [
 
-                    Text(loggedIn ? username : '未登录',
+                    Text(loggedIn ? username : T.of(context).meNotLogin,
 
                         style: t.titleLarge
 
@@ -192,7 +199,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
                           ? 'Cloud ID: ${auth.userId}'
 
-                          : '登录后可扫码绑定你的雕刻机',
+                          : T.of(context).meScanTip,
 
                       style: TextStyle(
 
@@ -212,7 +219,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
                   onPressed: _goLogin,
 
-                  child: Text('登录',
+                  child: Text(T.of(context).meLogin,
 
                       style: TextStyle(
 
@@ -244,7 +251,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
                 icon: Symbols.person_add,
 
-                title: '注册账号',
+                title: T.of(context).meRegister,
 
                 onTap: _goRegister,
 
@@ -262,7 +269,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
         // 创作（工单七 §1 #1：雕刻历史为全页最高频，提为第一组第一条）
 
-        SectionTitle('创作'),
+        SectionTitle(T.of(context).meSecCreate),
 
         MenuGroup(
 
@@ -272,7 +279,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
               icon: Symbols.history,
 
-              title: '雕刻历史',
+              title: T.of(context).meCarveHistory,
 
               onTap: () => Navigator.push(
 
@@ -288,7 +295,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
               icon: Symbols.movie,
 
-              title: '延时摄影回顾',
+              title: T.of(context).meTimelapseRecap,
 
               onTap: () => Navigator.push(
 
@@ -306,7 +313,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
               icon: Symbols.construction,
 
-              title: '官方刀头库',
+              title: T.of(context).meOfficialTool,
 
               onTap: () => Navigator.push(
 
@@ -326,7 +333,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
         // 设备（§1 #2）
 
-        SectionTitle('设备'),
+        SectionTitle(T.of(context).meSecDevice),
 
         MenuGroup(
 
@@ -336,9 +343,9 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
               icon: Symbols.sensors,
 
-              title: '我的机器',
+              title: T.of(context).meMyMachines,
 
-              trailing: Text('扫码绑定机器',
+              trailing: Text(T.of(context).meScanBind,
 
                   style: TextStyle(fontSize: 12, color: CncColors.primaryInk)),
 
@@ -350,11 +357,11 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
               icon: Symbols.system_update,
 
-              title: '固件升级',
+              title: T.of(context).meFirmware,
 
               badge: const _FwUpdateDot(),
 
-              trailing: Text('摄像头/控制屏幕/主板',
+              trailing: Text(T.of(context).meFwSub,
 
                   style: TextStyle(fontSize: 12, color: CncColors.textSub)),
 
@@ -378,7 +385,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
         // 支持（§1 #3：系统消息与历史告警保留主页，归支持组）
 
-        SectionTitle('支持'),
+        SectionTitle(T.of(context).meSecSupport),
 
         MenuGroup(
 
@@ -388,7 +395,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
               icon: Symbols.notifications,
 
-              title: '系统消息与历史告警',
+              title: T.of(context).meMsgHistory,
 
               trailing: Consumer(
 
@@ -400,7 +407,10 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
                     data: (list) => Text(
 
-                        list.isEmpty ? '暂无记录' : '${list.length} 条历史',
+                        list.isEmpty
+                            ? T.of(context).meNoRecord
+                            : T.of(context).meCountUnit
+                                .replaceAll('{n}', '${list.length}'),
 
                         style: TextStyle(
 
@@ -432,7 +442,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
               icon: Symbols.headset_mic,
 
-              title: '在线售后客服',
+              title: T.of(context).meSupport,
 
               onTap: () {},
 
@@ -457,7 +467,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
               icon: Symbols.settings,
 
-              title: '设置',
+              title: T.of(context).meSettings,
 
               onTap: () => Navigator.push(
 
@@ -699,7 +709,7 @@ class _MessagesSheetState extends ConsumerState<_MessagesSheet> {
 
     return _SheetFrame(
 
-      title: '系统消息与历史告警',
+      title: T.of(context).meMsgHistory,
 
       child: !_loaded
 
@@ -731,7 +741,7 @@ class _MessagesSheetState extends ConsumerState<_MessagesSheet> {
 
                   child: Center(
 
-                    child: Text('暂无系统消息',
+                    child: Text(T.of(context).meNoMsg,
 
                         style: TextStyle(
 
@@ -767,11 +777,11 @@ class _MessagesSheetState extends ConsumerState<_MessagesSheet> {
 
     final iconColor = m.isAlarm
 
-        ? CncColors.danger
+        ? CncColors.dangerFg
 
         : m.isWarn
 
-            ? CncColors.warning
+            ? CncColors.warnFg
 
             : CncColors.primary;
 
@@ -785,7 +795,7 @@ class _MessagesSheetState extends ConsumerState<_MessagesSheet> {
 
         color: CncColors.bg,
 
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(CncRadius.sm),
 
         border: Border(
 
@@ -793,11 +803,11 @@ class _MessagesSheetState extends ConsumerState<_MessagesSheet> {
 
                 color: m.isAlarm
 
-                    ? CncColors.danger
+                    ? CncColors.dangerBd
 
                     : m.isWarn
 
-                        ? CncColors.warning
+                        ? CncColors.warnBd
 
                         : CncColors.primary,
 
@@ -875,11 +885,15 @@ class _MessagesSheetState extends ConsumerState<_MessagesSheet> {
 
     final mm = t.minute.toString().padLeft(2, '0');
 
-    if (d == today) return '今天 $hh:$mm';
+    if (d == today) return T.current.meToday.replaceAll('{t}', '$hh:$mm');
 
-    if (d == today.subtract(const Duration(days: 1))) return '昨天 $hh:$mm';
+    if (d == today.subtract(const Duration(days: 1)))
+      return T.current.meYesterday.replaceAll('{t}', '$hh:$mm');
 
-    return '${t.month}月${t.day}日 $hh:$mm';
+    return T.current.meDateFmt
+          .replaceAll('{m}', '${t.month}')
+          .replaceAll('{d}', '${t.day}')
+          .replaceAll('{t}', '$hh:$mm');
 
   }
 

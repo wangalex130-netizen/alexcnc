@@ -125,13 +125,14 @@ class _OctagonDialState extends State<OctagonDial> {
 
       Widget edgeLabel(String text) => Text(text,
           style: TextStyle(
-              fontSize: 12.5,
+              fontSize: 13.5, // P1-6：12.5 偏小，盘面标签读起来费力
               fontWeight: FontWeight.w600,
               color: CncColors.textMain));
 
       Widget diag(int dx, int dy) => Transform.rotate(
             angle: atan2(dy.toDouble(), dx.toDouble()),
-            child: Icon(Symbols.chevron_right, size: 12, color: diagColor),
+            child: // P1-6：原 12 → 170px 盘上几乎不可见（消费级同类控件普遍 16-18）。
+        Icon(Symbols.chevron_right, size: 17, color: diagColor),
           );
 
       // 定位比例（190 视觉稿逐值，等比缩放到任意 size）。
@@ -240,7 +241,7 @@ class _OctagonDialState extends State<OctagonDial> {
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
           color: CncColors.bg,
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(CncRadius.sm),
         ),
         child: Text(widget.centerLabel,
             style: TextStyle(fontSize: 11, color: CncColors.textSub)),

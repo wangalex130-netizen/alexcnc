@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../app/theme.dart';
+
 /// 全局转场组件（工单十 §5）。
 ///
 /// - 页面路由：[CncFadeThroughTransitionsBuilder] 经 MaterialApp 的
@@ -25,9 +27,40 @@ class CncFadeThroughTransitionsBuilder extends PageTransitionsBuilder {
     Animation<double> secondaryAnimation,
     Widget child,
   ) {
+    // P1-9：原实现只对新页做入场淡入，secondaryAnimation 收了却没用 ⇒
+    // 旧页原地静止直到被替换，观感是「白闪/遮罩」而非 Material fade-through。
+    // 现在旧页叠一层反向淡出 + 轻微缩放，形成真正的双向运动。
+    //
+    // P1-8：系统「移除动画 / 减弱动态效果」开启时，退场只保留新页淡入。
+    // 原因：双页同时做缩放+位移是眩晕感的主要来源，减动效用户不该承受。
+    if (CncMotion.reduceOf(context)) {
+      return FadeTransition(
+        opacity: CurvedAnimation(
+          parent: animation,
+          curve: _kFadeThroughCurve,
+        ),
+        child: child,
+      );
+    }
     return FadeTransition(
       opacity: CurvedAnimation(parent: animation, curve: _kFadeThroughCurve),
-      child: child,
+      child: ScaleTransition(
+        scale: Tween<double>(begin: 1.0, end: 0.98).animate(
+          CurvedAnimation(
+            parent: secondaryAnimation,
+            curve: _kFadeThroughCurve,
+          ),
+        ),
+        child: FadeTransition(
+          opacity: Tween<double>(begin: 1.0, end: 0.0).animate(
+            CurvedAnimation(
+              parent: secondaryAnimation,
+              curve: _kFadeThroughCurve,
+            ),
+          ),
+          child: child,
+        ),
+      ),
     );
   }
 }
@@ -58,7 +91,9 @@ class _CncFadeThroughState extends State<CncFadeThrough>
   @override
   void didUpdateWidget(covariant CncFadeThrough oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.trigger != widget.trigger) {
+    // P1-8：系统开启「移除动画」时，tab 切换直接换内容，不重放淡入。
+    if (oldWidget.trigger != widget.trigger &&
+        !CncMotion.reduceOf(context)) {
       _controller.forward(from: 0);
     }
   }
@@ -96,8 +131,10 @@ class CncSharedAxisSwitcher extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // P1-8：系统开启「移除动画」时，shared axis 退化为纯淡入（时长 0 + 位移 0）。
+    final reduce = CncMotion.reduceOf(context);
     return AnimatedSwitcher(
-      duration: _kSharedAxis,
+      duration: CncMotion.of(_kSharedAxis, reduce),
       switchInCurve: _kSharedAxisCurve,
       switchOutCurve: _kSharedAxisCurve,
       layoutBuilder: (currentChild, previousChildren) => Stack(
@@ -115,8 +152,9 @@ class CncSharedAxisSwitcher extends StatelessWidget {
             animation: animation,
             builder: (_, __) {
               final t = animation.value;
-              final shift =
-                  24.0 * direction * (isIncoming ? (1 - t) : -(1 - t));
+              final shift = reduce
+                  ? 0.0
+                  : 24.0 * direction * (isIncoming ? (1 - t) : -(1 - t));
               return Transform.translate(
                 offset: Offset(shift, 0),
                 child: page,

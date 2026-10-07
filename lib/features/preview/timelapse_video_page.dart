@@ -20,6 +20,8 @@ import 'video_play_network.dart';
 
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
+import '../../l10n/app_strings.dart';
+
 
 /// 延时摄影回顾播放页（竖屏、原比例居中、上下留白）。
 
@@ -93,13 +95,13 @@ class _TimeLapseVideoPageState extends State<TimeLapseVideoPage> {
 
       if (!mounted) return;
 
-      _showToast(path != null ? '已保存到相册' : '保存失败，请重试');
+      _showToast(path != null ? T.of(context).tvSaved : T.of(context).tvSaveFail);
 
     } catch (e) {
 
       if (!mounted) return;
 
-      _showToast('保存出错：$e');
+      _showToast(T.of(context).tvSaveErr.replaceAll('{e}', '$e'));
 
     } finally {
 
@@ -159,7 +161,7 @@ class _TimeLapseVideoPageState extends State<TimeLapseVideoPage> {
 
         ),
 
-        title: const Text('延时摄影回顾',
+        title: Text(T.of(context).tgTitle,
 
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
 
@@ -241,7 +243,7 @@ class _TimeLapseVideoPageState extends State<TimeLapseVideoPage> {
 
                       : const Icon(Symbols.download, size: 18),
 
-                  label: Text(_saving ? '保存中…' : '保存到相册',
+                  label: Text(_saving ? T.of(context).tvSaving : T.of(context).tvSaveToPhotos,
 
                       style: const TextStyle(
 
@@ -257,7 +259,7 @@ class _TimeLapseVideoPageState extends State<TimeLapseVideoPage> {
 
                     shape: RoundedRectangleBorder(
 
-                        borderRadius: BorderRadius.circular(12)),
+                        borderRadius: BorderRadius.circular(CncRadius.card)),
 
                   ),
 

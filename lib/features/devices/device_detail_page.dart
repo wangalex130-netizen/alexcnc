@@ -4,13 +4,19 @@ import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import '../../app/config.dart';
 import '../../app/theme.dart';
+import '../../app/visual_depth.dart';
 import '../../l10n/strings_zh.dart';
 import '../../models/machine_status.dart';
+import '../../services/device_presence_service.dart';
 import '../../services/machines_service.dart';
 import '../../state/providers.dart';
+import '../../widgets/machine_status_ring.dart';
+import '../../widgets/shared_transition.dart';
 import '../preview/timelapse_client.dart';
 import '../shell/app_shell.dart';
 import 'devices_page.dart';
+
+import '../../l10n/app_strings.dart';
 
 /// 单机详情页（工单二十一 §2.6）：顶栏状态 pill + 任务卡 + 信息卡 + 去控制台。
 /// 入口 = 设备 Tab 点机器卡。
@@ -51,7 +57,7 @@ class _DeviceDetailPageState extends ConsumerState<DeviceDetailPage> {
     final st = presence?.status;
     final name = m.name.isNotEmpty
         ? m.name
-        : (m.sn.isNotEmpty ? m.sn : '雕刻机');
+        : (m.sn.isNotEmpty ? m.sn : T.current.ddDefaultName);
 
     return Scaffold(
       backgroundColor: CncColors.bg,
@@ -66,11 +72,33 @@ class _DeviceDetailPageState extends ConsumerState<DeviceDetailPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // 第 1 批：共享元素转场 —— 与设备列表卡成对（tag 必须一致）。
+          // 列表卡飞过来后，这块承载"标题行"内容，形成卡片放大成页面的连续感。
+          CncHeroCard(
+            tag: 'device-${m.sn.isNotEmpty ? m.sn : name}',
+            elevate: false,
+            child: CncPageReveal(
+              trigger: name,
+              child: _HeroHeader(
+                name: name,
+                sn: m.sn,
+                state: deviceCardRingStateOf(v, presence),
+                visual: v,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
           if (_hasTask(st)) _TaskCard(status: st!),
           if (m.sn.isNotEmpty || m.machineType.isNotEmpty)
             _InfoCard(machine: m),
           const SizedBox(height: 10),
-          _GoConsoleRow(enabled: online, onTap: _goConsole),
+          // 2026-10-04 修正（昊总实机反馈「去控制台是灰的，点不动」）：
+          // 原判据是 `enabled: online`（presence.online）。但**机器离线时
+          // 控制台的机器选择器本来就允许选这台机**（选机门控只要求 sn 匹配，
+          // 不要求在线），而「去控制台」只是切 tab + 选中该机，
+          // 并不需要在线。⇒ 去掉 online 判据，恒可点。
+          // 离线时的实际动作会在控制台内按各自门控处理（发指令才受阻）。
+          _GoConsoleRow(enabled: true, onTap: _goConsole),
         ],
       ),
     );
@@ -83,6 +111,73 @@ class _DeviceDetailPageState extends ConsumerState<DeviceDetailPage> {
         st.awaitingConfirm ||
         (st.job?.isNotEmpty == true) ||
         st.progress > 0;
+  }
+}
+
+/// 详情页 Hero 承载区：状态环 + 机器名 + SN。
+///
+/// 之所以把它做成独立组件：Hero 两端只要 tag 相同即可飞行，
+/// 承载区内容不必与列表卡完全一致（列表卡含 SN 副行与进度行）。
+/// 详情页头部：状态环 + 机器名 + SN + **状态文字**。
+///
+/// 2026-10-04 修正两处（昊总实机反馈）：
+/// 1) 缺状态文字 —— 设备列表卡有「离线/加工中/…」状态胶囊，详情页只有环没有字，
+///    同一个状态在两处表达不一致。**加回状态文字**（复用 `DeviceVisual.label`，
+///    不另造一套映射）。
+/// 2) 状态环的映射原本在本文件**又抄了一份** `_motionStateOf`，
+///    与 `devices_page` 的同名方法重复 —— 两处各自演化必然不一致。
+///    现改为**直接复用** `deviceCardRingStateOf`（列表卡那个）。
+class _HeroHeader extends StatelessWidget {
+  const _HeroHeader({
+    required this.name,
+    required this.sn,
+    required this.state,
+    required this.visual,
+  });
+
+  final String name;
+  final String sn;
+  final String state;
+
+  /// 状态文字来源（`DeviceVisual.label`：离线/在线/报警/待确认/加工中/已暂停/空闲）。
+  final DeviceVisual visual;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: CncColors.card,
+        borderRadius: BorderRadius.circular(CncRadius.card),
+        boxShadow: CncDepth.raisedBox(),
+      ),
+      child: Row(children: [
+        MachineStatusRing(state: state, size: 34, strokeWidth: 4),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: CncColors.textMain)),
+              if (sn.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(sn,
+                    style: TextStyle(fontSize: 11, color: CncColors.textSub)),
+              ],
+            ],
+          ),
+        ),
+        // 状态文字：与设备列表卡的 DeviceStatePill 同源（visual.label），
+        // 保证两处**状态文案与颜色完全一致**。
+        DeviceStatePill(visual: visual, breathing: visual.weight == 0),
+      ]),
+    );
   }
 }
 
@@ -99,7 +194,7 @@ class _TaskCard extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: CncColors.card,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(CncRadius.card),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -114,7 +209,7 @@ class _TaskCard extends StatelessWidget {
                     color: CncColors.textMain)),
           const SizedBox(height: 10),
           ClipRRect(
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(CncRadius.pill),
             child: LinearProgressIndicator(
               value: status.progress.clamp(0.0, 1.0),
               minHeight: 5,
@@ -143,13 +238,13 @@ class _InfoCard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       decoration: BoxDecoration(
         color: CncColors.card,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(CncRadius.card),
       ),
       child: Column(children: [
         if (machine.sn.isNotEmpty)
-          _InfoRow(label: S.devicesSnLabel, value: machine.sn),
+          _InfoRow(label: T.of(context).devSnLabel, value: machine.sn),
         if (machine.machineType.isNotEmpty)
-          _InfoRow(label: S.devicesTypeLabel, value: machine.machineType),
+          _InfoRow(label: T.of(context).devTypeLabel, value: machine.machineType),
       ]),
     );
   }
@@ -188,7 +283,7 @@ class _GoConsoleRow extends StatelessWidget {
     final c = enabled ? CncColors.textMain : CncColors.textSub;
     return Material(
       color: enabled ? CncColors.card : CncColors.disabled,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(CncRadius.card),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: enabled ? onTap : null,
@@ -198,7 +293,7 @@ class _GoConsoleRow extends StatelessWidget {
             Icon(Symbols.tune, size: 20, color: c),
             const SizedBox(width: 10),
             Expanded(
-                child: Text(S.devicesGoConsole,
+                child: Text(T.of(context).devGoConsole,
                     style:
                         TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: c))),
             if (enabled)

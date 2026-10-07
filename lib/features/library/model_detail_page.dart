@@ -11,6 +11,7 @@ import '../../widgets/cnc_cached_image.dart';
 import '../../app/runtime_config.dart';
 
 import '../../app/theme.dart';
+import '../../app/visual_depth.dart';
 
 import '../../data/tool_library.dart';
 import '../../models/library_item.dart';
@@ -31,6 +32,10 @@ import '../../state/providers.dart';
 import '../preview/timelapse_client.dart';
 
 import 'toolpath_preview.dart';
+
+import '../../l10n/app_strings.dart';
+
+import '../../widgets/cnc_skeleton.dart';
 
 /// 模型库详情页：多图轮播 + 加工参数展示 + 「开始雕刻」入口。
 ///
@@ -264,7 +269,9 @@ class _DetailView extends ConsumerWidget {
 
                   [
 
-                    item.author.isEmpty ? '官方模型' : 'by ${item.author}',
+                    item.author.isEmpty
+                        ? T.of(context).mdOfficial
+                        : T.of(context).mdBy.replaceAll('{a}', item.author),
 
                     ...item.tags,
 
@@ -282,11 +289,11 @@ class _DetailView extends ConsumerWidget {
 
                   const SizedBox(height: 4),
 
-                  Text('该模型尚未切片，需先在电脑端生成刀路',
+                  Text(T.of(context).mdNotSliced,
 
                       style: TextStyle(
 
-                          fontSize: 11, color: CncColors.warning)),
+                          fontSize: 11, color: CncColors.warnFg)),
 
                 ],
 
@@ -483,9 +490,9 @@ class _ParamsGrid extends StatelessWidget {
 
         ? '${_fmt(item.widthMm)} × ${_fmt(item.heightMm)} mm'
 
-        : '${_fmt(item.widthMm)} × ${_fmt(item.heightMm)} mm'
+        : '${_fmt(item.widthMm)} × ${_fmt(item.heightMm)} mm' +
 
-            ' · 深 ${_fmt(item.depthMm)} mm';
+            T.of(context).mdDeep.replaceAll('{d}', _fmt(item.depthMm));
 
     final rows = <(String, String)>[
 
@@ -493,7 +500,7 @@ class _ParamsGrid extends StatelessWidget {
 
         (
 
-          '板材厚度',
+          T.of(context).mdBoardThick,
 
           item.boardThicknessMm > 0
 
@@ -505,13 +512,13 @@ class _ParamsGrid extends StatelessWidget {
 
       (
 
-        '雕刻时长',
+        T.of(context).mdDuration,
 
         item.duration ??
 
             (item.durationSec != null
 
-                ? '${item.durationSec! ~/ 60} 分钟'
+                ? T.of(context).mdMinutes.replaceAll('{n}', '${item.durationSec! ~/ 60}')
 
                 : '—')
 
@@ -519,9 +526,9 @@ class _ParamsGrid extends StatelessWidget {
 
       if (isLaser) ...[
 
-        ('激光功率', item.laserPowerPct != null ? '${item.laserPowerPct}%' : '—'),
+        (T.of(context).mdLaserPower, item.laserPowerPct != null ? '${item.laserPowerPct}%' : '—'),
 
-        ('激光速度',
+        (T.of(context).mdLaserSpeed,
 
             item.laserSpeedMmMin != null
 
@@ -529,17 +536,17 @@ class _ParamsGrid extends StatelessWidget {
 
                 : '—'),
 
-        ('雕刻遍数', item.laserPasses != null ? '${item.laserPasses}' : '—'),
+        (T.of(context).mdPasses, item.laserPasses != null ? '${item.laserPasses}' : '—'),
 
-        ('默认材质', item.materialPreset ?? item.materialKey ?? '—'),
+        (T.of(context).mdMaterial, item.materialPreset ?? item.materialKey ?? '—'),
 
       ] else ...[
 
-        ('默认材质', item.materialPreset ?? item.materialKey ?? '—'),
+        (T.of(context).mdMaterial, item.materialPreset ?? item.materialKey ?? '—'),
 
       (
 
-        '主轴转速',
+        T.of(context).mdSpindleRpm,
 
         item.recommendedSpindleRpm != null
 
@@ -551,7 +558,7 @@ class _ParamsGrid extends StatelessWidget {
 
       (
 
-        '进给速度',
+        T.of(context).mdFeedRate,
 
         item.recommendedFeedRate != null
 
@@ -563,7 +570,7 @@ class _ParamsGrid extends StatelessWidget {
 
       (
 
-        '下刀深度',
+        T.of(context).mdDepthPerPass,
 
         item.depthPerPass != null ? '${_fmt(item.depthPerPass!)} mm' : '—'
 
@@ -581,7 +588,8 @@ class _ParamsGrid extends StatelessWidget {
 
         color: CncColors.card,
 
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(CncRadius.card),
+        boxShadow: CncDepth.restBox(),
 
         border: Border.all(color: CncColors.border),
 
@@ -593,7 +601,7 @@ class _ParamsGrid extends StatelessWidget {
 
         children: [
 
-          _row('尺寸', sizeVal),
+          _row(T.of(context).mdSize, sizeVal),
 
           for (var i = 0; i < rows.length; i += 2) ...[
 
@@ -737,7 +745,8 @@ class _ToolCard extends StatelessWidget {
 
         color: CncColors.card,
 
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(CncRadius.card),
+        boxShadow: CncDepth.restBox(),
 
         border: Border.all(color: CncColors.border),
 
@@ -751,7 +760,7 @@ class _ToolCard extends StatelessWidget {
 
               children: [
 
-                Text('默认刀具',
+                Text(T.of(context).mdDefaultTool,
 
                     style: TextStyle(fontSize: 10.5, color: CncColors.textSub)),
 
@@ -803,7 +812,7 @@ class _ToolCard extends StatelessWidget {
 
               children: [
 
-                Text('默认刀具',
+                Text(T.of(context).mdDefaultTool,
 
                     style: TextStyle(fontSize: 10.5, color: CncColors.textSub)),
 
@@ -937,7 +946,7 @@ class _BottomBar extends StatelessWidget {
 
               shape: RoundedRectangleBorder(
 
-                  borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(CncRadius.card)),
 
             ),
 
@@ -947,7 +956,7 @@ class _BottomBar extends StatelessWidget {
 
             child: Text(
 
-              sliced ? '开始雕刻' : '查看并开始雕刻',
+              sliced ? T.of(context).mdStartCarve : T.of(context).mdViewAndStart,
 
               style: TextStyle(
 
@@ -1064,16 +1073,18 @@ class _MachineGatePageState extends ConsumerState<_MachineGatePage> {
       backgroundColor: CncColors.bg,
       appBar: AppBar(
         backgroundColor: CncColors.panel,
-        title: Text('选择机器', style: TextStyle(color: CncColors.textMain)),
+        title: Text(T.of(context).mdPickMachine, style: TextStyle(color: CncColors.textMain)),
       ),
       body: !loggedIn
           ? _loginGuide()
           : _loading && machines.isEmpty
-          ? Center(
-              child: CircularProgressIndicator(color: CncColors.primary))
-          : machines.isEmpty
-              ? _guide()
-              : ListView.separated(
+              ? const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: CncSkeletonList(rows: 4, leadingSize: 44, card: true),
+                )
+              : machines.isEmpty
+                  ? _guide()
+                  : ListView.separated(
                   padding: const EdgeInsets.all(16),
                   itemCount: machines.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 10),
@@ -1081,13 +1092,14 @@ class _MachineGatePageState extends ConsumerState<_MachineGatePage> {
                     final m = machines[i];
                     final online = m.online == true;
                     return InkWell(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(CncRadius.card),
                       onTap: () => _select(m),
                       child: Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
                           color: CncColors.card,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(CncRadius.card),
+                          boxShadow: CncDepth.restBox(),
                           border: Border.all(color: CncColors.border),
                         ),
                         child: Row(
@@ -1140,13 +1152,13 @@ class _MachineGatePageState extends ConsumerState<_MachineGatePage> {
           children: [
             Icon(Symbols.add_to_queue, size: 44, color: CncColors.textSub),
             const SizedBox(height: 12),
-            Text('还没有绑定机器',
+            Text(T.of(context).mdNoMachine,
                 style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
                     color: CncColors.textMain)),
             const SizedBox(height: 6),
-            Text('先扫码绑定你的雕刻机，再回来开始雕刻。',
+            Text(T.of(context).mdNoMachineSub,
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 12, color: CncColors.textSub)),
             const SizedBox(height: 18),
@@ -1157,18 +1169,18 @@ class _MachineGatePageState extends ConsumerState<_MachineGatePage> {
                 style: FilledButton.styleFrom(
                   backgroundColor: CncColors.primary,
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
+                      borderRadius: BorderRadius.circular(CncRadius.card)),
                 ),
                 onPressed: _openBind,
-                child: Text('去绑定机器',
+                child: Text(T.of(context).mdGoBind,
                     style:
                         TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
               ),
             ),
             if (_error != null) ...[
               const SizedBox(height: 10),
-              Text('清单拉取失败：$_error',
-                  style: TextStyle(fontSize: 11, color: CncColors.danger)),
+              Text(T.of(context).mdListFail.replaceAll('{e}', '$_error'),
+                  style: TextStyle(fontSize: 11, color: CncColors.dangerFg)),
             ],
           ],
         ),
@@ -1182,7 +1194,7 @@ class _MachineGatePageState extends ConsumerState<_MachineGatePage> {
           children: [
             Icon(Symbols.person, size: 44, color: CncColors.textSub),
             const SizedBox(height: 12),
-            Text('先登录，再选择你的机器',
+            Text(T.of(context).mdLoginFirst,
                 style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -1195,7 +1207,7 @@ class _MachineGatePageState extends ConsumerState<_MachineGatePage> {
                 style: FilledButton.styleFrom(
                   backgroundColor: CncColors.primary,
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
+                      borderRadius: BorderRadius.circular(CncRadius.card)),
                 ),
                 onPressed: () async {
                   final ok = await Navigator.of(context).push<bool>(
@@ -1203,7 +1215,7 @@ class _MachineGatePageState extends ConsumerState<_MachineGatePage> {
                   );
                   if (ok == true && mounted) _ensureLoaded();
                 },
-                child: Text('去登录',
+                child: Text(T.of(context).mdGoLogin,
                     style:
                         TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
               ),
@@ -1235,7 +1247,7 @@ class _Badge extends StatelessWidget {
 
           color: bg,
 
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(CncRadius.control),
 
         ),
 

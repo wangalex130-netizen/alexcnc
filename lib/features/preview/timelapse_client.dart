@@ -9,6 +9,8 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../app/config.dart';
 
+import '../../l10n/app_strings.dart';
+
 /// 开始延时摄影的结果。
 class TimeLapseStartResult {
   final String? jobId;
@@ -191,7 +193,7 @@ class TimeLapseClient {
               res['filePath'] != null)) {
         // 2026-09-03：保存成功即标记已下载，触发服务器 10 天清理计时
         unawaited(markDownloaded(jobId));
-        return (res['filePath'] as String?) ?? '已保存到相册';
+        return (res['filePath'] as String?) ?? T.current.tlSaved;
       }
       debugPrint('[TimeLapse] saveToGallery result: $res');
       return null;

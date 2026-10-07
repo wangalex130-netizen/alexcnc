@@ -22,6 +22,8 @@ import '../../widgets/page_transition.dart';
 
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
+import '../../l10n/app_strings.dart';
+
 
 /// 底部导航外壳。
 
@@ -161,7 +163,9 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
 
 
 
-  static const _labels = ['设备', '图库', '控制台', '我的'];
+  /// 底部四栏标签文案已改由 `T.of(context)` 提供（2026-10-05 国际化）。
+  /// 原因：`static const` 拿不到 BuildContext，无法跟随语言切换。
+  /// 标签顺序 = 设备 / 图库 / 控制台 / 我的，与 [_icons] 一一对应。
 
   // 统一线性图标（Material Symbols Outlined）
 
@@ -242,13 +246,22 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
 
         destinations: [
 
-          for (var i = 0; i < _labels.length; i++)
+          // 2026-10-05 国际化：标签由 T.of(context) 取，随语言切换即时变化。
+          // 原来用 `static const _labels`（编译期常量，拿不到 BuildContext）。
+          // 循环上界改用 _icons.length —— 标签与图标必然一一对应，
+          // 避免将来加 tab 时标签数与图标数不一致导致越界。
+          for (var i = 0; i < _icons.length; i++)
 
             NavigationDestination(
 
               icon: Icon(_icons[i], size: 24),
 
-              label: _labels[i],
+              label: switch (i) {
+                0 => T.of(context).tabDevices,
+                1 => T.of(context).tabLibrary,
+                2 => T.of(context).tabConsole,
+                _ => T.of(context).tabProfile,
+              },
 
             ),
 

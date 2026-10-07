@@ -1,5 +1,7 @@
 import '../l10n/strings_zh.dart';
 
+import '../l10n/app_strings.dart';
+
 /// 系统级广播消息（docs/03 §6 `cnc/broadcast/msg` + §7 `cnc/broadcast/system`）。
 ///
 /// 与机器异步事件 [NotifyEvent]（job_done / alarm / confirm_required）不同，广播是
@@ -64,8 +66,10 @@ class BroadcastMessage {
       final file = j['file']?.toString() ?? j['name']?.toString() ?? '';
       return BroadcastMessage(
         level: 'info',
-        title: S.gcodeSent,
-        body: file.isEmpty ? 'PC 端已上传刀路，机器将自动下载' : 'PC 端已上传：$file',
+        title: T.current.ntGcodeSent,
+        body: file.isEmpty
+            ? T.current.bmGcodeSent
+            : T.current.bmGcodeSentF.replaceAll('{f}', file),
         at: DateTime.now(),
         type: 'gcode_url',
         url: j['url']?.toString(),
@@ -78,7 +82,7 @@ class BroadcastMessage {
     final lvl = (j['level'] ?? 'info').toString();
     return BroadcastMessage(
       level: lvl,
-      title: j['title']?.toString() ?? '系统通知',
+      title: j['title']?.toString() ?? T.current.bmSysNotice,
       body: j['body']?.toString() ?? '',
       at: DateTime.now(),
     );
@@ -91,9 +95,9 @@ class BroadcastMessage {
     final isOffline = event == 'device_offline';
     return BroadcastMessage(
       level: isOffline ? 'error' : 'info',
-      title: isOffline ? '设备离线' : '系统事件',
+      title: isOffline ? T.current.bmDevOffline : T.current.bmSysEvent,
       body: isOffline
-          ? '设备 $deviceId 已离线，命令与状态暂时无法同步'
+          ? T.current.bmOfflineBody.replaceAll('{d}', deviceId)
           : '$event${deviceId.isNotEmpty ? ' · $deviceId' : ''}',
       at: DateTime.now(),
       kind: event,

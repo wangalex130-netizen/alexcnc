@@ -1,6 +1,8 @@
 /// 固件设备模型（docs/31 · OTA 固件升级页面）。
 library;
 
+import '../../l10n/app_strings.dart';
+
 /// 设备类型：UI 只展示通俗名，禁止出现 camera/screen/board 英文。
 enum FwDeviceType {
   camera('camera', '摄像头', 0),
@@ -9,6 +11,20 @@ enum FwDeviceType {
 
   final String api;
   final String displayName;
+
+  /// ★ 2026-10-05：enum 常量是编译期的，装不进运行时值 T.current。
+  /// 所以 enum 里保留原中文做默认，另给一个**运行时本地化**的显示名。
+  /// 所有展示处统一改用 [localizedName]。
+  String get localizedName {
+    switch (this) {
+      case FwDeviceType.camera:
+        return T.current.fwCamera;
+      case FwDeviceType.screen:
+        return T.current.fwScreen;
+      case FwDeviceType.board:
+        return T.current.fwBoard;
+    }
+  }
   final int upgradeOrder; // 一键升级顺序：控制屏幕 → 主板 → 摄像头
 
   const FwDeviceType(this.api, this.displayName, this.upgradeOrder);

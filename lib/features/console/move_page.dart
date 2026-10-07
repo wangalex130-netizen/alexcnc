@@ -7,6 +7,7 @@ import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import '../../app/runtime_config.dart';
 import '../../app/theme.dart';
+import '../../app/visual_depth.dart';
 import '../../l10n/strings_zh.dart';
 import '../../models/jog_profile.dart';
 import '../../models/machine_status.dart';
@@ -14,6 +15,9 @@ import '../../services/hardware_service.dart';
 import '../../state/providers.dart';
 import '../../widgets/octagon_dial.dart';
 import '../../widgets/jog_key.dart';
+import '../../widgets/pressable.dart';
+
+import '../../l10n/app_strings.dart';
 
 /// 控制台二级页「移动」（工单二 §4 / 控制台规格书 §7，拓竹圆盘式）。
 ///
@@ -108,7 +112,7 @@ class _MovePageState extends ConsumerState<MovePage>
       if (!canControl) return;
       final sent = await widget.hw.jog(axis, step * sign);
       if (!sent && mounted) {
-        toastJogBlocked('未发送：请连接机器所在 Wi-Fi 后再点动（外网仅监视）');
+        toastJogBlocked(T.current.mvJogBlocked);
       }
     }
 
@@ -121,7 +125,7 @@ class _MovePageState extends ConsumerState<MovePage>
       if (!sent) {
         _jogActive = false;
         if (mounted) {
-          toastJogBlocked('未发送：请连接机器所在 Wi-Fi 后再点动（外网仅监视）');
+          toastJogBlocked(T.current.mvJogBlocked);
         }
       }
     }
@@ -147,7 +151,7 @@ class _MovePageState extends ConsumerState<MovePage>
         final sent = await widget.hw
             .jogXY(dx * comp, -dy * comp, feed: jogFeedForStep(step));
         if (!sent && mounted) {
-          toastJogBlocked('未发送：请连接机器所在 Wi-Fi 后再点动（外网仅监视）');
+          toastJogBlocked(T.current.mvJogBlocked);
         }
       } else if (dx != 0) {
         await jog('x', dx);
@@ -165,16 +169,16 @@ class _MovePageState extends ConsumerState<MovePage>
         final ok = await showDialog<bool>(
               context: context,
               builder: (ctx) => AlertDialog(
-                title: Text(S.jogResetTitle),
-                content: Text(S.jogResetBody),
+                title: Text(T.of(context).jogResetTitle),
+                content: Text(T.of(context).jogResetBody),
                 actions: [
                   TextButton(
                       onPressed: () => Navigator.pop(ctx, false),
-                      child: const Text('取消')),
+                      child: Text(T.of(context).btnCancel)),
                   TextButton(
                       onPressed: () => Navigator.pop(ctx, true),
-                      child: Text(S.jogResetConfirm,
-                          style: TextStyle(color: CncColors.danger))),
+                      child: Text(T.of(context).jogResetConfirm,
+                          style: TextStyle(color: CncColors.dangerFg))),
                 ],
               ),
             ) ??
@@ -182,14 +186,14 @@ class _MovePageState extends ConsumerState<MovePage>
         if (!ok) return;
       }
       await widget.hw.softReset();
-      if (mounted) toast(S.jogResetDone);
+      if (mounted) toast(T.of(context).jogResetDone);
     }
 
     Future<void> doUnlock() async {
       if (!canUnlock) return;
       await widget.hw.unlock();
       // 解锁后机器坐标不可信（$X 只是清锁），必须提示重新定原点。
-      if (mounted) toast('已解除报警锁定 · 请重新定原点后再加工');
+      if (mounted) toast(T.current.mvAlarmCleared);
     }
 
     Future<void> doHome() async {
@@ -197,7 +201,7 @@ class _MovePageState extends ConsumerState<MovePage>
       // W-10 扩展：回零属契约 forbidden（全行程移动）→ 仅同网可执行。
       final sent = await widget.hw.home();
       if (!sent && mounted) {
-        toastJogBlocked('回零未发送：只能在机器同一局域网内执行（外网仅监视 / 可停机）');
+        toastJogBlocked(T.current.mvHomeBlocked);
       }
     }
 
@@ -215,7 +219,7 @@ class _MovePageState extends ConsumerState<MovePage>
           icon: const Icon(Symbols.chevron_left, size: 22),
           onPressed: () => Navigator.of(context).pop(),
         ),
-        title: Text('移动',
+        title: Text(T.of(context).mvTitle,
             style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
@@ -230,7 +234,8 @@ class _MovePageState extends ConsumerState<MovePage>
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
               color: CncColors.card,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(CncRadius.card),
+              boxShadow: CncDepth.restBox(),
               border: Border.all(color: CncColors.border),
             ),
             child: Row(
@@ -266,7 +271,7 @@ class _MovePageState extends ConsumerState<MovePage>
                     onHoldEnd: jogEnd,
                     onHoldKeepalive: jogKeepalive,
                     repeatFor: (dx, dy) => (dx == 0 || dy == 0) && step <= 1.0,
-                    centerLabel: '回零',
+                    centerLabel: T.of(context).mvHome,
                     // 中心键：复用底部回零现有调用（修订单 20260925 §1.1）。
                     onCenter: doHome,
                   ),
@@ -274,7 +279,7 @@ class _MovePageState extends ConsumerState<MovePage>
                 const SizedBox(width: 12),
                 Column(
                   children: [
-                    Text('Z 轴',
+                    Text(T.of(context).mvZAxis,
                         style: TextStyle(
                             fontSize: 10.5, color: CncColors.textSub)),
                     const SizedBox(height: 8),
@@ -316,12 +321,13 @@ class _MovePageState extends ConsumerState<MovePage>
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
             decoration: BoxDecoration(
               color: CncColors.card,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(CncRadius.card),
+              boxShadow: CncDepth.restBox(),
               border: Border.all(color: CncColors.border),
             ),
             child: Row(
               children: [
-                Text('A 轴',
+                Text(T.of(context).mvAAxis,
                     style: TextStyle(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w600,
@@ -338,16 +344,16 @@ class _MovePageState extends ConsumerState<MovePage>
             margin: const EdgeInsets.fromLTRB(12, 14, 12, 0),
             child: Row(
               children: [
-                _actionKey('软复位', doSoftReset,
-                    fg: CncColors.danger,
+                _actionKey(T.of(context).mvSoftReset, doSoftReset,
+                    fg: CncColors.dangerFg,
                     bg: CncColors.card,
                     border: CncColors.dangerBd),
                 const SizedBox(width: 8),
                 _actionKey(
-                  '解锁',
+                  T.of(context).mvUnlock,
                   canUnlock ? doUnlock : null,
                   fg: canUnlock
-                      ? CncColors.danger
+                      ? CncColors.dangerFg
                       : CncColors.textSub.withOpacity(0.4),
                   bg: canUnlock ? CncColors.card : CncColors.panelAlt,
                   border:
@@ -410,7 +416,8 @@ class _MovePageState extends ConsumerState<MovePage>
       width: 76,
       decoration: BoxDecoration(
         color: CncColors.card,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(CncRadius.control),
+        boxShadow: CncDepth.restBox(),
         border: Border.all(color: CncColors.border),
       ),
       child: JogKey(
@@ -442,14 +449,15 @@ class _MovePageState extends ConsumerState<MovePage>
 
   /// 步长胶囊（规格 §7-4）：70 宽、圆角 999、字 12。
   Widget _pill(double v, bool sel) {
-    return GestureDetector(
+    return Pressable(
       onTap: () => ref.read(jogStepProvider.notifier).state = v,
       child: Container(
         width: 70,
         padding: const EdgeInsets.symmetric(vertical: 7),
         decoration: BoxDecoration(
           color: sel ? CncColors.successBg : CncColors.card,
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(CncRadius.pill),
+          boxShadow: CncDepth.restBox(),
           border: Border.all(color: sel ? CncColors.blue : CncColors.border),
         ),
         child: Center(
@@ -469,7 +477,7 @@ class _MovePageState extends ConsumerState<MovePage>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(9),
+        borderRadius: BorderRadius.circular(CncRadius.control),
         border: Border.all(color: CncColors.border),
       ),
       child: Row(
@@ -490,12 +498,12 @@ class _MovePageState extends ConsumerState<MovePage>
     return Expanded(
       child: SizedBox(
         height: 40,
-        child: GestureDetector(
+        child: Pressable(
           onTap: onTap,
           child: Container(
             decoration: BoxDecoration(
               color: bg,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(CncRadius.control),
               border: Border.all(color: border),
             ),
             child: Center(

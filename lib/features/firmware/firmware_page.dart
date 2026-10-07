@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 
 import '../../app/theme.dart';
+import '../../app/visual_depth.dart';
 
 import '../../models/machine_status.dart';
 import '../../models/notify_event.dart';
@@ -25,6 +26,10 @@ import 'firmware_models.dart';
 import 'firmware_service.dart';
 
 import 'package:material_symbols_icons/material_symbols_icons.dart';
+
+import '../../l10n/app_strings.dart';
+
+import '../../widgets/cnc_fw_art.dart';
 
 
 /// 固件升级页（docs/31 OTA 任务单 · 单入口版）。
@@ -162,6 +167,34 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
   bool get _hasUpdate =>
 
       _devices.values.any((d) => d.available && d.phase != FwPhase.failed);
+
+
+
+  /// 是否**确实取到过版本号**（自测发现，见下）。
+
+  ///
+
+  /// 判据：至少有一台设备回报了非空、非 0.0.0 的当前版本。
+
+  ///
+
+  /// ★ 为什么必须有这个判据（2026-10-04 模拟器自测发现）：
+
+  /// 设备离线时 `_hasUpdate` = false，页面就落到「固件已是最新版本 / 暂无可用更新」
+
+  /// 的结论卡，同时底部又出现「暂未获取到设备当前版本」提示 —— **自相矛盾**：
+
+  /// 没拿到版本 ≠ 版本没更新。相当于把「查不到」说成了「查过了，没有」。
+
+  /// 这违反 `firmware_service.dart` 自己写着的原则：
+
+  /// 「不谎报『已是最新』，避免把网络故障显示成结论」—— 服务层守住了，页面层没守住。
+
+  /// ⇒ 未取到版本时必须显示「无法获取版本」，不能显示「已是最新」。
+
+  bool get _hasVersionInfo =>
+
+      _devices.values.any((d) => d.curVer.isNotEmpty && d.curVer != '0.0.0');
 
 
 
@@ -407,7 +440,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
           phase: FwPhase.upgrading,
 
-          phaseText: '正在升级…',
+          phaseText: T.current.fwUpgrading,
 
         );
 
@@ -435,7 +468,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
         } else if (res.unknown) {
           // 离线不判失败（APP-03）：状态未知单独呈现，不计入失败。
           anyUnknown = true;
-          _resultNote = '升级状态未知，请稍后查看设备版本';
+          _resultNote = T.current.fwUnknownNote;
           _devices[d.type] = cur.copyWith(phase: FwPhase.idle, phaseText: '');
         } else {
           anyFail = true;
@@ -498,7 +531,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
   /// - 主板：无 IAP 不触发（工单 MB-01），理论到不了这里。
   Future<_OtaResult> _upgradeOne(FwDeviceType type) async {
     if (type == FwDeviceType.board) {
-      return const _OtaResult.failed('主板暂不支持在线升级');
+      return _OtaResult.failed(T.current.fwBoardNoOta);
     }
     if (type == FwDeviceType.screen) return _upgradeScreen();
     return _upgradeCamera();
@@ -507,17 +540,17 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
   /// 屏幕升级：触发 + 事件驱动等终态（APP-01/02/03）。
   Future<_OtaResult> _upgradeScreen() async {
     final sn = ref.read(currentMachineProvider)?.sn ?? '';
-    if (sn.isEmpty) return const _OtaResult.failed('未绑定机器，无法下发升级');
+    if (sn.isEmpty) return _OtaResult.failed(T.current.fwNoMachineOta);
     // 事后判定基准：升级前已知的屏幕版本（null=从未读到过，只能靠 ota_state）
     final beforeVer = await FirmwareService.knownVersion(FwDeviceType.screen);
     final OtaTriggerResult r;
     try {
       r = await ref.read(hardwareServiceProvider).triggerOta('screen');
     } catch (_) {
-      return const _OtaResult.failed('指令下发失败，请重试');
+      return _OtaResult.failed(T.current.fwSendFailRetry);
     }
     if (!r.sent) {
-      return const _OtaResult.failed('机器未连线，升级指令没有发出，请检查网络后重试');
+      return _OtaResult.failed(T.current.fwOfflineNotSent);
     }
     if (r.acked && !r.ok) {
       // 固件拒绝（EBUSY/E409/E400/E500），按码出客户文案。
@@ -546,8 +579,12 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
         // 进度展示（1=下载中 / 2=刷写中，ota_progress 0..100；0=空闲不展示）
         final p = st.otaProgress;
         final text = s == 1
-            ? (p != null ? '下载中 $p%' : '下载中…')
-            : (p != null ? '刷写中 $p%' : '刷写中…');
+            ? (p != null
+                  ? T.current.fwDownloadingPct.replaceAll('{p}', '$p')
+                  : T.current.fwDownloading)
+            : (p != null
+                  ? T.current.fwFlashingPct.replaceAll('{p}', '$p')
+                  : T.current.fwFlashing);
         setState(() {
           _devices[FwDeviceType.screen] =
               _devices[FwDeviceType.screen]!.copyWith(phaseText: text);
@@ -577,13 +614,13 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
   /// 窗口），超时如实回报"状态未知"，绝不判失败（APP-03 同口径）。
   Future<_OtaResult> _upgradeCamera() async {
     final sn = ref.read(currentMachineProvider)?.sn ?? '';
-    if (sn.isEmpty) return const _OtaResult.failed('未绑定机器，无法下发升级');
+    if (sn.isEmpty) return _OtaResult.failed(T.current.fwNoMachineOta);
     try {
       ref
           .read(hardwareServiceProvider)
           .sendCameraStream('ota_upgrade', deviceId: sn);
     } catch (_) {
-      return const _OtaResult.failed('指令下发失败，请重试');
+      return _OtaResult.failed(T.current.fwSendFailRetry);
     }
     final done = Completer<_OtaResult>();
     StreamSubscription<NotifyEvent>? sub;
@@ -596,14 +633,18 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
         case 'ota_fail':
           final err = ev.data?['err']?.toString() ?? '';
           done.complete(_OtaResult.failed(
-              err.isNotEmpty ? '摄像头升级失败（$err），请重试' : '摄像头升级失败，请重试'));
+              err.isNotEmpty
+                  ? T.current.fwCamFailWith.replaceAll('{e}', err)
+                  : T.current.fwCamFail));
           return;
         case 'ota_progress':
           final p = ev.data?['progress'];
           if (mounted) {
             setState(() {
               _devices[FwDeviceType.camera] = _devices[FwDeviceType.camera]!
-                  .copyWith(phaseText: p != null ? '升级中 $p%' : '升级中…');
+                  .copyWith(phaseText: p != null
+                      ? T.current.fwUpgradingPct.replaceAll('{p}', '$p')
+                      : T.current.fwUpgrading);
             });
           }
           return;
@@ -632,11 +673,11 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
         backgroundColor: CncColors.card,
 
-        title: Text('开始升级',
+        title: Text(T.of(context).fwStart,
 
             style: TextStyle(color: CncColors.textMain)),
 
-        content: Text('升级期间设备会短暂离线（约 1-2 分钟），请勿断电，是否继续？',
+        content: Text(T.of(context).fwAskGo,
 
             style: TextStyle(color: CncColors.textSub)),
 
@@ -646,7 +687,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
             onPressed: () => Navigator.pop(context, false),
 
-            child: const Text('取消'),
+            child: Text(T.of(context).btnCancel2),
 
           ),
 
@@ -654,7 +695,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
             onPressed: () => Navigator.pop(context, true),
 
-            child: Text('继续',
+            child: Text(T.of(context).btnContinue,
 
                 style: TextStyle(color: CncColors.primaryInk)),
 
@@ -718,7 +759,9 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
                 Text(
 
-                  ver != null ? '新版本 v$ver' : '发现新版本',
+                  ver != null
+                      ? T.current.setNewVer.replaceAll('{ver}', ver)
+                      : T.current.fwNewVerFound,
 
                   style: TextStyle(
 
@@ -738,7 +781,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
               const SizedBox(height: 14),
 
-              Text('更新内容',
+              Text(T.of(context).fwWhatsNew,
 
                   style: TextStyle(
 
@@ -772,7 +815,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
                 onPressed: () => Navigator.pop(context, true),
 
-                child: const Text('立即升级',
+                child: Text(T.of(context).fwUpdateNow,
 
                     style: TextStyle(
 
@@ -808,7 +851,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
     final machine = ref.watch(currentMachineProvider);
 
-    final sn = machine?.sn ?? '未绑定机器';
+    final sn = machine?.sn ?? T.current.fwNoMachine;
 
     // 在线读 App 订阅全部绑定设备的真实在线态（与 PC/服务器同源，后端无 online 字段）
 
@@ -824,7 +867,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
       appBar: AppBar(
 
-        title: const Text('固件升级'),
+        title: Text(T.of(context).fwTitle),
 
         actions: [
 
@@ -832,7 +875,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
             onPressed: (_checking || _upgrading) ? null : _checkAll,
 
-            child: Text(_checking ? '检查中…' : '检查更新',
+            child: Text(_checking ? T.of(context).fwChecking : T.of(context).stgCheckUpdate,
 
                 style: TextStyle(color: CncColors.primaryInk)),
 
@@ -860,7 +903,8 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
                 color: CncColors.card,
 
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(CncRadius.card),
+                boxShadow: CncDepth.restBox(),
 
                 border: Border.all(color: CncColors.border),
 
@@ -890,7 +934,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
                   ),
 
-                  Text(online ? '在线' : '离线',
+                  Text(online ? T.of(context).stOnline : T.of(context).stOffline,
 
                       style: TextStyle(
 
@@ -926,7 +970,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
                 color: CncColors.warnBg,
 
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(CncRadius.control),
 
                 border: Border.all(color: CncColors.warnBd),
 
@@ -936,13 +980,13 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
                 children: [
 
-                  Icon(Symbols.info, size: 16, color: CncColors.warning),
+                  Icon(Symbols.info, size: 16, color: CncColors.warnFg),
 
                   SizedBox(width: 8),
 
                   Expanded(
 
-                    child: Text('升级期间设备会短暂离线（约 1-2 分钟），请勿断电',
+                    child: Text(T.of(context).fwWarnShort,
 
                         style: TextStyle(
 
@@ -968,7 +1012,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
                 padding: EdgeInsets.only(top: 10),
 
-                child: Text('暂未获取到设备当前版本，请连接设备 WiFi 后检查更新',
+                child: Text(T.of(context).fwNoCamera,
 
                     textAlign: TextAlign.center,
 
@@ -1008,7 +1052,9 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
         color: CncColors.blue,
 
-        title: '正在升级 $_upgradeIndex/$_upgradeTotal',
+        title: T.current.fwUpgradeProgress
+            .replaceAll('{a}', '$_upgradeIndex')
+            .replaceAll('{b}', '$_upgradeTotal'),
 
         subtitle: _devices.values
 
@@ -1020,9 +1066,15 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
             .firstOrNull ??
 
-            '正在升级…',
+            T.current.fwUpgrading,
 
         loading: true,
+
+        // ★ 2026-10-06：升级中给插画而不是转圈。
+        // 这段可能要等几十秒到几分钟，转圈只说明「在忙」，
+        // 插画说明「在往板子里写固件」——客户能据此判断
+        // 要不要保持 App 开着。
+        art: const CncFirmwareUpgradeArt(),
 
       );
 
@@ -1034,11 +1086,11 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
         icon: Symbols.error,
 
-        color: CncColors.danger,
+        color: CncColors.dangerFg,
 
-        title: '升级未完成',
+        title: T.of(context).fwIncomplete,
 
-        subtitle: _resultNote ?? '请检查设备连接后重试',
+        subtitle: _resultNote ?? T.of(context).fwIncompleteSub,
 
         onTap: _upgradeAll,
 
@@ -1051,8 +1103,8 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
       return _StatusCard(
         icon: Symbols.info,
         color: CncColors.warning,
-        title: '升级状态未知',
-        subtitle: _resultNote ?? '设备可能仍在升级，请稍后查看设备版本',
+        title: T.of(context).fwUnknownTitle,
+        subtitle: _resultNote ?? T.of(context).fwUnknownNote2,
       );
     }
 
@@ -1064,9 +1116,9 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
         color: CncColors.textSub,
 
-        title: '正在检查更新…',
+        title: T.current.setChecking,
 
-        subtitle: '请稍候',
+        subtitle: T.of(context).fwCheckingSub,
 
         loading: true,
 
@@ -1082,16 +1134,29 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
         color: CncColors.blue,
 
-        title: '发现新版本 v$ver',
+        title: T.of(context).fwNewVer.replaceAll('{v}', '$ver'),
 
-        subtitle: cur != null ? '当前版本 v$cur' : '有新版本可用',
+        subtitle: cur != null
+            ? T.of(context).fwCurVer.replaceAll('{v}', cur)
+            : T.of(context).fwHasNewVer,
 
         onTap: _showUpdateSheet,
 
-        actionLabel: '查看更新内容',
+        actionLabel: T.of(context).fwViewChanges,
 
       );
 
+    }
+
+    // ★ 2026-10-04 自测修正：没取到版本时不能说「已是最新」。
+    // 「查不到」≠「查过了没有」（详见 _hasVersionInfo 注释）。
+    if (!_hasVersionInfo) {
+      return _StatusCard(
+        icon: Symbols.cloud_off,
+        color: CncColors.textSub,
+        title: T.of(context).fwNoVerInfo,
+        subtitle: T.of(context).fwNoVerInfoSub,
+      );
     }
 
     return _StatusCard(
@@ -1100,9 +1165,11 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
       color: CncColors.primaryInk,
 
-      title: '固件已是最新版本',
+      title: T.of(context).fwAlreadyLatestTitle,
 
-      subtitle: cur != null ? '当前版本 v$cur' : '暂无可用更新',
+      subtitle: cur != null
+          ? T.of(context).fwCurVer.replaceAll('{v}', cur)
+          : T.of(context).fwNoUpdate,
 
     );
 
@@ -1126,11 +1193,12 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
           shape: RoundedRectangleBorder(
 
-              borderRadius: BorderRadius.circular(12)),
+              borderRadius: BorderRadius.circular(CncRadius.card)),
 
         ),
 
-        child: Text('正在升级 $_upgradeIndex/$_upgradeTotal',
+        child: Text(T.of(context).fwProgress.replaceAll('{a}', '$_upgradeIndex').replaceAll(
+                '{b}', '$_upgradeTotal'),
 
             style: const TextStyle(
 
@@ -1152,11 +1220,11 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
           shape: RoundedRectangleBorder(
 
-              borderRadius: BorderRadius.circular(12)),
+              borderRadius: BorderRadius.circular(CncRadius.card)),
 
         ),
 
-        child: const Text('点击重试',
+        child: Text(T.of(context).fwRetry,
 
             style:
 
@@ -1176,7 +1244,7 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
           shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12)),
         ),
-        child: const Text('主板暂不支持在线升级',
+        child: Text(T.of(context).fwBoardNoOta,
             style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
       );
     }
@@ -1193,11 +1261,11 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
           shape: RoundedRectangleBorder(
 
-              borderRadius: BorderRadius.circular(12)),
+              borderRadius: BorderRadius.circular(CncRadius.card)),
 
         ),
 
-        child: const Text('一键升级',
+        child: Text(T.of(context).fwOneTap,
 
             style:
 
@@ -1219,11 +1287,11 @@ class _FirmwarePageState extends ConsumerState<FirmwarePage> {
 
         shape: RoundedRectangleBorder(
 
-            borderRadius: BorderRadius.circular(12)),
+            borderRadius: BorderRadius.circular(CncRadius.card)),
 
       ),
 
-      child: const Text('已是最新',
+      child: Text(_hasUpdate ? T.of(context).fwIsLatest : T.of(context).fwNoVer,
 
           style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
 
@@ -1269,37 +1337,39 @@ class _OtaResult {
 /// 用 startsWith 防御固件把附带信息拼进 code 的情况。
 String _otaAckText(String? code) {
   final c = code ?? '';
-  if (c.startsWith('EBUSY')) return '设备正在升级中，请稍候';
-  if (c.startsWith('E409')) return '设备正在加工，请等加工结束后再升级';
-  if (c.startsWith('E400')) return '该设备不支持此升级目标';
-  return '指令下发失败，请重试'; // E500 / 未知码
+  if (c.startsWith('EBUSY')) return T.current.fwBusyUpdating;
+  if (c.startsWith('E409')) return T.current.fwBusyCarving;
+  if (c.startsWith('E400')) return T.current.fwTargetUnsupported;
+  return T.current.fwSendFailRetry; // E500 / 未知码
 }
 
 /// status 帧 ota_err 失败码 → 客户文案（OTA 协议定稿 v1.1 §4.2 码表，APP-02）。
-const Map<String, String> _otaErrCopy = {
-  'check_failed': '网络异常，请稍后重试',
-  'bad_json': '服务异常，请稍后重试',
-  'sd_unmounted': '请插入 SD 卡后重试',
-  'sd_full': 'SD 卡空间不足',
-  'short_read': '下载失败，请重试',
-  'download_failed': '下载失败，请重试',
-  'sha_mismatch': '安装包校验失败',
-  'staged_missing': '请重新检查更新',
-  'no_slot': '设备分区异常，请联系售后',
-  'too_big': '升级包异常，请联系售后',
-  'bad_image': '升级包损坏，请重试',
-  'no_descriptor': '升级包异常',
-  'wrong_project': '升级包与设备不匹配',
-  'ota_begin': '升级失败，请重试',
-  'write_failed': '升级失败，请重试',
-  'set_boot': '升级失败，请重试',
-  'rollback': '升级未生效，已恢复原版本',
-  'bad_arg': '升级失败',
+/// 非 const：文案走 i18n —— `T.current` 是运行时取值，装不进 const Map。
+Map<String, String> _otaErrCopy() => {
+  'check_failed': T.current.otaCheckFailed,
+  'bad_json': T.current.otaBadJson,
+  'sd_unmounted': T.current.otaSdUnmounted,
+  'sd_full': T.current.otaSdFull,
+  'short_read': T.current.otaShortRead,
+  'download_failed': T.current.otaDownloadFailed,
+  'sha_mismatch': T.current.otaShaMismatch,
+  'staged_missing': T.current.otaStagedMissing,
+  'no_slot': T.current.otaNoSlot,
+  'too_big': T.current.otaTooBig,
+  'bad_image': T.current.otaBadImage,
+  'no_descriptor': T.current.otaNoDescriptor,
+  'wrong_project': T.current.otaWrongProject,
+  'ota_begin': T.current.otaBegin,
+  'write_failed': T.current.otaWriteFailed,
+  'set_boot': T.current.otaSetBoot,
+  'rollback': T.current.otaRollback,
+  'bad_arg': T.current.otaBadArg,
 };
 
 String _otaErrText(String? code) {
-  if (code == null || code.isEmpty) return '升级失败，请重试';
-  return _otaErrCopy[code] ?? '升级失败（$code）';
+  if (code == null || code.isEmpty) return T.current.fwOtaFailRetry;
+  return _otaErrCopy()[code] ??
+      T.current.fwOtaFailCode.replaceAll('{c}', code);
 }
 
 /// 整机状态卡片。
@@ -1321,6 +1391,13 @@ class _StatusCard extends StatelessWidget {
   final bool loading;
 
 
+  /// ★ 2026-10-06：优先展示的插画（而非 spinner）。
+  ///
+  /// 只有**升级中**这一态用插画——「正在把固件写进板子」这件事
+  /// 转圈表达不出来。其余态（检查中/ 无版本 / 已是最新）语义不同，
+  /// 继续用 spinner 或图标，不要套插画。
+  final Widget? art;
+
 
   const _StatusCard({
 
@@ -1338,6 +1415,8 @@ class _StatusCard extends StatelessWidget {
 
     this.loading = false,
 
+    this.art,
+
   });
 
 
@@ -1348,7 +1427,7 @@ class _StatusCard extends StatelessWidget {
 
         onTap: onTap,
 
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(CncRadius.card),
 
         child: Container(
 
@@ -1358,7 +1437,8 @@ class _StatusCard extends StatelessWidget {
 
             color: CncColors.card,
 
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(CncRadius.card),
+            boxShadow: CncDepth.restBox(),
 
             border: Border.all(color: CncColors.border),
 
@@ -1368,18 +1448,16 @@ class _StatusCard extends StatelessWidget {
 
             children: [
 
-              if (loading)
-
+              // ★ 2026-10-06：art 优先于 spinner。升级中用插画
+              // （能让客户读出「正在写板子」），其余态仍是 spinner。
+              if (art != null)
+                art!
+              else if (loading)
                 SizedBox(
-
                   width: 40,
-
                   height: 40,
-
                   child: CircularProgressIndicator(
-
                       color: CncColors.primary, strokeWidth: 3),
-
                 )
 
               else

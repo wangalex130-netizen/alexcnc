@@ -104,6 +104,21 @@ class AuthNotifier extends StateNotifier<AuthState> {
     await _service.logout();
     if (mounted) state = const AuthState.loggedOut();
   }
+  /// 联调登录（**仅联调包**，2026-10-04 新增）。
+  ///
+  /// ## 为什么需要
+  /// 自测（模拟器）时设备页 / 控制台 / 刀路页都被登录门控挡住，
+  /// 而我手上**没有真实账号**，导致这几屏无法自动截图核验。
+  /// 昊总明确要求「我要能自己测，不要每步都让他测」⇒ 必须打通这条路径。
+  ///
+  /// ## 边界（刻意收窄）
+  /// - **仅在 `DEBUG_TOOLS` define 时可调用**（与 `settings_page` 的调试入口同款判据）；
+  ///   正式客户包**没有**这个方法可被触发，因为入口按钮同样受该 define 控制；
+  /// - **不写 token、不落盘、不绑个推 alias** —— 纯内存态，App 重启即失效；
+  /// - 不绕过任何业务门控：控制台的「发指令」仍按各自判据（是否同网/是否在线）处理。
+  void debugLoginAs(String userId) {
+    state = AuthState(userId: userId, token: 'debug-token', username: userId);
+  }
 }
 
 /// 全局账号状态。

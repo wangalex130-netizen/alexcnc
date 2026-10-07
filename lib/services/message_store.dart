@@ -6,6 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/broadcast_message.dart';
 import '../models/notify_event.dart';
 
+import '../l10n/app_strings.dart';
+
 /// 单条系统消息/告警（本地持久化的最小视图，兼容 notify/broadcast 两种来源）。
 class StoredMessage {
   /// 'notify' | 'broadcast'
@@ -94,19 +96,19 @@ class StoredMessage {
   static String _notifyTitle(NotifyEvent e) {
     switch (e.type) {
       case 'job_done':
-        return '雕刻任务完成';
+        return T.current.mtCarveDone;
       case 'alarm':
-        return '设备报警';
+        return T.current.mtDevAlarm;
       case 'error':
-        return '设备错误';
+        return T.current.mtDevError;
       case 'confirm_required':
-        return '机旁确认';
+        return T.current.mtAtMachine;
       case 'gw_rejected':
-        return '命令被拒绝';
+        return T.current.mtCmdRejected;
       case 'cmd_ack':
-        return '命令已执行';
+        return T.current.mtCmdDone;
       case 'knife':
-        return '刀具事件';
+        return T.current.mtToolEvent;
       default:
         return e.type;
     }

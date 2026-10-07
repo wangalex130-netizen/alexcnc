@@ -6,6 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app/config.dart';
 
+import '../l10n/app_strings.dart';
+
 /// 账号服务：注册 / 登录 / 登出 / 会话恢复。
 ///
 /// 契约 2026-08-24 按 037123.xyz 生产接口实测修正：
@@ -83,7 +85,7 @@ class AuthService {
     try {
       body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
     } catch (_) {
-      throw const AuthException('登录失败，请稍后重试');
+      throw AuthException(T.current.asLoginFail);
     }
     // PC 工程师契约：code=200 成功；兼容直接返回 {userId, token} 与
     // 包裹式 {code:200, data:{...}} 两种结构。
@@ -102,7 +104,7 @@ class AuthService {
       final token = data['token']?.toString() ?? '';
       if (userId.isEmpty || token.isEmpty) {
         // 后端契约异常（非客户操作问题）：不暴露内部字段名，统一规范文案。
-        throw const AuthException('登录失败，请稍后重试');
+        throw AuthException(T.current.asLoginFail);
       }
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_kUserId, userId);
@@ -111,20 +113,20 @@ class AuthService {
       return (userId, token);
     }
     if (res.statusCode == 409 || code == 409) {
-      throw const AuthException('该邮箱已注册');
+      throw AuthException(T.current.asRegistered);
     }
     if (res.statusCode == 401 || code == 401) {
-      throw const AuthException('账号或密码错误');
+      throw AuthException(T.current.asBadCred);
     }
     if (res.statusCode == 400 || code == 400) {
       // 后端 400 的 error/message 是内部诊断串，禁止透传上屏。
-      throw const AuthException('登录失败，请稍后重试');
+      throw AuthException(T.current.asLoginFail);
     }
     if (res.statusCode == 403 || code == 403) {
-      throw const AuthException('登录被拒绝，请稍后重试');
+      throw AuthException(T.current.asRejected);
     }
     if (res.statusCode == 429 || code == 429) {
-      throw const AuthException('尝试次数过多，请稍后再试');
+      throw AuthException(T.current.asTooMany);
     }
     // 后端失败常为 HTTP 200 + code=500 + 业务错误码（2026-09-28 生产实测）：
     // 10020101=账号不存在（含邮箱大小写不一致）、10020201=密码错误、
@@ -134,12 +136,12 @@ class AuthService {
     if (code != null && code != 200 && code != '200') {
       final message = body['message']?.toString() ?? '';
       if (message.startsWith('1002')) {
-        throw const AuthException('账号或密码错误');
+        throw AuthException(T.current.asBadCred);
       }
       // 其余为非认证类故障/诊断串，一律不上屏。
-      throw const AuthException('登录失败，请稍后重试');
+      throw AuthException(T.current.asLoginFail);
     }
-    throw const AuthException('登录失败，请稍后重试');
+    throw AuthException(T.current.asLoginFail);
   }
 
   /// 退出登录：清本地 session。

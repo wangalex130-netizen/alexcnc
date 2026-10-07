@@ -27,6 +27,12 @@ import '../../l10n/strings_zh.dart';
 import '../shell/app_shell.dart';
 
 import 'model_detail_page.dart';
+import '../../widgets/pressable.dart';
+import '../../app/visual_depth.dart';
+
+import '../../l10n/app_strings.dart';
+
+import '../../widgets/cnc_skeleton.dart';
 
 
 
@@ -70,7 +76,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
   List<LibraryItem> _models = const [];
 
-  List<String> _categories = const ['全部'];
+  List<String> _categories = [T.current.lbAll];
 
   int _pageNo = 1;
 
@@ -226,7 +232,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
       if (snap != null && snap.models.isNotEmpty) {
         setState(() {
           _home = snap;
-          _categories = snap.categories.isNotEmpty ? snap.categories : ['全部'];
+          _categories = snap.categories.isNotEmpty ? snap.categories : [T.current.lbAll];
           _models = snap.models;
           _pageNo = 1;
           _pages = 1;
@@ -258,7 +264,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
         _home = home;
 
-        _categories = home.categories.isNotEmpty ? home.categories : ['全部'];
+        _categories = home.categories.isNotEmpty ? home.categories : [T.current.lbAll];
 
         _models = home.models;
 
@@ -286,7 +292,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
         _loading = false;
 
-        _error = '图库加载失败，请下拉刷新重试';
+        _error = T.current.lbLoadFail;
 
       });
 
@@ -366,7 +372,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
         _loading = false;
 
-        _error = '筛选失败，请重试';
+        _error = T.current.lbFilterFail;
 
       });
 
@@ -496,7 +502,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
       ScaffoldMessenger.of(context).showSnackBar(
 
-          const SnackBar(content: Text('删除失败，请稍后重试')));
+          SnackBar(content: Text(T.of(context).lbDelFail)));
 
     }
 
@@ -554,15 +560,14 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
                         : SliverToBoxAdapter(
 
-                            child: Center(
+                            child: Padding(
 
-                              child: Padding(
+                              // ★ 2026-10-06：换骨架屏。spinner 居中转圈看起来像
+                              // 「卡住了」，而且加载完成时整页从 spinner 跳成网格会晃一下。
+                              // 骨架按真实网格的列数/列宽/比例占位 ⇒ 加载完成时不跳版。
+                              padding: EdgeInsets.fromLTRB(14, 16, 14, 0),
 
-                                padding: EdgeInsets.only(top: 80),
-
-                                child: CircularProgressIndicator(color: CncColors.primary),
-
-                              ),
+                              child: CncSkeletonMasonry(cards: 6),
 
                             ),
 
@@ -602,15 +607,12 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
                         return SliverToBoxAdapter(
 
-                          child: Center(
+                          child: Padding(
 
-                            child: Padding(
+                            // ★ 同上：我的云端空间首屏也换骨架屏。
+                            padding: EdgeInsets.fromLTRB(14, 16, 14, 0),
 
-                              padding: EdgeInsets.only(top: 80),
-
-                              child: CircularProgressIndicator(color: CncColors.primary),
-
-                            ),
+                            child: CncSkeletonMasonry(cards: 6),
 
                           ),
 
@@ -690,7 +692,7 @@ class _ErrorState extends StatelessWidget {
 
               const SizedBox(height: 14),
 
-              Text('网络好像开小差了',
+              Text(T.of(context).lbNetErrTitle,
 
                   style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold,
 
@@ -698,13 +700,13 @@ class _ErrorState extends StatelessWidget {
 
               const SizedBox(height: 6),
 
-              Text('下拉页面即可刷新，或点击下方按钮重试',
+              Text(T.of(context).lbNetErrSub,
 
                   style: TextStyle(fontSize: 12, color: CncColors.textSub)),
 
               const SizedBox(height: 16),
 
-              GestureDetector(
+              Pressable(
 
                 onTap: onRetry,
 
@@ -716,13 +718,13 @@ class _ErrorState extends StatelessWidget {
 
                     color: CncColors.primary.withOpacity(0.12),
 
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(CncRadius.card),
 
                     border: Border.all(color: CncColors.primary.withOpacity(0.4)),
 
                   ),
 
-                  child: Text('重新加载',
+                  child: Text(T.of(context).lbReload,
 
                       style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold,
 
@@ -776,7 +778,8 @@ class _LibSegmented extends StatelessWidget {
 
         color: CncColors.panelAlt,
 
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(CncRadius.card),
+        boxShadow: CncDepth.restBox(),
 
         border: Border.all(color: CncColors.border),
 
@@ -804,7 +807,7 @@ class _LibSegmented extends StatelessWidget {
 
                   color: CncColors.primary,
 
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(CncRadius.control),
 
                   boxShadow: [
 
@@ -824,9 +827,9 @@ class _LibSegmented extends StatelessWidget {
 
             children: [
 
-              _segBtn('灵感共享库', 0),
+              _segBtn(T.of(context).lbShared, 0),
 
-              _segBtn('我的云端空间', 1),
+              _segBtn(T.of(context).lbMyCloud, 1),
 
             ],
 
@@ -844,7 +847,7 @@ class _LibSegmented extends StatelessWidget {
 
   Widget _segBtn(String label, int i) => Expanded(
 
-        child: GestureDetector(
+        child: Pressable(
 
           onTap: () => onChanged(i),
 
@@ -1012,7 +1015,8 @@ class _InspirationSliver extends StatelessWidget {
 
             color: CncColors.panelAlt,
 
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(CncRadius.card),
+            boxShadow: CncDepth.restBox(),
 
             border: Border.all(color: CncColors.border),
 
@@ -1038,7 +1042,7 @@ class _InspirationSliver extends StatelessWidget {
 
                   decoration: InputDecoration(
 
-                    hintText: '搜索模型名称或标签',
+                    hintText: T.of(context).lbSearchHint,
 
                     hintStyle: TextStyle(
 
@@ -1052,13 +1056,20 @@ class _InspirationSliver extends StatelessWidget {
 
                     contentPadding: const EdgeInsets.symmetric(vertical: 8),
 
+                    // ★ 2026-10-04：五边框全关，防继承全局主题（米色底+墨框）
+                    filled: false,
+                    fillColor: Colors.transparent,
                     border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    errorBorder: InputBorder.none,
+                    focusedErrorBorder: InputBorder.none,
 
                     suffixIcon: keyword.isEmpty
 
                         ? null
 
-                        : GestureDetector(
+                        : Pressable(
 
                             onTap: () => onKeyword(''),
 
@@ -1112,7 +1123,7 @@ class _InspirationSliver extends StatelessWidget {
 
               final active = name == category || (i == 0 && category.isEmpty);
 
-              return GestureDetector(
+              return Pressable(
 
                 onTap: () => onCategory(i == 0 ? '' : name),
 
@@ -1164,13 +1175,16 @@ class _InspirationSliver extends StatelessWidget {
 
             child: Center(
 
-                child: Text('未找到相关模型',
+                child: Text(T.of(context).lbNotFound,
 
                     style: TextStyle(color: CncColors.textSub))),
 
           ),
 
         // 分页：加载更多
+        // ★ 2026-10-06：这里的 spinner **刻意不换骨架屏**——
+        //   它是按钮内的局部动作反馈，换成骨架会让人以为整页在重载。
+        //   判据：占整屏的等待 → 骨架；局部动作 → spinner。
 
         if (hasMore)
 
@@ -1194,7 +1208,7 @@ class _InspirationSliver extends StatelessWidget {
 
                     )
 
-                  : GestureDetector(
+                  : Pressable(
 
                       onTap: onLoadMore,
 
@@ -1206,13 +1220,13 @@ class _InspirationSliver extends StatelessWidget {
 
                           color: CncColors.primary.withOpacity(0.12),
 
-                          borderRadius: BorderRadius.circular(20),
+                          borderRadius: BorderRadius.circular(CncRadius.card),
 
                           border: Border.all(color: CncColors.primary.withOpacity(0.4)),
 
                         ),
 
-                        child: Text('加载更多',
+                        child: Text(T.of(context).lbLoadMore,
 
                             style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.primaryInk)),
 
@@ -1342,29 +1356,56 @@ class _MasonryGridState extends State<_MasonryGrid> {
 
   static const double _kTitleBlockH = 48; // 标题区估算高（padding 10 + 两行）
 
+  // ---- P3-1：列数自适应 ----
+  //
+  // 原实现三处写死 2（_colH 长度、colW 除数、Row 的两个 Expanded），
+  // 平板上每张模型图被拉到近 400px 宽，一屏放不下几张，观感是
+  // 「放大版手机」而不是消费级应用。
+  //
+  // 现在列数由可用宽度推导：手机 2 列 / 平板 4 列 / 宽屏 5 列。
+  static const double _kTargetCardW = 176; // 目标卡宽
+  static const int _kMinCols = 2; // 低于 2 列就不是图库了
+  static const int _kMaxCols = 5; // 再多卡片标题挤成竖线
+  static const double _kMinCardW = 132; // 列宽下限
+  
+  int _colsFor(double maxWidth) {
+    if (maxWidth <= 0) return _kMinCols;
+    var n = ((maxWidth + _gap) / (_kTargetCardW + _gap)).floor();
+    if (n < _kMinCols) n = _kMinCols;
+    if (n > _kMaxCols) n = _kMaxCols;
+    while (n > _kMinCols &&
+        (maxWidth - (n - 1) * _gap) / n < _kMinCardW) {
+      n--;
+    }
+    return n;
+  }
+
 
 
   final Map<String, int> _colOf = <String, int>{}; // itemId → 列号
 
+  // 实际长度在 _assign 内按 nCols 重建
   List<double> _colH = <double>[0, 0];
 
   String? _firstId;
 
 
 
-  void _assign(double colW) {
+  /// [nCols] 参与分配；列数变化时缓存全部失效（卡宽变了，高度估算不再成立）。
+  void _assign(double colW, int nCols) {
 
     final items = widget.items;
 
     final first = items.isEmpty ? null : items[0].id;
 
-    if (first != _firstId) {
+    if (first != _firstId || nCols != _colH.length) {
 
       _firstId = first;
 
       _colOf.clear();
 
-      _colH = <double>[0, 0];
+      // P3-1：原来写死两列，按实际 nCols 重建。
+      _colH = List<double>.filled(nCols, 0);
 
     }
 
@@ -1378,7 +1419,12 @@ class _MasonryGridState extends State<_MasonryGrid> {
 
       final cardH = colW / ratio + _kTitleBlockH + _gap;
 
-      final i = _colH[0] <= _colH[1] ? 0 : 1;
+      // P3-1：最短列优先（N 列通用，原为两列比较）
+      var i = 0;
+
+      for (var k = 1; k < _colH.length; k++) {
+        if (_colH[k] < _colH[i]) i = k;
+      }
 
       _colOf[it.id] = i;
 
@@ -1396,16 +1442,19 @@ class _MasonryGridState extends State<_MasonryGrid> {
 
     return LayoutBuilder(builder: (context, cons) {
 
-      final colW = (cons.maxWidth - _gap) / 2;
+      // P3-1：列数按可用宽度推导，手机 2 列 / 平板 4 列 / 宽屏 5 列。
+      final nCols = _colsFor(cons.maxWidth);
 
-      _assign(colW);
+      final colW = (cons.maxWidth - (nCols - 1) * _gap) / nCols;
 
-      final cols = <List<LibraryItem>>[<LibraryItem>[], <LibraryItem>[]];
+      _assign(colW, nCols);
+
+      final cols = List<List<LibraryItem>>.generate(
+          nCols, (_) => <LibraryItem>[], growable: false);
 
       for (final it in widget.items) {
-
-        cols[_colOf[it.id] ?? 0].add(it);
-
+        final idx = _colOf[it.id] ?? 0;
+        if (idx >= 0 && idx < nCols) cols[idx].add(it);
       }
 
       List<Widget> buildCol(List<LibraryItem> list) {
@@ -1436,20 +1485,18 @@ class _MasonryGridState extends State<_MasonryGrid> {
 
 
 
+      // P3-1：原来硬编码两个 Expanded，现在按 nCols 生成并插入列间隔。
+      final cells = <Widget>[];
+
+      for (var i = 0; i < nCols; i++) {
+        if (i > 0) cells.add(const SizedBox(width: _gap));
+
+        cells.add(Expanded(child: Column(children: buildCol(cols[i]))));
+      }
+
       return Row(
-
         crossAxisAlignment: CrossAxisAlignment.start,
-
-        children: [
-
-          Expanded(child: Column(children: buildCol(cols[0]))),
-
-          const SizedBox(width: _gap),
-
-          Expanded(child: Column(children: buildCol(cols[1]))),
-
-        ],
-
+        children: cells,
       );
 
     });
@@ -1618,7 +1665,7 @@ class _ModelCardState extends State<_ModelCard> {
 
   Widget build(BuildContext context) {
 
-    return GestureDetector(
+    return Pressable(
 
       onTap: () => widget.onOpen(widget.item),
 
@@ -1628,7 +1675,8 @@ class _ModelCardState extends State<_ModelCard> {
 
           color: CncColors.card,
 
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(CncRadius.card),
+          boxShadow: CncDepth.restBox(),
 
           border: Border.all(color: CncColors.border),
 
@@ -1648,9 +1696,11 @@ class _ModelCardState extends State<_ModelCard> {
 
               child: ClipRRect(
 
-                borderRadius:
-
-                    const BorderRadius.vertical(top: Radius.circular(16)),
+                    // P2-4：原为硬编码 16，而外层卡片圆角已收敛到 CncRadius.card(14)
+                    // ⇒ 缩略图比卡片宽 2px，圆角与卡片边不贴合，边界看起来「发飘」。
+                    // 改为同令牌同数值。
+                    borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(CncRadius.card)),
 
                 child: _thumb(widget.item.displayImageUrl),
 
@@ -1735,7 +1785,7 @@ class _MySpaceSliver extends ConsumerWidget {
 
             color: CncColors.blue.withOpacity(0.1),
 
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(CncRadius.card),
 
             border: Border.all(color: CncColors.blue.withOpacity(0.3)),
 
@@ -1753,11 +1803,12 @@ class _MySpaceSliver extends ConsumerWidget {
 
                   children: [
 
-                    Text(S.t(S.accountLabel, {'name': account ?? ''}), style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
+                    Text(S.t(T.of(context).libAccountLabel, {'name': account ?? ''}), style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: CncColors.textMain)),
 
                     SizedBox(height: 4),
 
-                    Text('已与云端工作区保持同步', style: TextStyle(fontSize: 10, color: CncColors.blue)),
+                    Text(T.of(context).lbCloudSync,
+                        style: TextStyle(fontSize: 10, color: CncColors.blue)),
 
                   ],
 
@@ -1785,7 +1836,8 @@ class _MySpaceSliver extends ConsumerWidget {
 
             color: CncColors.card,
 
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(CncRadius.card),
+            boxShadow: CncDepth.restBox(),
 
             border: Border.all(color: CncColors.border, style: BorderStyle.solid),
 
@@ -1793,9 +1845,10 @@ class _MySpaceSliver extends ConsumerWidget {
 
           child: Text(
 
-            '如何创建我的专属工程？\n请在电脑端下载并使用 Smart CNC Studio 软件，完成图纸导入、参数设置与切片后，'
+            T.of(context).lbHowToTitle +
+                '\n' + T.of(context).lbHowToMid +
 
-            '点击“上传至云端”，即可在此处同步并开始雕刻。',
+            T.of(context).lbHowToBody,
 
             style: TextStyle(fontSize: 11, height: 1.5, color: CncColors.textSub)),
 
@@ -1803,7 +1856,7 @@ class _MySpaceSliver extends ConsumerWidget {
 
         const SizedBox(height: 16),
 
-        const _SectionTitle('已上传的私有工程包'),
+        _SectionTitle(T.of(context).lbMyPackages),
 
         const SizedBox(height: 8),
 
@@ -1817,7 +1870,7 @@ class _MySpaceSliver extends ConsumerWidget {
 
         const SizedBox(height: 8),
 
-        const _SectionTitle('成功加工记录', muted: true),
+        _SectionTitle(T.of(context).lbDoneRecords, muted: true),
 
         const SizedBox(height: 8),
 
@@ -1851,7 +1904,7 @@ class _SyncButton extends StatefulWidget {
 
 class _SyncButtonState extends State<_SyncButton> {
 
-  String _label = '手动刷新';
+  String _label = T.current.lbRefresh;
 
   bool _busy = false;
 
@@ -1863,13 +1916,13 @@ class _SyncButtonState extends State<_SyncButton> {
 
       _busy = true;
 
-      _label = '同步中...';
+      _label = T.current.lbSyncing;
 
     });
 
     Future.delayed(const Duration(milliseconds: 800), () {
 
-      if (mounted) setState(() => _label = '已更新');
+      if (mounted) setState(() => _label = T.current.lbUpdated);
 
       Future.delayed(const Duration(milliseconds: 1500), () {
 
@@ -1877,7 +1930,7 @@ class _SyncButtonState extends State<_SyncButton> {
 
           _busy = false;
 
-          _label = '手动刷新';
+          _label = T.current.lbRefresh;
 
         });
 
@@ -1891,7 +1944,7 @@ class _SyncButtonState extends State<_SyncButton> {
 
   @override
 
-  Widget build(BuildContext context) => GestureDetector(
+  Widget build(BuildContext context) => Pressable(
 
         onTap: _onTap,
 
@@ -1903,7 +1956,7 @@ class _SyncButtonState extends State<_SyncButton> {
 
             color: CncColors.blue,
 
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(CncRadius.sm),
 
           ),
 
@@ -1955,9 +2008,11 @@ class _ProjectItem extends StatelessWidget {
 
   @override
 
-  Widget build(BuildContext context) => Opacity(
+  Widget build(BuildContext context) => CncFade(
 
-        opacity: dimmed ? 0.6 : 1,
+        enabled: !dimmed,
+        activeColor: CncColors.card,
+        disabledOpacity: 0.6,
 
         child: Container(
 
@@ -1967,7 +2022,8 @@ class _ProjectItem extends StatelessWidget {
 
             color: CncColors.card,
 
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(CncRadius.card),
+            boxShadow: CncDepth.restBox(),
 
             border: Border.all(color: CncColors.border),
 
@@ -1987,7 +2043,8 @@ class _ProjectItem extends StatelessWidget {
 
                   color: CncColors.panelAlt,
 
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(CncRadius.control),
+                  boxShadow: CncDepth.restBox(),
 
                   border: Border.all(color: CncColors.border),
 
@@ -2025,7 +2082,7 @@ class _ProjectItem extends StatelessWidget {
 
               ),
 
-              GestureDetector(
+              Pressable(
 
                 onTap: () => onOpen(item),
 
@@ -2037,11 +2094,11 @@ class _ProjectItem extends StatelessWidget {
 
                     color: dimmed ? CncColors.disabled : CncColors.primary,
 
-                    borderRadius: BorderRadius.circular(6),
+                    borderRadius: BorderRadius.circular(CncRadius.sm),
 
                   ),
 
-                  child: Text(dimmed ? '再切一个' : '开始雕刻',
+                  child: Text(dimmed ? T.of(context).lbAnother : T.of(context).lbStartCarve,
 
                       style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold,
 
@@ -2055,7 +2112,7 @@ class _ProjectItem extends StatelessWidget {
 
                 const SizedBox(width: 8),
 
-                GestureDetector(
+                Pressable(
 
                   onTap: () => onDelete!(item),
 
@@ -2069,13 +2126,13 @@ class _ProjectItem extends StatelessWidget {
 
                       color: CncColors.dangerBg,
 
-                      borderRadius: BorderRadius.circular(6),
+                      borderRadius: BorderRadius.circular(CncRadius.sm),
 
                     ),
 
                     child: Icon(Symbols.delete,
 
-                        size: 15, color: CncColors.danger),
+                        size: 15, color: CncColors.dangerFg),
 
                   ),
 

@@ -6,6 +6,7 @@
 
 import 'task_metadata.dart' show RequiredTool, TaskMetadata;
 import '../data/material_db.dart' show materialKeyFromPreset;
+import '../l10n/app_strings.dart';
 
 class LibraryItem {
   final String id;
@@ -409,8 +410,8 @@ class LibraryItem {
     if (names.isEmpty) return const [];
     return List.generate(names.length, (i) {
       final role = i == 0
-          ? '粗雕'
-          : (i == names.length - 1 ? '精雕' : '半精加工');
+          ? T.current.liRough
+          : (i == names.length - 1 ? T.current.liFinish : T.current.liSemi);
       return RequiredTool(_mapToolName(names[i]), role);
     });
   }

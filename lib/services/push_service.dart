@@ -10,6 +10,8 @@ import 'cloud_service.dart';
 import '../models/push_log_entry.dart';
 import 'local_notify_service.dart';
 
+import '../l10n/app_strings.dart';
+
 /// 推送通道抽象层（App 侧 B 阶段：个推真实通道）。
 ///
 /// 关键设计（详见 docs/alexcnc-推送寻址与账号机器绑定架构.md）：
@@ -170,7 +172,7 @@ class PushService {
         // 注意用 % 而非 .remainder()：int.remainder() 返回 num，
         // 而 show(id:) 要求 int，用 remainder 会编译报错。
         id: DateTime.now().millisecondsSinceEpoch % 100000,
-        title: title.isEmpty ? '新通知' : title,
+        title: title.isEmpty ? T.current.psNewNotify : title,
         body: content,
       );
     } catch (e) {
@@ -211,7 +213,10 @@ class PushService {
   Future<String?> refreshClientId() async {
     try {
       final cid = await Getuiflut().getClientId;
-      if (cid != null && cid.isNotEmpty && !cid.startsWith('pt_')) {
+      // 注意：getuiflut 的 getClientId 声明是 Future<String>（**非空**），
+      // 原生返回 null 时会抛异常、被上面的 catch 兜住，所以不需要 cid != null。
+      // 保留 isNotEmpty 才是在挡「原生给了空串」。
+      if (cid.isNotEmpty && !cid.startsWith('pt_')) {
         _cachedToken = cid;
         await _persistCid(cid);
         lastInitDiagnostic = 'cid-refreshed';
@@ -430,14 +435,18 @@ class PushService {
   int _nextId() => 1000 + (_seq++);
 
   String _titleFor(PushLogEntry e) =>
-      e.event == 'alert' ? '机器告警' : '雕刻完成';
+      e.event == 'alert' ? T.current.psAlertTitle : T.current.psDoneTitle;
 
   String _bodyFor(PushLogEntry e) {
     final name = e.taskName.isNotEmpty ? e.taskName : e.taskId;
     if (e.event == 'alert') {
-      return name.isNotEmpty ? '「$name」出现异常，请及时查看。' : '机器出现异常，请及时查看。';
+      return name.isNotEmpty
+          ? T.current.psAlertBody.replaceAll('{n}', name)
+          : T.current.psAlertBodyNo;
     }
-    return name.isNotEmpty ? '「$name」已雕刻完成。' : '您的雕刻任务已完成。';
+    return name.isNotEmpty
+        ? T.current.psDoneBody.replaceAll('{n}', name)
+        : T.current.psDoneBodyNo;
   }
 }
 

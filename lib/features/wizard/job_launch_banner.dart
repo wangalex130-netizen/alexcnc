@@ -7,6 +7,9 @@ import '../../app/theme.dart';
 import '../../models/carve_session.dart';
 import '../../services/hardware_service.dart';
 import '../../state/providers.dart';
+import '../../widgets/pressable.dart';
+
+import '../../l10n/app_strings.dart';
 
 /// 雕刻启动三态横幅（两段式启动，2026-09-02）。
 ///
@@ -58,22 +61,22 @@ class JobLaunchBanner extends ConsumerWidget {
       case CarveStage.preparing:
         // failureOnly（控制台）：准备中由状态卡五态呈现，此处去重。
         if (failureOnly) return const SizedBox.shrink();
-        title = '准备中';
+        title = T.current.jbPreparing;
         detail = carve.download > 0
-            ? '机器正在接收加工程序 ${carve.download}%'
-            : '机器正在准备加工程序…';
+            ? T.current.jbDownloading.replaceAll('{p}', '${carve.download}')
+            : T.current.jbPrepJob;
         color = CncColors.textSub;
       case CarveStage.ready:
       case CarveStage.confirming:
         // failureOnly（控制台）：待确认态由状态卡呈现，此处去重。
         if (failureOnly) return const SizedBox.shrink();
-        title = '开始中';
-        detail = '程序已就绪，正在开始雕刻…';
-        color = CncColors.warning;
+        title = T.current.jbStarting;
+        detail = T.current.jbStartDetail;
+        color = CncColors.warnFg;
       case CarveStage.failed:
-        title = '没能开始';
-        detail = carve.error ?? '请稍后重试';
-        color = CncColors.danger;
+        title = T.current.jbFailed;
+        detail = carve.error ?? T.current.jbRetryLater;
+        color = CncColors.dangerFg;
       default:
         return const SizedBox.shrink();
     }
@@ -101,26 +104,29 @@ class JobLaunchBanner extends ConsumerWidget {
       case JobLaunchPhase.awaitingConfirm:
         // failureOnly（控制台）：待确认态由状态卡呈现，此处去重。
         if (failureOnly) return const SizedBox.shrink();
-        title = '待确认';
-        detail = '请在机器上按开始键确认，确认后才会动刀。';
-        color = CncColors.warning;
+        title = T.current.jbAwaitConfirm;
+        detail = T.current.jbConfirmHint;
+        color = CncColors.warnFg;
         icon = Symbols.front_hand;
       case JobLaunchPhase.failed:
-        title = '指令未送达';
-        detail = '已重试 ${pending?.retries ?? 0} 次仍无响应，请检查机器是否联网在线。';
-        color = CncColors.danger;
+        title = T.current.jbNotSent;
+        detail = T.current.jbRetried
+            .replaceAll('{n}', '${pending?.retries ?? 0}');
+        color = CncColors.dangerFg;
         icon = Symbols.cloud_off;
       case JobLaunchPhase.dispatched:
         // failureOnly（控制台）：已下发/重试中由状态卡呈现，此处去重。
         if (failureOnly) return const SizedBox.shrink();
         final retrying = pending?.state == CommandDeliveryState.retrying;
         final queued = pending?.state == CommandDeliveryState.queued;
-        title = S.sent;
+        title = T.current.woSent;
         detail = queued
-            ? '${pending?.label ?? '指令'}未送达，正在等待网络恢复后自动补发。'
+            ? T.current.jbPending.replaceAll(
+                '{w}', pending?.label ?? T.current.jbCommand)
             : retrying
-                ? '指令未送达，正在重试（第 ${pending?.retries ?? 0} 次）…'
-                : S.t(S.sentWaiting, {'what': pending?.label ?? '指令'});
+                ? T.current.jbRetrying.replaceAll(
+                    '{n}', '${pending?.retries ?? 0}')
+                : S.t(T.current.woSentWhat, {'what': pending?.label ?? T.current.jbCommand});
         color = CncColors.textSub;
         icon = Symbols.send;
       default:
@@ -149,7 +155,7 @@ class JobLaunchBanner extends ConsumerWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(CncRadius.control),
         border: Border.all(color: color.withOpacity(0.45)),
       ),
       child: Row(
@@ -182,7 +188,7 @@ class JobLaunchBanner extends ConsumerWidget {
             ),
           ),
           if (onClose != null)
-            GestureDetector(
+            Pressable(
               onTap: onClose,
               child: Padding(
                 padding: const EdgeInsets.only(left: 4),

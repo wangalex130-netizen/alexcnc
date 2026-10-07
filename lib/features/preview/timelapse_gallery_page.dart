@@ -10,6 +10,10 @@ import 'timelapse_video_page.dart';
 
 import 'video_play_network.dart';
 
+import '../../l10n/app_strings.dart';
+
+import '../../widgets/cnc_skeleton.dart';
+
 /// 延时摄影回顾页（工单八重设计：只留成品视频画面，对照拓竹范式）。
 ///
 /// 列表只显示 video_ready == true 的作业；卡片 = 4/3 实拍缩略图 +
@@ -201,7 +205,7 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
     } else {
 
-      _snack('无法删除，请重试');
+      _snack(T.of(context).tgDelFail);
 
     }
 
@@ -233,7 +237,7 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
                 onPressed: _exitManageMode,
 
-                tooltip: '取消',
+                tooltip: T.of(context).btnCancel,
 
               )
 
@@ -241,9 +245,9 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
         title: Text(_isManageMode
 
-            ? '已选 ${_selectedIds.length} 项'
+            ? T.of(context).tgSelected.replaceAll('{n}', '${_selectedIds.length}')
 
-            : '延时摄影回顾',
+            : T.of(context).tgTitle,
 
             style: TextStyle(
 
@@ -263,17 +267,17 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
                   onPressed: _toggleSelectAll,
 
-                  tooltip: allSelected ? '全部取消' : '全选',
+                  tooltip: allSelected ? T.of(context).tgDeselectAll : T.of(context).tgSelectAll,
 
                 ),
 
                 IconButton(
 
-                  icon: Icon(Symbols.delete, color: CncColors.danger),
+                  icon: Icon(Symbols.delete, color: CncColors.dangerFg),
 
                   onPressed: _selectedIds.isEmpty ? null : _confirmDelete,
 
-                  tooltip: '删除',
+                  tooltip: T.of(context).tgDelete,
 
                 ),
 
@@ -289,7 +293,7 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
                   onPressed: () => setState(() => _isManageMode = true),
 
-                  tooltip: '管理',
+                  tooltip: T.of(context).tgManage,
 
                 ),
 
@@ -299,7 +303,7 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
                   onPressed: _load,
 
-                  tooltip: '刷新',
+                  tooltip: T.of(context).tgRefresh,
 
                 ),
 
@@ -311,7 +315,7 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
       body: _loading
 
-          ? Center(child: CircularProgressIndicator())
+          ? const CncSkeletonGrid()
 
           : RefreshIndicator(
 
@@ -373,11 +377,12 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
             children: [
 
-              Text('暂无延时摄影记录', style: TextStyle(color: CncColors.textSub, fontSize: 15)),
+              Text(T.of(context).tgEmpty,
+                  style: TextStyle(color: CncColors.textSub, fontSize: 15)),
 
               SizedBox(height: 8),
 
-              Text('在雕刻的「开始雕刻」页开启延时摄影后，\n回顾会出现在这里',
+              Text(T.of(context).tgEmptySub,
 
                   textAlign: TextAlign.center,
 
@@ -391,7 +396,7 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
                 icon: Icon(Symbols.refresh, size: 16),
 
-                label: Text('刷新'),
+                label: Text(T.of(context).tgRefresh),
 
               ),
 
@@ -429,7 +434,7 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
         color: CncColors.card,
 
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(CncRadius.card),
 
         border: Border.all(color: selected ? CncColors.primary : CncColors.border, width: selected ? 2 : 1),
 

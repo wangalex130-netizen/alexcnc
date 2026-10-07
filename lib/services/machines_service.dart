@@ -5,6 +5,8 @@ import 'package:http/http.dart' as http;
 import '../app/config.dart';
 import 'auth_service.dart';
 
+import '../l10n/app_strings.dart';
+
 /// 一台绑定机器（后端 `/api/machine/list` 返回项）。
 class Machine {
   final String id;
@@ -135,7 +137,7 @@ class MachinesService {
     try {
       final body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
       final code = body['code'];
-      if (code is num && code != 200) throw Exception('机器列表获取失败');
+      if (code is num && code != 200) throw Exception(T.current.msListFail);
       final list = body['data'] as List? ?? [];
       return list
           .map((e) => Machine.fromJson(e as Map<String, dynamic>))
@@ -163,15 +165,15 @@ class MachinesService {
   Future<Machine> bind(String machineCode) async {
     final code = machineCode.trim();
     if (code.isEmpty) {
-      throw const BindFailure('这台机器还没登记，请联系客服');
+      throw BindFailure(T.current.msNotReg);
     }
     if (code.length > 128) {
-      throw const BindFailure('机器码不正确，请重新扫码');
+      throw BindFailure(T.current.msBadCode);
     }
 
     final token = await _token();
     if (token == null) {
-      throw const BindFailure('请先登录后再绑定机器');
+      throw BindFailure(T.current.msLoginFirst);
     }
 
     // 1) 账户下的机器档案（= 客服预先录入的机器）
@@ -179,7 +181,7 @@ class MachinesService {
     try {
       list = await fetchMyMachines();
     } catch (_) {
-      throw const BindFailure('网络不稳，稍后再试');
+      throw BindFailure(T.current.msNetUnstable);
     }
 
     // 2) 这台已经绑过了 → 按成功处理（对应后端 10300104 的语义，客户重复扫码不报错）
@@ -193,7 +195,7 @@ class MachinesService {
     //    ⚠️ 若账户下同时存在多个空档案，目前取最新录入的一台。
     final blank = list.where((m) => m.sn.isEmpty && m.id.isNotEmpty).toList();
     if (blank.isEmpty) {
-      throw const BindFailure('这台机器还没登记，请联系客服');
+      throw BindFailure(T.current.msNotReg);
     }
     final target = blank.first;
 
@@ -209,7 +211,7 @@ class MachinesService {
           .post(uri, headers: {'Authorization': 'Bearer $token'})
           .timeout(const Duration(seconds: 10));
     } catch (_) {
-      throw const BindFailure('网络不稳，稍后再试');
+      throw BindFailure(T.current.msNetUnstable);
     }
 
     // 5) 按业务码给客户能看懂的反馈
@@ -223,19 +225,19 @@ class MachinesService {
 
     switch (message) {
       case '10300105':
-        throw const BindFailure('这台机器已绑定其他账号');
+        throw BindFailure(T.current.msBoundOther);
       case '10300107':
-        throw const BindFailure('这台机器还没登记，请联系客服');
+        throw BindFailure(T.current.msNotReg);
       case '10300102':
       case '10300103':
-        throw const BindFailure('机器码不正确，请重新扫码');
+        throw BindFailure(T.current.msBadCode);
       case '10300104': // 已绑定当前用户 → 按成功
       case '10300106': // 绑定成功
         break;
       default:
         // 未知业务码：宽容处理（HTTP 200 即认为成功）
         if (res.statusCode != 200) {
-          throw const BindFailure('网络不稳，稍后再试');
+          throw BindFailure(T.current.msNetUnstable);
         }
     }
 

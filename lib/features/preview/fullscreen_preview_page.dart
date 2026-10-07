@@ -33,6 +33,8 @@ import '../../state/providers.dart';
 
 import 'mjpeg_stream_player.dart';
 
+import '../../l10n/app_strings.dart';
+
 
 
 /// 外网（中继 MJPEG）全屏横屏实时监控预览。
@@ -289,7 +291,7 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
 
         if (s.online == false) {
 
-          _setCamLink(_CamLink.error, '摄像头离线');
+          _setCamLink(_CamLink.error, T.current.fpCamOffline);
 
         }
 
@@ -437,7 +439,7 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
 
     if (frame == null) {
 
-      _showToast('还没有可截取的画面');
+      _showToast(T.current.fpNoFrame);
 
       return;
 
@@ -463,11 +465,11 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
 
           (result['isSuccess'] == true || result['success'] == true);
 
-      _showToast(ok ? '已保存到相册' : '保存失败，请重试');
+      _showToast(ok ? T.current.fpSaved : T.current.fpSaveFail);
 
     } catch (e) {
 
-      _showToast('保存出错：$e');
+      _showToast(T.current.fpSaveErr.replaceAll('{e}', '$e'));
 
     } finally {
 
@@ -511,7 +513,7 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
 
                   mainAxisSize: MainAxisSize.min,
 
-                  children: const [
+                  children: [
 
                     Icon(Symbols.lock_outline,
 
@@ -519,13 +521,13 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
 
                     SizedBox(height: 14),
 
-                    Text('请先登录账号并选择一台绑定机器',
+                    Text(T.of(context).fpLoginFirst,
 
                         style: TextStyle(color: Colors.white, fontSize: 15)),
 
                     SizedBox(height: 6),
 
-                    Text('量产后演示摄像头不对外开放',
+                    Text(T.of(context).fpDemoCam,
 
                         style: TextStyle(color: Colors.white54, fontSize: 12)),
 
@@ -547,7 +549,7 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
 
                   icon: const Icon(Symbols.close, color: Colors.white),
 
-                  tooltip: '关闭',
+                  tooltip: T.of(context).fpClose,
 
                 ),
 
@@ -629,13 +631,13 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
 
                     icon: const Icon(Symbols.close, color: Colors.white),
 
-                    tooltip: '关闭',
+                    tooltip: T.of(context).fpClose,
 
                   ),
 
-                  const Expanded(
+                  Expanded(
 
-                    child: Text('实时监控（外网）',
+                    child: Text(T.of(context).fpLiveTitle,
 
                         textAlign: TextAlign.center,
 
@@ -661,7 +663,7 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
 
                       color: Colors.black.withOpacity(0.55),
 
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(CncRadius.card),
 
                     ),
 
@@ -687,7 +689,7 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
 
                               : _camLink == _CamLink.error
 
-                                  ? CncColors.danger
+                                  ? CncColors.dangerFg
 
                                   : Colors.white70,
 
@@ -699,17 +701,17 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
 
                           _camLink == _CamLink.connected
 
-                              ? '已连接'
+                              ? T.of(context).fpConnected
 
                               : _camLink == _CamLink.error
 
-                                  ? '无信号'
+                                  ? T.of(context).fpNoSignal
 
                                   : _camAcked
 
-                                      ? '已启动·等待画面'
+                                      ? T.of(context).fpStartedWait
 
-                                      : '启动中…',
+                                      : T.of(context).fpStarting,
 
                           style: const TextStyle(color: Colors.white, fontSize: 12),
 
@@ -761,7 +763,7 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
 
                       : const Icon(Symbols.camera_alt),
 
-                  label: Text(_saving ? '保存中…' : '截图'),
+                  label: Text(_saving ? T.of(context).fpSaving : T.of(context).fpShot),
 
                 ),
 
@@ -791,7 +793,7 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
 
                       color: Colors.black.withOpacity(0.8),
 
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(CncRadius.control),
 
                     ),
 

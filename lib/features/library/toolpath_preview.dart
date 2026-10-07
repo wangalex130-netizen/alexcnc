@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 
 import '../../app/theme.dart';
 
+import '../../l10n/app_strings.dart';
+
 /// 2D 刀路预览：App 只下载云端生成的「渲染矢量 JSON」（协议 §3.2），
 /// 绝不持有/解析 G-code。JSON 结构：
 /// {
@@ -124,7 +126,7 @@ class _ToolpathPreviewState extends State<ToolpathPreview> {
     return AspectRatio(
       aspectRatio: widget.aspectRatio,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(CncRadius.card),
         child: _buildBody(),
       ),
     );
@@ -148,7 +150,7 @@ class _ToolpathPreviewState extends State<ToolpathPreview> {
       return Container(
         color: CncColors.panelAlt,
         child: Center(
-          child: Text('暂无刀路预览',
+          child: Text(T.of(context).tpNoPreview,
               style: TextStyle(fontSize: 12, color: CncColors.textSub)),
         ),
       );

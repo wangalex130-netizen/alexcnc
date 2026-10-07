@@ -6,6 +6,10 @@ import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import '../../app/theme.dart';
 import '../../app/theme_mode_controller.dart';
+import '../../app/visual_depth.dart';
+import '../../widgets/machine_status_ring.dart';
+
+import '../../l10n/app_strings.dart';
 
 /// 工单七（2026-09-25）：主页与设置页共用组件。
 ///
@@ -26,17 +30,42 @@ class SectionTitle extends StatelessWidget {
       );
 }
 
+/// 分组卡：多行列表的**外层容器**。
+///
+/// 2026-10-04 第 2 批自测发现：本卡是「大块容器」却没进 CncDepth 体系，
+/// 与设备卡/控制台卡的浮起感不一致（全站铺开脚本漏了本文件，
+/// 因为这里的写法是 `borderRadius` 后紧跟 `border`，不在同构模板内）。
+/// 归为 **rest 档**：整块浮起 + 内层行用分隔线，而不是每行各带阴影
+/// （每行加阴影会形成平行暗带，列表变「碎」—— 已实测确认）。
 class MenuGroup extends StatelessWidget {
   final List<Widget> children;
   const MenuGroup({required this.children});
+
   @override
   Widget build(BuildContext context) => Container(
         decoration: BoxDecoration(
           color: CncColors.card,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(CncRadius.card),
+          boxShadow: CncDepth.restBox(),
           border: Border.all(color: CncColors.border),
         ),
-        child: Column(children: children),
+        // 最后一项不画下边框，否则会紧贴组底多出一条线（自测像素扫描确认）。
+        child: Column(
+          children: [
+            for (var i = 0; i < children.length; i++)
+              if (children[i] is MenuItem)
+                MenuItem(
+                  icon: (children[i] as MenuItem).icon,
+                  title: (children[i] as MenuItem).title,
+                  trailing: (children[i] as MenuItem).trailing,
+                  badge: (children[i] as MenuItem).badge,
+                  onTap: (children[i] as MenuItem).onTap,
+                  showDivider: i < children.length - 1,
+                )
+              else
+                children[i],
+          ],
+        ),
       );
 }
 
@@ -46,12 +75,18 @@ class MenuItem extends StatelessWidget {
   final Widget? trailing;
   final Widget? badge;
   final VoidCallback? onTap;
+
+  /// 是否画行下方的分隔线。分组卡内**最后一项应传 false**，
+  /// 否则这条线会紧贴卡片下边缘，看起来像"多切了一刀"（2026-10-04 自测发现）。
+  final bool showDivider;
+
   const MenuItem(
       {required this.icon,
       required this.title,
       this.trailing,
       this.badge,
-      this.onTap});
+      this.onTap,
+      this.showDivider = true});
 
   @override
   Widget build(BuildContext context) => InkWell(
@@ -59,8 +94,9 @@ class MenuItem extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
           decoration: BoxDecoration(
-            border: Border(
-                bottom: BorderSide(color: CncColors.border)),
+            border: showDivider
+                ? Border(bottom: BorderSide(color: CncColors.border))
+                : null,
           ),
           child: Row(
             children: [
@@ -97,11 +133,11 @@ class MenuItem extends StatelessWidget {
 String themeModeLabel(ThemeMode m) {
   switch (m) {
     case ThemeMode.system:
-      return '跟随系统';
+      return T.current.apFollowSystem;
     case ThemeMode.light:
-      return '浅色';
+      return T.current.apLight;
     case ThemeMode.dark:
-      return '深色';
+      return T.current.apDark;
   }
 }
 
@@ -132,7 +168,7 @@ class AppearanceSheet extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             const SizedBox(height: 16),
-            Text('外观',
+            Text(T.of(context).stgAppearance,
                 style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -160,6 +196,29 @@ class AppearanceSheet extends ConsumerWidget {
                 },
               ),
             const SizedBox(height: 10),
+            // 2026-10-04：状态环图例（状态环第 2 版改为形态可辨后，
+            // 设备卡上不能再塞文字解释，把对照表放这儿，供客户查）。
+            Divider(height: 20, color: CncColors.border),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(T.of(context).apDeviceStatus,
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: CncColors.textMain)),
+                  const SizedBox(height: 4),
+                  Text(T.of(context).apRingHint,
+                      style: TextStyle(
+                          fontSize: 11, color: CncColors.textSub)),
+                  const SizedBox(height: 8),
+                  MachineStatusRingLegend(),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
           ],
         ),
       ),

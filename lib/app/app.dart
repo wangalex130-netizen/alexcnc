@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../main.dart' show applySystemBars;
+import '../l10n/app_strings.dart';
+import 'locale_controller.dart';
 import 'theme.dart';
 import 'theme_mode_controller.dart';
 import '../features/settings/privacy_consent_gate.dart';
@@ -21,6 +24,8 @@ class AlexCncApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final mode = ref.watch(themeModeProvider);
+    // 2026-10-05 国际化：null = 跟随系统；非 null = 用户在「设置→语言」显式选择。
+    final locale = ref.watch(localeProvider);
     // 全局挂载消息持久化：订阅 notify/broadcast 流并落盘，App 生命周期内持续记录，
     // 「我的」页消息抽屉从本地读取真实设备事件（后端暂无历史查询接口）。
     ref.watch(messageStoreProvider);
@@ -42,12 +47,12 @@ class AlexCncApp extends ConsumerWidget {
       showDialog<void>(
         context: ctx,
         builder: (d) => AlertDialog(
-          title: const Text('登录已过期'),
-          content: const Text('你的登录状态已失效，部分数据可能无法显示。请重新登录后再操作。'),
+          title: Text(T.current.lgExpiredTitle),
+          content: Text(T.current.lgExpiredBody),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(d).pop(),
-              child: const Text('知道了'),
+              child: Text(T.current.btnGotIt),
             ),
           ],
         ),
@@ -77,11 +82,27 @@ class AlexCncApp extends ConsumerWidget {
         ),
       ),
       themeMode: mode,
+      // ------------------------------------------------------------------
+      // 国际化（2026-10-05）
+      // 自建零 codegen 方案（lib/l10n/app_strings.dart），理由见该文件头注释。
+      // GlobalXxxLocalizations 必须挂，否则 Material 内置文案
+      //（日期选择器 / 长按菜单 / 语义标签）永远只显示本地语言。
+      locale: locale,
+      supportedLocales: AppLocalizations.supportedLocales,
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       // F-03：状态栏/导航栏图标颜色必须跟随**当前实际生效**的 Brightness。
       // ThemeMode.system 下 mode 可能是 system，需用 Theme.of 解析后的亮度，不能只看 mode。
       builder: (context, child) {
         // P1-1：同步全局亮度状态，CncColors 令牌 getter 据此在深浅色板间解析。
         CncColors.brightness = Theme.of(context).brightness;
+        // 2026-10-05：同步「无 context 场景」的文案出口（T.current）。
+        // 服务层 / 本地通知 / 后台回调拿不到 BuildContext，用它取当前语言。
+        T.current = T.of(context);
         applySystemBars(Theme.of(context).brightness);
         // 工单九 §1：亮度切换时整棵子树换 key 全量重建——静态令牌 getter 无
         // InheritedWidget 订阅，不换 key 则未依赖 Theme 的页面（图库/控制台，

@@ -14,6 +14,9 @@ import '../../app/theme.dart';
 import '../../models/machine_status.dart';
 import '../../services/hardware_service.dart';
 import '../../state/providers.dart';
+import '../../widgets/pressable.dart';
+
+import '../../l10n/app_strings.dart';
 
 export '../../widgets/jog_key.dart';
 
@@ -84,10 +87,10 @@ class _JogSheetState extends ConsumerState<JogSheet>
         ref.watch(runtimeConfigProvider).resolvedUseRealBackend && !hasMachine;
     final canControl = mState == MachineState.idle && !lockedByMachine;
     final lockLabel = lockedByMachine
-        ? '未选择机器 · 已锁定'
+        ? T.of(context).jogNoMachineLk
         : (mState == null || mState == MachineState.disconnected)
-            ? '未连接 · 已锁定'
-            : '加工中 · 已锁定';
+            ? T.of(context).jogOffLk
+            : T.of(context).jogBusyLk;
 
     // 🔴 报警自救通道（2026-08-31）：软复位 / 解锁**刻意不受 `state == idle` 闸门限制**。
     // 机器进 Alarm 后 canControl=false，Jog/回零全被锁死；若连解锁也一起锁，
@@ -124,7 +127,7 @@ class _JogSheetState extends ConsumerState<JogSheet>
       final sent = await widget.hw.jog(axis, step * sign);
       if (!sent && mounted) {
         // false = 未确认与机器同网（D-DEC-1 门禁）或 MQTT 未连上（W-09-c）。
-        toastJogBlocked('未发送：请连接机器所在 Wi-Fi 后再点动（外网仅监视）');
+        toastJogBlocked(T.of(context).jogNotSent);
       }
     }
 
@@ -141,7 +144,7 @@ class _JogSheetState extends ConsumerState<JogSheet>
       if (!sent) {
         _jogActive = false;
         if (mounted) {
-          toastJogBlocked('未发送：请连接机器所在 Wi-Fi 后再点动（外网仅监视）');
+          toastJogBlocked(T.of(context).jogNotSent);
         }
       }
     }
@@ -173,7 +176,7 @@ class _JogSheetState extends ConsumerState<JogSheet>
         final sent = await widget.hw
             .jogXY(dx * comp, -dy * comp, feed: jogFeedForStep(step));
         if (!sent && mounted) {
-          toastJogBlocked('未发送：请连接机器所在 Wi-Fi 后再点动（外网仅监视）');
+          toastJogBlocked(T.of(context).jogNotSent);
         }
       } else if (dx != 0) {
         await jog('x', dx);
@@ -190,16 +193,17 @@ class _JogSheetState extends ConsumerState<JogSheet>
         final ok = await showDialog<bool>(
               context: context,
               builder: (ctx) => AlertDialog(
-                title: Text(S.jogResetTitle),
-                content: Text(S.jogResetBody),
+                title: Text(T.of(context).jogResetTitle),
+                content: Text(T.of(context).jogResetBody),
                 actions: [
                   TextButton(
                       onPressed: () => Navigator.pop(ctx, false),
-                      child: const Text('取消')),
+                      // ★ 不能 const：T.of(context) 是运行时查找
+                      child: Text(T.of(context).btnCancel)),
                   TextButton(
                       onPressed: () => Navigator.pop(ctx, true),
-                      child: Text(S.jogResetConfirm,
-                          style: TextStyle(color: CncColors.danger))),
+                      child: Text(T.of(context).jogResetConfirm,
+                          style: TextStyle(color: CncColors.dangerFg))),
                 ],
               ),
             ) ??
@@ -207,14 +211,14 @@ class _JogSheetState extends ConsumerState<JogSheet>
         if (!ok) return;
       }
       await widget.hw.softReset();
-      if (mounted) toast(S.jogResetDone);
+      if (mounted) toast(T.of(context).jogResetDone);
     }
 
     Future<void> doUnlock() async {
       if (!canUnlock) return;
       await widget.hw.unlock();
       // 解锁后机器坐标不可信（$X 只是清锁，没有重建坐标系），必须提示重新定原点。
-      if (mounted) toast('已解除报警锁定 · 请重新定原点后再加工');
+      if (mounted) toast(T.of(context).jogUnlocked);
     }
 
     return Container(
@@ -230,7 +234,7 @@ class _JogSheetState extends ConsumerState<JogSheet>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(S.manualMove,
+              Text(T.of(context).jogManualMove,
                   style: TextStyle(
                       fontSize: 16, fontWeight: FontWeight.bold, color: CncColors.textMain)),
               if (!canControl)
@@ -238,10 +242,10 @@ class _JogSheetState extends ConsumerState<JogSheet>
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: CncColors.warning.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(6),
+                    borderRadius: BorderRadius.circular(CncRadius.sm),
                   ),
                   child: Text(lockLabel,
-                      style: TextStyle(fontSize: 10, color: CncColors.warning)),
+                      style: TextStyle(fontSize: 10, color: CncColors.warnFg)),
                 ),
             ],
           ),
@@ -249,7 +253,7 @@ class _JogSheetState extends ConsumerState<JogSheet>
           // 步进档位
           Row(
             children: [
-              Text('步进',
+              Text(T.of(context).jogStep,
                   style: TextStyle(fontSize: 12, color: CncColors.textSub)),
               const SizedBox(width: 12),
               ...[0.1, 1.0, 10.0].map((v) {
@@ -257,7 +261,7 @@ class _JogSheetState extends ConsumerState<JogSheet>
                 return Expanded(
                   child: Padding(
                     padding: const EdgeInsets.only(right: 8),
-                    child: GestureDetector(
+                    child: Pressable(
                       onTap: () =>
                           ref.read(jogStepProvider.notifier).state = v,
                       child: Container(
@@ -266,7 +270,7 @@ class _JogSheetState extends ConsumerState<JogSheet>
                           color: sel
                               ? CncColors.primary
                               : CncColors.bg,
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(CncRadius.control),
                           border: Border.all(
                             color: sel ? CncColors.primary : CncColors.border,
                           ),
@@ -335,19 +339,18 @@ class _JogSheetState extends ConsumerState<JogSheet>
                 width: 54,
                 child: Column(
                   children: [
-                    JogKey(S.jogReset, doSoftReset,
+                    JogKey(T.of(context).jogReset, doSoftReset,
                         enabled: canReset, repeat: false, danger: true),
                     const SizedBox(height: 6),
-                    JogKey('解锁', doUnlock,
+                    JogKey(T.of(context).jogUnlock, doUnlock,
                         enabled: canUnlock, repeat: false, danger: true),
                     const SizedBox(height: 6),
-                    JogKey('回零', () {
+                    JogKey(T.of(context).jogHome, () {
                       if (!canControl) return;
                       // W-10 扩展：回零属契约 forbidden（全行程移动）→ 仅同网可执行。
                       widget.hw.home().then((sent) {
                         if (!sent && mounted) {
-                          toastJogBlocked(
-                              '回零未发送：只能在机器同一局域网内执行（外网仅监视 / 可停机）');
+                          toastJogBlocked(T.of(context).jogHomeNotSent);
                         }
                       });
                     }, enabled: canControl, repeat: false),
@@ -357,7 +360,7 @@ class _JogSheetState extends ConsumerState<JogSheet>
             ],
           ),
           const SizedBox(height: 10),
-          Text(S.t(S.stepJogLong, {'step': step.toStringAsFixed(1)}),
+          Text(S.t(T.of(context).jogStepLong, {'step': step.toStringAsFixed(1)}),
               style: TextStyle(fontSize: 11, color: CncColors.textSub)),
         ],
       ),

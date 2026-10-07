@@ -25,6 +25,8 @@ import 'job_launch_banner.dart';
 
 import '../console/console_page.dart';
 
+import '../../l10n/app_strings.dart';
+
 
 
 /// Step6 自检流水线页。
@@ -91,13 +93,13 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
         icon: Symbols.error,
 
-        color: CncColors.danger,
+        color: CncColors.dangerFg,
 
         spinning: false,
 
-        title: '出问题了，请检查机器状态',
+        title: T.current.scBadTitle,
 
-        detail: '机器报告了异常。请查看机器屏幕上的提示，处理后再继续。',
+        detail: T.current.scBadDetail,
 
       );
 
@@ -115,9 +117,9 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
         spinning: true,
 
-        title: '正在雕刻',
+        title: T.current.scCarvingTitle,
 
-        detail: '机器正在加工中，请勿打开仓盖或伸手进入工作区。',
+        detail: T.current.scCarvingDetail,
 
       );
 
@@ -137,13 +139,13 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
         spinning: true,
 
-        title: '正在准备机器',
+        title: T.current.scPrepTitle,
 
         detail: pct > 0
 
-            ? '正在接收加工程序 $pct%'
+            ? T.current.scPrepPct.replaceAll('{p}', '$pct')
 
-            : '正在接收加工程序，请稍候…',
+            : T.current.scPrepWait,
 
       );
 
@@ -161,15 +163,17 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
         icon: Symbols.front_hand,
 
-        color: CncColors.warning,
+        color: CncColors.warnFg,
 
         spinning: false,
 
-        title: '请关闭仓盖，然后在机器屏幕上按开始',
+        title: T.current.scCoverTitle,
 
-        detail: '为了安全，真正的开刀必须由人在机器旁确认。'
-
-            '请确认仓盖已关好、耗材已压紧，再按机器屏幕上的开始键。',
+        // ★ scCoverDetail 是「为什么」（安全原因），
+        //scCoverDetail2 是「做什么」（确认动作），
+        //   两者是同一段告知的前后两句，而 detail 只收1 个 String
+        //   ⇒ 拼接而不是并列两个位置参数（那样编译不过）。
+        detail: T.current.scCoverDetail + '\n' + T.current.scCoverDetail2,
 
       );
 
@@ -183,17 +187,17 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
         icon: Symbols.cloud_off,
 
-        color: CncColors.danger,
+        color: CncColors.dangerFg,
 
         spinning: false,
 
-        title: '指令未送达',
+        title: T.current.scNotSent,
 
         detail: carve?.error?.isNotEmpty == true
 
             ? carve!.error!
 
-            : '请检查机器是否联网在线，然后重试。',
+            : T.current.scNotSentSub,
 
       );
 
@@ -209,9 +213,9 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
       spinning: true,
 
-      title: '正在连接机器',
+      title: T.current.scConnecting,
 
-      detail: '已发送启动指令，正在等待机器响应…',
+      detail: T.current.scWaitResp,
 
     );
 
@@ -247,13 +251,13 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
         backgroundColor: CncColors.card,
 
-        title: Text('返回控制台？',
+        title: Text(T.of(context).scBackAsk,
 
             style: TextStyle(color: CncColors.textMain)),
 
         content: Text(
 
-          '加工不会中断。你可以随时从控制台「当前加工中」返回查看实时进度。',
+          T.of(context).scBackDetail,
 
           style: TextStyle(color: CncColors.textSub),
 
@@ -265,7 +269,8 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
             onPressed: () => Navigator.of(ctx).pop(),
 
-            child: Text('留在本页', style: TextStyle(color: CncColors.textSub)),
+            child: Text(T.of(context).scStay,
+                style: TextStyle(color: CncColors.textSub)),
 
           ),
 
@@ -287,7 +292,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
             ),
 
-            child: const Text('去控制台'),
+            child: Text(T.of(context).scToConsole),
 
           ),
 
@@ -353,13 +358,13 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
           icon: Icon(Symbols.close, color: CncColors.textMain),
 
-          tooltip: '返回控制台',
+          tooltip: T.of(context).scBackTip,
 
           onPressed: _onClose,
 
         ),
 
-        title: Text(running ? '雕刻中' : '准备中',
+        title: Text(running ? T.of(context).scCarving : T.of(context).scPreparing,
 
             style: TextStyle(color: CncColors.textMain)),
 
@@ -385,7 +390,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
               color: CncColors.card,
 
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(CncRadius.control),
 
               border: Border.all(color: CncColors.border),
 
@@ -409,7 +414,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
                     children: [
 
-                      Text('加工参数',
+                      Text(T.of(context).scParams,
 
                           style: TextStyle(
 
@@ -457,7 +462,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
               color: CncColors.blue.withOpacity(0.08),
 
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(CncRadius.control),
 
               border: Border.all(color: CncColors.blue.withOpacity(0.3)),
 
@@ -465,7 +470,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
             child: Text(
 
-              '关闭本页不会停止加工。你可以随时从控制台「当前加工中」返回查看实时进度。',
+              T.of(context).scCloseTip,
 
               style: TextStyle(fontSize: 11, color: CncColors.textMain),
 
@@ -541,7 +546,7 @@ class _StatusCard extends StatelessWidget {
 
         color: view.color.withOpacity(0.10),
 
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(CncRadius.card),
 
         border: Border.all(color: view.color.withOpacity(0.45)),
 

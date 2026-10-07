@@ -36,6 +36,31 @@ import 'payload.dart';
 import 'payload_store.dart';
 import 'debug_sim.dart';
 import '../../l10n/strings_zh.dart';
+import '../../widgets/pressable.dart';
+import '../../app/visual_depth.dart';
+
+import '../../l10n/app_strings.dart';
+
+// ----------------------------------------------------------------------
+// 拆分说明（2026-10-05，纯搬运 · 零行为变更）
+//
+// 本文件曾达 4403 行单文件巨兽，任何视觉改动都在赌博。
+// 按语义拆为「主文件（壳 + 状态编排）」+ 3 个 part：
+//   wizard_steps_material.dart  材料步 / 刀具配置(ATC) / 刀仓组件
+//   wizard_steps_origin.dart    定原点步（含床身绘制器）
+//   wizard_steps_motion.dart    调平步 / 起刀步 / 框预览 / 确认阶段
+//
+// 为什么用 part 而不是独立 library：
+//   私有成员（_StepMaterial / _Slot / _BedPainter …）只在同库内可见。
+//   拆独立 library 就得去掉下划线 = 改几十处引用点 = 行为风险。
+//   part 之间共享库作用域 ⇒ 引用点一行都不用改。
+//
+// ★ part 指令必须紧跟 import、在任何声明之前 —— 放到文件末尾会报
+//   「Directives must appear before any declarations.」
+//   而 flutter analyze 抓不到这个错（它报 0 error，Gradle 编译才失败）。
+//
+// part 文件的 import 必须写在主文件（本文件）里，part 内部不允许 import。
+// ----------------------------------------------------------------------
 
 /// Core 2: 6-step foolproof processing wizard.
 ///
@@ -120,13 +145,15 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   // 2026-09-23 昊总裁定：**定原点排在刀仓映射之前**（原话「定完原点后才是
   // 确定刀具」）。原顺序让客户在还没有工件零点时就去分配刀仓，与车间实际
   // 动作顺序相反。顺序定义只此一处，其它地方一律按下标引用。
-  static const _titles = [
-    '材料与装夹',
-    '定原点防撞',
-    '刀仓映射',
-    '智能调平',
-    '开始雕刻',
-  ];
+  /// 步骤标题走i18n（2026-10-05 第9批）：原为 static const 硬编码中文，
+  /// 切英文时这五步纹丝不动 —— 半中半英最刺眼的一处。
+  static List<String> _titles(AppLocalizations l) => [
+        l.wzTitle1,
+        l.wzTitle2,
+        l.wzTitle3,
+        l.wzTitle4,
+        l.wzTitle5,
+      ];
 
   @override
   void initState() {
@@ -298,8 +325,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
         _cloudPayloadFailed = null;
         unawaited(_prefetchLaserFlag());
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-          content: const Text('模型数据没有准备好，暂时不能定原点；'
-              '请检查网络后再试一次'),
+          content: Text(T.current.wzPayloadFail),
           duration: const Duration(seconds: 4),
         ));
         return;
@@ -317,10 +343,10 @@ class _WizardPageState extends ConsumerState<WizardPage> {
             .read(hardwareServiceProvider)
             .setLevelingPlan(mode: _leveling, cols: plan.cols, rows: plan.rows)
             .then((ok) {
-          if (!ok) _toastWanBlocked(S.lanPlanAction);
+          if (!ok) _toastWanBlocked(T.of(context).woLanPlanAction);
         }, onError: (Object _) {
           // 门禁异常不得变成未处理的 Future 错误（P2-7 自审修复）。
-          _toastWanBlocked(S.lanPlanAction);
+          _toastWanBlocked(T.of(context).woLanPlanAction);
         }),
       );
     }
@@ -345,8 +371,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   List<int> get _visibleSteps =>
       _isLaserJob ? const [0, 1, 3, 4] : const [0, 1, 2, 3, 4];
 
-  List<String> get _visibleTitles =>
-      _visibleSteps.map((s) => _titles[s]).toList();
+  List<String> _visibleTitles(AppLocalizations l) =>
+      _visibleSteps.map((s) => _titles(l)[s]).toList();
 
   /// 向导入口预取轻量 JSON（工单 §2.3）：只为定激光/铣削形态。
   ///  - 取到 → 解析 isLaser 更新可见步骤表；结果进 PayloadFetchCache，
@@ -441,6 +467,8 @@ class _WizardPageState extends ConsumerState<WizardPage> {
 
   @override
   Widget build(BuildContext context) {
+    // ★ 步骤标题随语言变，故在 build 内解析（第9 批）。
+    final _vt = _visibleTitles(T.of(context));
     final t = Theme.of(context).textTheme;
     // 可见步骤序号（步骤条与 Step x/y 都按"客户看到的第几步"计数）。
     final vpos = _visibleSteps.indexOf(_step);
@@ -454,12 +482,12 @@ class _WizardPageState extends ConsumerState<WizardPage> {
         backgroundColor: CncColors.panel,
         leading: IconButton(
           icon: Icon(Symbols.close, color: CncColors.textMain),
-          tooltip: '取消',
+          tooltip: T.of(context).wzCancel,
           onPressed: () => Navigator.of(context).pop(),
         ),
-        title: Text(vpos < 0 || vpos >= _visibleTitles.length
-            ? '雕刻向导'
-            : _visibleTitles[vpos],
+        title: Text(vpos < 0 || vpos >= _vt.length
+            ? T.of(context).wzTitleAll
+            : _vt[vpos],
             style: TextStyle(color: CncColors.textMain)),
         centerTitle: false,
       ),
@@ -502,14 +530,14 @@ class _WizardPageState extends ConsumerState<WizardPage> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 20, vertical: 14),
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10)),
+                          borderRadius: BorderRadius.circular(CncRadius.control)),
                     ),
-                    child: const Text('上一步'),
+                    child: Text(T.of(context).wzPrev),
                   ),
                 const Spacer(),
                 FilledButton(
                   onPressed: _canProceed ? _next : null,
-                  child: const Text('下一步'),
+                  child: Text(T.of(context).wzNext),
                 ),
               ],
             )
@@ -555,7 +583,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
               const Spacer(),
               FilledButton(
                 onPressed: _canProceed ? _next : null,
-                child: const Text('下一步'),
+                child: Text(T.of(context).wzNext),
               ),
             ],
           ),
@@ -575,43 +603,43 @@ class _WizardPageState extends ConsumerState<WizardPage> {
         // 工单十五 §3.5：厚度拦截语义由输入框 errorText + 门禁承担，页底零红字。
         msg = '';
       } else {
-        msg = '请逐项确认：实物尺寸 ≥ 图形尺寸、且材料已用夹具固定。';
+        msg = T.current.wzG0;
       }
     // 2026-09-23：1 / 2 两段随步骤顺序互换（1 = 定原点，2 = 刀仓映射）。
     } else if (_step == 1) {
       if (!_originSet) {
-        msg = '请先用红点激光「设雕刻原点」。';
+        msg = T.current.wzG1a;
       } else if (_originOverflow) {
-        msg = '雕刻图形已超出机床物理极限，请调整原点位置。';
+        msg = T.current.wzG1b;
       } else if (!_safetyChecked) {
-        msg = '请勾选「红点轨迹已落在耗材内，且避开了压板」。';
+        msg = T.current.wzG1c;
       } else {
-        msg = '原点与行程核验无误，可进入下一步。';
+        msg = T.current.wzG1d;
       }
     } else if (_step == 2) {
       final req = _task?.requiredTools ?? [];
       final dup = _procSlot.values.length != _procSlot.values.toSet().length;
       if (dup) {
-        msg = '不同工序不能共用同一个刀仓，请为每把工序刀选择独立刀仓。';
+        msg = T.current.wzG2a;
       } else if (_procSlot.length < req.length) {
-        msg = '请为每把工序刀选择物理刀仓。';
+        msg = T.current.wzG2b;
       } else if (_procConfirmed.length < req.length) {
-        msg = '请逐一确认每个刀仓的实物环色一致。';
+        msg = T.current.wzG2c;
       } else if (!_syncedToMachine) {
-        msg = '必须点击「确认映射并同步到机器」后才能进入下一步。';
+        msg = T.current.wzG2d;
       } else {
-        msg = '请点击「确认映射并同步到机器」。';
+        msg = T.current.wzG2e;
       }
     } else if (_step == 3) {
-      msg = '请选择是否进行曲面调平。';
+      msg = T.current.wzG3;
     } else {
-      msg = '当前步骤未完成。';
+      msg = T.current.wzGX;
     }
     if (msg.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(left: 4),
       child: Text(msg,
-          style: t.bodyMedium?.copyWith(color: CncColors.danger)),
+          style: t.bodyMedium?.copyWith(color: CncColors.dangerFg)),
     );
   }
 
@@ -680,13 +708,13 @@ class _WizardPageState extends ConsumerState<WizardPage> {
                 Icon(Symbols.fact_check,
                     size: 42, color: CncColors.textSub),
                 const SizedBox(height: 12),
-                Text('本作业无需刀具映射',
+                Text(T.of(context).wzNoToolNeedle,
                     style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.bold,
                         color: CncColors.textMain)),
                 const SizedBox(height: 6),
-                Text('该作业不包含换刀工序，可直接进入下一步。',
+                Text(T.of(context).wzNoToolNeedleSub,
                     textAlign: TextAlign.center,
                     style: TextStyle(
                         fontSize: 12, color: CncColors.textSub)),
@@ -731,16 +759,6 @@ class _WizardPageState extends ConsumerState<WizardPage> {
   }
 }
 
-// ===================== Step 1 · 材料确认与装夹 =====================
-/// 材质由模型固定：G-code 的雕刻工艺参数在云端生成时已写死，App 侧改不了，
-/// 因此本步取消材质选择下拉，只做「确认实物与模型预置一致」：
-///   ① **3D 预览置顶**（昊总 2026-09-18：客户一进页面就要看到模型效果）
-///   ② 材质只读（按模型指定备料）
-///   ③ 平面尺寸 ≥ 雕刻图形尺寸（图形尺寸来自模型库；将来轻量 JSON 的
-///      modelBBox.spanX/spanY 与此同源）
-///   ④ **材料厚度由客户填写**（昊总 2026-09-18 改回输入模式）：基准 = 解析出的
-///      模型厚度，必须 ≥ 该值；填写的真实厚度会传给定原点页，3D 按真实料厚模拟
-///   ⑤ 装夹确认（材料平放 + 夹具只夹在雕刻区域外）
 class _StepMaterial extends StatelessWidget {
   final String materialKey; // 模型指定材质 key（只读，不再可选）
   final bool isLaser; // 激光作业：无厚度门禁/厚度卡，尺寸串两维（昊总 20260927）
@@ -784,7 +802,7 @@ class _StepMaterial extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: CncColors.bg,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(CncRadius.card),
           border: Border.all(color: CncColors.border),
         ),
         child: child,
@@ -830,7 +848,7 @@ class _StepMaterial extends StatelessWidget {
     // 平面两维串另存 —— 勾选框与「材料平面尺寸」行保持平面语义（板材无高度可比）。
     final size2d = hasSize
         ? '${_mm(modelWidthMm)} × ${_mm(modelHeightMm)} mm'
-        : '以模型标注为准';
+        : T.current.wzAsModelLabel;
     // 激光无厚度语义：尺寸串恒两维（CNC 保持 长×宽×高=厚度下限 口径，工单十五 §2）。
     final sizeText = isLaser
         ? size2d
@@ -874,7 +892,7 @@ class _StepMaterial extends StatelessWidget {
                     color: CncColors.primary,
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child: const Text('模型指定',
+                  child: Text(T.of(context).wzModelFixed,
                       style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.bold,
@@ -891,21 +909,23 @@ class _StepMaterial extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _title(Symbols.fact_check, '尺寸核验与装夹'),
+                _title(Symbols.fact_check, T.of(context).wzSizeCheck),
                 const SizedBox(height: 6),
-                _kv('雕刻图形尺寸', sizeText),
-                _kv('材料平面尺寸', '必须 ≥ 图形尺寸'),
+                _kv(T.of(context).wzGraphSize, sizeText),
+                _kv(T.of(context).wzFlatSize, T.of(context).wzMustGeSize),
                 const SizedBox(height: 4),
                 _CheckTile(
                   value: chkSize,
                   onChanged: onChkSize,
                   label:
-                      hasSize ? '实物板材尺寸 ≥ $size2d' : '实物板材尺寸 ≥ 图形尺寸',
+                      hasSize
+                          ? T.of(context).wzBoardGe2d.replaceAll('{s}', size2d)
+                          : T.of(context).wzBoardGeText,
                 ),
                 _CheckTile(
                   value: chkFixture,
                   onChanged: onChkFixture,
-                  label: '材料已平放，夹具固定在雕刻区域外',
+                  label: T.of(context).wzFlatAndClamp,
                 ),
               ],
             ),
@@ -919,7 +939,7 @@ class _StepMaterial extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _title(Symbols.straighten, '材料厚度'),
+                _title(Symbols.straighten, T.of(context).wzThickness),
                 const SizedBox(height: 6),
                 TextField(
                   controller: thicknessCtl,
@@ -932,11 +952,11 @@ class _StepMaterial extends StatelessWidget {
                   onSubmitted: (_) => thicknessFocus.unfocus(),
                   style: TextStyle(color: CncColors.textMain),
                   decoration: InputDecoration(
-                    labelText: '材料厚度 (mm)',
+                    labelText: T.of(context).wzThicknessMm,
                     labelStyle: TextStyle(color: CncColors.textSub),
                     // 工单十五 §3.2：常驻后缀「须 ≥ x mm」（非 hint，输入中不消失）。
                     suffix: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Text('须 ≥ $minT',
+                      Text(T.of(context).wzMustGeMinT.replaceAll('{t}', minT),
                           style: TextStyle(
                               fontSize: 12, color: CncColors.textSub)),
                       const SizedBox(width: 4),
@@ -944,17 +964,34 @@ class _StepMaterial extends StatelessWidget {
                           style: TextStyle(
                               fontSize: 12, color: CncColors.textSub)),
                     ]),
-                    errorText: tooThin ? '须 ≥ $minT mm（模型厚度）' : null,
+                    errorText: tooThin
+                        ? T.of(context).wzMustGeMinTmm.replaceAll('{t}', minT)
+                        : null,
                     filled: true,
                     fillColor: CncColors.bg,
                     isDense: true,
+                    // ★ 2026-10-04：五边框写全。原先只写 enabled/focused，
+                    // 缺 border / error / focusedError ⇒ 仍继承全局
+                    // inputDecorationTheme 的对应字段，卓易通上出现深色描边。
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(CncRadius.control),
+                      borderSide: BorderSide(color: CncColors.border),
+                    ),
                     enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(CncRadius.control),
                       borderSide: BorderSide(color: CncColors.border),
                     ),
                     focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: CncColors.primary),
+                      borderRadius: BorderRadius.circular(CncRadius.control),
+                      borderSide: BorderSide(color: CncColors.primary, width: 1.5),
+                    ),
+                    errorBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(CncRadius.control),
+                      borderSide: BorderSide(color: CncColors.danger),
+                    ),
+                    focusedErrorBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(CncRadius.control),
+                      borderSide: BorderSide(color: CncColors.danger, width: 1.5),
                     ),
                   ),
                 ),
@@ -971,7 +1008,7 @@ class _StepMaterial extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _title(Symbols.visibility, '3D 预览'),
+            _title(Symbols.visibility, T.current.wzPreview3d),
             const SizedBox(height: 6),
             ZGridPreview(
               url: payloadUrl,
@@ -1106,14 +1143,14 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
       builder: (ctx) => AlertDialog(
         backgroundColor: CncColors.card,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(CncRadius.card),
           side: BorderSide(color: CncColors.border),
         ),
         title: Row(
           children: [
-            Icon(Symbols.warning_amber, color: CncColors.danger),
+            Icon(Symbols.warning_amber, color: CncColors.dangerFg),
             const SizedBox(width: 8),
-            Text('D$slot 已占用',
+            Text(T.of(context).wzSlotTaken.replaceAll('{s}', '$slot'),
                 style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -1121,16 +1158,21 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
           ],
         ),
         content: Text(
-          'D$slot 当前已配置为 ${ringEmoji(existing.ring)} ${existing.name}，'
-          '与工序${p + 1} 所需刀具 ${ringEmoji(needed.ring)} ${needed.name} 不一致。\n\n'
-          '若继续映射，请确认 D$slot 实物刀仓中的刀具已更换为 ${ringEmoji(needed.ring)} ${needed.name}，'
-          '并核对环色无误。',
+          T.of(ctx).wzSlotConflict
+              .replaceAll('{a}', 'D$slot')
+              .replaceAll('{x}', '${ringEmoji(existing.ring)} ${existing.name}')
+              .replaceAll('{p}', '${p + 1}')
+              .replaceAll('{y}', '${ringEmoji(needed.ring)} ${needed.name}') +
+          '\n\n' +
+          T.of(ctx).wzSlotSwapHint
+              .replaceAll('{a}', 'D$slot')
+              .replaceAll('{y}', '${ringEmoji(needed.ring)} ${needed.name}'),
           style: TextStyle(fontSize: 13, color: CncColors.textSub),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text('取消',
+            child: Text(T.of(context).btnCancel,
                 style: TextStyle(color: CncColors.textSub)),
           ),
           FilledButton(
@@ -1139,7 +1181,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
               backgroundColor: CncColors.danger,
               foregroundColor: Colors.white,
             ),
-            child: const Text('已实物确认，继续映射',
+            child: Text(T.of(context).wzConfirmToMap,
                 style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
@@ -1168,20 +1210,20 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
         Row(
           children: [
             Expanded(
-              child: Text(S.step3Magazine,
+              child: Text(T.of(context).woStepMagazine,
                   style: t.titleMedium?.copyWith(color: CncColors.textMain)),
             ),
             IconButton(
               icon: _refreshing
                   ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: CncColors.primaryInk))
                   : Icon(Symbols.refresh, size: 18, color: CncColors.primaryInk),
-              tooltip: '刷新服务器最新刀仓',
+              tooltip: T.of(context).wzRefreshBay,
               onPressed: _refreshing ? null : _refresh,
             ),
           ],
         ),
         const SizedBox(height: 6),
-        Text(S.magazineAutoReuse,
+        Text(T.of(context).woMagAutoReuse,
             style: TextStyle(fontSize: 12, color: CncColors.textSub)),
         const SizedBox(height: 14),
         // 有序工序刀具 → 选兜 + 实物确认
@@ -1197,22 +1239,23 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
               ToolDef(
                   id: rt.toolId,
                   systemId: 0,
-                  name: '未配置（${rt.toolId}）',
-                  type: '未知',
+                  name: T.of(context).wzNotConfigured.replaceAll('{id}', '${rt.toolId}'),
+                  type: T.of(context).wzUnknownType,
                   bitType: 'unknown',
                   diameterMm: 0,
                   flutes: 0,
                   material: '',
                   ring: 'grey',
                   colorHex: '#888888',
-                  desc: '刀具库里没有这把刀的信息，请重新选择',
+                  desc: T.of(context).wzNoToolInfo,
                   materials: const []);
           return Container(
             margin: const EdgeInsets.only(bottom: 12),
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: CncColors.card,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(CncRadius.card),
+              boxShadow: CncDepth.restBox(),
               border: Border.all(color: CncColors.border),
             ),
             child: Column(
@@ -1225,14 +1268,14 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                           horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
                         color: CncColors.primary.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(6),
+                        borderRadius: BorderRadius.circular(CncRadius.sm),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           ringDot(defOrFallback.ring, size: 12),
                           const SizedBox(width: 4),
-                          Text('工序 ${p + 1}',
+                          Text(T.of(context).wzStepN.replaceAll('{n}', '${p + 1}'),
                               style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.bold,
@@ -1242,7 +1285,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text('${rt.role} · 模型推荐刀具',
+                      child: Text(T.of(context).wzRoleTool.replaceAll('{role}', rt.role),
                           style: TextStyle(
                               fontSize: 12, color: CncColors.textSub)),
                     ),
@@ -1272,7 +1315,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                   ],
                 ),
                 const SizedBox(height: 10),
-                Text('选择物理刀仓',
+                Text(T.of(context).wzPickSlot,
                     style: TextStyle(fontSize: 11, color: CncColors.textSub)),
                 const SizedBox(height: 6),
                 Row(
@@ -1297,7 +1340,10 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                     value: widget.confirmed.contains(p),
                     onChanged: (_) => widget.onToggleConfirm(p),
                     label:
-                        '我已确认 D$slot 实物环色为 ${ringEmoji(defOrFallback.ring)} ${defOrFallback.name}',
+                        T.of(context).wzRingConfirmed
+                            .replaceAll('{s}', '$slot')
+                            .replaceAll('{t}',
+                                '${ringEmoji(defOrFallback.ring)} ${defOrFallback.name}'),
                   ),
                 ],
                 if (dup)
@@ -1306,13 +1352,13 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Symbols.warning, size: 14, color: CncColors.danger),
+                      Icon(Symbols.warning, size: 14, color: CncColors.dangerFg),
                       const SizedBox(width: 4),
                       Expanded(
                         child: Text(
-                            'D$slot 被多个工序占用，请为每个工序选择不同刀仓',
+                            T.of(context).wzDupSlot.replaceAll('{s}', '$slot'),
                             style: TextStyle(
-                                fontSize: 11, color: CncColors.danger)),
+                                fontSize: 11, color: CncColors.dangerFg)),
                       ),
                     ],
                   ),
@@ -1322,7 +1368,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
           );
         }).toList(),
         const SizedBox(height: 10),
-        Text('当前刀表（刀仓 ↔ 刀具，与控制台同步）',
+        Text(T.of(context).wzToolTable,
             style: TextStyle(fontSize: 11, color: CncColors.textSub)),
         const SizedBox(height: 8),
         Row(
@@ -1349,7 +1395,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                         index: slot,
                         name: def != null
                             ? '${ringEmoji(def.ring)} ${def.name}'
-                            : '空位',
+                            : T.of(context).wzEmptySlot,
                         installed: def != null,
                         defId: id,
                       );
@@ -1389,9 +1435,9 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
             label: Text(
                 ready
                     ? (widget.synced
-                        ? '已同步到机器（点击重新同步）'
-                        : '确认映射并同步到机器')
-                    : S.assignTools,
+                        ? T.of(context).wzSyncedTip
+                        : T.of(context).wzConfirmSync)
+                    : T.of(context).woAssignTools,
                 style: const TextStyle(
                     fontSize: 14, fontWeight: FontWeight.bold)),
           ),
@@ -1412,12 +1458,12 @@ class _SlotChip extends StatelessWidget {
       required this.danger,
       required this.onTap});
   @override
-  Widget build(BuildContext context) => GestureDetector(
+  Widget build(BuildContext context) => Pressable(
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(CncRadius.control),
             color: danger
                 ? CncColors.dangerBg
                 : selected
@@ -1425,7 +1471,7 @@ class _SlotChip extends StatelessWidget {
                     : CncColors.bg,
             border: Border.all(
               color: danger
-                  ? CncColors.danger
+                  ? CncColors.dangerBd
                   : selected
                       ? CncColors.primary
                       : CncColors.border,
@@ -1437,7 +1483,7 @@ class _SlotChip extends StatelessWidget {
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
                     color: danger
-                        ? CncColors.danger
+                        ? CncColors.dangerFg
                         : selected
                             ? CncColors.primary
                             : CncColors.textMain)),
@@ -1518,9 +1564,9 @@ class _Slot extends StatelessWidget {
                       color: isConfirmed
                           ? CncColors.primary
                           : CncColors.warning,
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(CncRadius.control),
                     ),
-                    child: Text('工序${proc + 1}',
+                    child: Text(T.of(context).wzStepNShort.replaceAll('{n}', '${proc + 1}'),
                         style: const TextStyle(
                             fontSize: 9,
                             fontWeight: FontWeight.bold,
@@ -1532,8 +1578,8 @@ class _Slot extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
               seated
-                  ? (isConfirmed ? '已就位·已确认' : '已就位')
-                  : (proc != null ? '待装入' : '空位'),
+                  ? (isConfirmed ? T.of(context).wzSeatedOk : T.of(context).wzSeated)
+                  : (proc != null ? T.of(context).wzToLoad : T.of(context).wzEmptySlot),
               style: TextStyle(fontSize: 11, color: ring)),
           if (seated)
             SizedBox(
@@ -1551,6 +1597,7 @@ class _Slot extends StatelessWidget {
 }
 
 // ========== Step 2 · 定原点（大画框：标定 → 拖设计 → 雕刻预览；2026-09-23 起排在刀仓之前）==========
+
 /// 所见即所得定原点（开发文档 §4 / §5 / §6）。
 ///
 /// - **有轻量 JSON**：标定（矩形 2 点 / 圆形 2 点，连线为直径）→ 拖设计排版 → App 算 G54_XY
@@ -1795,7 +1842,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     if ((widget.payloadUrl ?? '').isNotEmpty) return;
     final lp = LocalPayloadStore.instance.payload;
     if (lp == null) return;
-    _applyPayload(lp.meta, lp.grid, source: '本地调试文件「${lp.fileName}」');
+    _applyPayload(lp.meta, lp.grid, source: T.current.wnLocalFile.replaceAll('{f}', lp.fileName));
   }
 
   /// 载荷落地：解除旧绑定 → 清巡边结论 → 按真实足迹居中排版 → 如实提示。
@@ -1841,7 +1888,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     if (url == null || url.isEmpty) {
       final lp = LocalPayloadStore.instance.payload;
       if (lp != null) {
-        _applyPayload(lp.meta, lp.grid, source: '本地调试文件「${lp.fileName}」');
+        _applyPayload(lp.meta, lp.grid, source: T.current.wnLocalFile.replaceAll('{f}', lp.fileName));
       }
       return;
     }
@@ -1864,17 +1911,17 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           _meta = null;
           _grid = null;
         });
-        _note(S.noPattern, bad: true);
+        _note(T.of(context).woNoPattern, bad: true);
         return;
       }
-      _applyPayload(m, grid, source: S.payloadSourceCloud);
+      _applyPayload(m, grid, source: T.of(context).woPayloadCloud);
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _meta = null;
         _grid = null;
       });
-      _note(S.noPattern, bad: true);
+      _note(T.of(context).woNoPattern, bad: true);
     }
   }
 
@@ -2006,8 +2053,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       widget.onSafety(false);
     }
     if (!quiet && of) {
-      _note('图案尺寸超出当前耗材可用安全区：请换大料或缩小设计（禁止静默截断）',
-          bad: true);
+      _note(T.current.wnOverflow, bad: true);
     }
     return p;
   }
@@ -2033,21 +2079,19 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       final fresh = _frameAt != null &&
           DateTime.now().difference(_frameAt!) < const Duration(seconds: 2);
       if (!fresh) {
-        _note('暂时收不到机器位置，恢复后才能继续取点', bad: true);
+        _note(T.current.wnNoFrame, bad: true);
         return;
       }
     }
     final pt = _livePos();
     if (pt == null) {
-      _note(S.notConnected, bad: true);
+      _note(T.of(context).woNotConnected, bad: true);
       return;
     }
     final circle = widget.stockShape == StockShape.circle;
     if (widget.p0 == null) {
       widget.onP0(pt);
-      _note(circle
-          ? '已记下第 1 点，转到圆周正对面再按定位'
-          : '已记下第 1 点，移到对角再按定位');
+      _note(circle ? T.current.wnP1Circle : T.current.wnP1Rect);
     } else if (widget.p1 == null) {
       widget.onP1(pt);
       // 两点即完成标定（矩形 = 两点围出的横平竖直矩形，与先后无关；圆 = 两点连线为直径）。
@@ -2060,14 +2104,17 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       final h = r?.height ?? 0;
       if (circle) {
         if ((c?.radius ?? 0) * 2 < 10) {
-          _note('两点太近，请取圆周正对面的两点', bad: true);
+          _note(T.current.wnTooCloseCircle, bad: true);
         } else {
-          _note('圆料直径 ${((c?.radius ?? 0) * 2).toStringAsFixed(0)} mm');
+          _note(T.current.wnCircleDia.replaceAll(
+              '{d}', ((c?.radius ?? 0) * 2).toStringAsFixed(0)));
         }
       } else if (w < 10 || h < 10) {
-        _note('两点太近，请取材料的两个对角', bad: true);
+        _note(T.current.wnTooCloseRect, bad: true);
       } else {
-        _note('材料 ${w.toStringAsFixed(0)} × ${h.toStringAsFixed(0)} mm');
+        _note(T.current.wnRectSize
+            .replaceAll('{w}', w.toStringAsFixed(0))
+            .replaceAll('{h}', h.toStringAsFixed(0)));
       }
     } else {
       // 已取满两点时再按 = 以当前位置做新的 P0（只留 1 点）。
@@ -2077,7 +2124,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       widget.onP0(pt);
       widget.onP1(null);
       _invalidateDatum(); // B-5：同「完成标定」，重取也必须作废旧 G54
-      _note('已重新开始标定');
+      _note(T.current.wnReCalibrate);
     }
   }
 
@@ -2111,7 +2158,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     widget.onP1(null);
     widget.onOverflow(false);
     _invalidateDatum();
-    _note(S.calibrationReset);
+    _note(T.of(context).woCalibReset);
   }
 
   // ---------- 拖动十字驱动主轴（第 10 条 B 方案）----------
@@ -2135,8 +2182,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   /// 点动指令没能发出（MQTT 未连接，_publish 返回 false）：给一句直述，
   /// 不再静默（昊总 0927 实测「按了没用」——机器页有 toast，向导页是黑洞）。
   void _jogFailNote() {
-    _note('指令没有发出：手机与机器的连接断了，请检查手机网络和机器状态后重试',
-        bad: true);
+    _note(T.current.wnCmdNotSent, bad: true);
   }
 
   void _jog(String axis, double dir) {
@@ -2159,13 +2205,12 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     if (mp != null) {
       final t = Offset(mp.x, mp.y) + delta;
       if (t.dx < 0 || t.dy < 0 || t.dx > _bedW || t.dy > _bedH) {
-        _note('已到台面边界：激光不能再往外移', bad: true);
+        _note(T.current.wnBedEdge, bad: true);
         return;
       }
     }
     if (_frameStale) {
-      _note('机器回应不稳定，请检查机器与网络',
-          bad: true);
+      _note(T.current.wnUnstable, bad: true);
     }
     if (!_wysiwyg) {
       // 手动模式：Jog 即移动雕刻原点
@@ -2208,13 +2253,12 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     if (mp != null) {
       final t = Offset(mp.x, mp.y) + delta;
       if (t.dx < 0 || t.dy < 0 || t.dx > _bedW || t.dy > _bedH) {
-        _note('已到台面边界：激光不能再往外移', bad: true);
+        _note(T.current.wnBedEdge, bad: true);
         return;
       }
     }
     if (_frameStale) {
-      _note('机器回应不稳定，请检查机器与网络',
-          bad: true);
+      _note(T.current.wnUnstable, bad: true);
     }
     if (!_wysiwyg) _setDesign(widget.origin + delta);
     ref.read(hardwareServiceProvider).jogXY(mx, my,
@@ -2229,7 +2273,9 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     final ok = await ref.read(hardwareServiceProvider).setAux('laser', on);
     if (!mounted) return;
     if (ok) setState(() => _laserOn = on);
-    _note(ok ? (on ? '激光十字已开' : '激光十字已关') : '激光未开启，请检查连接',
+    _note(ok
+        ? (on ? T.current.wnLaserOn : T.current.wnLaserOff)
+        : T.current.wnLaserNotOn,
         bad: !ok);
   }
 
@@ -2243,23 +2289,23 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   /// 物理移动，再叠一层动画只会干扰目视判断，故 App 只保留明确的拒绝清单。
   List<String> _framingLocks() {
     final fails = <String>[];
-    if (!_datumDone) fails.add('还没取完点（需 $_needPts 个点）');
+    if (!_datumDone) fails.add(T.current.wnPtsLeft.replaceAll('{n}', '$_needPts'));
     // APP-09（2026-10-05）：homed=false = GRBL 报警态，坐标不可信 ⇒ 硬拦；
     // homed 键缺失（未知）保持既有软提示（_topIssue），兼容老固件三态语义。
     if (!DebugSim.instance.enabled) {
       final st = ref.read(machineStatusProvider).valueOrNull;
-      if (st?.homed == false) fails.add('机器还没回零：请在屏幕上先回零');
+      if (st?.homed == false) fails.add(T.current.woNeedHoming);
     }
     final m = _meta;
     if (m != null) {
       if (!_g54Written) {
-        fails.add(S.envelopeLocked);
+        fails.add(T.of(context).woEnvLocked);
       } else {
         final v = m.limitViolation(_g54x, _g54y);
         if (v != null) fails.add(v);
       }
     }
-    if (_busy) fails.add('指令进行中（busy）');
+    if (_busy) fails.add(T.current.wnBusy);
     return fails;
   }
 
@@ -2279,16 +2325,16 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         _framingFail = null;
         _framingNotSent = false;
       });
-      _note('机器已确认巡边完成');
+      _note(T.current.wnFramingOk);
       return;
     }
     setState(() {
       _framingDone = false;
-      _framingFail = ev.message.isEmpty ? '机器巡边失败' : ev.message;
+      _framingFail = ev.message.isEmpty ? T.current.wnFramingFail : ev.message;
       _framingNotSent = false;
     });
     widget.onSafety(false); // 机器明确拒绝 ⇒ 既有目视确认不再成立
-    _note('机器拒绝巡边：${_framingFail}', bad: true);
+    _note(T.current.wnFramingReject.replaceAll('{r}', '$_framingFail'), bad: true);
   }
 
   Future<void> _doFraming() async {
@@ -2301,7 +2347,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         _framingNotSent = false; // 业务三锁拒绝 ≠ 「没收到机器确认」
         _framingFail = fails.join('\n');
       });
-      _note('雕刻预览被拒绝：\n${fails.join('\n')}', bad: true);
+      _note(T.current.wnPreviewRejected.replaceAll('{r}', fails.join('\n')), bad: true);
       return;
     }
     final o = widget.origin;
@@ -2333,7 +2379,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       _framingNotSent = !ok;
       _framingFail = ok
           ? null
-          : S.notConnected;
+          : T.of(context).woNotConnected;
     });
     if (ok) _frameAnim.forward(from: 0);
     // A-2（2026-09-24）：真机发布成功 ⇒ 起 30s 超时表等机器回执。收到回执
@@ -2348,11 +2394,10 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         // 带着上一次的「已目视确认」一路走到开切。
         widget.onSafety(false);
         setState(() {
-          _framingFail = '机器未回复巡边结果';
+          _framingFail = T.current.wnNoReply;
           _framingNotSent = false;
         });
-        _note('30 秒未收到机器回应，请目视确认巡边结果',
-            bad: true);
+        _note(T.current.wnTimeout30, bad: true);
       });
     }
     _note(
@@ -2361,9 +2406,9 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       // 未开「激光定位」时巡边是空走，明说看不见光点，避免误判机器没动。
       ok
           ? (_laserOn
-              ? S.framingOn
-              : '巡边已开始（未开激光定位，看不到光点）')
-          : S.notConnected,
+              ? T.of(context).woFramingOn
+              : T.of(context).woFramingNoLaser)
+          : T.of(context).woNotConnected,
       bad: !ok,
     );
   }
@@ -2372,11 +2417,11 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     if (_busy) return;
     final m = _meta;
     if (m == null) {
-      _note(S.noJobData, bad: true);
+      _note(T.of(context).woNoJobData, bad: true);
       return;
     }
     if (!_datumDone) {
-      _note(S.t(S.calibrationNeeded, {'n': '$_needPts'}), bad: true);
+      _note(S.t(T.of(context).woCalibNeeded, {'n': '$_needPts'}), bad: true);
       return;
     }
     // APP-09：homed=false = 报警态，此时写入的 G54 基于不可信坐标 ⇒ 硬拦。
@@ -2384,7 +2429,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     if (!DebugSim.instance.enabled) {
       final st = ref.read(machineStatusProvider).valueOrNull;
       if (st?.homed == false) {
-        _note('机器还没回零：请在屏幕上先回零', bad: true);
+        _note(T.current.woNeedHoming, bad: true);
         return;
       }
     }
@@ -2397,8 +2442,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     // 成功提示，而机器已经带着一个越界偏置（错的 G54 一旦落盘就是静默的）。
     final viol = m.limitViolation(g.x, g.y);
     if (viol != null) {
-      _note('G54 拒绝写入：$viol。\n请把模型挪回材料安全区内，或重新标定材料边界后再试',
-          bad: true);
+      _note(T.current.wnG54Reject.replaceAll('{v}', viol), bad: true);
       return;
     }
     setState(() => _busy = true);
@@ -2427,7 +2471,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     widget.onOriginSet(ok);
     // A-1：失败必须给客户可读原因（cmd_ack 错误码已映射 / 无回执 / 回读不一致）。
     _note(
-      ok ? S.originConfirmed : (res.reason ?? S.notConnected),
+      ok ? T.of(context).woOriginConfirmed
+              : (res.reason ?? T.of(context).woNotConnected),
       bad: !ok,
     );
   }
@@ -2437,7 +2482,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     _setDesign(widget.origin);
     if (!widget.overflow) {
       widget.onOriginSet(true);
-      _note(S.originLocked);
+      _note(T.of(context).woOriginLocked);
     }
   }
 
@@ -2448,7 +2493,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
         decoration: BoxDecoration(
           color: ok ? CncColors.successBg : CncColors.warnBg,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(CncRadius.card),
           border: Border.all(
               color: ok ? CncColors.successBd : CncColors.warnBd,
               width: 0.5),
@@ -2603,7 +2648,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     // 标题 13/700；连接圆点 7×7 —— 在线 blue / 离线 textSub / 异常 danger。
     final alarm = st?.state == MachineState.alarm;
     final dotColor = alarm
-        ? CncColors.danger
+        ? CncColors.dangerFg
         : (linked ? CncColors.blue : CncColors.textSub);
     return Container(
       height: 48,
@@ -2613,7 +2658,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         border: Border(bottom: BorderSide(color: CncColors.border)),
       ),
       child: Row(children: [
-        GestureDetector(
+        Pressable(
           behavior: HitTestBehavior.opaque,
           onTap: _busy ? null : widget.onPrev,
           child: Container(
@@ -2622,7 +2667,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
             margin: const EdgeInsets.symmetric(horizontal: 4),
             decoration: BoxDecoration(
               color: CncColors.panelAlt,
-              borderRadius: BorderRadius.circular(9),
+              borderRadius: BorderRadius.circular(CncRadius.control),
+              boxShadow: CncDepth.restBox(),
             ),
             child: Icon(Symbols.arrow_back_ios_new,
                 size: 14, color: CncColors.textMain),
@@ -2630,7 +2676,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         ),
         Expanded(
           child: Center(
-            child: Text('定原点',
+            child: Text(T.of(context).woTitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -2650,10 +2696,10 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           // 断帧前的旧状态当连接。改与取点门禁同口径 —— 过期 = 连接不稳定。
           Text(
               sim
-                  ? '模拟'
+                  ? T.of(context).woSim
                   : (!linked
-                      ? '未连接'
-                      : (_frameStale ? '连接不稳定' : '已连接')),
+                      ? T.of(context).woNotLinked
+                      : (_frameStale ? T.of(context).woUnstable : T.of(context).woLinked)),
               style: TextStyle(fontSize: 10.5, color: CncColors.textSub)),
         ]),
         const SizedBox(width: 8),
@@ -2712,7 +2758,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   /// 载体由原手柄条 chip 改为画布右上角浮动键 —— 工单 §3.5）。
   Widget _modeChip() {
     final can3d = _wysiwyg && _grid != null;
-    return GestureDetector(
+    return Pressable(
       onTap: () {
         if (_show3D) {
           setState(() => _show3D = false);
@@ -2724,7 +2770,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
           color: CncColors.card,
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(CncRadius.pill),
+          boxShadow: CncDepth.restBox(),
           border: Border.all(color: CncColors.blue),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -2754,8 +2801,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     final sim = DebugSim.instance.enabled;
     final m = ref.watch(currentMachineProvider);
     final name = sim
-        ? '模拟机器'
-        : (m == null ? '未选机器' : (m.name.isNotEmpty ? m.name : m.sn));
+        ? T.of(context).woSimMachine
+        : (m == null ? T.of(context).woNoMachine : (m.name.isNotEmpty ? m.name : m.sn));
     final locked = widget.originSet && (_g54Written || !_wysiwyg);
     return Container(
       height: 28,
@@ -2775,7 +2822,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           ),
         ),
         const SizedBox(width: 8),
-        Text(locked ? '原点已锁定' : '原点未设定',
+        Text(locked ? T.of(context).woLocked : T.of(context).woNotSet,
             style: TextStyle(
                 fontSize: 11,
                 fontWeight: locked ? FontWeight.w600 : FontWeight.normal,
@@ -2799,7 +2846,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
               Icon(Symbols.keyboard_arrow_up,
                   size: 12, color: CncColors.textSub),
               const SizedBox(width: 4),
-              Text('展开工具',
+              Text(T.of(context).woExpand,
                   style: TextStyle(fontSize: 10.5, color: CncColors.textSub)),
             ]),
           ),
@@ -2811,7 +2858,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         // 工单十六 §1.1：三步进度导航（Stepper）替换三段 tab；收起键保留。
         Row(children: [
           Expanded(child: _stepper()),
-          GestureDetector(
+          Pressable(
             behavior: HitTestBehavior.opaque,
             onTap: () => setState(() => _drawerOpen = false),
             child: Padding(
@@ -2871,24 +2918,35 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
             (widget.safetyChecked || DebugSim.instance.enabled),
       };
 
-  /// 三态：已完成=墨色✓圆徽(20dp)+墨字（可点回跳）；当前=墨底纸字实心胶囊
-  /// (高40)；锁定=灰字+细灰描边（不可点）。行高 56 整行热区；段间 12dp 连接线。
+  /// 三态：当前=墨底纸字实心胶囊(高 40，独占 flex 5)；已完成=墨色序号圆牌+✓
+  /// （可点回跳）；锁定=灰序号圆牌 + 细灰描边（不可点）。行高 56 整行热区；
+  /// 段间 12dp 连接线。
+  ///
+  /// ★ 2026-10-05 布局修正：原来三段平分宽度（每段约 94px 可用），
+  ///   而英文「Preview & confirm」13px 需约 105px ⇒ 实测截断成「Preview & c…」
+  ///   （中文 4 字约 52px，所以中文版从未暴露这个问题）。
+  ///   改为「当前段独占宽度 + 非当前段只显示序号」——
+  ///   **不给文字就不存在截断**，比缩字号/换短文案更稳（换文案长度就又截断）。
   /// 回跳后的任何改动（重取点/换形态/移模型）走现成 _invalidateDatum 作废联动，
   /// 不新增状态机。
   Widget _stepper() {
-    const labels = ['定位耗材', '定位模型', '预览确认'];
+    // ★ 步骤条名走i18n（2026-10-05 第10批）
+    final labels = [T.of(context).woSt1, T.of(context).woSt2, T.of(context).woSt3];
     Widget item(int i) {
       final cur = i == _segEff;
       final done = !cur && _doneAt(i);
       Widget core;
       if (cur) {
+        // ★ 2026-10-05：选中态独占较大 flex（见 _stepper 注释）。
+        //   英文「Preview & confirm」13px ≈ 105px，94px 会截断成
+        //   「Preview & c…」。这里给足宽度，不用 ellipsis 掩盖。
         core = Container(
           height: 40,
           padding: const EdgeInsets.symmetric(horizontal: 14),
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: _ink,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(CncRadius.card),
           ),
           child: Text(labels[i],
               maxLines: 1,
@@ -2899,48 +2957,45 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
                   color: _paper)),
         );
       } else if (done) {
+        // ★ 已完成态：只留对勾 + 序号，不再重复文案（文案在选中段显示）。
+        //   对勾本身已表达「这一步做完了」，序号提供可读的位置感。
         core = Row(mainAxisSize: MainAxisSize.min, children: [
           Container(
             width: 20,
             height: 20,
+            alignment: Alignment.center,
             decoration:
                 const BoxDecoration(shape: BoxShape.circle, color: _ink),
-            child: const Icon(Symbols.check, size: 12, color: _paper),
+            child: Text('${i + 1}',
+                style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: _paper)),
           ),
           const SizedBox(width: 5),
-          Flexible(
-            child: Text(labels[i],
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    color: CncColors.textMain)),
-          ),
+          // ★ 不能 const：CncColors.textSub 是运行时 getter（同下）
+          Icon(Symbols.check, size: 14, color: CncColors.textSub),
         ]);
       } else {
+        // ★ 锁定态：只显示序号。文字留给选中段，避免三段平分宽度导致截断。
         core = Container(
           height: 40,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
+          width: 40,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(CncRadius.card),
             border: Border.all(color: CncColors.border),
           ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Flexible(
-              child: Text(labels[i],
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      fontSize: 12.5, color: CncColors.textSub)),
-            ),
-          ]),
+          child: Text('${i + 1}',
+              // ★ 不能 const：CncColors.textSub 是按 brightness 动态解析的
+              //   getter，不是编译期常量（同上）。
+              style: TextStyle(
+                  fontSize: 13, color: CncColors.textSub)),
         );
       }
       return SizedBox(
         height: 56,
-        child: GestureDetector(
+        child: Pressable(
           behavior: HitTestBehavior.opaque,
           onTap: done ? () => setState(() => _seg = i) : null,
           child: Center(child: core),
@@ -2952,12 +3007,15 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         Container(width: 12, height: 1.5, color: CncColors.border);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4),
+      // ★ 2026-10-05：非当前段 flex 3、当前段 flex 5。
+      //   3+5+3 = 11 ⇒ 当前段 ≈ 366×5/11 = 166px，减段内 padding 28 = 138px，
+      //   可容「Preview & confirm」（≈105px）不截断。
+      //   非当前段只显示 40px 圆牌（序号/对勾），文字宽度让给当前段。
       child: Row(children: [
-        Expanded(child: Center(child: item(0))),
-        link(),
-        Expanded(child: Center(child: item(1))),
-        link(),
-        Expanded(child: Center(child: item(2))),
+        for (var i = 0; i < 3; i++) ...[
+          if (i > 0) link(),
+          Expanded(flex: i == _segEff ? 5 : 3, child: Center(child: item(i))),
+        ],
       ]),
     );
   }
@@ -2974,11 +3032,11 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         return Column(children: [
           if (_wysiwyg) ...[
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              _shapeCard('矩形', widget.stockShape == StockShape.rect,
+              _shapeCard(T.of(context).woRect, widget.stockShape == StockShape.rect,
                   () => widget.onShape(StockShape.rect),
                   icon: Symbols.square),
               const SizedBox(width: 12),
-              _shapeCard('圆形', widget.stockShape == StockShape.circle,
+              _shapeCard(T.of(context).woCircle, widget.stockShape == StockShape.circle,
                   () => widget.onShape(StockShape.circle),
                   icon: Symbols.circle),
             ]),
@@ -3011,7 +3069,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
                     quiet: true);
               },
               repeatFor: (_, __) => true,
-              centerLabel: '居中',
+              centerLabel: T.of(context).woCenter,
               centerLight: true,
               onCenter: _busy ? null : _centerModel,
             ),
@@ -3023,7 +3081,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         // ③ 预览确认：雕刻预览（复用 _doFraming）+ 已目视确认（复用 _safetyTick）。
         final canPreview = !_busy && !_framePlaying && _datumDone;
         return Column(children: [
-          _deckBtn(_framePlaying ? '预览中…' : '雕刻预览',
+          _deckBtn(_framePlaying ? T.of(context).woPreviewing : T.of(context).woCarvePreview,
               canPreview ? _doFraming : null),
           const SizedBox(height: 12),
           _safetyTick(),
@@ -3054,10 +3112,13 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     if (wp != null) {
       final rx = (mp!.x - wp.x).toStringAsFixed(1);
       final ry = (mp.y - wp.y).toStringAsFixed(1);
-      return '雕刻起点：X $rx，Y $ry';
+      return T.current.woOriginAt
+          .replaceAll('{x}', rx)
+          .replaceAll('{y}', ry);
     }
-    return '雕刻起点：X ${_g54x.toStringAsFixed(1)}，'
-        'Y ${_g54y.toStringAsFixed(1)}';
+    return T.current.woOriginAt
+        .replaceAll('{x}', _g54x.toStringAsFixed(1))
+        .replaceAll('{y}', _g54y.toStringAsFixed(1));
   }
 
   /// 唯一 CTA（工单十六 §3.2/§2.7）：高 56dp 全宽圆角 14，随段换文案 ——
@@ -3080,17 +3141,21 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           // 昊总 20260927：材料范围任一维盖不住模型 → 禁推进（直述原因）。
           enabled = !_busy && _stockCoversModel;
           label = _stockCoversModel
-              ? '定位完成，去定位模型'
-              : '材料小于模型，请重新取点';
+              ? T.of(context).woLocDone
+              : T.of(context).woStockSmall;
           act = () async => setState(() => _seg = 1);
         } else {
           enabled = false;
-          label = _wysiwyg ? '定位后可用 · $got/$_needPts' : '先在拨盘上设原点';
+          label = _wysiwyg
+              ? T.of(context).woLocThenUse
+                  .replaceAll('{a}', '$got')
+                  .replaceAll('{b}', '$_needPts')
+              : T.of(context).woSetOriginFirst;
           act = () async {};
         }
       case 1:
         enabled = _done0 && !_busy;
-        label = '位置确认，去预览';
+        label = T.of(context).woConfirmGoPreview;
         act = () async {
           if (!_wysiwyg) {
             // 手动模式无 G54 链路（旧 locked=!wysiwyg 口径），直接进预览。
@@ -3104,8 +3169,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       default:
         enabled = canNext && !_busy;
         label = enabled
-            ? '锁定原点并继续'
-            : (!_framingDone ? '先雕刻预览' : '先目视确认');
+            ? T.of(context).woLockAndGo
+            : (!_framingDone ? T.of(context).woPreviewFirst : T.of(context).woVisualFirst);
         act = () async => widget.onNext?.call();
     }
     return Container(
@@ -3121,7 +3186,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
             foregroundColor: _paper,
             disabledForegroundColor: CncColors.textSub,
             shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14)),
+                borderRadius: BorderRadius.circular(CncRadius.card)),
           ),
           icon: Icon(seg == 2 ? Symbols.arrow_forward : Symbols.check,
               size: 14),
@@ -3151,14 +3216,15 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     // 整行热区；勾选框 24dp（选中 = 墨底白✓，弃青绿）+「已目视确认」
     // 14/w600 墨字。名称只写「已目视确认」（文案零解释铁律不变）；
     // 未预览前禁用（现成逻辑零改动）。
-    return GestureDetector(
+    return Pressable(
       onTap: enabled ? () => widget.onSafety(!on) : null,
       child: Container(
         height: 56,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: CncColors.card,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(CncRadius.card),
+          boxShadow: CncDepth.restBox(),
           border: Border.all(color: CncColors.border),
         ),
         child: Row(children: [
@@ -3167,7 +3233,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
             height: 24,
             decoration: BoxDecoration(
               color: on ? _ink : CncColors.card,
-              borderRadius: BorderRadius.circular(7),
+              borderRadius: BorderRadius.circular(CncRadius.control),
+              boxShadow: CncDepth.restBox(),
               border: Border.all(
                   width: 1.5, color: on ? _ink : CncColors.border),
             ),
@@ -3176,7 +3243,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
                 : null,
           ),
           const SizedBox(width: 8),
-          Text('已目视确认',
+          Text(T.of(context).woVisuallyOk,
               style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -3193,14 +3260,15 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   /// 未选 = 纸白底 + 1dp border + textSub。圆料直径由取点两点距离决定（现成）。
   Widget _shapeCard(String label, bool active, VoidCallback? onTap,
           {required IconData icon}) =>
-      GestureDetector(
+      Pressable(
         onTap: onTap,
         child: Container(
           width: 156,
           height: 56,
           decoration: BoxDecoration(
             color: CncColors.card,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(CncRadius.card),
+            boxShadow: CncDepth.restBox(),
             border: Border.all(
                 width: active ? 1.5 : 1,
                 color: active ? CncColors.textMain : CncColors.border),
@@ -3234,7 +3302,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       ]);
 
   Widget _stepPill(String label, bool active, VoidCallback? onTap) =>
-      GestureDetector(
+      Pressable(
         onTap: onTap,
         child: Container(
           width: 70,
@@ -3243,7 +3311,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: CncColors.card,
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(CncRadius.pill),
+            boxShadow: CncDepth.restBox(),
             border: Border.all(
                 width: active ? 1.5 : 1,
                 color: active ? CncColors.textMain : CncColors.border),
@@ -3268,14 +3337,15 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: CncColors.card,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(CncRadius.control),
+        boxShadow: CncDepth.restBox(),
         border: Border.all(color: CncColors.border),
       ),
       child: Row(children: [
         const CncRedDotLaserIcon(size: 18),
         const SizedBox(width: 8),
         Expanded(
-          child: Text('激光定位',
+          child: Text(T.of(context).woLaserPos,
               style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
@@ -3296,14 +3366,18 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     final fg = enabled ? CncColors.textMain : CncColors.textSub;
     return Material(
       color: CncColors.card,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(CncRadius.card),
+      // 2026-10-04 第 2 批：Material 自身不吃 boxShadow，浮起阴影交给内层
+      // Container 的 BoxDecoration（见下）。原先误加在 Material 上是无效参数。
+      elevation: 0,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(CncRadius.card),
         child: Container(
           height: 52,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(CncRadius.card),
+            boxShadow: CncDepth.restBox(),
             border: Border.all(
                 width: enabled ? 1.5 : 1,
                 color: enabled ? CncColors.textMain : CncColors.border),
@@ -3383,7 +3457,9 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       onHoldEnd: () => end(),
       onHoldKeepalive: keepalive,
       repeatFor: (dx, dy) => (dx == 0 || dy == 0) && _jogStep <= 1.0,
-      centerLabel: _wysiwyg ? (_datumDone ? '取消' : '定位') : '设原点',
+      centerLabel: _wysiwyg
+          ? (_datumDone ? T.of(context).woCancel : T.of(context).woLocate)
+          : T.of(context).woSetOrigin,
       centerSub: _wysiwyg && !_datumDone ? '$got/$_needPts' : null,
       centerLight: true,
       onCenter: _busy
@@ -3414,7 +3490,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     }
     if (_show3D && _grid != null && m != null) {
       return ClipRRect(
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(CncRadius.control),
         child: Container(
           color: CncColors.panelAlt,
           child: LayoutBuilder(
@@ -3449,7 +3525,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       );
     }
     return ClipRRect(
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(CncRadius.control),
       child: OriginCanvas(
         bedW: _bedW,
         bedH: _bedH,
@@ -3520,13 +3596,15 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     if (issue != null) return issue;
     if (!_wysiwyg) {
       // 手动兜底（无载荷）：中心键 = 设原点。
-      return (text: '移动主轴对准雕刻起点，按中心键【设原点】', level: 0);
+      return (text: T.current.whH0, level: 0);
     }
     final got = [widget.p0, widget.p1].where((e) => e != null).length;
     // ① 取点：未完成取点
     if (!_datumDone) {
       return (
-        text: '把激光对准材料角点，取第 ${got + 1} / $_needPts 点',
+        text: T.current.whH1
+            .replaceAll('{a}', '${got + 1}')
+            .replaceAll('{b}', '$_needPts'),
         level: 0
       );
     }
@@ -3536,22 +3614,22 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     if (!(widget.originSet && (_g54Written || !_wysiwyg))) {
       if (_segEff == 0 && _rectOk) {
         return _stockCoversModel
-            ? (text: '材料已定位，按下方按钮去定位模型', level: 0)
-            : (text: '材料雕刻面积无法覆盖模型尺寸，需重新选择', level: 2);
+            ? (text: T.current.whH1ok, level: 0)
+            : (text: T.current.whH1bad, level: 2);
       }
-      return (text: '按【位置确认，去预览】锁定雕刻起点', level: 0);
+      return (text: T.current.whH2, level: 0);
     }
     // ③ 锁定后 → 预览（可顺手拖模型摆位）
     if (!_framingDone) {
       // APP-11：预览前提示抬 Z（固件不抬 Z、不碰激光——协议安全决策 1/2）。
-      return (text: '拖动模型摆好位置，抬好 Z 后按【雕刻预览】', level: 0);
+      return (text: T.current.whH3, level: 0);
     }
     // ③ 预览确认：预览完成、未勾选
     if (!widget.safetyChecked) {
-      return (text: '确认轨迹在耗材内、避开压板，勾选「已目视确认」', level: 0);
+      return (text: T.current.whH4, level: 0);
     }
     // ④ 可下一步：已勾选
-    return (text: '位置确认无误，按【锁定原点并继续】', level: 0);
+    return (text: T.current.whH5, level: 0);
   }
 
   /// 4 秒内的操作反馈（A-12）。
@@ -3572,32 +3650,33 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     final sim = DebugSim.instance.enabled;
     final st = ref.read(machineStatusProvider).valueOrNull;
     if (!sim && st == null) {
-      return (text: '还没收到机器数据：检查机器是否开机联网', level: 2);
+      return (text: T.current.whX0, level: 2);
     }
     if (!sim && st?.homed == false) {
-      return (text: '机器还没回零：请在屏幕上先回零', level: 2);
+      return (text: T.current.whX1, level: 2);
     }
     if (widget.p0 != null && widget.p1 != null && !_rectOk) {
-      return (text: '两点太近：请取到材料的两个对角', level: 2);
+      return (text: T.current.whX2, level: 2);
     }
     if (widget.overflow) {
-      return (text: '图案超出可用范围：往里挪一点，或换大料', level: 2);
+      return (text: T.current.whX3, level: 2);
     }
     final m = _meta;
     if (m != null) {
       final thick = _matThickness;
       if (thick > 0 && m.maxCutDepth.abs() > thick + 1e-6) {
         return (
-          text: '材料偏薄：切深 ${m.maxCutDepth.abs().toStringAsFixed(1)} mm 超过料厚 '
-              '${thick.toStringAsFixed(1)} mm，请垫废料板',
+          text: T.current.whX4
+              .replaceAll('{d}', m.maxCutDepth.abs().toStringAsFixed(1))
+              .replaceAll('{t}', thick.toStringAsFixed(1)),
           level: 2
         );
       }
       if (_g54Written && _g54JobId.isNotEmpty && _g54JobId != m.jobId) {
-        return (text: '换了模型：请重新按【位置确认，去预览】', level: 2);
+        return (text: T.current.whX5, level: 2);
       }
       if (!m.withinContract) {
-        return (text: '模型数据异常：请重新选择模型', level: 2);
+        return (text: T.current.whX6, level: 2);
       }
     }
     if (_framingFail != null) {
@@ -3607,9 +3686,9 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       // 而正确原因（还没点【确认原点】）只写在不可见的 _note() 里。
       if (!_framingNotSent) {
         // 通栏可多行（09-24）：完整给出拒绝清单，不再只取第一行
-        return (text: '雕刻预览未通过：${_framingFail!}', level: 2);
+        return (text: T.current.whX7.replaceAll('{r}', _framingFail!), level: 2);
       }
-      return (text: '没收到机器确认：检查机器是否开机联网', level: 2);
+      return (text: T.current.whX8, level: 2);
     }
     return null;
   }
@@ -3635,13 +3714,13 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         Offset(r.center.dx - _w / 2, r.center.dy - _h / 2));
   }
 
-  Widget _pill(String text, bool active, VoidCallback? onTap) => GestureDetector(
+  Widget _pill(String text, bool active, VoidCallback? onTap) => Pressable(
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
             color: active ? CncColors.primary.withOpacity(0.14) : CncColors.bg,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(CncRadius.control),
             border: Border.all(
                 color: active ? CncColors.primary : CncColors.border),
           ),
@@ -3654,6 +3733,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       );
 
 }
+
 class _StepChip extends StatelessWidget {
   final String label;
   final bool active;
@@ -3661,14 +3741,15 @@ class _StepChip extends StatelessWidget {
   const _StepChip(
       {required this.label, required this.active, required this.onTap});
   @override
-  Widget build(BuildContext context) => GestureDetector(
+  Widget build(BuildContext context) => Pressable(
         onTap: onTap,
         child: Container(
           margin: const EdgeInsets.only(bottom: 4),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
             color: active ? CncColors.primary : CncColors.panelAlt,
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(CncRadius.sm),
+            boxShadow: CncDepth.restBox(),
             border: Border.all(
                 color: active ? CncColors.primary : CncColors.border),
           ),
@@ -3729,7 +3810,7 @@ class _BedPainter extends CustomPainter {
     final ph = partH * sy;
 
     if (originSet) {
-      final boxColor = overflow ? CncColors.danger : CncColors.primary;
+      final boxColor = overflow ? CncColors.dangerFg : CncColors.primary;
       // 图纸轮廓填充
       canvas.drawRect(
         Rect.fromLTWH(px, py - ph, pw, ph),
@@ -3851,16 +3932,22 @@ class _StepLeveling extends StatelessWidget {
     // 调平点数由云端下发的真实模型尺寸（G 代码解析所得）决定，不再写死演示面积。
     final wCm = (task?.widthMm ?? 0) / 10;
     final hCm = (task?.heightMm ?? 0) / 10;
-    const modes = ['不调平', '标准调平', '精细调平'];
+    // ★ 档位名走 i18n：const 列表装不下运行时值（第 10 批同类问题）
+    final modes = [T.of(context).moNoLevel, T.of(context).moStdLevel, T.of(context).moFineLevel];
     final plan = _computeLeveling(mode, wCm, hCm);
     final grid = mode == 0
-        ? '跳过调平'
-        : '${plan.cols} × ${plan.rows}（共 ${plan.pts} 点）';
-    final time = mode == 0 ? '0 秒' : '约 ${plan.sec} 秒';
+        ? T.of(context).moSkipLevel
+        : T.of(context).moGridFmt
+            .replaceAll('{c}', '${plan.cols}')
+            .replaceAll('{r}', '${plan.rows}')
+            .replaceAll('{p}', '${plan.pts}');
+    final time = mode == 0
+        ? T.of(context).moZeroSec
+        : T.of(context).moAboutSec.replaceAll('{s}', '${plan.sec}');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(S.step4Leveling,
+        Text(T.of(context).woStepLeveling,
             style: t.titleMedium?.copyWith(color: CncColors.textMain)),
         const SizedBox(height: 12),
         // 警告条与解释行删除（工单十八 §2.1 #3/#4：内部开发状态上屏违反
@@ -3873,17 +3960,19 @@ class _StepLeveling extends StatelessWidget {
             return Expanded(
               child: Padding(
                 padding: EdgeInsets.only(right: i < modes.length - 1 ? 8 : 0),
-                child: GestureDetector(
+                child: Pressable(
                   onTap: enabled ? () => onMode(i) : null,
-                  child: Opacity(
-                    opacity: enabled ? 1.0 : 0.45,
+                  child: CncFade(
+                    enabled: enabled,
+                    activeColor: CncColors.bg,
+                    disabledOpacity: 0.45,
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       // 浅底选中（工单十八 §2.1 #2）：纸白底 + 1.5dp 墨描边 +
                       // 墨字 w600；弃 primary 绿描边浅绿底。
                       decoration: BoxDecoration(
                         color: sel ? _paperLv : CncColors.bg,
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(CncRadius.control),
                         border: Border.all(
                             width: sel ? 1.5 : 1.0,
                             color: sel ? _inkLv : CncColors.border),
@@ -3909,14 +3998,14 @@ class _StepLeveling extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: CncColors.bg,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(CncRadius.control),
             border: Border.all(color: CncColors.border),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _Param('基于图纸面积匹配阵列', grid),
-              _Param('预估调平额外耗时', time),
+              _Param(T.of(context).moGridLabel, grid),
+              _Param(T.of(context).moTimeLabel, time),
             ],
           ),
         ),
@@ -3927,16 +4016,17 @@ class _StepLeveling extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: CncColors.card,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(CncRadius.control),
+            boxShadow: CncDepth.restBox(),
             border: Border.all(color: CncColors.border),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SwitchListTile(
-                title: Text('延时摄影',
+                title: Text(T.of(context).moTimeLapse,
                     style: TextStyle(color: CncColors.textMain, fontSize: 13)),
-                subtitle: Text('雕刻时服务器自动拍照，结束后生成 15 秒回顾视频',
+                subtitle: Text(T.of(context).moTlSub,
                     style: TextStyle(fontSize: 11, color: CncColors.textMain)),
                 value: timeLapse,
                 onChanged: onToggleTimeLapse,
@@ -4033,12 +4123,12 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
       final tlRes = await TimeLapseClient.start(durationSec: dur);
       if (tlRes.conflict && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              '该机器已有进行中的延时摄影，请先到「延时摄影回顾」停止后再录制',
-              style: TextStyle(fontSize: 13),
+              T.current.moTlConflict,
+              style: const TextStyle(fontSize: 13),
             ),
-            duration: Duration(seconds: 3),
+            duration: const Duration(seconds: 3),
           ),
         );
       } else if (tlRes.jobId != null) {
@@ -4046,43 +4136,45 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
       } else if (mounted) {
         // 2026-09-05：失败必须让用户看见，禁止静默（此前点了毫无反应）。
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              '延时摄影启动失败，请检查网络后重试',
-              style: TextStyle(fontSize: 13),
+              T.current.moTlStartFail,
+              style: const TextStyle(fontSize: 13),
             ),
-            duration: Duration(seconds: 3),
+            duration: const Duration(seconds: 3),
           ),
         );
       }
     }
 
     final req = widget.requiredTools;
-    final phases = <String>['防护罩电子门磁锁止'];
+    final phases = <String>[T.current.moPhDoor];
     if (widget.isLaser) {
       // 激光作业（2026-09-23 工单 v2 §4）：无 ATC / 无刀具 / 无主轴，
       // 自检流水线换激光语义，自检页不出现任何刀具核对项。
       phases.addAll([
-        '激光模块自检与焦距校验',
-        '运行曲面网格调平扫描',
-        '移动至原点，按固化激光参数开光加工',
+        T.current.moPhLaserSelfCheck,
+        T.current.moPhLevelScan,
+        T.current.moPhLaserCut,
       ]);
     } else {
-      phases.add(S.magazineCoverOpen);
+      phases.add(T.of(context).woMagCoverOpen);
       for (var p = 0; p < req.length; p++) {
         final def = toolById(req[p].toolId);
         final slot = widget.procSlot[p];
         // null 兜底（之前 toolById 不会返回 null，现在可能）
-        final defName = def?.name ?? '未配置';
+        final defName = def?.name ?? T.current.moNotSet;
         final defRing = def?.ring ?? 'grey';
-        phases.add(
-            '自动装载 D${slot ?? '?'} 号刀具 (${ringEmoji(defRing)} $defName)');
+        phases.add(T.current.moPhAutoLoad
+            .replaceAll('{s}', '${slot ?? '?'}')
+            .replaceAll('{r}', ringEmoji(defRing))
+            .replaceAll('{n}', defName));
       }
       phases.addAll([
-        '移动至刀仓固定测头对刀 (Z-Offset)',
-        S.magazineCoverClose,
-        '运行曲面网格调平扫描',
-        '主轴离心风压建立，移动至原点开切',
+        T.current.moPhZOffset,
+        T.of(context).woMagCoverClose,
+        T.current.moPhLevelScan,
+        T.current.moPhSpindleWind,
       ]);
     }
     // 雕刻主链路 v2（2026-09-03）：模型带加工程序 URL 时走
@@ -4114,7 +4206,7 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
       // 注意：本方法在 _StepTakeoffState，**不是** _WizardPageState，
       // 因此必须用共享 helper，不能引用 _WizardPageState._toastWanBlocked
       // （2026-09-10 自审自查抓到的编译错误）。
-      showWanBlockedSnack(context, '开始雕刻');
+      showWanBlockedSnack(context, T.of(context).moStartCarve);
       return;
     }
     // 下发成功 → 切控制台 tab 再清导航栈（昊总实机 20260927：不能落回模型库）。
@@ -4139,10 +4231,10 @@ class _StepTakeoffState extends ConsumerState<_StepTakeoff> {
     // 多项不满足按 仓门→异常→空闲 优先级直述第一条（§2.2 #8；全满足不显示）。
     final String? blockedText = !canSend
         ? (doorOpen
-            ? '关闭仓门后可发送'
+            ? T.current.moCloseDoor
             : hasAlarm
-                ? '处理报警后可发送'
-                : '等机器空闲后可发送')
+                ? T.current.moClearAlarm
+                : T.current.moWaitIdle)
         : null;
     return _ReadyPhase(
       mat: mat,
@@ -4205,15 +4297,24 @@ class _ReadyPhase extends StatelessWidget {
   String get _estimateText {
     final d = durationText;
     if (d != null && d.trim().isNotEmpty) {
-      return d.startsWith('约') ? d : '约 $d';
+      // ★ 2026-10-05 第14批：原判断 `d.startsWith('约')` 依赖中文文案本身，
+      // 英文下永远为 false 会对已带前缀的文案重复加前缀。
+      // 改为：服务端给的 durationText 原样透传（它本身就是「12分30秒」这类成品）。
+      return d;
     }
     final sec = durationSec;
     if (sec != null && sec > 0) {
       final m = sec ~/ 60;
       final s = sec % 60;
-      return m > 0 ? '约 $m 分 $s 秒' : '约 $s 秒';
+      return m > 0
+          ? T.current.moEtaMinSec
+              .replaceAll('{m}', '$m')
+              .replaceAll('{s}', '$s')
+          : T.current.moEtaSec.replaceAll('{s}', '$s');
     }
-    return S.etaPending;
+    // ★ _estimateText 是 getter，没有 context ⇒ 必须用 T.current
+    //   （T.of(context) 在此不可用，编译不过）。
+    return T.current.woEtaPending;
   }
 
   @override
@@ -4227,30 +4328,31 @@ class _ReadyPhase extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: CncColors.card,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(CncRadius.control),
+            boxShadow: CncDepth.restBox(),
             border: Border.all(color: CncColors.border),
           ),
           child: Column(
             children: [
-              _Param('匹配材质', '${mat.name}'),
+              _Param(T.of(context).moMatchMat, '${mat.name}'),
               // 激光作业：隐藏铣削参数与刀具区块，换只读激光参数卡（工单 §4.2）。
               if (!isLaser) ...[
-                _Param('主轴转速', '${mat.rpm} RPM'),
-                _Param('进给速度', '${mat.feed} mm/min'),
-                _Param('下刀速度', '${mat.plunge} mm/min'),
+                _Param(T.of(context).moSpindle, '${mat.rpm} RPM'),
+                _Param(T.of(context).moFeed, '${mat.feed} mm/min'),
+                _Param(T.of(context).moPlunge, '${mat.plunge} mm/min'),
               ] else if (laserParams != null) ...[
-                _Param('激光功率', _laserStr(laserParams?.powerPercent, ' %', 0)),
-                _Param('加工速度',
+                _Param(T.of(context).moLaserPower, _laserStr(laserParams?.powerPercent, ' %', 0)),
+                _Param(T.of(context).moMachSpeed,
                     _laserStr(laserParams?.speedMmMin, ' mm/min', 0)),
-                _Param('光斑直径', _laserStr(laserParams?.spotMm, ' mm', 2)),
-                _Param('加工遍数',
+                _Param(T.of(context).moSpotDia, _laserStr(laserParams?.spotMm, ' mm', 2)),
+                _Param(T.of(context).moPasses,
                     laserParams?.passes == null ? '—' : '${laserParams!.passes}'),
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                        '标称值仅供参考 · 实际功率/速度以刀路指令为准',
+                        T.of(context).moLaserNominal,
                         style:
                             TextStyle(fontSize: 10, color: CncColors.textSub)),
                   ),
@@ -4262,7 +4364,7 @@ class _ReadyPhase extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(vertical: 3),
                   child: Align(
                     alignment: Alignment.centerLeft,
-                    child: Text('激光作业 · 实际功率/速度以刀路指令为准',
+                    child: Text(T.of(context).moLaserNoParam,
                         style:
                             TextStyle(fontSize: 11, color: CncColors.textSub)),
                   ),
@@ -4274,12 +4376,14 @@ class _ReadyPhase extends StatelessWidget {
                 final rt = e.value;
                 final def = toolById(rt.toolId);
                 final slot = procSlot[p];
-                final defName = def?.name ?? '未配置';
+                final defName = def?.name ?? T.current.moNotSet;
                 final defRing = def?.ring ?? 'grey';
-                return _Param('工序刀具 ${p + 1}',
-                    slot != null ? 'D$slot · ${ringEmoji(defRing)} $defName' : '未分配');
+                return _Param(T.of(context).moToolOfStep.replaceAll('{n}', '${p + 1}'),
+                    slot != null
+                        ? 'D$slot · ${ringEmoji(defRing)} $defName'
+                        : T.current.moUnassigned);
               }),
-              _Param('预估总耗时', _estimateText),
+              _Param(T.of(context).moTotalTime, _estimateText),
             ],
           ),
         ),
@@ -4307,7 +4411,7 @@ class _ReadyPhase extends StatelessWidget {
                         strokeWidth: 2, color: Colors.black54),
                   )
                 : Icon(Symbols.play_arrow, color: CncColors.onPrimary),
-            label: Text(launching ? S.sentWaitingPlain : '发送到机器',
+            label: Text(launching ? T.of(context).woSentPlain : T.of(context).moSendToMachine,
                 style: const TextStyle(
                     fontSize: 14, fontWeight: FontWeight.bold)),
           ),
@@ -4379,3 +4483,17 @@ class _FramePreviewPainter extends CustomPainter {
   bool shouldRepaint(covariant _FramePreviewPainter old) =>
       old.color != color;
 }
+
+
+
+// ===================== Step 1 · 材料确认与装夹 =====================
+/// 材质由模型固定：G-code 的雕刻工艺参数在云端生成时已写死，App 侧改不了，
+/// 因此本步取消材质选择下拉，只做「确认实物与模型预置一致」：
+///   ① **3D 预览置顶**（昊总 2026-09-18：客户一进页面就要看到模型效果）
+///   ② 材质只读（按模型指定备料）
+///   ③ 平面尺寸 ≥ 雕刻图形尺寸（图形尺寸来自模型库；将来轻量 JSON 的
+///      modelBBox.spanX/spanY 与此同源）
+///   ④ **材料厚度由客户填写**（昊总 2026-09-18 改回输入模式）：基准 = 解析出的
+///      模型厚度，必须 ≥ 该值；填写的真实厚度会传给定原点页，3D 按真实料厚模拟
+///   ⑤ 装夹确认（材料平放 + 夹具只夹在雕刻区域外）
+// ----------------------------------------------------------------------

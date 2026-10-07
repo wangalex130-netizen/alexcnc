@@ -7,6 +7,10 @@ import '../../app/theme.dart';
 import '../../data/tool_library.dart';
 import '../../state/providers.dart';
 import '../../widgets/tool_icon.dart';
+import '../../widgets/pressable.dart';
+import '../../app/visual_depth.dart';
+
+import '../../l10n/app_strings.dart';
 
 /// 统一刀仓编辑组件（20260923 工单 §3C/§3D）：三口共用 ——
 /// 「我的机器 → 刀仓配置」「控制台 → 管理刀仓」都打开本组件；
@@ -105,12 +109,12 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
     if (!mounted) return;
     setState(() {
       _saving = false;
-      _error = n.error ?? rollbackErr ?? '保存失败，已恢复服务器状态';
+      _error = n.error ?? rollbackErr ?? T.current.mgSaveFail;
     });
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
           content:
-              Text(n.error ?? rollbackErr ?? '保存失败，已恢复服务器状态')),
+              Text(n.error ?? rollbackErr ?? T.of(context).mgSaveFail)),
     );
   }
 
@@ -141,7 +145,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
               Expanded(
                 child: Row(
                   children: [
-                    Text('刀仓配置',
+                    Text(T.of(context).mgTitle,
                         style: TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.bold,
@@ -150,7 +154,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                     IconButton(
                       icon: Icon(Symbols.refresh,
                           size: 18, color: CncColors.primaryInk),
-                      tooltip: '刷新服务器最新刀表',
+                      tooltip: T.of(context).mgRefreshTip,
                       onPressed: _reload,
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(),
@@ -158,7 +162,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                   ],
                 ),
               ),
-              GestureDetector(
+              Pressable(
                 onTap: () => Navigator.of(context).pop(),
                 child: Text('×',
                     style:
@@ -172,11 +176,11 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
             padding: const EdgeInsets.symmetric(horizontal: 20),
             children: [
               if (widget.deviceCode != null)
-                Text('机器码：${widget.deviceCode}',
+                Text(T.of(context).mgSnLabel.replaceAll('{c}', widget.deviceCode ?? ''),
                     style:
                         TextStyle(fontSize: 10, color: CncColors.textSub)),
               Text(
-                  'D1-D4 每个仓有没有刀、是什么刀。改完点「保存并同步到机器」，所有入口与机器一起更新。',
+                  T.of(context).mgDesc,
                   style: TextStyle(fontSize: 10, color: CncColors.textSub)),
               const SizedBox(height: 10),
               for (final slot in [1, 2, 3, 4]) _slotCard(slot),
@@ -185,7 +189,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(_error!,
                       style:
-                          TextStyle(fontSize: 11, color: CncColors.danger)),
+                          TextStyle(fontSize: 11, color: CncColors.dangerFg)),
                 ),
             ],
           ),
@@ -202,9 +206,9 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                 disabledBackgroundColor: CncColors.primary.withOpacity(0.35),
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
+                    borderRadius: BorderRadius.circular(CncRadius.control)),
               ),
-              child: Text(_saving ? '保存中…' : '保存并同步到机器',
+              child: Text(_saving ? T.of(context).mgSaving : T.of(context).mgSave,
                   style: const TextStyle(
                       fontSize: 14, fontWeight: FontWeight.bold)),
             ),
@@ -229,8 +233,10 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                   fontWeight: FontWeight.bold,
                   color: CncColors.primaryInk)),
           const SizedBox(width: 10),
-          Opacity(
-            opacity: def != null ? 1 : 0.28,
+          CncFade(
+            enabled: def != null,
+            activeColor: CncColors.card,
+            disabledOpacity: 0.28,
             child: ToolIcon(
                 def: def ?? toolCatalog.first,
                 size: 40,
@@ -241,7 +247,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(def != null ? def.name : '未挂载刀具（空位）',
+                Text(def != null ? def.name : T.of(context).mgEmptySlot,
                     style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
@@ -251,14 +257,14 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                 const SizedBox(height: 2),
                 Text(
                     def != null
-                        ? S.t(S.toolLineRing, {'type': def.type, 'dia': def.diameterMm.toString(), 'ring': ringEmoji(def.ring), 'mat': def.material})
-                        : S.addToolHint,
+                        ? S.t(T.of(context).mgLineRing, {'type': def.type, 'dia': def.diameterMm.toString(), 'ring': ringEmoji(def.ring), 'mat': def.material})
+                        : T.of(context).mgAddToolHint,
                     style: TextStyle(
                         fontSize: 10, color: CncColors.textSub)),
               ],
             ),
           ),
-          GestureDetector(
+          Pressable(
             onTap: () => setState(() => _pickerSlot = slot),
             child: Container(
               padding:
@@ -267,9 +273,9 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                 color: def != null
                     ? CncColors.blue.withOpacity(0.1)
                     : CncColors.primary.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: BorderRadius.circular(CncRadius.sm),
               ),
-              child: Text(def != null ? '更换' : '添加 +',
+              child: Text(def != null ? T.of(context).mgChange : T.of(context).mgAdd,
                   style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
@@ -279,7 +285,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
             ),
           ),
           if (def != null)
-            GestureDetector(
+            Pressable(
               onTap: () => setState(() => _draft[slot] = null),
               child: Container(
                 margin: const EdgeInsets.only(left: 8),
@@ -287,13 +293,13 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: CncColors.dangerBg,
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(CncRadius.sm),
                 ),
-                child: Text('清空',
+                child: Text(T.of(context).mgClear,
                     style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
-                        color: CncColors.danger)),
+                        color: CncColors.dangerFg)),
               ),
             ),
         ],
@@ -310,12 +316,12 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('选择刀具 → D$slot',
+              Text(T.of(context).mgPickTool.replaceAll('{s}', '$slot'),
                   style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.bold,
                       color: CncColors.textMain)),
-              GestureDetector(
+              Pressable(
                 onTap: () => setState(() => _pickerSlot = null),
                 child: Text('×',
                     style:
@@ -348,7 +354,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                                       color: CncColors.textMain)),
                               const SizedBox(height: 2),
                               Text(
-                                  S.t(S.toolLineFlutes, {'type': def.type, 'dia': def.diameterMm.toString(), 'flutes': def.flutes.toString(), 'mat': def.material}),
+                                  S.t(T.of(context).mgLineFlutes, {'type': def.type, 'dia': def.diameterMm.toString(), 'flutes': def.flutes.toString(), 'mat': def.material}),
                                   style: TextStyle(
                                       fontSize: 10,
                                       color: CncColors.textSub)),
@@ -360,7 +366,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                             ],
                           ),
                         ),
-                        GestureDetector(
+                        Pressable(
                           onTap: () => setState(() {
                             _draft[slot] = def.id;
                             _pickerSlot = null;
@@ -370,12 +376,12 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                                 horizontal: 12, vertical: 6),
                             decoration: BoxDecoration(
                               color: CncColors.primary.withOpacity(0.12),
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: BorderRadius.circular(CncRadius.sm),
                               border: Border.all(
                                   color:
                                       CncColors.primary.withOpacity(0.5)),
                             ),
-                            child: Text('填入',
+                            child: Text(T.of(context).mgFill,
                                 style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
@@ -386,7 +392,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                     ),
                   )),
               const SizedBox(height: 8),
-              GestureDetector(
+              Pressable(
                 onTap: () => setState(() {
                   _draft[slot] = null;
                   _pickerSlot = null;
@@ -395,16 +401,16 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   decoration: BoxDecoration(
                     color: CncColors.dangerBg,
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(CncRadius.control),
                     border: Border.all(
                         color: CncColors.dangerBd),
                   ),
                   child: Center(
-                    child: Text('清空此刀仓 (空)',
+                    child: Text(T.of(context).mgClearSlot,
                         style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
-                            color: CncColors.danger)),
+                            color: CncColors.dangerFg)),
                   ),
                 ),
               ),
@@ -417,7 +423,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
 
   BoxDecoration _cardDeco() => BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(CncRadius.control),
         border: Border.all(color: CncColors.border.withOpacity(0.6)),
       );
 }

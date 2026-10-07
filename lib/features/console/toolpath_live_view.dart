@@ -12,12 +12,20 @@ import '../../app/config.dart';
 import '../../app/runtime_config.dart';
 
 import '../../app/theme.dart';
+import '../../app/visual_depth.dart';
 
 import '../../models/machine_status.dart';
 
 import '../../state/providers.dart';
 
 import '../library/toolpath_preview.dart';
+// 2026-10-04 第 2 批：联调预览（无真机也能看"雕刻中"的样子）。
+import '../devices/debug_device_state.dart';
+import '../../widgets/pressable.dart';
+import '../../widgets/cnc_skeleton.dart';
+import '../../widgets/cnc_progress_ring.dart';
+
+import '../../l10n/app_strings.dart';
 
 /// 工单二十（20260928）控制台轮播·刀路实时模拟页（拓竹式一体化）。
 ///
@@ -43,8 +51,21 @@ class _ToolpathLiveViewState extends ConsumerState<ToolpathLiveView>
   bool _loadAttempted = false;
 
   late final AnimationController _head = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 1600))
-    ..repeat();
+      vsync: this, duration: const Duration(milliseconds: 1600));
+
+  /// P2-2：原实现在字段初始化处直接 `..repeat()`，于是即使 `data == null`
+  /// （无作业 / 预览未加载 / 加载失败）脉冲也在每帧空跑 1600ms 循环。
+  /// 违反「发光只属于正在运行的功能」——看不见的光在稀释真报警光的权重，
+  /// 也白烧电池。现在只在该显示刀路时启动。
+  void _syncPulse(bool shouldRun) {
+    if (shouldRun && !_head.isAnimating) {
+      _head.repeat();
+    } else if (!shouldRun && _head.isAnimating) {
+      _head
+        ..stop()
+        ..value = 0.0;
+    }
+  }
 
   @override
   void initState() {
@@ -101,10 +122,27 @@ class _ToolpathLiveViewState extends ConsumerState<ToolpathLiveView>
     final job = ref.watch(activeJobProvider);
     final status =
         ref.watch(machineStatusProvider).value ?? MachineStatus.idle();
-    final prog = (job?.completed ?? false) ? 1.0 : status.progress.clamp(0.0, 1.0);
+    // 2026-10-04 第 2 批：联调预览 —— 无真机时设备页 ✨ 切到「加工中」，
+    // 此处跟随模拟态给出**像真的**进度/阶段/坐标，否则恒为 0%/准备中。
+    final sim = ref.watch(debugDeviceStateProvider);
+    final simState = sim.enabled ? sim.simulated : null;
+
+    final realProg =
+        (job?.completed ?? false) ? 1.0 : status.progress.clamp(0.0, 1.0);
+    final prog = simState == MachineState.busy
+        ? sim.simulatedProgress
+        : (simState == MachineState.paused
+            ? sim.simulatedProgress
+            : realProg);
     final dark = Theme.of(context).brightness == Brightness.dark;
+    // P2-2：脉冲只服务于刀头位置指示，无刀路时必须停。
+    _syncPulse(_pathData != null);
     return Stack(
       children: [
+        // 2026-10-04 二次修正：**删掉我上版加的 CarveStatusBar**。
+        // 昊总指出它是多余的 —— 阶段 / 进度条 / 剩余时间在下方 _StatusCard
+        // 横幅里已有，坐标在「移动」框里也有，重复一遍等于浪费 52px 画面高度。
+        // 原则：新增 UI 前先确认「现有信息是否已覆盖」，别做同义重复。
         Positioned.fill(
           child: AnimatedBuilder(
             animation: _head,
@@ -114,15 +152,14 @@ class _ToolpathLiveViewState extends ConsumerState<ToolpathLiveView>
                 // 工单六 §5.1：数据未就绪只显示加载态/不可用小字，不渲染空大框。
                 return Center(
                   child: _pathLoading
-                      ? SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: CncColors.primary))
-                      : Text('刀路数据不可用',
-                          style:
-                              TextStyle(fontSize: 12, color: CncColors.textSub)),
-                );
+                        ? SizedBox(
+                            width: 148,
+                            height: 40,
+                            child: const CncSkeletonBlock(width: 148, height: 40))
+                        : Text(T.of(context).tpUnavailable,
+                            style: TextStyle(
+                                fontSize: 12, color: CncColors.textSub)),
+                  );
               }
               return CustomPaint(
                 painter: _is3d
@@ -142,6 +179,7 @@ class _ToolpathLiveViewState extends ConsumerState<ToolpathLiveView>
           ),
         ),
         // 2D/3D 切换（迁自监控页，规格不变：64×24 圆角 999）。
+        // 2026-10-04 二次修正：信息条已删 ⇒ 恢复 top 10。
         Positioned(
           top: 10,
           right: 10,
@@ -151,6 +189,11 @@ class _ToolpathLiveViewState extends ConsumerState<ToolpathLiveView>
       ],
     );
   }
+
+  // 2026-10-04 二次修正：随 CarveStatusBar 一并删除
+  // _stageOf / _simStageOf / _etaText / _simEtaText / _coordText / _simCoordText / _n1
+  // —— 它们只为那条信息条服务，信息条删除后全部成为死代码。
+  // 阶段 / 进度 / 剩余时间由下方 _StatusCard 横幅承担，坐标由「移动」框承担。
 }
 
 // ================== 以下自 job_monitor_page.dart 逐行迁出 ==================
@@ -189,13 +232,15 @@ class _ToolpathProgressPainter extends CustomPainter {
       for (final s in mmSegs) _Seg(s.isTravel, toPx(s.a), toPx(s.b))
     ];
 
+    // 2026-10-04 第 2 批：刀路页原有 7 处 withOpacity（画笔内，属图层合成
+    // 高发区，且在卓易通上会「雾」），全部换成**实色**令牌。
     final travelPaint = Paint()
-      ..color = CncColors.textSub.withOpacity(0.4)
-      ..strokeWidth = 1.2
+      ..color = CncDepth.travelIdle
+      ..strokeWidth = 1.4
       ..style = PaintingStyle.stroke;
     final cutPaint = Paint()
-      ..color = CncColors.primary.withOpacity(0.45)
-      ..strokeWidth = 1.8
+      ..color = CncDepth.pathIdle
+      ..strokeWidth = 2
       ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke;
     final doneCutPaint = Paint()
@@ -236,10 +281,10 @@ class _ToolpathProgressPainter extends CustomPainter {
     }
 
     // 3) 呼吸激光头（揭示末端；随 pulse 缩放半径）
+    // 光晕改**实色**令牌（原 laser.withOpacity(0.2) 是图层合成 + 会「雾」）。
     final head = rv.head;
     final r = 3.5 + 1.5 * (0.5 + 0.5 * sin(pulse * 2 * pi));
-    canvas.drawCircle(
-        head, r + 3, Paint()..color = CncColors.laser.withOpacity(0.2));
+    canvas.drawCircle(head, r + 3.5, Paint()..color = CncDepth.headHalo);
     canvas.drawCircle(head, r, Paint()..color = CncColors.laser);
 
     canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height),
@@ -423,14 +468,15 @@ class _ToolpathIsoPainter extends CustomPainter {
     }
 
     final rv = _progressReveal(mmSegs, progress);
+    // 2026-10-04 第 2 批：与 2D 同款，withOpacity → 实色令牌。
     final travelPaint = Paint()
-      ..color = CncColors.textSub.withOpacity(0.4)
-      ..strokeWidth = 1.2
+      ..color = CncDepth.travelIdle
+      ..strokeWidth = 1.4
       ..style = PaintingStyle.stroke;
-    // 未加工 cut：textSub 40%（工单六 §5.3）
+    // 未加工 cut：pathIdle 实色（与 2D 统一）
     final cutPaint = Paint()
-      ..color = CncColors.textSub.withOpacity(0.4)
-      ..strokeWidth = 1.8
+      ..color = CncDepth.pathIdle
+      ..strokeWidth = 2
       ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke;
     // 已加工段：primary 高亮（深色主题用桃木亮色，与工单三深色令牌一致）
@@ -473,11 +519,10 @@ class _ToolpathIsoPainter extends CustomPainter {
       }
     }
 
-    // 3) 刀头：揭示末端 r=4 实心圆 + 呼吸（r ±1.5）
+    // 3) 刀头：揭示末端实心圆 + 呼吸（线宽与半径变化，alpha 恒 1）
     final head = proj(rv.head.dx, rv.head.dy);
     final r = 4.0 + 1.5 * sin(pulse * 2 * pi);
-    canvas.drawCircle(
-        head, r + 3, Paint()..color = doneCutColor.withOpacity(0.2));
+    canvas.drawCircle(head, r + 3.5, Paint()..color = CncDepth.headHalo);
     canvas.drawCircle(head, r, Paint()..color = doneCutColor);
 
     canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height),
@@ -502,14 +547,14 @@ class _PreviewModeSwitch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Widget seg(String label, bool selected, VoidCallback onTap) {
-      return GestureDetector(
+      return Pressable(
         onTap: onTap,
         child: Container(
           height: 20,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: selected ? CncColors.primary : Colors.transparent,
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(CncRadius.pill),
           ),
           child: Text(label,
               style: TextStyle(
@@ -527,7 +572,7 @@ class _PreviewModeSwitch extends StatelessWidget {
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
         color: CncColors.panelAlt,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(CncRadius.pill),
       ),
       child: Row(
         children: [

@@ -1,6 +1,8 @@
 import 'position.dart';
 import 'tool.dart';
 
+import '../l10n/app_strings.dart';
+
 /// Machine lifecycle states broadcast by the MCU (SSOT).
 enum MachineState {
   disconnected,
@@ -313,30 +315,39 @@ class MachineStatus {
   // code 1 保留「硬限位」；code 2/3/6 与前置锁 1 确认原稿。
 
   /// 报警码 → 客户可读主文案（短版，进状态行/Chip；≤14 字）。
-  static const Map<int, String> _alarmCopy = {
-    1: '碰到了硬限位',
-    2: '超出了设定的加工范围',
-    3: '加工被中断',
-    4: '自动测高没准备好',
-    5: '没有测到材料高度',
-    6: '回零中途被打断',
-    7: '回零时舱门被打开',
-    8: '回零后离开限位失败',
-    9: '回零时找不到限位开关',
+  /// ★ 2026-10-05 第17批：报警文案走i18n。
+  /// 原为 static const Map（编译期常量），装不下T 的运行时值
+  /// ⇒ 改为「code → getter 名」的静态映射，取值时才取文案。
+  static const Map<int, String Function()> _alarmCopy = {
+    1: _alC1, 2: _alC2, 3: _alC3, 4: _alC4, 5: _alC5,
+    6: _alC6, 7: _alC7, 8: _alC8, 9: _alC9,
   };
 
+  static String _alC1() => T.current.alC1;
+  static String _alC2() => T.current.alC2;
+  static String _alC3() => T.current.alC3;
+  static String _alC4() => T.current.alC4;
+  static String _alC5() => T.current.alC5;
+  static String _alC6() => T.current.alC6;
+  static String _alC7() => T.current.alC7;
+  static String _alC8() => T.current.alC8;
+  static String _alC9() => T.current.alC9;
+
   /// 报警码 → 处理动作（长版，进「查看怎么办」弹层；≤45 字）。
-  static const Map<int, String> _alarmAction = {
-    1: '机器撞到行程尽头了。请先「解除报警」，再用方向键把刀头移离边缘，然后重新回零。',
-    2: '加工程序超出了机器的允许范围。请回到电脑端检查这件作品的尺寸，重新生成刀路。',
-    3: '上一次加工没有正常走完（被停止或断电）。请重新开始一次加工。',
-    4: '请重新开始一次加工。若再次出现，请联系售后。',
-    5: '请确认材料已放好、放平，再重新开始。若多次出现，请联系售后。',
-    6: '回零过程被复位或断电中断了。请保持机器供电，重新回零。',
-    7: '舱门在回零过程中被打开了。请关好舱门，重新回零。',
-    8: '请重新回零一次。若再次出现，请联系售后。',
-    9: '请保持机器供电，重新回零。若多次出现，请联系售后。',
+  static const Map<int, String Function()> _alarmAction = {
+    1: _alA1, 2: _alA2, 3: _alA3, 4: _alA4, 5: _alA5,
+    6: _alA6, 7: _alA7, 8: _alA8, 9: _alA9,
   };
+
+  static String _alA1() => T.current.alA1;
+  static String _alA2() => T.current.alA2;
+  static String _alA3() => T.current.alA3;
+  static String _alA4() => T.current.alA4;
+  static String _alA5() => T.current.alA5;
+  static String _alA6() => T.current.alA6;
+  static String _alA7() => T.current.alA7;
+  static String _alA8() => T.current.alA8;
+  static String _alA9() => T.current.alA9;
 
   /// 报警场景主文案（兜底链见映射表 §3.2，不允许"什么都不显示"）：
   /// 码 1~9 命中映射 → 前置锁（alarmCode==0 且 state=alarm，door 字段可区分
@@ -345,25 +356,23 @@ class MachineStatus {
   String? get alarmText {
     if (state != MachineState.alarm) return null;
     final c = alarmCode;
-    if (c >= 1 && c <= 9) return _alarmCopy[c];
+    if (c >= 1 && c <= 9) return _alarmCopy[c]!();
     if (c == 0) {
       // 两个前置锁共享 alarmCode==0：安全门已开时按舱门场景显示。
-      return door ? '舱门没关好' : '机器还没回零，暂时不能动';
+      return door ? T.current.alDoorOpen : T.current.alNotHomed;
     }
     final e = error;
     if (e != null && e.isNotEmpty) return e;
-    return '机器报警（代码 $c）';
+    return T.current.alUnknown.replaceAll('{c}', '$c');
   }
 
   /// 报警场景处理动作（弹层长文案）。未知码无定稿动作，返回 null。
   String? get alarmActionText {
     if (state != MachineState.alarm) return null;
     final c = alarmCode;
-    if (c >= 1 && c <= 9) return _alarmAction[c];
+    if (c >= 1 && c <= 9) return _alarmAction[c]!();
     if (c == 0) {
-      return door
-          ? '请关好舱门后继续。'
-          : '请先点「回零」。若回零不可用，可点「解除报警」后再重新回零。';
+      return door ? T.current.alDoorFix : T.current.alHomeFix;
     }
     return null;
   }

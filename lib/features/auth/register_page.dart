@@ -11,6 +11,8 @@ import '../../services/auth_service.dart';
 
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
+import '../../l10n/app_strings.dart';
+
 
 /// 注册页：邮箱 + 密码 + 确认密码 → 注册 → 成功后直接进入已登录态。
 
@@ -68,7 +70,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
     if (u.isEmpty || !u.contains('@')) {
 
-      setState(() => _error = '请输入正确的邮箱地址');
+      setState(() => _error = T.current.rgEmailErr);
 
       return;
 
@@ -76,7 +78,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
     if (p.length < 6 || p.length > 64) {
 
-      setState(() => _error = '密码需 6-64 位');
+      setState(() => _error = T.current.rgPwdLenErr);
 
       return;
 
@@ -84,7 +86,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
     if (p != c) {
 
-      setState(() => _error = '两次输入的密码不一致');
+      setState(() => _error = T.current.rgPwdMismatch);
 
       return;
 
@@ -110,7 +112,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
       if (mounted) {
 
-        setState(() => _error = '网络连接失败，请检查网络后重试');
+        setState(() => _error = T.current.rgNetErr);
 
       }
 
@@ -130,7 +132,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
       backgroundColor: CncColors.bg,
 
-      appBar: AppBar(title: const Text('注册')),
+      appBar: AppBar(title: Text(T.of(context).rgTitle)),
 
       body: SafeArea(
 
@@ -152,7 +154,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
               Text(
 
-                '创建账号',
+                T.of(context).rgCreateTitle,
 
                 textAlign: TextAlign.center,
 
@@ -170,7 +172,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
               Text(
 
-                '注册后可扫码绑定你的雕刻机',
+                T.of(context).rgCreateSub,
 
                 textAlign: TextAlign.center,
 
@@ -186,7 +188,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
                   icon: Symbols.person,
 
-                  hint: '邮箱（name@example.com）',
+                  hint: T.of(context).rgEmailHint,
 
                   keyboardType: TextInputType.emailAddress),
 
@@ -198,7 +200,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
                 icon: Symbols.lock,
 
-                hint: '密码（6-64 位）',
+                hint: T.of(context).rgPwdHint,
 
                 obscure: true,
 
@@ -212,7 +214,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
                 icon: Symbols.lock,
 
-                hint: '确认密码',
+                hint: T.of(context).rgPwd2Hint,
 
                 obscure: true,
 
@@ -226,7 +228,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
                     style: TextStyle(
 
-                        fontSize: 12, color: CncColors.danger)),
+                        fontSize: 12, color: CncColors.dangerFg)),
 
               ],
 
@@ -236,7 +238,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
                 onPressed: busy ? null : _submit,
 
-                child: Text(busy ? '注册中…' : '注册并登录'),
+                child: Text(busy ? T.of(context).rgBusy : T.of(context).rgSubmit),
 
               ),
 
@@ -290,7 +292,7 @@ class _Field extends StatelessWidget {
 
           color: CncColors.card,
 
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(CncRadius.card),
 
           border: Border.all(color: CncColors.border),
 
@@ -328,7 +330,17 @@ class _Field extends StatelessWidget {
 
                       TextStyle(color: CncColors.textSub),
 
+                  // ★ 2026-10-04：InputDecoration 有五个边框字段，只写
+                  // `border` 其余四个会继承全局 inputDecorationTheme
+                  // （filled 米色底 + focusedBorder 深海墨）⇒ 卓易通上
+                  // 表现为输入框内米色块 + 大黑框。视觉交给外层 Container。
+                  filled: false,
+                  fillColor: Colors.transparent,
                   border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  errorBorder: InputBorder.none,
+                  focusedErrorBorder: InputBorder.none,
 
                   isDense: true,
 

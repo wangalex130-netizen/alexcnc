@@ -12,6 +12,8 @@ import '../models/job_progress.dart';
 import '../models/sys_info.dart';
 import 'hardware_service.dart';
 
+import '../l10n/app_strings.dart';
+
 /// In-memory stand-in for the controller. Simulates a live status feed so the
 /// UI is fully exercisable before firmware integration.
 class MockHardwareService implements HardwareService {
@@ -253,7 +255,7 @@ class MockHardwareService implements HardwareService {
       state: MachineState.idle,
       alarmCode: 0,
       error: '',
-      message: '复位完成',
+      message: T.current.hmResetDone,
     );
     _emit();
   }
@@ -264,7 +266,7 @@ class MockHardwareService implements HardwareService {
     _current = _current.copyWith(
       state: MachineState.idle,
       alarmCode: 0,
-      message: '已解除报警锁定，请重新定原点',
+      message: T.current.hmAlarmUnlock,
     );
     _emit();
   }

@@ -21,6 +21,8 @@ import 'device_discovery.dart';
 import 'hardware_service.dart';
 import 'network_auth.dart';
 
+import '../l10n/app_strings.dart';
+
 /// 真实硬件实现。
 ///
 /// **2026-08-28 终局方案**（PC / 云端 / 固件三方确认，替代原 R2 网关转发）：
@@ -257,8 +259,7 @@ class RealHardwareService implements HardwareService {
     // 任何帧，UI 呈现为无限"离线/连接中"——最难排查的一类"连不上"。
     // 现直接给出可定位诊断，不发起注定失败的连接。
     if (deviceId.isEmpty) {
-      _lastConnError = '未选择机器：请登录并在「我的机器」选择一台已绑定机器（联调可在'
-          '联调设置里填写设备 ID）';
+      _lastConnError = T.current.hwNoDevice;
       _setConn(LinkState.disconnected);
       return;
     }
@@ -284,8 +285,7 @@ class RealHardwareService implements HardwareService {
   Future<void> _connectMqtt() async {
     // 与 [connect] 同一道闸：reconnect() 直连本方法，也必须拦空设备 ID。
     if (deviceId.isEmpty) {
-      _lastConnError = '未选择机器：请登录并在「我的机器」选择一台已绑定机器（联调可在'
-          '联调设置里填写设备 ID）';
+      _lastConnError = T.current.hwNoDevice;
       _setConn(LinkState.disconnected);
       return;
     }
@@ -408,31 +408,31 @@ class RealHardwareService implements HardwareService {
         s.contains('HandshakeException') ||
         s.contains('CERTIFICATE_VERIFY_FAILED') ||
         s.contains('certificate')) {
-      return '证书校验失败：Broker 证书不被信任。联调请用联调包（已放行自签证书）；'
-          '正式包需 Broker 部署正式 CA 证书';
+      return T.current.hwCertFail;
     }
     if (s.contains('SocketException') ||
         s.contains('Connection refused') ||
         s.contains('Connection timed out') ||
         s.contains('Network is unreachable') ||
         s.contains('Failed host lookup')) {
-      return '网络不通：请检查手机网络，以及 Broker 地址与端口（8883）';
+      return T.current.hwNetDown;
     }
     final rc = returnCode?.toString() ?? '';
     if (rc.contains('badUserNameOrPassword')) {
-      return '凭据被拒：MQTT 账号或口令不正确（联调包请确认已注入凭据）';
+      return T.current.hwBadCred;
     }
     if (rc.contains('NotAuthorized')) {
-      return '未授权：该账号没有对应主题的权限（Broker ACL），请核对账号与设备绑定关系';
+      return T.current.hwUnauth;
     }
     if (rc.contains('ServerUnavailable') || rc.contains('ServerBusy')) {
-      return 'Broker 不可用：服务未启动或已达连接上限';
+      return T.current.hwBrokerDown;
     }
     if (rc.contains('BadProtocolVersion')) {
-      return '协议版本不被接受：Broker 与客户端的 MQTT 版本不一致';
+      return T.current.hwProtoVer;
     }
-    if (returnCode != null) return 'MQTT 握手被拒（$rc）';
-    return '连接异常：${s.isEmpty ? '未知原因' : s}';
+    if (returnCode != null) return T.current.hwHandshakeReject.replaceAll('{rc}', rc);
+    return T.current.hwOddErr.replaceAll(
+        '{r}', s.isEmpty ? T.current.hwUnknownReason : s);
   }
 
   void _onMqttDisconnected() {
@@ -453,9 +453,9 @@ class RealHardwareService implements HardwareService {
     }
     // 掉线即终结进行中的雕刻会话：命令不自动补发（D8），横幅不能无限转圈。
     if (_carve.isActive) {
-      _failCarve('网络连接已断开，请检查网络后重新开始');
+      _failCarve(T.current.hwNetLostCarve);
     }
-    _lastConnError = 'MQTT 连接被断开$reason';
+    _lastConnError = T.current.hwMqttDrop.replaceAll('{r}', reason);
     _setConn(LinkState.disconnected);
     _scheduleReconnect();
   }
@@ -575,9 +575,9 @@ class RealHardwareService implements HardwareService {
       _notifyCtrl.add(NotifyEvent(
         type: evt,
         message: evt == 'ota_done'
-            ? '摄像头升级完成'
+            ? T.current.hwCamUpgraded
             : evt == 'ota_fail'
-                ? '摄像头升级失败'
+                ? T.current.hwCamUpgradeFailed
                 : evt,
         at: DateTime.now(),
         data: data.isEmpty ? null : data,
@@ -742,10 +742,10 @@ class RealHardwareService implements HardwareService {
           // 只弹一句 toast 而**不触发完成逻辑**（进度不置 100%、不跳完成态）。
           case 'job_done':
           case 'job_completed':
-            notifyStatus = const MachineStatus(
+            notifyStatus = MachineStatus(
               state: MachineState.idle,
               progress: 1.0,
-              message: '加工完成',
+              message: T.current.hwCarveDone,
             );
           case 'alarm':
           case 'error':
@@ -756,7 +756,7 @@ class RealHardwareService implements HardwareService {
             // 报警 = 本次作业终止：进行中的雕刻会话必须立即结束，
             // 否则「准备中」横幅会无限转圈（2026-09-04 客户实测 bug）。
             if (_carve.isActive) {
-              _failCarve('机器报警，本次作业已中止，请处理报警后重试');
+              _failCarve(T.current.hwCarveAlarm);
             }
           case 'job_failed':
             // APP-15（2026-10-07 工单）：固件加工失败时发布 `job_failed`
@@ -764,10 +764,10 @@ class RealHardwareService implements HardwareService {
             // 永远停在 running。现与 job_completed **对称收尾**：结束会话进
             // 失败态（显示原因、可重试）。状态流不伪造：机器真实状态
             // （alarm/idle）由状态帧自行到达，避免覆盖报警态误解锁 Jog（W-02 同族）。
-            notifyStatus = MachineStatus(message: msg.isEmpty ? '加工失败' : msg);
+            notifyStatus = MachineStatus(message: msg.isEmpty ? T.current.hwJobFailed : msg);
             pushStatusToStream = false;
             if (_carve.isActive) {
-              _failCarve(msg.isEmpty ? '机器报告加工失败，请检查后重试' : msg);
+              _failCarve(msg.isEmpty ? T.current.hwJobFailedHint : msg);
             }
           default:
             notifyStatus = MachineStatus(message: msg.isEmpty ? type : msg);
@@ -811,7 +811,7 @@ class RealHardwareService implements HardwareService {
       // 状态帧直接报 alarm（未经 notify 的静默报警）同样要终结雕刻会话。
       // isActive 守卫保证只触发一次：fail 后会话不再 active。
       if (parsed.state == MachineState.alarm && _carve.isActive) {
-        _failCarve('机器报警，本次作业已中止，请处理报警后重试');
+        _failCarve(T.current.hsAlarmAbort);
       }
       _checkCmdAck(parsed);
       _syncCarveFromStatus(j);
@@ -896,11 +896,11 @@ class RealHardwareService implements HardwareService {
     if (cmd['cmd'] != 'job') return null;
     switch (cmd['action']) {
       case 'pause':
-        return '暂停雕刻';
+        return T.current.hwPause;
       case 'resume':
-        return '继续雕刻';
+        return T.current.hwResume;
       case 'stop':
-        return '停止雕刻';
+        return T.current.hwStop;
       default:
         return null;
     }
@@ -923,7 +923,7 @@ class RealHardwareService implements HardwareService {
 
     final sent = PendingCommand(
       cmd: cmd,
-      label: '开始雕刻',
+      label: T.current.hwStartCarve,
       state: CommandDeliveryState.sent,
     );
     if (!_publish(cmd)) {
@@ -1197,7 +1197,7 @@ class RealHardwareService implements HardwareService {
     if (!await _allowLocalOnly()) return false;
     final trimmed = fileUrl.trim();
     if (trimmed.isEmpty) {
-      _failCarve('这个模型还没有可用的加工程序，请换一个试试');
+      _failCarve(T.current.hwNoGcode);
       return false;
     }
     final jobId = _newId();
@@ -1236,7 +1236,7 @@ class RealHardwareService implements HardwareService {
     // 启动类命令：只发一次 + ACK 匹配，**绝不自动重发**（D8）
     if (!_publish(cmd)) {
       _awaitingReqId = null;
-      _failCarve('网络不稳，指令没发出去，请检查网络后重试');
+      _failCarve(T.current.hsNetUnstable);
       return false;
     }
     return true;
@@ -1265,7 +1265,7 @@ class RealHardwareService implements HardwareService {
     };
     if (!_publish(cmd)) {
       _awaitingReqId = null;
-      _failCarve('网络不稳，指令没发出去，请检查网络后重试');
+      _failCarve(T.current.hsNetUnstable);
       return false;
     }
     return true;
@@ -1287,7 +1287,7 @@ class RealHardwareService implements HardwareService {
       _carveWatchdog = Timer(const Duration(seconds: 90), () {
         if (_carve.stage == CarveStage.preparing ||
             _carve.stage == CarveStage.confirming) {
-          _failCarve('与机器失去联系，请检查机器屏幕后重试');
+          _failCarve(T.current.hsWaitTimeout);
         }
       });
     } else {
@@ -1304,7 +1304,7 @@ class RealHardwareService implements HardwareService {
     _carveWatchdog = Timer(const Duration(seconds: 90), () {
       if (_carve.stage == CarveStage.preparing ||
           _carve.stage == CarveStage.confirming) {
-        _failCarve('与机器失去联系，请检查机器屏幕后重试');
+        _failCarve(T.current.hwLostContact);
       }
     });
   }
@@ -1327,47 +1327,67 @@ class RealHardwareService implements HardwareService {
   static String _friendlyAckText(String message, String? code) {
     if (message.isNotEmpty && message != 'cmd_ack') {
       if (message.contains(RegExp(r'[\u4e00-\u9fff]'))) return message;
-      const msgMap = {
-        'grbl reply timeout': '控制板没有响应，请检查控制板电源和连接',
-        'unknown cmd': '当前设备版本不支持这个操作',
-        'machine busy': '机器正在运行，暂时不能执行',
+      // ★ const Map 装不下运行时值 ⇒ 存getter，取值时才取文案（同报警码映射）。
+      const Map<String, String Function()> msgMap = {
+        'grbl reply timeout': _grblTimeout,
+        'unknown cmd': _unknownCmd,
+        'machine busy': _machineBusy,
       };
       final hit = msgMap[message.trim().toLowerCase()];
-      if (hit != null) return hit;
+      if (hit != null) return hit();
     }
     return _ackCodeText(code);
   }
+
+  static String _grblTimeout() => T.current.hwGrblTimeout;
+  static String _unknownCmd() => T.current.hwUnknownCmd;
+  static String _machineBusy() => T.current.hwMachineBusy;
+  static String _e400() => T.current.hwE400;
+  static String _e403() => T.current.hwE403;
+  static String _e409() => T.current.hwE409;
+  static String _e500() => T.current.hwE500;
+  static String _e501() => T.current.hwE501;
+  static String _eTimeout() => T.current.hwETIMEOUT;
+  static String _eNetDown() => T.current.hwENETDOWN;
+  static String _eStale() => T.current.hwEStale;
+  static String _eBusy() => T.current.hwEBusy;
+  static String _e423() => T.current.hwE423;
+  static String _e503() => T.current.hwE503;
 
   /// 小屏 cmd_ack 错误码 → 客户能看懂的通俗话术（清单 §3 错误码表）。
   /// 联调诊断信息（GRBL 原始码）保留在括号里，便于远程定位问题。
   static String _ackCodeText(String? code) {
     if (code == null || code.isEmpty || code == 'OK') {
-      return '机器没能完成这条指令，请重试';
+      return T.current.hwCodeNull;
     }
-    const map = {
-      'E400': '机器不认识这条指令，请更新 App 后重试',
-      'E403': '这份加工程序不属于这台机器',
-      'E409': '机器正忙，当前状态不能执行这个操作',
-      'E500': '机器内部执行失败，请重试',
-      'E501': '机器暂不支持这个功能',
-      'ETIMEOUT': '机器等待控制板回复超时，请重试',
-      'ENETDOWN': '机器的 Wi-Fi 已离线，请检查机器网络',
+    const Map<String, String Function()> map = {
+      'E400': _e400,
+      'E403': _e403,
+      'E409': _e409,
+      'E500': _e500,
+      'E501': _e501,
+      'ETIMEOUT': _eTimeout,
+      'ENETDOWN': _eNetDown,
       // APP-17（2026-10-07 工单）：EVERIFY / ECONFIRM_TIMEOUT 已删 —— 固件从不
       // 发这两个码（「机旁确认不超时」决定后 confirm_timeout 永不出现），
       // 留着会让人误以为还有超时机制。
-      // APP-17：ESTALE = 离线期间积压的指令被机器丢弃（cnc_net.c）。
-      'ESTALE': '这条指令已过期，被机器丢弃了，请重新操作一次',
+      // ESTALE = 离线期间积压的指令被机器丢弃（cnc_net.c）。
+      'ESTALE': _eStale,
       // 2026-10-05（雕刻向导协议定稿 v1.0 §5.1）：固件 1.1.6 新增门禁码补齐。
       // EBUSY=同类操作执行中（巡边连发第二次）；E423=报警/舱门开；
       // E503=GRBL 离线（set_work_origin/framing 的 manual_gate 门禁）。
-      'EBUSY': '机器正在执行同类操作，请稍候再试',
-      'E423': '机器处于报警状态（或舱门未关），请解除后再试',
-      'E503': '机器控制板未连线，请检查机器电源与连接',
+      'EBUSY': _eBusy,
+      'E423': _e423,
+      'E503': _e503,
     };
-    if (map.containsKey(code)) return map[code]!;
-    if (code.startsWith('GRBL_error')) return '控制板拒绝了这条指令（$code）';
-    if (code.startsWith('GRBL_ALARM')) return '控制板报警（$code）';
-    return '机器没能完成这条指令（$code）';
+    if (map.containsKey(code)) return map[code]!();
+    if (code.startsWith('GRBL_error')) {
+      return T.current.hwGrblReject.replaceAll('{c}', code);
+    }
+    if (code.startsWith('GRBL_ALARM')) {
+      return T.current.hwGrblAlarm.replaceAll('{c}', code);
+    }
+    return T.current.hwCodeUnknown.replaceAll('{c}', code);
   }
 
   /// 处理 `cmd_ack`：按 reqId 关联回具体命令，推进或终止雕刻阶段。
@@ -1398,7 +1418,7 @@ class RealHardwareService implements HardwareService {
       // 2026-09-04：小屏 cmd_ack 只有 code 没有 message（清单 §3），
       // 直接显示 "E409" 这类错误码客户看不懂 → 映射通俗中文。
       final detail = _friendlyAckText(ev.message, ev.code);
-      _failCarve('机器没能准备好：$detail');
+      _failCarve(T.current.hwNotReady.replaceAll('{d}', detail));
       return;
     }
 
@@ -1784,8 +1804,7 @@ class RealHardwareService implements HardwareService {
     // set_work_zero（G92）与本命令不互相替代（协议明确），本流程禁用。
     // **不带 Z**（Z 铁律，见 jog 注释）：`z` 仅保留签名兼容，不参与下发。
     if (!await _allowLocalOnly()) {
-      return const WcsWriteResult(false,
-          reason: '原点写入只能在机器同一 Wi-Fi 下执行');
+      return WcsWriteResult(false, reason: T.current.hwWcsLanOnly);
     }
     final reqId = _newId();
     final waiter = Completer<NotifyEvent>();
@@ -1800,7 +1819,7 @@ class RealHardwareService implements HardwareService {
     final sent = _publish(frame);
     if (!sent) {
       _ackWaiters.remove(reqId);
-      return const WcsWriteResult(false, reason: '机器未连线，原点没有写入');
+      return WcsWriteResult(false, reason: T.current.hwWcsOffline);
     }
     // 第一道闸：cmd_ack（10 秒无回执 = 机器无响应，**不得默认成功**）。
     NotifyEvent ack;
@@ -1808,8 +1827,7 @@ class RealHardwareService implements HardwareService {
       ack = await waiter.future.timeout(const Duration(seconds: 10));
     } on TimeoutException {
       _ackWaiters.remove(reqId);
-      return const WcsWriteResult(false,
-          reason: '机器无响应（10 秒未回执），原点没有写入');
+      return WcsWriteResult(false, reason: T.current.hwWcsNoReply);
     }
     if (ack.ok != true) {
       // 错误码 → 客户人话（复用 hsr 既有映射惯例）。
@@ -1838,8 +1856,9 @@ class RealHardwareService implements HardwareService {
       if ((dx - x).abs() <= 0.02 && (dy - y).abs() <= 0.02) {
         done.complete(null);
       } else {
-        done.complete('原点写入未生效（机器返回 X${dx.toStringAsFixed(2)} '
-            'Y${dy.toStringAsFixed(2)}），请重试');
+        done.complete(T.current.hwWcsNotEffect
+            .replaceAll('{dx}', dx.toStringAsFixed(2))
+            .replaceAll('{dy}', dy.toStringAsFixed(2)));
       }
     });
     final timer = Timer(const Duration(seconds: 3), () {
@@ -1935,7 +1954,7 @@ class RealHardwareService implements HardwareService {
     // ≠ 机器接受（固件会回 E400 missing tools array / busy 等）。返回
     // null=同步成功；非 null=客户可读的失败原因。无回执也不许当成功。
     if (!await _allowLocalOnly()) {
-      return '刀仓映射同步需要在与机器同一网络下进行';
+      return T.current.hwToolMapNeedLan;
     }
     final reqId = _newId();
     final waiter = Completer<NotifyEvent>();
@@ -1952,16 +1971,16 @@ class RealHardwareService implements HardwareService {
     };
     if (!_dispatch(cmd)) {
       _ackWaiters.remove(reqId);
-      return '刀仓映射同步失败：未连接到机器';
+      return T.current.hwToolMapNoConn;
     }
     try {
       final ack = await waiter.future.timeout(const Duration(seconds: 10));
       if (ack.ok == true) return null;
       final reason = _friendlyAckText(ack.message, ack.code);
-      return '机器未接受刀仓映射：$reason';
+      return T.current.hwToolMapRejected.replaceAll('{r}', reason);
     } on TimeoutException {
       // 无回执（丢包/机器忙）：宁可不显示「已同步」，也不能假成功（APP-16）。
-      return '未收到机器确认，请检查机器后重新同步';
+      return T.current.hwToolMapNoAck;
     }
   }
 

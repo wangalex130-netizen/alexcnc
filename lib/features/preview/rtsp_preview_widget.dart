@@ -22,6 +22,9 @@ import '../../app/theme.dart';
 import 'camera_discovery.dart';
 
 import 'mjpeg_stream_player.dart';
+import '../../widgets/pressable.dart';
+
+import '../../l10n/app_strings.dart';
 
 
 
@@ -291,7 +294,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
     } else {
 
-      _setError('未配置摄像头地址，且未启用自动发现');
+      _setError(T.current.rpNoUrl);
 
     }
 
@@ -455,7 +458,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
       if (_state == _CamState.connecting) {
 
-        _failCurrentAttempt('连接超时');
+        _failCurrentAttempt(T.current.rpTimeout);
 
       }
 
@@ -511,7 +514,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
     } else if (_state == _CamState.ready) {
 
-      _setError('视频流中断', details: msg);
+      _setError(T.current.rpInterrupted, details: msg);
 
     }
 
@@ -569,7 +572,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
         if (_state == _CamState.connecting) {
 
-          _failCurrentAttempt(event.message ?? '播放已停止');
+          _failCurrentAttempt(event.message ?? T.current.rpStopped);
 
         }
 
@@ -579,11 +582,11 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
         if (_state == _CamState.connecting) {
 
-          _failCurrentAttempt(event.message ?? '播放失败');
+          _failCurrentAttempt(event.message ?? T.current.rpPlayFail);
 
         } else if (_state == _CamState.ready) {
 
-          _setError('视频流中断', details: event.message ?? '播放异常');
+          _setError(T.current.rpInterrupted, details: event.message ?? T.current.rpPlayErr);
 
         }
 
@@ -697,7 +700,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
       } else {
 
-        _setError('未发现摄像头，请确认手机与摄像头在同一局域网');
+        _setError(T.current.rpNoCamera);
 
       }
 
@@ -705,7 +708,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
       if (!mounted) return;
 
-      _setError('扫描失败：$e');
+      _setError(T.current.rpScanFail.replaceAll('{e}', '$e'));
 
     });
 
@@ -717,7 +720,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
     final buffer = StringBuffer();
 
-    buffer.writeln('已尝试以下方式均未成功：');
+    buffer.writeln(T.current.rpAllTried);
 
     for (final u in _urls) {
 
@@ -727,11 +730,11 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
     if (_lastError.isNotEmpty) {
 
-      buffer.writeln('最后错误：$_lastError');
+      buffer.writeln(T.current.rpLastErr.replaceAll('{e}', _lastError));
 
     }
 
-    _setError('视频流中断', details: buffer.toString());
+    _setError(T.current.rpInterrupted, details: buffer.toString());
 
   }
 
@@ -869,7 +872,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
     if (path == null || path.isEmpty) {
 
-      _showHint('截图失败，请确认画面已播放');
+      _showHint(T.current.csShotFail);
 
       return;
 
@@ -888,7 +891,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
     if (frame == null) {
 
-      _showHint('还没有可截取的画面');
+      _showHint(T.current.csNoShotFrame);
 
       return;
 
@@ -914,11 +917,11 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
           (result['isSuccess'] == true || result['success'] == true);
 
-      if (!ok) _showHint('截图保存失败，请重试');
+      if (!ok) _showHint(T.current.csShotSaveFail);
 
     } catch (e) {
 
-      _showHint('截图保存出错');
+      _showHint(T.current.csShotSaveErr);
 
     } finally {
 
@@ -980,7 +983,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
         color: const Color(0xFF1E1913),
 
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(CncRadius.control),
 
       ),
 
@@ -1022,7 +1025,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
       case _CamState.idle:
 
-        content = GestureDetector(
+        content = Pressable(
 
           behavior: HitTestBehavior.opaque,
 
@@ -1074,7 +1077,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
                 Text(
 
-                  '点击开始预览',
+                  T.of(context).csStartPreview,
 
                   style: TextStyle(
 
@@ -1230,11 +1233,11 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
                 color: Colors.black.withOpacity(0.35),
 
-                borderRadius: BorderRadius.circular(999),
+                borderRadius: BorderRadius.circular(CncRadius.pill),
 
               ),
 
-              child: const Text('实时监控',
+              child: Text(T.of(context).csLiveView,
 
                   style: TextStyle(fontSize: 10, color: Color(0xFFFFFFFF))),
 
@@ -1278,7 +1281,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
                   onTap: _togglePause,
 
-                  tooltip: _isPaused ? '播放' : '暂停',
+                  tooltip: _isPaused ? T.of(context).csPlay : T.of(context).csPause,
 
                 ),
 
@@ -1290,7 +1293,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
                   onTap: _stopPreview,
 
-                  tooltip: '停止',
+                  tooltip: T.of(context).csStop,
 
                 ),
 
@@ -1318,7 +1321,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
                     onTap: widget.onFullscreen,
 
-                    tooltip: '全屏',
+                    tooltip: T.of(context).csFullscreen,
 
                   ),
 
@@ -1330,7 +1333,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
                   onTap: _takeSnapshot,
 
-                  tooltip: '截图',
+                  tooltip: T.of(context).csSnapshot,
 
                   loading: _savingSnapshot,
 
@@ -1394,7 +1397,7 @@ class _ControlButton extends StatelessWidget {
 
       color: Colors.black.withOpacity(0.45),
 
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(CncRadius.control),
 
       clipBehavior: Clip.antiAlias,
 
@@ -1496,7 +1499,7 @@ class _Placeholder extends StatelessWidget {
 
               icon: Icon(Symbols.refresh, size: 26, color: CncColors.primary),
 
-              tooltip: '重试',
+              tooltip: T.of(context).csRetry,
 
             ),
 

@@ -4,9 +4,13 @@ import 'package:material_symbols_icons/material_symbols_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../app/theme.dart';
+import '../../app/visual_depth.dart';
 import '../../models/work_record.dart';
 import '../../state/providers.dart';
 import '../../widgets/cnc_switch.dart';
+import '../../widgets/cnc_skeleton.dart';
+
+import '../../l10n/app_strings.dart';
 
 /// 雕刻历史（工作记录）。
 ///
@@ -153,7 +157,7 @@ class _WorkHistoryPageState extends ConsumerState<WorkHistoryPage> {
     if (!mounted) return;
     if (!done) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('暂时还不能删除')),
+        SnackBar(content: Text(T.current.hiCantDelete)),
       );
     }
     if (done) _load(reset: true);
@@ -168,7 +172,7 @@ class _WorkHistoryPageState extends ConsumerState<WorkHistoryPage> {
         backgroundColor: CncColors.panel,
         foregroundColor: CncColors.textMain,
         elevation: 0,
-        title: const Text('雕刻历史',
+        title: Text(T.of(context).hiTitle,
             style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
         actions: [
           // 总开关：客户可关闭，关闭后本页不展示任何记录（隐私保护）
@@ -201,8 +205,8 @@ class _WorkHistoryPageState extends ConsumerState<WorkHistoryPage> {
     if (_error != null && _all.isEmpty) {
       return _Empty(
         icon: Symbols.cloud_off,
-        text: '记录加载失败，请下拉重试',
-        actionText: '重新加载',
+        text: T.current.hiLoadFail,
+        actionText: T.current.hiReload,
         onAction: () => _load(reset: true),
       );
     }
@@ -210,8 +214,8 @@ class _WorkHistoryPageState extends ConsumerState<WorkHistoryPage> {
     if (items.isEmpty) {
       return _Empty(
         icon: Symbols.history,
-        text: '还没有雕刻记录',
-        actionText: '刷新',
+        text: T.current.hiEmpty,
+        actionText: T.current.hiRefresh,
         onAction: () => _load(reset: true),
       );
     }
@@ -262,26 +266,28 @@ class _WorkHistoryPageState extends ConsumerState<WorkHistoryPage> {
     final weekStart = today.subtract(Duration(days: now.weekday - 1));
 
     final buckets = <String, List<WorkRecord>>{
-      '今天': [],
-      '昨天': [],
-      '本周': [],
-      '更早': [],
+      // ★ 分桶键走i18n（2026-10-05 第13批）：Map key 也要跟着语言变，
+      // 否则切英文后分桶全落进 fallback。
+      T.current.hiToday: [],
+      T.current.hiYesterday: [],
+      T.current.hiWeek: [],
+      T.current.hiEarlier: [],
     };
     for (final r in items) {
       final t = r.createTime;
       if (t == null) {
-        buckets['更早']!.add(r);
+        buckets[T.current.hiEarlier]!.add(r);
         continue;
       }
       final d = DateTime(t.year, t.month, t.day);
       if (!d.isBefore(today)) {
-        buckets['今天']!.add(r);
+        buckets[T.current.hiToday]!.add(r);
       } else if (!d.isBefore(yesterday)) {
-        buckets['昨天']!.add(r);
+        buckets[T.current.hiYesterday]!.add(r);
       } else if (!d.isBefore(weekStart)) {
-        buckets['本周']!.add(r);
+        buckets[T.current.hiWeek]!.add(r);
       } else {
-        buckets['更早']!.add(r);
+        buckets[T.current.hiEarlier]!.add(r);
       }
     }
     return buckets.entries
@@ -338,13 +344,13 @@ class _DisabledView extends StatelessWidget {
             Icon(Symbols.visibility_off, size: 48, color: CncColors.textSub),
             const SizedBox(height: 14),
             Text(
-              '雕刻历史已关闭',
+              T.of(context).whClosedTitle,
               style: TextStyle(fontSize: 15, color: CncColors.textMain),
             ),
             const SizedBox(height: 8),
             Text(
-              '关闭期间不会展示任何加工记录。'
-              '需要查看时，打开右上角开关即可。',
+              T.of(context).whClosedSub,
+              // ↑ 已并入 wh.closedSub
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 13, color: CncColors.textSub),
             ),
@@ -383,11 +389,11 @@ class _FilterBar extends StatelessWidget {
           Wrap(
             spacing: 8,
             children: [
-              _Chip(label: '全部', selected: result == null,
+              _Chip(label: T.of(context).hiAll, selected: result == null,
                   onTap: () => onResult(null)),
-              _Chip(label: '已完成', selected: result == 0,
+              _Chip(label: T.of(context).hiDone, selected: result == 0,
                   onTap: () => onResult(0)),
-              _Chip(label: '未完成', selected: result == 1,
+              _Chip(label: T.of(context).hiUndone, selected: result == 1,
                   onTap: () => onResult(1)),
             ],
           ),
@@ -395,13 +401,13 @@ class _FilterBar extends StatelessWidget {
           Wrap(
             spacing: 8,
             children: [
-              _Chip(label: '今天', selected: range == _Range.today,
+              _Chip(label: T.of(context).hiToday, selected: range == _Range.today,
                   onTap: () => onRange(_Range.today)),
-              _Chip(label: '7天', selected: range == _Range.days7,
+              _Chip(label: T.of(context).hiD7, selected: range == _Range.days7,
                   onTap: () => onRange(_Range.days7)),
-              _Chip(label: '30天', selected: range == _Range.days30,
+              _Chip(label: T.of(context).hiD30, selected: range == _Range.days30,
                   onTap: () => onRange(_Range.days30)),
-              _Chip(label: '全部时间', selected: range == _Range.all,
+              _Chip(label: T.of(context).hiAllTime, selected: range == _Range.all,
                   onTap: () => onRange(_Range.all)),
             ],
           ),
@@ -450,7 +456,8 @@ class _RecordCard extends StatelessWidget {
 
   /// 「历史」只记载**已结束**的任务，没有「进行中」这一态
   /// （正在雕刻的去工作台/监控页看，不进历史）。
-  String get _statusLabel => record.result == 0 ? '已完成' : '未完成';
+  String get _statusLabel =>
+      record.result == 0 ? T.current.hiDone : T.current.hiUndone;
 
   Color get _statusColor {
     switch (record.result) {
@@ -478,29 +485,33 @@ class _RecordCard extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 10),
         decoration: BoxDecoration(
           color: CncColors.dangerBg,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(CncRadius.card),
         ),
-        child: Icon(Symbols.delete, color: CncColors.danger, size: 20),
+        child: Icon(Symbols.delete, color: CncColors.dangerFg, size: 20),
       ),
       confirmDismiss: (_) async {
         return await showDialog<bool>(
               context: context,
               builder: (_) => AlertDialog(
                 backgroundColor: CncColors.card,
-                title: Text('删除记录',
+                title: Text(T.of(context).hiDelTitle,
                     style: TextStyle(color: CncColors.textMain)),
                 content: Text(
-                    '确定删除「${record.fileName.isEmpty ? '未命名任务' : record.fileName}」这条记录吗？',
+                    T.of(context).hiDelAsk.replaceAll(
+                        '{n}',
+                        record.fileName.isEmpty
+                            ? T.of(context).hiUntitled
+                            : record.fileName),
                     style: TextStyle(color: CncColors.textSub)),
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.pop(context, false),
-                    child: const Text('取消'),
+                    child: Text(T.of(context).btnCancel),
                   ),
                   TextButton(
                     onPressed: () => Navigator.pop(context, true),
-                    child: Text('删除',
-                        style: TextStyle(color: CncColors.danger)),
+                    child: Text(T.of(context).whDelete,
+                        style: TextStyle(color: CncColors.dangerFg)),
                   ),
                 ],
               ),
@@ -513,7 +524,8 @@ class _RecordCard extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
         decoration: BoxDecoration(
           color: CncColors.card,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(CncRadius.card),
+          boxShadow: CncDepth.restBox(),
           border: Border.all(color: CncColors.border),
         ),
         child: Row(
@@ -523,7 +535,9 @@ class _RecordCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    record.fileName.isEmpty ? '未命名任务' : record.fileName,
+                    record.fileName.isEmpty
+                        ? T.of(context).hiUntitled
+                        : record.fileName,
                     style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
@@ -582,31 +596,29 @@ class _Skeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget bar(double w) => Container(
-          width: w,
-          height: 12,
-          decoration: BoxDecoration(
-            color: CncColors.border,
-            borderRadius: BorderRadius.circular(6),
-          ),
-        );
+    // P1-4：原实现是 6 条**静态**灰条（固定 150/90 宽、CncColors.border），
+    // 加载时看起来像「坏了」。现改为呼吸骨架，并让宽度逐行递减，
+    // 避免读起来像等宽栅格。行数仍为 6，保持列表高度稳定不跳动。
+  Widget bar(double w) => CncSkeletonBox(width: w, height: 12);
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
       itemCount: 6,
-      itemBuilder: (_, __) => Container(
+      itemBuilder: (_, i) => Container(
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
         decoration: BoxDecoration(
           color: CncColors.card,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(CncRadius.card),
+          boxShadow: CncDepth.restBox(),
           border: Border.all(color: CncColors.border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            bar(150),
+            // 逐行递减：150 / 118 / 134 / 104 / 126 / 96
+            bar(150.0 - (i %3) * 16 - (i.isEven ? 0 : 8)),
             const SizedBox(height: 10),
-            bar(90),
+            bar(90.0 - (i % 2) * 12),
           ],
         ),
       ),

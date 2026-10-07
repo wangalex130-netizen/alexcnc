@@ -12,6 +12,9 @@ import '../../app/theme.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import 'package:http/http.dart' as http;
+import '../../widgets/pressable.dart';
+
+import '../../l10n/app_strings.dart';
 
 
 
@@ -231,7 +234,7 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
 
           client.close();
 
-          throw TimeoutException('连接中继超时');
+          throw TimeoutException(T.current.mjRelayTimeout);
 
         },
 
@@ -283,9 +286,9 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
 
         if (!_hasReportedPlaying && mounted) {
 
-          _onError('摄像头无信号：连接成功但 12 秒内未收到画面，'
+          _onError(T.current.mjNoSignal);
 
-              '可能摄像头未推流或网络中断');
+              // ↑ 已并入 mj.noSignal 单条 key
 
         }
 
@@ -415,9 +418,9 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
 
     if (mounted && widget.playing) {
 
-      widget.onError?.call('视频流已断开');
+      widget.onError?.call(T.current.mjDisconnected);
 
-      setState(() => _errorMsg = '视频流已断开');
+      setState(() => _errorMsg = T.current.mjDisconnected);
 
     }
 
@@ -483,7 +486,7 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
 
           // 用户场景下，遮罩显示播放圆按钮，点击后才真正开始拉流。
 
-          GestureDetector(
+          Pressable(
 
             onTap: () {
 
@@ -531,7 +534,7 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
 
                     Icon(Symbols.error,
 
-                        size: 36, color: CncColors.danger),
+                        size: 36, color: CncColors.dangerFg),
 
                     const SizedBox(height: 10),
 
@@ -553,7 +556,7 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
 
                       icon: Icon(Symbols.refresh, color: CncColors.primaryInk),
 
-                      label: Text('重试',
+                      label: Text(T.of(context).mjRetry,
 
                           style: TextStyle(color: CncColors.primaryInk)),
 

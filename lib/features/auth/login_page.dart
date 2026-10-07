@@ -19,6 +19,9 @@ import '../settings/privacy_policy_page.dart';
 import 'package:flutter/gestures.dart';
 
 import 'package:material_symbols_icons/material_symbols_icons.dart';
+import '../../widgets/pressable.dart';
+
+import '../../l10n/app_strings.dart';
 // 2026-08-21 工程师确认：App 不开放注册功能，登录页隐藏注册入口。
 
 // register_page.dart 与 auth_service.register 代码保留，待后端开放后再恢复入口。
@@ -115,7 +118,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
     if (u.isEmpty || p.isEmpty) {
 
-      setState(() => _error = '请输入邮箱和密码');
+      setState(() => _error = T.current.lgNeedBoth);
 
       return;
 
@@ -144,7 +147,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     } catch (_) {
 
       // 超时/断网/DNS 等 http 层异常：统一规范文案，内部堆栈不上屏。
-      if (mounted) setState(() => _error = '网络连接失败，请检查网络后重试');
+      if (mounted) setState(() => _error = T.current.lgNetFail);
 
     }
 
@@ -162,7 +165,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
       backgroundColor: CncColors.bg,
 
-      appBar: AppBar(title: const Text('登录')),
+      appBar: AppBar(title: Text(T.of(context).lgTitle)),
 
       body: SafeArea(
 
@@ -207,7 +210,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
               Text(
 
-                '登录后可扫码绑定你的雕刻机',
+                T.of(context).lgSub,
 
                 textAlign: TextAlign.center,
 
@@ -223,7 +226,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
                 icon: Symbols.person,
 
-                hint: '邮箱（name@example.com）',
+                hint: T.of(context).lgEmailHint,
 
                 keyboardType: TextInputType.emailAddress,
 
@@ -237,7 +240,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
                 icon: Symbols.lock,
 
-                hint: '密码',
+                hint: T.of(context).lgPwdHint,
 
                 obscure: _obscure,
 
@@ -259,7 +262,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
                 Text(_error!,
 
-                    style: TextStyle(fontSize: 12, color: CncColors.danger)),
+                    style: TextStyle(fontSize: 12, color: CncColors.dangerFg)),
 
               ],
 
@@ -273,7 +276,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
                 children: [
 
-                  GestureDetector(
+                  Pressable(
 
                     onTap: () => setState(() => _agreed = !_agreed),
 
@@ -327,11 +330,16 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
                         children: [
 
-                          const TextSpan(text: '已阅读并同意'),
+                          TextSpan(text: T.of(context).lgAgree),
+                          // ★ 2026-10-05：三段之间必须有分隔符。中文靠《》书名号
+                          // 天然分隔，英文 Privacy Policy / Terms of Use 是纯文本，
+                          // 直接相邻会粘成「…agree toPrivacy PolicyTerms of Use」。
+                          TextSpan(text: T.of(context).lgPolicySep),
 
-                          _linkSpan('《隐私政策》'),
+                          _linkSpan(T.of(context).lgPrivacy),
+                          TextSpan(text: T.of(context).lgPolicySep),
 
-                          _linkSpan('《用户协议》'),
+                          _linkSpan(T.of(context).lgTerms),
 
                         ],
 
@@ -351,7 +359,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
                 onPressed: (busy || !_agreed) ? null : _submit,
 
-                child: Text(busy ? '登录中…' : '登录'),
+                child: Text(busy ? T.of(context).lgLoggingIn : T.of(context).lgSignIn),
 
               ),
 
@@ -403,99 +411,113 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
 
 
-class _Field extends StatelessWidget {
-
+class _Field extends StatefulWidget {
   final TextEditingController controller;
-
   final IconData icon;
-
   final String hint;
-
   final bool obscure;
-
   final TextInputType? keyboardType;
-
   final Widget? trailing;
 
   const _Field({
-
     required this.controller,
-
     required this.icon,
-
     required this.hint,
-
     this.obscure = false,
-
     this.keyboardType,
-
     this.trailing,
-
   });
 
+  @override
+  State<_Field> createState() => _FieldState();
+}
 
+class _FieldState extends State<_Field> {
+  // P3-2：原实现外层边框是静态的、内层 InputBorder.none，
+  // 所以聚焦时没有任何视觉变化 —— 客户不知道键盘焦点在哪，
+  // 打字时眼睛没有落点。现在边框 / 图标 / 底色三处都随焦点走。
+  final FocusNode _focus = FocusNode();
 
   @override
+  void initState() {
+    super.initState();
+    _focus.addListener(_onFocus);
+  }
 
-  Widget build(BuildContext context) => Container(
+  void _onFocus() {
+    if (mounted) setState(() {});
+  }
 
-        decoration: BoxDecoration(
+  @override
+  void dispose() {
+    _focus
+      ..removeListener(_onFocus)
+      ..dispose();
+    super.dispose();
+  }
 
-          color: CncColors.card,
-
-          borderRadius: BorderRadius.circular(12),
-
-          border: Border.all(color: CncColors.border),
-
+  @override
+  Widget build(BuildContext context) {
+    final focused = _focus.hasFocus;
+    // 2026-10-04 修复：原 AnimatedContainer + withOpacity(0.05) + AnimatedDefaultTextStyle
+    // 在鸿蒙 6 / 卓易通（Android 运行时经容器转发到鸿蒙图形栈，该层无 Buffer 同步）
+    // 下会触发花屏——输入框出现大黑框。改为静态 Container + 直接色值，去掉
+    // 动画/半透明合成触发点。聚焦反馈仅靠边框色宽 + 图标色瞬时切换，不再淡入。
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        // 聚焦时用次级面板色做底，提示「这一块在接收输入」（静态色，无透明度合成）
+        color: focused ? CncColors.panelAlt : CncColors.card,
+        borderRadius: BorderRadius.circular(CncRadius.card),
+        // 聚焦 1.5px primary，失焦 1px border（原来永远 1px border）
+        border: Border.all(
+          color: focused ? CncColors.primary : CncColors.border,
+          width: focused ? 1.5 : 1,
         ),
-
-        child: Row(
-
-          children: [
-
-            const SizedBox(width: 14),
-
-            Icon(icon, size: 20, color: CncColors.textSub),
-
-            const SizedBox(width: 10),
-
-            Expanded(
-
-              child: TextField(
-
-                controller: controller,
-
-                obscureText: obscure,
-
-                keyboardType: keyboardType,
-
-                style: TextStyle(color: CncColors.textMain, fontSize: 14),
-
-                decoration: InputDecoration(
-
-                  hintText: hint,
-
-                  hintStyle: TextStyle(color: CncColors.textSub),
-
-                  border: InputBorder.none,
-
-                  isDense: true,
-
-                  contentPadding: const EdgeInsets.symmetric(vertical: 14),
-
-                ),
-
+      ),
+      child: Row(
+        children: [
+          // 图标随焦点变主色（直接色值，无动画）
+          Icon(
+            widget.icon,
+            size: 20,
+            color: focused ? CncColors.primary : CncColors.textSub,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: TextField(
+              controller: widget.controller,
+              focusNode: _focus,
+              obscureText: widget.obscure,
+              keyboardType: widget.keyboardType,
+              // 光标是品牌色，而不是 Material 默认的 primary（深浅两端都不同）
+              cursorColor: CncColors.primary,
+              cursorWidth: 1.6,
+              style: TextStyle(color: CncColors.textMain, fontSize: 14),
+              decoration: InputDecoration(
+                hintText: widget.hint,
+                hintStyle: TextStyle(color: CncColors.textSub),
+                // ★ 2026-10-04 真修：InputDecoration 有 **五个**边框字段，
+                // 只写 `border` 不会覆盖其余四个，它们会继承全局
+                // inputDecorationTheme（filled+panelAlt 米色底 + focusedBorder
+                // 深海墨 1.5px）⇒ 鸿蒙 6 / 卓易通上表现为「输入框内米色块 +
+                // 大黑框」。此处必须把五个字段全关掉，视觉完全交给外层 Container。
+                filled: false,
+                fillColor: Colors.transparent,
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                errorBorder: InputBorder.none,
+                focusedErrorBorder: InputBorder.none,
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 14),
               ),
-
             ),
-
-            if (trailing != null) trailing!,
-
-          ],
-
-        ),
-
-      );
-
+          ),
+          if (widget.trailing != null) widget.trailing!,
+        ],
+      ),
+    );
+  }
 }
 

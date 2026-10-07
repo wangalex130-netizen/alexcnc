@@ -5,6 +5,11 @@ import '../../app/theme.dart';
 import '../../models/sys_bit.dart';
 import '../../widgets/tool_icon.dart';
 import '../../state/providers.dart';
+import '../../app/visual_depth.dart';
+
+import '../../l10n/app_strings.dart';
+
+import '../../widgets/cnc_skeleton.dart';
 
 /// 官方刀头库（云端 `GET /api/bit/sys/list`）。
 ///
@@ -23,14 +28,21 @@ class SysBitsPage extends ConsumerWidget {
         backgroundColor: CncColors.panel,
         foregroundColor: CncColors.textMain,
         elevation: 0,
-        title: const Text('官方刀头库',
+        title: Text(T.of(context).btTitle,
             style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
       ),
       body: bits.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (_, __) => _emptyState('刀头库加载失败，请稍后再试'),
+        // ★ 2026-10-06：整屏等待改骨架屏。参数按本页真实卡片给：
+        //   leadingSize 44（_BitCard 的图标方块）·card true（真实行是
+        //   padding14 + 圆角卡片 + 右侧「Fits this machine」胶囊）。
+        //   不给对参数骨架会比真行矮 ⇒ 加载完成时整列往下窜。
+        loading: () => const Padding(
+              padding: EdgeInsets.all(12),
+              child: CncSkeletonList(rows: 6, leadingSize: 44, card: true),
+            ),
+        error: (_, __) => _emptyState(T.of(context).btLoadFail),
         data: (list) => list.isEmpty
-            ? _emptyState('暂无刀头数据')
+            ? _emptyState(T.of(context).btEmpty)
             : RefreshIndicator(
                 onRefresh: () async => ref.invalidate(sysBitsProvider),
                 child: ListView.builder(
@@ -65,7 +77,7 @@ class _BitCard extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: CncColors.card,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(CncRadius.card),
         border: Border.all(color: CncColors.border),
       ),
       child: Row(
@@ -77,14 +89,16 @@ class _BitCard extends StatelessWidget {
             decoration: BoxDecoration(
               color: (bit.isLocalSupported ? CncColors.primary : CncColors.panelAlt)
                   .withOpacity(0.14),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(CncRadius.control),
             ),
             // 刀具模型图标（20260923 工单 §3A）：本机适配刀有真实 ToolDef
             // （含环色）→ 带环展示；云端全集刀无环色 → 按刀型绘制、不带环。
             child: bit.localTool != null
                 ? ToolIcon(def: bit.localTool!, size: 36)
-                : Opacity(
-                    opacity: 0.5,
+                : CncFade(
+                    enabled: false,
+                    activeColor: CncColors.card,
+                    disabledOpacity: 0.5,
                     child: ToolIcon.byType(bit.bitType,
                         size: 36, showRing: false),
                   ),
@@ -111,9 +125,9 @@ class _BitCard extends StatelessWidget {
                             horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: CncColors.primary.withOpacity(0.14),
-                          borderRadius: BorderRadius.circular(6),
+                          borderRadius: BorderRadius.circular(CncRadius.sm),
                         ),
-                        child: Text('本机适配',
+                        child: Text(T.of(context).btLocalFit,
                             style: TextStyle(
                                 fontSize: 10, color: CncColors.primaryInk)),
                       ),

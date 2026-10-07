@@ -10,6 +10,84 @@ import 'package:flutter/material.dart';
 ///
 /// 浅色 = 象牙纸底 + 暖卡白 + 深海墨强调；深色 = 暖黑车间 + 亮桃木强调。
 
+/// 圆角令牌（2026-10-03 UI 优化 P0-5）。
+///
+/// 收敛前全库 16 种半径（0.5/1.5/2/2.5/3/4/5/6/7/8/9/10/12/14/16/20/999），
+/// 主题层钉 8、页面层 53 处用 12、32 处用 10、11 处用 999 —— 圆角语言不成体系，
+/// 是「看起来不高级」的首要来源。现统一 4 档。
+class CncRadius {
+  CncRadius._();
+
+  /// 小徽章 / 标签 / 小图标底。
+  static const double sm = 6;
+
+  /// 内嵌块、嵌套卡。
+  static const double md = 10;
+
+  /// 卡片（跨页统一，见 P0-3）。
+  static const double lg = 14;
+
+  /// 胶囊（开关 / 胶囊标签）。
+  static const double pill = 999;
+
+  /// 卡片圆角（最常用）。
+  static const double card = lg;
+
+  /// 控件圆角（按钮 / 输入框 / 开关轨）。
+  static const double control = md;
+
+  static BorderRadius all(double r) => BorderRadius.circular(r);
+}
+
+/// 间距令牌（2026-10-03 UI 优化 P0-5）。
+///
+/// 收敛前全库 13 档 SizedBox 尺寸（2/3/4/5/6/7/8/10/12/14/16/18/20），
+/// 其中 5 与 7 不在 4pt 栅格上。统一为 4pt 栅格 5 档。
+class CncSpace {
+  CncSpace._();
+
+  static const double xs = 4;
+  static const double sm = 8;
+  static const double md = 12;
+  static const double lg = 16;
+  static const double xl = 24;
+
+  /// 卡片内边距（跨页统一，见 P0-3）。
+  static const double cardPad = 14;
+
+  /// 页面横向留白。
+  static const double pageH = 16;
+}
+
+/// 动效令牌（2026-10-03 UI 优化 P1-10）。
+///
+/// 收敛前：page_transition 4 个私有常量 + switch 180ms + image 150ms +
+/// splash 550/420/180/150 各写各的。统一 3 档 + 1 条曲线。
+class CncMotion {
+  CncMotion._();
+
+  /// 微反馈：按压、开关、图标切换。
+  static const Duration fast = Duration(milliseconds: 150);
+
+  /// 常规转场、状态切换。
+  static const Duration base = Duration(milliseconds: 250);
+
+  /// 大范围转场、抽屉。
+  static const Duration slow = Duration(milliseconds: 400);
+
+  /// 减动效用户（系统「移除动画」开启）⇒ 时长归零。
+  /// 全局零适配是 P1-8，改这一处即全站生效。
+  static Duration of(Duration d, bool reduceMotion) =>
+      reduceMotion ? Duration.zero : d;
+
+  /// build 内直接读减动效开关。
+  static bool reduceOf(BuildContext context) =>
+      MediaQuery.disableAnimationsOf(context);
+
+  /// 状态属性转换统一曲线。
+  static const Curve curve = Cubic(0.4, 0, 0.2, 1);
+}
+
 class CncColors {
   CncColors._();
 
@@ -68,10 +146,19 @@ class CncColors {
   // 招牌色与辅助色
   static Color get primary => _dark ? _dPrimary : const Color(0xFF182735); // 强调（深海墨）
   static Color get primaryInk => _dark ? _dPrimaryInk : const Color(0xFF182735); // 选中文字（同墨色）
-  static Color get warning => _dark ? _dWarning : const Color(0xFFB8772B); // 警示（暖琥珀）
+  // ★ 2026-10-05 配色审计：以下三个色值按「同色相最深的达标值」重算，
+  //   不是随手改的 —— 保持色相不变（品牌观感不动），只压明度。
+  //   审计脚本：C:\dev\_audit_color.py（把每个语义色在真实底色上算对比度）
+  //   原值 → 新值（对卡面 FFFDF9 的实测对比度）：
+  //     warning B8772B 3.62:1 → A26926 4.51:1   （正文判据 ≥4.0 / 图形 ≥4.5）
+  //     blue    2E8C9C 3.87:1 → 2A7F8E 4.57:1
+  //     laser   E24B4A 3.87:1 → CE4443 4.56:1
+  //   教训固化：**对比度不是常数，是元素大小的函数**；人眼对 3~4:1 窄带极难判断，
+  //   务必用脚本算而不是凭眼估（2026-10-04 已在状态环上连踩三次）。
+  static Color get warning => _dark ? _dWarning : const Color(0xFFA26926); // 警示（暖琥珀·深）
   static Color get danger => _dark ? _dDanger : const Color(0xFFC24A3F); // 错误红（降饱和暖红）
-  static Color get blue => _dark ? _dBlue : const Color(0xFF2E8C9C); // 辅助（海蓝宝石）
-  static Color get laser => _dark ? _dLaser : const Color(0xFFE24B4A); // 激光点红（与画布一致）
+  static Color get blue => _dark ? _dBlue : const Color(0xFF2A7F8E); // 辅助（海蓝宝石·深）
+  static Color get laser => _dark ? _dLaser : const Color(0xFFCE4443); // 激光点红（与画布一致·深）
 
   // 文字
   static Color get textMain => _dark ? _dTextMain : const Color(0xFF182735); // 主文本（深海墨）
@@ -231,7 +318,7 @@ class AppTheme {
 
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
 
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(borderRadius: CncRadius.all(CncRadius.control)),
 
       ),
 
@@ -245,10 +332,128 @@ class AppTheme {
 
         foregroundColor: CncColors.textMain,
 
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(borderRadius: CncRadius.all(CncRadius.control)),
 
       ),
 
+    ),
+
+    bottomSheetTheme: BottomSheetThemeData(
+      backgroundColor: CncColors.panel,
+      surfaceTintColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(CncRadius.lg)),
+      ),
+    ),
+
+    dialogTheme: DialogThemeData(
+      backgroundColor: CncColors.card,
+      surfaceTintColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(CncRadius.lg)),
+      ),
+      titleTextStyle: TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+        color: CncColors.textMain,
+      ),
+      contentTextStyle: TextStyle(fontSize: 14, color: CncColors.textSub),
+    ),
+
+    snackBarTheme: SnackBarThemeData(
+      backgroundColor: CncColors.panelAlt,
+      contentTextStyle: TextStyle(fontSize: 14, color: CncColors.textMain),
+      behavior: SnackBarBehavior.floating,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(CncRadius.md)),
+      ),
+    ),
+
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: CncColors.panelAlt,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: CncRadius.all(CncRadius.control),
+        borderSide: BorderSide(color: CncColors.border),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: CncRadius.all(CncRadius.control),
+        borderSide: BorderSide(color: CncColors.primary, width: 1.5),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: CncRadius.all(CncRadius.control),
+        borderSide: BorderSide(color: CncColors.danger),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: CncRadius.all(CncRadius.control),
+        borderSide: BorderSide(color: CncColors.danger, width: 1.5),
+      ),
+      hintStyle: TextStyle(fontSize: 14, color: CncColors.textSub),
+      labelStyle: TextStyle(fontSize: 14, color: CncColors.textSub),
+    ),
+
+    listTileTheme: ListTileThemeData(
+      iconColor: CncColors.icon,
+      textColor: CncColors.textMain,
+      contentPadding: const EdgeInsets.symmetric(horizontal: CncSpace.lg),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(CncRadius.md)),
+      ),
+    ),
+
+    progressIndicatorTheme: ProgressIndicatorThemeData(
+      color: CncColors.primary,
+      linearTrackColor: CncColors.panelAlt,
+      circularTrackColor: CncColors.panelAlt,
+    ),
+
+    sliderTheme: SliderThemeData(
+      activeTrackColor: CncColors.primary,
+      thumbColor: CncColors.primary,
+      inactiveTrackColor: CncColors.panelAlt,
+    ),
+
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith((states) =>
+          states.contains(WidgetState.selected) ? CncColors.onPrimary : CncColors.icon),
+      trackColor: WidgetStateProperty.resolveWith((states) =>
+          states.contains(WidgetState.selected) ? CncColors.primary : CncColors.panelAlt),
+      trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+    ),
+
+    checkboxTheme: CheckboxThemeData(
+      fillColor: WidgetStateProperty.resolveWith((states) =>
+          states.contains(WidgetState.selected) ? CncColors.primary : Colors.transparent),
+      checkColor: WidgetStateProperty.all(CncColors.onPrimary),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(CncRadius.sm)),
+      ),
+    ),
+
+    chipTheme: ChipThemeData(
+      backgroundColor: CncColors.panelAlt,
+      side: BorderSide(color: CncColors.border),
+      labelStyle: TextStyle(fontSize: 13, color: CncColors.textMain),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(CncRadius.pill)),
+      ),
+    ),
+
+    cardTheme: CardThemeData(
+      color: CncColors.card,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(CncRadius.card)),
+      ),
+    ),
+
+    dividerTheme: DividerThemeData(
+      color: CncColors.border,
+      thickness: 1,
+      space: 1,
     ),
 
     textTheme: _textTheme(Brightness.light),
@@ -401,13 +606,25 @@ class AppTheme {
 
       backgroundColor: CncColors.dBarBg,
 
-      indicatorColor: CncColors.dPrimary.withOpacity(0.18),
+      indicatorColor: CncColors.dPrimary.withOpacity(0.25), // P0-1 与浅色统一
 
-      labelTextStyle: WidgetStateProperty.all(
+      // P0-1：原为 WidgetStateProperty.all(...) ⇒ 深色下 4 个标签全是亮桃木色且全 bold，
+      // 未选中态无法与选中态区分（导航选中态功能性缺陷）。改为与浅色同构的 resolveWith。
+      labelTextStyle: WidgetStateProperty.resolveWith((states) {
 
-        TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: CncColors.dPrimaryInk),
+        final selected = states.contains(WidgetState.selected);
 
-      ),
+        return TextStyle(
+
+          fontSize: 11,
+
+          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+
+          color: selected ? CncColors.dPrimaryInk : CncColors.dIcon,
+
+        );
+
+      }),
 
       iconTheme: WidgetStateProperty.resolveWith((states) {
 
@@ -435,7 +652,7 @@ class AppTheme {
 
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
 
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(borderRadius: CncRadius.all(CncRadius.control)),
 
       ),
 
@@ -449,10 +666,40 @@ class AppTheme {
 
         foregroundColor: CncColors.dTextMain,
 
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(borderRadius: CncRadius.all(CncRadius.control)),
 
       ),
 
+    ),
+
+    cardTheme: CardThemeData(
+      color: CncColors.dPanel,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(CncRadius.card)),
+      ),
+    ),
+
+    dividerTheme: DividerThemeData(
+      color: CncColors.dBorder,
+      thickness: 1,
+      space: 1,
+    ),
+
+    dialogTheme: DialogThemeData(
+      backgroundColor: CncColors.dPanel,
+      surfaceTintColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(CncRadius.lg)),
+      ),
+      titleTextStyle: TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+        color: CncColors.dTextMain,
+      ),
+      contentTextStyle: TextStyle(fontSize: 14, color: CncColors.dTextSub),
     ),
 
     textTheme: _textTheme(Brightness.dark),
@@ -550,6 +797,33 @@ class AppTheme {
 
           fontFamily: _fontFamily,
 
+          fontFamilyFallback: _fontFallback),
+
+      titleSmall: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+          color: base,
+          fontFamily: _fontFamily,
+          fontFamilyFallback: _fontFallback),
+
+      labelMedium: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+          color: muted,
+          fontFamily: _fontFamily,
+          fontFamilyFallback: _fontFallback),
+
+      labelSmall: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w500,
+          color: muted,
+          fontFamily: _fontFamily,
+          fontFamilyFallback: _fontFallback),
+
+      bodySmall: TextStyle(
+          fontSize: 12,
+          color: muted,
+          fontFamily: _fontFamily,
           fontFamilyFallback: _fontFallback),
 
       labelLarge: TextStyle(

@@ -163,7 +163,7 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: CncColors.card,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(CncRadius.card),
           border: Border.all(color: CncColors.border),
         ),
         child: child,
@@ -314,13 +314,13 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: CncColors.warnBg,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(CncRadius.control),
               border: Border.all(color: CncColors.warnBd),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Symbols.info, size: 16, color: CncColors.warning),
+                Icon(Symbols.info, size: 16, color: CncColors.warnFg),
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -423,8 +423,8 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
                         : (_info != null ? Symbols.info : Symbols.check_circle),
                     size: 16,
                     color: _error != null
-                        ? CncColors.danger
-                        : (_info != null ? CncColors.warning : CncColors.primaryInk),
+                        ? CncColors.dangerFg
+                        : (_info != null ? CncColors.warnFg : CncColors.primaryInk),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -438,7 +438,7 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
                         fontSize: 12,
                         height: 1.4,
                         color: _error != null
-                            ? CncColors.danger
+                            ? CncColors.dangerFg
                             : (_info != null
                                 ? const Color(0xFF633806)
                                 : CncColors.primaryInk),
@@ -455,7 +455,7 @@ class _LocalPayloadPageState extends State<LocalPayloadPage> {
             _secTitle('3D 预览', Symbols.visibility),
             const SizedBox(height: 6),
             ClipRRect(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(CncRadius.control),
               child: Container(
                 color: CncColors.panelAlt,
                 child: ZGridSurface(

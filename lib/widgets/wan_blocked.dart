@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/strings_zh.dart';
+import '../l10n/app_strings.dart';
 
 /// 「必须与机器同网（局域网）」门禁被触发时的**统一提示**（W-10 扩展，2026-09-10）。
 ///
@@ -22,8 +23,8 @@ void showWanBlockedSnack(BuildContext context, String what) {
   ScaffoldMessenger.maybeOf(context)?.showSnackBar(
     SnackBar(
       content: Text(
-        '${S.t(S.wanBlockedNeedLan, {'what': what})}。'
-        '${S.wanBlockedRetry}。',
+        '${S.t(T.current.lanNeedLan, {'what': what})}.'
+        '${T.current.lanRetry}.',
       ),
       duration: const Duration(seconds: 5),
     ),

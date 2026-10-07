@@ -5,6 +5,8 @@ import 'package:http/http.dart' as http;
 import '../app/config.dart';
 import 'auth_service.dart';
 
+import '../l10n/app_strings.dart';
+
 /// 设备刀仓配置（四刀仓：slot1~4，值为刀头 ID，可为 null）。
 ///
 /// 契约 2026-08-21《设备绑定与刀仓配置接口文档8.21更新.docx》：
@@ -73,19 +75,19 @@ class BitConfigService {
   /// 查询设备刀仓配置；未配置返回 null。
   Future<BitConfig?> fetch(String deviceCode) async {
     final token = await _token();
-    if (token == null) throw Exception('请先登录');
+    if (token == null) throw Exception(T.current.bcLoginFirst);
     final uri = Uri.parse('$baseUrl/api/device/bit-config/info')
         .replace(queryParameters: {'deviceCode': deviceCode});
     final res = await _client
         .get(uri, headers: {'Authorization': 'Bearer $token'})
         .timeout(const Duration(seconds: 10));
-    if (res.statusCode == 401) throw Exception('登录已失效，请重新登录');
+    if (res.statusCode == 401) throw Exception(T.current.bcLoginExpired);
     // 10300107 为业务错误码（返回在 body.message），HTTP 状态仍为 200
     if (res.body.contains('10300107')) {
-      throw Exception('设备不存在或不属于当前用户');
+      throw Exception(T.current.bcNoDevice);
     }
     if (res.statusCode != 200) {
-      throw Exception('查询刀仓配置失败（${res.statusCode}）');
+      throw Exception(T.current.bcQueryFail.replaceAll('{c}', '${res.statusCode}'));
     }
     try {
       final body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
@@ -93,14 +95,14 @@ class BitConfigService {
       if (data == null) return null; // 未配置
       return BitConfig.fromJson(data as Map<String, dynamic>);
     } catch (_) {
-      throw Exception('服务器响应异常（${res.statusCode}）');
+      throw Exception(T.current.bcBadResp.replaceAll('{c}', '${res.statusCode}'));
     }
   }
 
   /// 新增或整体更新四个刀仓配置。
   Future<BitConfigSaveResult> save(BitConfig config) async {
     final token = await _token();
-    if (token == null) throw Exception('请先登录');
+    if (token == null) throw Exception(T.current.bcLoginFirst);
     final res = await _client
         .post(
           Uri.parse('$baseUrl/api/device/bit-config/insertOrUpdate'),
@@ -111,13 +113,13 @@ class BitConfigService {
           body: jsonEncode(config.toJson()),
         )
         .timeout(const Duration(seconds: 10));
-    if (res.statusCode == 401) throw Exception('登录已失效，请重新登录');
+    if (res.statusCode == 401) throw Exception(T.current.bcLoginExpired);
     // 10300107 为业务错误码（返回在 body.message），HTTP 状态仍为 200
     if (res.body.contains('10300107')) {
-      throw Exception('设备不存在或不属于当前用户');
+      throw Exception(T.current.bcNoDevice);
     }
     if (res.statusCode != 200) {
-      throw Exception('保存刀仓配置失败（${res.statusCode}）');
+      throw Exception(T.current.bcSaveFail.replaceAll('{c}', '${res.statusCode}'));
     }
     try {
       final body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
@@ -127,7 +129,7 @@ class BitConfigService {
         mqttDetail: data['mqttDetail']?.toString(),
       );
     } catch (_) {
-      throw Exception('服务器响应异常（${res.statusCode}）');
+      throw Exception(T.current.bcBadResp.replaceAll('{c}', '${res.statusCode}'));
     }
   }
 }
