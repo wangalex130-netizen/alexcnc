@@ -559,25 +559,12 @@ class RealHardwareService implements HardwareService {
       'ota_progress', 'ota_done', 'ota_fail', 'ota_checking', 'ota_idle',
     };
     final isOta = otaEvts.contains(evt);
-    // A3（2026-10-07 固件最终版工单）：巡边自检告警（轮廓与刀路可能差得多，
-    // 固件超 2 mm 触发）—— 只提示、不拦截；`msg` 是英文原词，不出端，
-    // 文案在本函数翻成大白话（客户文案准则：不出现 evt 等工程词）。
-    final isOutlineCheck = evt == 'outline_check';
-    if (evt != 'framing_done' &&
-        evt != 'framing_fail' &&
-        !isOta &&
-        !isOutlineCheck) {
+    // （A3 outline_check 已随固件 1.1.11 移除：不再白名单、不再转换，
+    //  未知 evt 走既有"返回 false 忽略"路径 —— 2026-10-07《给App-删两处》。）
+    if (evt != 'framing_done' && evt != 'framing_fail' && !isOta) {
       return false;
     }
     if (_notifyCtrl.isClosed) return true;
-    if (isOutlineCheck) {
-      _notifyCtrl.add(NotifyEvent(
-        type: evt,
-        message: '轮廓位置可能不对，请先目视确认一下',
-        at: DateTime.now(),
-      ));
-      return true;
-    }
     if (isOta) {
       final data = <String, dynamic>{
         if (j['state'] != null) 'state': j['state'],

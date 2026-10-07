@@ -2270,14 +2270,6 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   ///  - framing_fail：机器明确拒绝 ⇒ 撤回预览结论与目视确认，红条带原因。
   void _onFramingReceipt(NotifyEvent ev) {
     if (!mounted) return;
-    // A3（2026-10-07 固件最终版工单）：巡边自检告警 —— 只提示、可继续，
-    // 不改任何门禁/预览状态（它是提醒，不是门禁）。
-    if (ev.type == 'outline_check') {
-      _note(ev.message.isEmpty
-          ? '轮廓位置可能不对，请先目视确认一下'
-          : ev.message);
-      return;
-    }
     if (ev.type != 'framing_done' && ev.type != 'framing_fail') return;
     _framingRctTimer?.cancel();
     _framingRctArrived = true;
@@ -2581,16 +2573,6 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       child: Column(
         children: [
           _topBar(),
-          // A1（2026-10-07 固件最终版工单）：原点由谁设定 —— 只告知、不阻塞、
-          // 不比较（originSource=='screen' 才显示；工程词不出端）。
-          if (!sim && st?.originSource == 'screen')
-            Container(
-              width: double.infinity,
-              color: CncColors.panelAlt,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              child: Text('原点已在机器屏幕上设定',
-                  style: TextStyle(fontSize: 12, color: CncColors.textSub)),
-            ),
           // 提示通栏（昊总 09-24「彻底改」）：从画布内悬浮胶囊改为画布上方
           // 独立通栏 —— 全宽、自动换行，拒绝清单完整显示不再截半句。
           _noticeBanner(guide.text, guide.level),

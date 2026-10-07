@@ -89,11 +89,6 @@ class MachineStatus {
   /// OTA 失败码（ota_err）：协议 §4.2 码表；无失败为 null。
   final String? otaErr;
 
-  /// 原点设定来源（originSource，固件 1.1.7+）：'screen'=操作员在机器屏幕上
-  /// 设的 / 'app'=App 设的 / **缺省=还没人设过**。枚举三种取值**不是全集**
-  /// （工单明确：不当全集 assert）；App 只在 == 'screen' 时做一次告知展示。
-  final String? originSource;
-
   const MachineStatus({
     this.state = MachineState.idle,
     this.position = const Position(),
@@ -122,7 +117,6 @@ class MachineStatus {
     this.otaTarget,
     this.otaProgress,
     this.otaErr,
-    this.originSource,
   });
 
   MachineStatus copyWith({
@@ -153,7 +147,6 @@ class MachineStatus {
     String? otaTarget,
     int? otaProgress,
     String? otaErr,
-    String? originSource,
   }) =>
       MachineStatus(
         state: state ?? this.state,
@@ -183,7 +176,6 @@ class MachineStatus {
         otaTarget: otaTarget ?? this.otaTarget,
         otaProgress: otaProgress ?? this.otaProgress,
         otaErr: otaErr ?? this.otaErr,
-        originSource: originSource ?? this.originSource,
       );
 
   /// 物理在位刀位数（installed==true 计入）。
@@ -307,8 +299,6 @@ class MachineStatus {
       otaProgress:
           (j['ota_progress'] is num) ? (j['ota_progress'] as num).toInt() : null,
       otaErr: _parseFwStr(j['ota_err']),
-      // A1（2026-10-07 固件最终版工单）：原点设定来源，缺失/空串 → null。
-      originSource: _parseFwStr(j['originSource']),
     );
   }
 
