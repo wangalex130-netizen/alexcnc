@@ -332,8 +332,9 @@ DeviceVisual deviceVisualOf(DevicePresence? p) {
     return DeviceVisual(
         3, T.current.stOnline, CncColors.successFg, CncColors.successBg, null);
   }
-  // idle / homing。
-  return DeviceVisual(3, T.current.stIdle, CncColors.textSub, CncColors.panelAlt, null);
+  // idle / homing。胶囊点用海蓝（与缺口环同色呼应），
+  // 与在线的绿点、离线的灰点三态三色（2026-10-08 昊总实机反馈）。
+  return DeviceVisual(3, T.current.stIdle, CncColors.blue, CncColors.panelAlt, null);
 }
 
 /// 状态 pill（dot + 文案），设备卡与单机详情页共用。
@@ -440,12 +441,15 @@ String deviceCardRingStateOf(DeviceVisual v, DevicePresence? p) {
   if (v.weight == 4) return 'offline'; // 离线：四段断续弧
   if (v.weight == 1) return 'offline'; // 待确认：静态细环
   // weight 3 有四种：空闲 / 在线 / 已暂停 / 状态未知。
+  // 2026-10-08 昊总实机反馈「空闲和在线状态是一样的」：此前两者都返回
+  // 'idle'（同形同色），现拆开——在线 = online（满环绿），空闲 = idle（缺口环蓝）。
   final st = p?.status;
   if (st != null) {
     if (st.state == MachineState.paused) return 'paused'; // ‖ 独立形态
-    if (st.state == MachineState.unknown) return 'offline'; // 未上报：静态
+    if (st.state == MachineState.unknown) return 'online'; // 未上报：只声明链路通
   }
-  return 'idle'; // 空闲 / 在线：单弧呼吸
+  if (st == null) return 'online'; // 只有 presence，无状态帧：链路通
+  return 'idle'; // idle / homing：缺口环，"在等活"
 }
 
 /// 机器卡（§2.2 定值）：圆角 16 / 间距 10 / SN 副行 11sp 常驻 /

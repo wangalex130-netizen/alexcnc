@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../app/theme.dart';
 import '../app/visual_depth.dart';
+import '../l10n/app_strings.dart';
 
 /// 机器状态环（2026-10-04 第 2 版，昊总实机反馈后重做）。
 ///
@@ -17,9 +18,14 @@ import '../app/visual_depth.dart';
 /// |---|---|---|---|
 /// | 加工中 working | **三段旋转弧**（明显在转） | 品牌强调色 | 1600ms 匀速 |
 /// | 报警 alarm | **双环 + 满环**（最重） | 错误红 | 900ms 双峰脉动 |
-/// | 待机 idle | **整环 + 顶部缺口**（安静） | 辅助蓝 | 2400ms 极缓呼吸 |
+/// | 在线 online | **完整满环**（链路通） | 成功绿 | 2400ms 极缓呼吸 |
+/// | 待机 idle | **整环 + 顶部缺口**（在等活） | 辅助蓝 | 2400ms 极缓呼吸 |
 /// | 静态（待确认/暂停/未知） | **细整环**（中性） | 次文本灰 | 无 |
 /// | 离线 offline | **断口环**（明显缺口，一眼看出断了） | 发丝线灰 | 无 |
+///
+/// 在线 vs 空闲是**色 + 形双重编码**（2026-10-08 昊总实机反馈「空闲和在线
+/// 状态是一样的」）：此前两者都映射 idle（同形同色），只有小胶囊文字不同。
+/// 现在线 = 满环绿（链路完整），空闲 = 缺口环蓝（在等活）。
 ///
 /// 离线画成断口是关键：它和其它状态的**形态**就不同，不需要靠颜色区分。
 ///
@@ -67,10 +73,10 @@ class _MachineStatusRingState extends State<MachineStatusRing>
     }
   }
 
-  /// 只有 working / alarm / idle 三态有动效；offline 与其它静态态一律不动。
+  /// 只有 working / alarm / idle / online 四态有动效；offline 与其它静态态一律不动。
   bool get _isLive => _liveStates.contains(widget.state);
 
-  static const _liveStates = {'working', 'alarm', 'idle'};
+  static const _liveStates = {'working', 'alarm', 'idle', 'online'};
 
   @override
   void initState() {
@@ -153,6 +159,8 @@ class _RingPainter extends CustomPainter {
         return CncColors.danger; // 降饱和暖红 —— 报警
       case 'idle':
         return CncColors.blue; // 海蓝 —— 待机（可工作但没在干）
+      case 'online':
+        return CncColors.successFg; // 成功绿 —— 在线（链路完整）
       case 'offline':
         return CncDepth.inactiveRing; // 灰，但可读（1.29:1 那版看不见）
       default:
@@ -209,6 +217,13 @@ class _RingPainter extends CustomPainter {
         // 顶部留 40° 缺口
         canvas.drawArc(rect, -math.pi / 2 + math.pi * 0.22, math.pi * 1.56, false,
             strokePaint(col));
+        break;
+
+      // ---- 在线：完整满环（链路完整，与 idle 缺口环形色双辨）----
+      case 'online':
+        final b = live ? CncMotion2.breatheCurve(t) : 0.35;
+        final col = Color.lerp(CncColors.successBg, color, b)!;
+        canvas.drawCircle(c, r, strokePaint(col));
         break;
 
       // ---- 离线：四段短弧（2026-10-04 重做）----
@@ -279,25 +294,27 @@ class MachineStatusRingLegend extends StatelessWidget {
   const MachineStatusRingLegend({super.key});
 
   static const _items = <(String, String)>[
-    ('working', '加工中 · 三段弧旋转'),
-    ('alarm', '报警 · 双环脉动'),
-    ('idle', '空闲 · 单弧呼吸'),
-    ('paused', '已暂停 · 双竖杠'),
-    ('offline', '离线 · 四段断开'),
+    ('working', 'lg.working'),
+    ('alarm', 'lg.alarm'),
+    ('online', 'lg.online'),
+    ('idle', 'lg.idle'),
+    ('paused', 'lg.paused'),
+    ('offline', 'lg.offline'),
   ];
 
   @override
   Widget build(BuildContext context) {
+    final t = T.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final (s, label) in _items)
+        for (final (s, key) in _items)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 6),
             child: Row(children: [
               MachineStatusRing(state: s, size: 24, strokeWidth: 2.5, animate: false),
               const SizedBox(width: 10),
-              Text(label,
+              Text(_label(t, key),
                   style:
                       TextStyle(fontSize: 12, color: CncColors.textMain)),
             ]),
@@ -305,4 +322,13 @@ class MachineStatusRingLegend extends StatelessWidget {
       ],
     );
   }
+
+  static String _label(AppLocalizations t, String key) => switch (key) {
+        'lg.working' => t.lgWorking,
+        'lg.alarm' => t.lgAlarm,
+        'lg.online' => t.lgOnline,
+        'lg.idle' => t.lgIdle,
+        'lg.paused' => t.lgPaused,
+        _ => t.lgOffline,
+      };
 }

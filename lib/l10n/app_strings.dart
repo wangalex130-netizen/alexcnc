@@ -261,6 +261,12 @@ class AppLocalizations {
   String get stAlarmWith => call('st.alarmWith');
   String get stCarvingPct => call('st.carvingPct');
   String get stSpindleIdle => call('st.spindleIdle');
+  String get lgWorking => call('lg.working');
+  String get lgAlarm => call('lg.alarm');
+  String get lgOnline => call('lg.online');
+  String get lgIdle => call('lg.idle');
+  String get lgPaused => call('lg.paused');
+  String get lgOffline => call('lg.offline');
   String get netLan => call('net.lan');
   String get netRemote => call('net.remote');
   String get wbJogManual => call('wb.jogManual');
@@ -1386,6 +1392,12 @@ const Map<AppLang, Map<String, String>> _t = {
     'st.alarmWith': '报警 · {reason}',
     'st.carvingPct': '加工中 · {p}%',
     'st.spindleIdle': '主轴待机 · 状态正常',
+    'lg.working': '加工中 · 三段弧旋转',
+    'lg.alarm': '报警 · 双环脉动',
+    'lg.online': '在线 · 满环呼吸',
+    'lg.idle': '空闲 · 缺口环呼吸',
+    'lg.paused': '已暂停 · 双竖杠',
+    'lg.offline': '离线 · 四段断开',
     'net.lan': '局域网',
     'net.remote': '远程',
     'wb.jogManual': 'Jog 手动',
@@ -2536,6 +2548,12 @@ const Map<AppLang, Map<String, String>> _t = {
     'st.alarmWith': 'Alarm · {reason}',
     'st.carvingPct': 'Carving · {p}%',
     'st.spindleIdle': 'Spindle idle · Status normal',
+    'lg.working': 'Working · spinning arcs',
+    'lg.alarm': 'Alarm · double-ring pulse',
+    'lg.online': 'Online · full-ring breathe',
+    'lg.idle': 'Idle · notched ring breathe',
+    'lg.paused': 'Paused · pause bars',
+    'lg.offline': 'Offline · broken arcs',
     'net.lan': 'LAN',
     'net.remote': 'Remote',
     'wb.jogManual': 'Manual jog',
