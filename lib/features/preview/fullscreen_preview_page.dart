@@ -661,7 +661,7 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
 
                       color: Colors.black.withOpacity(0.55),
 
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(CncRadius.card),
 
                     ),
 
@@ -687,7 +687,7 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
 
                               : _camLink == _CamLink.error
 
-                                  ? CncColors.danger
+                                  ? CncColors.dangerFg
 
                                   : Colors.white70,
 
@@ -791,7 +791,7 @@ class _FullscreenPreviewPageState extends ConsumerState<FullscreenPreviewPage> {
 
                       color: Colors.black.withOpacity(0.8),
 
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(CncRadius.control),
 
                     ),
 

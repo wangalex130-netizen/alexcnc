@@ -242,7 +242,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             child: Text('退出',
-                style: TextStyle(color: CncColors.danger)),
+                style: TextStyle(color: CncColors.dangerFg)),
           ),
         ],
       ),
@@ -459,12 +459,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(CncRadius.card),
                   ),
                   child: Center(
                     child: Text('退出登录',
                         style: TextStyle(
-                            fontSize: 12, color: CncColors.danger)),
+                            fontSize: 12, color: CncColors.dangerFg)),
                   ),
                 ),
               ),

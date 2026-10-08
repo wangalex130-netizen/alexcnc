@@ -18,6 +18,8 @@ import '../../models/machine_status.dart';
 import '../../state/providers.dart';
 
 import '../library/toolpath_preview.dart';
+import '../../widgets/pressable.dart';
+import '../../widgets/cnc_skeleton.dart';
 
 /// 工单二十（20260928）控制台轮播·刀路实时模拟页（拓竹式一体化）。
 ///
@@ -43,8 +45,21 @@ class _ToolpathLiveViewState extends ConsumerState<ToolpathLiveView>
   bool _loadAttempted = false;
 
   late final AnimationController _head = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 1600))
-    ..repeat();
+      vsync: this, duration: const Duration(milliseconds: 1600));
+
+  /// P2-2：原实现在字段初始化处直接 `..repeat()`，于是即使 `data == null`
+  /// （无作业 / 预览未加载 / 加载失败）脉冲也在每帧空跑 1600ms 循环。
+  /// 违反「发光只属于正在运行的功能」——看不见的光在稀释真报警光的权重，
+  /// 也白烧电池。现在只在该显示刀路时启动。
+  void _syncPulse(bool shouldRun) {
+    if (shouldRun && !_head.isAnimating) {
+      _head.repeat();
+    } else if (!shouldRun && _head.isAnimating) {
+      _head
+        ..stop()
+        ..value = 0.0;
+    }
+  }
 
   @override
   void initState() {
@@ -103,6 +118,8 @@ class _ToolpathLiveViewState extends ConsumerState<ToolpathLiveView>
         ref.watch(machineStatusProvider).value ?? MachineStatus.idle();
     final prog = (job?.completed ?? false) ? 1.0 : status.progress.clamp(0.0, 1.0);
     final dark = Theme.of(context).brightness == Brightness.dark;
+    // P2-2：脉冲只服务于刀头位置指示，无刀路时必须停。
+    _syncPulse(_pathData != null);
     return Stack(
       children: [
         Positioned.fill(
@@ -114,15 +131,14 @@ class _ToolpathLiveViewState extends ConsumerState<ToolpathLiveView>
                 // 工单六 §5.1：数据未就绪只显示加载态/不可用小字，不渲染空大框。
                 return Center(
                   child: _pathLoading
-                      ? SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: CncColors.primary))
-                      : Text('刀路数据不可用',
-                          style:
-                              TextStyle(fontSize: 12, color: CncColors.textSub)),
-                );
+                        ? SizedBox(
+                            width: 148,
+                            height: 40,
+                            child: const CncSkeletonBlock(width: 148, height: 40))
+                        : Text('刀路数据不可用',
+                            style: TextStyle(
+                                fontSize: 12, color: CncColors.textSub)),
+                  );
               }
               return CustomPaint(
                 painter: _is3d
@@ -502,14 +518,14 @@ class _PreviewModeSwitch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Widget seg(String label, bool selected, VoidCallback onTap) {
-      return GestureDetector(
+      return Pressable(
         onTap: onTap,
         child: Container(
           height: 20,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: selected ? CncColors.primary : Colors.transparent,
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(CncRadius.pill),
           ),
           child: Text(label,
               style: TextStyle(
@@ -527,7 +543,7 @@ class _PreviewModeSwitch extends StatelessWidget {
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
         color: CncColors.panelAlt,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(CncRadius.pill),
       ),
       child: Row(
         children: [

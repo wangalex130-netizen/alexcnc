@@ -124,7 +124,7 @@ class _ToolpathPreviewState extends State<ToolpathPreview> {
     return AspectRatio(
       aspectRatio: widget.aspectRatio,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(CncRadius.card),
         child: _buildBody(),
       ),
     );

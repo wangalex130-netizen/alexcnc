@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
+import '../../widgets/pressable.dart';
 
 /// 材料/标定区域形态（开发文档 §5.2 形态分支）。
 ///
@@ -175,7 +176,7 @@ class _OriginCanvasState extends State<OriginCanvas> {
           _grabLaser = null;
         }
 
-        return GestureDetector(
+        return Pressable(
           behavior: HitTestBehavior.opaque,
           onPanStart: dragEnabled
               ? (d) {
@@ -354,7 +355,9 @@ class _OriginPainter extends CustomPainter {
     // 台面中性底（规格书 §3.1 / L4）：换用暖象牙令牌（工单三换值自动跟随）。
     canvas.drawRect(bed, Paint()..color = CncColors.canvasBed);
     final gridPaint = Paint()
-      ..strokeWidth = 0.5
+      // P1-5：原 0.5 → 2x 屏上只剩 1 物理像素，发虚，
+    // 是「截图看起来糊」的首要来源。
+    ..strokeWidth = 1.0
       ..color = _grid;
     for (var x = 50.0; x < bedW; x += 50) {
       canvas.drawLine(
@@ -540,7 +543,7 @@ class _OriginPainter extends CustomPainter {
       if (c == null || c.radius <= 0) return;
       final cp = g.toPx(c.center);
       final rp = c.radius * g.scale;
-      canvas.drawCircle(cp, rp, Paint()..color = _wood.withOpacity(0.32));
+      canvas.drawCircle(cp, rp, Paint()..color = _wood.withOpacity(0.18));
       canvas.drawCircle(
         cp,
         rp,
@@ -558,7 +561,7 @@ class _OriginPainter extends CustomPainter {
     final r = stockRect;
     if (r == null) return;
     final rp = g.rectPx(r.topLeft, r.width, r.height);
-    canvas.drawRect(rp, Paint()..color = _wood.withOpacity(0.32));
+    canvas.drawRect(rp, Paint()..color = _wood.withOpacity(0.18));
     canvas.drawRect(
       rp,
       Paint()
@@ -622,7 +625,7 @@ class _OriginPainter extends CustomPainter {
       text: TextSpan(
           text: s,
           style: const TextStyle(
-              fontSize: 10.5,
+              fontSize: 11, // P1-5：10.5 偏小，接近不可读
               fontWeight: FontWeight.w600,
               color: Color(0xFF4A4843))),
       textDirection: TextDirection.ltr,

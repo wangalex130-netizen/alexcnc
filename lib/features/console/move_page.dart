@@ -14,6 +14,7 @@ import '../../services/hardware_service.dart';
 import '../../state/providers.dart';
 import '../../widgets/octagon_dial.dart';
 import '../../widgets/jog_key.dart';
+import '../../widgets/pressable.dart';
 
 /// 控制台二级页「移动」（工单二 §4 / 控制台规格书 §7，拓竹圆盘式）。
 ///
@@ -174,7 +175,7 @@ class _MovePageState extends ConsumerState<MovePage>
                   TextButton(
                       onPressed: () => Navigator.pop(ctx, true),
                       child: Text(S.jogResetConfirm,
-                          style: TextStyle(color: CncColors.danger))),
+                          style: TextStyle(color: CncColors.dangerFg))),
                 ],
               ),
             ) ??
@@ -230,7 +231,7 @@ class _MovePageState extends ConsumerState<MovePage>
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
               color: CncColors.card,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(CncRadius.card),
               border: Border.all(color: CncColors.border),
             ),
             child: Row(
@@ -316,7 +317,7 @@ class _MovePageState extends ConsumerState<MovePage>
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
             decoration: BoxDecoration(
               color: CncColors.card,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(CncRadius.card),
               border: Border.all(color: CncColors.border),
             ),
             child: Row(
@@ -339,7 +340,7 @@ class _MovePageState extends ConsumerState<MovePage>
             child: Row(
               children: [
                 _actionKey('软复位', doSoftReset,
-                    fg: CncColors.danger,
+                    fg: CncColors.dangerFg,
                     bg: CncColors.card,
                     border: CncColors.dangerBd),
                 const SizedBox(width: 8),
@@ -347,7 +348,7 @@ class _MovePageState extends ConsumerState<MovePage>
                   '解锁',
                   canUnlock ? doUnlock : null,
                   fg: canUnlock
-                      ? CncColors.danger
+                      ? CncColors.dangerFg
                       : CncColors.textSub.withOpacity(0.4),
                   bg: canUnlock ? CncColors.card : CncColors.panelAlt,
                   border:
@@ -410,7 +411,7 @@ class _MovePageState extends ConsumerState<MovePage>
       width: 76,
       decoration: BoxDecoration(
         color: CncColors.card,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(CncRadius.control),
         border: Border.all(color: CncColors.border),
       ),
       child: JogKey(
@@ -442,14 +443,14 @@ class _MovePageState extends ConsumerState<MovePage>
 
   /// 步长胶囊（规格 §7-4）：70 宽、圆角 999、字 12。
   Widget _pill(double v, bool sel) {
-    return GestureDetector(
+    return Pressable(
       onTap: () => ref.read(jogStepProvider.notifier).state = v,
       child: Container(
         width: 70,
         padding: const EdgeInsets.symmetric(vertical: 7),
         decoration: BoxDecoration(
           color: sel ? CncColors.successBg : CncColors.card,
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(CncRadius.pill),
           border: Border.all(color: sel ? CncColors.blue : CncColors.border),
         ),
         child: Center(
@@ -469,7 +470,7 @@ class _MovePageState extends ConsumerState<MovePage>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(9),
+        borderRadius: BorderRadius.circular(CncRadius.control),
         border: Border.all(color: CncColors.border),
       ),
       child: Row(
@@ -490,12 +491,12 @@ class _MovePageState extends ConsumerState<MovePage>
     return Expanded(
       child: SizedBox(
         height: 40,
-        child: GestureDetector(
+        child: Pressable(
           onTap: onTap,
           child: Container(
             decoration: BoxDecoration(
               color: bg,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(CncRadius.control),
               border: Border.all(color: border),
             ),
             child: Center(

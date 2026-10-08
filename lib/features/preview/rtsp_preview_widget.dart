@@ -22,6 +22,7 @@ import '../../app/theme.dart';
 import 'camera_discovery.dart';
 
 import 'mjpeg_stream_player.dart';
+import '../../widgets/pressable.dart';
 
 
 
@@ -980,7 +981,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
         color: const Color(0xFF1E1913),
 
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(CncRadius.control),
 
       ),
 
@@ -1022,7 +1023,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
       case _CamState.idle:
 
-        content = GestureDetector(
+        content = Pressable(
 
           behavior: HitTestBehavior.opaque,
 
@@ -1230,7 +1231,7 @@ class _RtspPreviewWidgetState extends State<RtspPreviewWidget> {
 
                 color: Colors.black.withOpacity(0.35),
 
-                borderRadius: BorderRadius.circular(999),
+                borderRadius: BorderRadius.circular(CncRadius.pill),
 
               ),
 
@@ -1394,7 +1395,7 @@ class _ControlButton extends StatelessWidget {
 
       color: Colors.black.withOpacity(0.45),
 
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(CncRadius.control),
 
       clipBehavior: Clip.antiAlias,
 

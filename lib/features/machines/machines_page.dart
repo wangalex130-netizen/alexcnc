@@ -29,6 +29,7 @@ import 'bind_page.dart';
 import 'tool_magazine_editor.dart';
 
 import 'package:material_symbols_icons/material_symbols_icons.dart';
+import '../../widgets/cnc_skeleton.dart';
 
 
 /// 我的机器列表（A3）。
@@ -312,9 +313,7 @@ class _MachinesPageState extends ConsumerState<MachinesPage> {
 
                   Center(
 
-                    child: CircularProgressIndicator(
-
-                        color: CncColors.primary),
+                    child: const CncSkeletonList(rows: 4, showLeading: false),
 
                   ),
 
@@ -534,7 +533,7 @@ class _PresenceDiagnosticBar extends ConsumerWidget {
 
             text = '在线状态同步已断开，正在重连…';
 
-            color = CncColors.danger;
+            color = CncColors.dangerFg;
 
           default:
 
@@ -556,7 +555,7 @@ class _PresenceDiagnosticBar extends ConsumerWidget {
 
             color: color.withOpacity(0.08),
 
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(CncRadius.control),
 
             border: Border.all(color: color.withOpacity(0.3)),
 
@@ -572,13 +571,7 @@ class _PresenceDiagnosticBar extends ConsumerWidget {
 
                 height: 14,
 
-                child: CircularProgressIndicator(
-
-                  strokeWidth: 2,
-
-                  valueColor: AlwaysStoppedAnimation(color),
-
-                ),
+                child: const CncSkeletonList(rows: 4, showLeading: false),
 
               ),
 
@@ -686,7 +679,7 @@ class _MachineCard extends StatelessWidget {
 
       onTap: onTap,
 
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(CncRadius.card),
 
       child: Container(
 
@@ -696,7 +689,7 @@ class _MachineCard extends StatelessWidget {
 
           color: CncColors.card,
 
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(CncRadius.card),
 
           border: Border.all(
 
@@ -726,7 +719,7 @@ class _MachineCard extends StatelessWidget {
 
                       : CncColors.primary.withOpacity(0.15),
 
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(CncRadius.card),
 
                 ),
 

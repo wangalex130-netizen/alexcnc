@@ -33,7 +33,7 @@ class MenuGroup extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         decoration: BoxDecoration(
           color: CncColors.card,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(CncRadius.card),
           border: Border.all(color: CncColors.border),
         ),
         child: Column(children: children),

@@ -99,8 +99,16 @@ class CncRedDotLaserIcon extends StatelessWidget {
 /// strokeWidth 2（随缩放）+ 圆头圆角。
 class _StrokeIconPainter extends CustomPainter {
   final Color color;
+
+  /// 描边宽度（24视箱基准）。P0-6：纳入 shouldRepaint 比较。
+  final double strokeWidth;
+
   final Path Function() build;
-  _StrokeIconPainter({required this.color, required this.build});
+  _StrokeIconPainter({
+    required this.color,
+    required this.build,
+    this.strokeWidth = 2,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -111,7 +119,7 @@ class _StrokeIconPainter extends CustomPainter {
       Paint()
         ..color = color
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 2
+        ..strokeWidth = strokeWidth
         ..strokeCap = StrokeCap.round
         ..strokeJoin = StrokeJoin.round,
     );
@@ -119,7 +127,10 @@ class _StrokeIconPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _StrokeIconPainter old) => old.color != color;
+  bool shouldRepaint(covariant _StrokeIconPainter old) =>
+      // P0-6：原为 old.color != color —— size 变化不触发重绘，
+      // 同一 painter 用不同尺寸复用时会画出旧尺寸（或不更新）的图标。
+      old.color != color || old.strokeWidth != strokeWidth;
 }
 
 class _LaserHeadPainter extends CustomPainter {

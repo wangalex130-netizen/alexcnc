@@ -286,7 +286,7 @@ class _DetailView extends ConsumerWidget {
 
                       style: TextStyle(
 
-                          fontSize: 11, color: CncColors.warning)),
+                          fontSize: 11, color: CncColors.warnFg)),
 
                 ],
 
@@ -581,7 +581,7 @@ class _ParamsGrid extends StatelessWidget {
 
         color: CncColors.card,
 
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(CncRadius.card),
 
         border: Border.all(color: CncColors.border),
 
@@ -737,7 +737,7 @@ class _ToolCard extends StatelessWidget {
 
         color: CncColors.card,
 
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(CncRadius.card),
 
         border: Border.all(color: CncColors.border),
 
@@ -937,7 +937,7 @@ class _BottomBar extends StatelessWidget {
 
               shape: RoundedRectangleBorder(
 
-                  borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(CncRadius.card)),
 
             ),
 
@@ -1081,13 +1081,13 @@ class _MachineGatePageState extends ConsumerState<_MachineGatePage> {
                     final m = machines[i];
                     final online = m.online == true;
                     return InkWell(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(CncRadius.card),
                       onTap: () => _select(m),
                       child: Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
                           color: CncColors.card,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(CncRadius.card),
                           border: Border.all(color: CncColors.border),
                         ),
                         child: Row(
@@ -1157,7 +1157,7 @@ class _MachineGatePageState extends ConsumerState<_MachineGatePage> {
                 style: FilledButton.styleFrom(
                   backgroundColor: CncColors.primary,
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
+                      borderRadius: BorderRadius.circular(CncRadius.card)),
                 ),
                 onPressed: _openBind,
                 child: Text('去绑定机器',
@@ -1168,7 +1168,7 @@ class _MachineGatePageState extends ConsumerState<_MachineGatePage> {
             if (_error != null) ...[
               const SizedBox(height: 10),
               Text('清单拉取失败：$_error',
-                  style: TextStyle(fontSize: 11, color: CncColors.danger)),
+                  style: TextStyle(fontSize: 11, color: CncColors.dangerFg)),
             ],
           ],
         ),
@@ -1195,7 +1195,7 @@ class _MachineGatePageState extends ConsumerState<_MachineGatePage> {
                 style: FilledButton.styleFrom(
                   backgroundColor: CncColors.primary,
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
+                      borderRadius: BorderRadius.circular(CncRadius.card)),
                 ),
                 onPressed: () async {
                   final ok = await Navigator.of(context).push<bool>(
@@ -1235,7 +1235,7 @@ class _Badge extends StatelessWidget {
 
           color: bg,
 
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(CncRadius.control),
 
         ),
 

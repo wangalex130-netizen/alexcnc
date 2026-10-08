@@ -987,6 +987,18 @@ class TimeLapseJobNotifier extends StateNotifier<String?> {
 }
 
 final timeLapseJobProvider =
-    StateNotifierProvider<TimeLapseJobNotifier, String?>(
-  (ref) => TimeLapseJobNotifier(),
-);
+      StateNotifierProvider<TimeLapseJobNotifier, String?>(
+    (ref) => TimeLapseJobNotifier(),
+  );
+
+/// 雕刻流程当前步（0..6；6 = 已开始加工，与 workbench_page 的 _FlowCard 对齐）。
+///
+/// 【补记 2026-10-03】workbench_page.dart 从建基线起就 ref.watch(this)，
+/// 但本文件从未定义过它 —— 引用悬空，编译必然失败。之前 CI 每一轮都先在
+/// 别的文件崩掉，编译根本走不到 workbench_page，所以这个洞一直没暴露。
+/// 本次 flutter analyze（本地编译）第一次把它抓出来。
+///
+/// 语义：工单流程的「进行到第几步」。目前没有逐步上报的写入方，
+/// 因此默认 0（=尚未开始）。后续若真要按步骤联动，
+/// 写入方应来自向导流程结束时上报，而非让 UI 自己猜。
+final wizardStepProvider = StateProvider<int>((ref) => 0);

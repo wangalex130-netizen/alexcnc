@@ -7,6 +7,7 @@ import '../../app/theme.dart';
 import '../../data/tool_library.dart';
 import '../../state/providers.dart';
 import '../../widgets/tool_icon.dart';
+import '../../widgets/pressable.dart';
 
 /// 统一刀仓编辑组件（20260923 工单 §3C/§3D）：三口共用 ——
 /// 「我的机器 → 刀仓配置」「控制台 → 管理刀仓」都打开本组件；
@@ -158,7 +159,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                   ],
                 ),
               ),
-              GestureDetector(
+              Pressable(
                 onTap: () => Navigator.of(context).pop(),
                 child: Text('×',
                     style:
@@ -185,7 +186,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(_error!,
                       style:
-                          TextStyle(fontSize: 11, color: CncColors.danger)),
+                          TextStyle(fontSize: 11, color: CncColors.dangerFg)),
                 ),
             ],
           ),
@@ -202,7 +203,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                 disabledBackgroundColor: CncColors.primary.withOpacity(0.35),
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
+                    borderRadius: BorderRadius.circular(CncRadius.control)),
               ),
               child: Text(_saving ? '保存中…' : '保存并同步到机器',
                   style: const TextStyle(
@@ -258,7 +259,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
               ],
             ),
           ),
-          GestureDetector(
+          Pressable(
             onTap: () => setState(() => _pickerSlot = slot),
             child: Container(
               padding:
@@ -267,7 +268,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                 color: def != null
                     ? CncColors.blue.withOpacity(0.1)
                     : CncColors.primary.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: BorderRadius.circular(CncRadius.sm),
               ),
               child: Text(def != null ? '更换' : '添加 +',
                   style: TextStyle(
@@ -279,7 +280,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
             ),
           ),
           if (def != null)
-            GestureDetector(
+            Pressable(
               onTap: () => setState(() => _draft[slot] = null),
               child: Container(
                 margin: const EdgeInsets.only(left: 8),
@@ -287,13 +288,13 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: CncColors.dangerBg,
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(CncRadius.sm),
                 ),
                 child: Text('清空',
                     style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
-                        color: CncColors.danger)),
+                        color: CncColors.dangerFg)),
               ),
             ),
         ],
@@ -315,7 +316,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                       fontSize: 15,
                       fontWeight: FontWeight.bold,
                       color: CncColors.textMain)),
-              GestureDetector(
+              Pressable(
                 onTap: () => setState(() => _pickerSlot = null),
                 child: Text('×',
                     style:
@@ -360,7 +361,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                             ],
                           ),
                         ),
-                        GestureDetector(
+                        Pressable(
                           onTap: () => setState(() {
                             _draft[slot] = def.id;
                             _pickerSlot = null;
@@ -370,7 +371,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                                 horizontal: 12, vertical: 6),
                             decoration: BoxDecoration(
                               color: CncColors.primary.withOpacity(0.12),
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: BorderRadius.circular(CncRadius.sm),
                               border: Border.all(
                                   color:
                                       CncColors.primary.withOpacity(0.5)),
@@ -386,7 +387,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                     ),
                   )),
               const SizedBox(height: 8),
-              GestureDetector(
+              Pressable(
                 onTap: () => setState(() {
                   _draft[slot] = null;
                   _pickerSlot = null;
@@ -395,7 +396,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   decoration: BoxDecoration(
                     color: CncColors.dangerBg,
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(CncRadius.control),
                     border: Border.all(
                         color: CncColors.dangerBd),
                   ),
@@ -404,7 +405,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
                         style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
-                            color: CncColors.danger)),
+                            color: CncColors.dangerFg)),
                   ),
                 ),
               ),
@@ -417,7 +418,7 @@ class _ToolMagazineEditorState extends ConsumerState<ToolMagazineEditor> {
 
   BoxDecoration _cardDeco() => BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(CncRadius.control),
         border: Border.all(color: CncColors.border.withOpacity(0.6)),
       );
 }

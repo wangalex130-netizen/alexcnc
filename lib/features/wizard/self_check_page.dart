@@ -91,7 +91,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
         icon: Symbols.error,
 
-        color: CncColors.danger,
+        color: CncColors.dangerFg,
 
         spinning: false,
 
@@ -161,7 +161,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
         icon: Symbols.front_hand,
 
-        color: CncColors.warning,
+        color: CncColors.warnFg,
 
         spinning: false,
 
@@ -183,7 +183,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
         icon: Symbols.cloud_off,
 
-        color: CncColors.danger,
+        color: CncColors.dangerFg,
 
         spinning: false,
 
@@ -385,7 +385,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
               color: CncColors.card,
 
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(CncRadius.control),
 
               border: Border.all(color: CncColors.border),
 
@@ -457,7 +457,7 @@ class _SelfCheckPageState extends ConsumerState<SelfCheckPage> {
 
               color: CncColors.blue.withOpacity(0.08),
 
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(CncRadius.control),
 
               border: Border.all(color: CncColors.blue.withOpacity(0.3)),
 
@@ -541,7 +541,7 @@ class _StatusCard extends StatelessWidget {
 
         color: view.color.withOpacity(0.10),
 
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(CncRadius.card),
 
         border: Border.all(color: view.color.withOpacity(0.45)),
 

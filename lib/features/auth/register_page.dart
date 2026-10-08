@@ -226,7 +226,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
                     style: TextStyle(
 
-                        fontSize: 12, color: CncColors.danger)),
+                        fontSize: 12, color: CncColors.dangerFg)),
 
               ],
 
@@ -290,7 +290,7 @@ class _Field extends StatelessWidget {
 
           color: CncColors.card,
 
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(CncRadius.card),
 
           border: Border.all(color: CncColors.border),
 

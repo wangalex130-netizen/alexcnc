@@ -14,6 +14,7 @@ import '../../app/theme.dart';
 import '../../models/machine_status.dart';
 import '../../services/hardware_service.dart';
 import '../../state/providers.dart';
+import '../../widgets/pressable.dart';
 
 export '../../widgets/jog_key.dart';
 
@@ -199,7 +200,7 @@ class _JogSheetState extends ConsumerState<JogSheet>
                   TextButton(
                       onPressed: () => Navigator.pop(ctx, true),
                       child: Text(S.jogResetConfirm,
-                          style: TextStyle(color: CncColors.danger))),
+                          style: TextStyle(color: CncColors.dangerFg))),
                 ],
               ),
             ) ??
@@ -238,10 +239,10 @@ class _JogSheetState extends ConsumerState<JogSheet>
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: CncColors.warning.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(6),
+                    borderRadius: BorderRadius.circular(CncRadius.sm),
                   ),
                   child: Text(lockLabel,
-                      style: TextStyle(fontSize: 10, color: CncColors.warning)),
+                      style: TextStyle(fontSize: 10, color: CncColors.warnFg)),
                 ),
             ],
           ),
@@ -257,7 +258,7 @@ class _JogSheetState extends ConsumerState<JogSheet>
                 return Expanded(
                   child: Padding(
                     padding: const EdgeInsets.only(right: 8),
-                    child: GestureDetector(
+                    child: Pressable(
                       onTap: () =>
                           ref.read(jogStepProvider.notifier).state = v,
                       child: Container(
@@ -266,7 +267,7 @@ class _JogSheetState extends ConsumerState<JogSheet>
                           color: sel
                               ? CncColors.primary
                               : CncColors.bg,
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(CncRadius.control),
                           border: Border.all(
                             color: sel ? CncColors.primary : CncColors.border,
                           ),

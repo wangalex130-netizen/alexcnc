@@ -261,7 +261,7 @@ class DeviceStatePill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: visual.pillBg,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(CncRadius.pill),
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         _PillDot(color: visual.fg, breathing: breathing),
@@ -291,6 +291,23 @@ class _PillDotState extends State<_PillDot> with SingleTickerProviderStateMixin 
   void initState() {
     super.initState();
     if (widget.breathing) _c.repeat(reverse: true);
+  }
+
+  @override
+  void didUpdateWidget(covariant _PillDot oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // P2-1：原实现只在 initState 判 breathing，而本 widget 没有 key ⇒
+    // 设备从「在线」切到「离线」时 State 被复用，initState 不再跑，
+    // 呼吸点就永远不会亮；反向切换时也停不下来。
+    // 现在按 breathing 的变化启停，这才是「报警就该跳」的预期行为。
+    if (widget.breathing == oldWidget.breathing) return;
+    if (widget.breathing) {
+      _c.repeat(reverse: true);
+    } else {
+      _c
+        ..stop()
+        ..value = 1.0;
+    }
   }
 
   @override
@@ -334,7 +351,7 @@ class _DeviceCard extends StatelessWidget {
       color: CncColors.card,
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(CncRadius.card),
         side: v.cardBorder != null
             ? BorderSide(color: v.cardBorder!)
             : BorderSide.none,
@@ -401,7 +418,7 @@ class _JobProgressRow extends StatelessWidget {
           const SizedBox(height: 6),
         ],
         ClipRRect(
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(CncRadius.pill),
           child: LinearProgressIndicator(
             value: status.progress.clamp(0.0, 1.0),
             minHeight: 5,

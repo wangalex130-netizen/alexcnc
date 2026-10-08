@@ -65,7 +65,7 @@ class _BitCard extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: CncColors.card,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(CncRadius.card),
         border: Border.all(color: CncColors.border),
       ),
       child: Row(
@@ -77,7 +77,7 @@ class _BitCard extends StatelessWidget {
             decoration: BoxDecoration(
               color: (bit.isLocalSupported ? CncColors.primary : CncColors.panelAlt)
                   .withOpacity(0.14),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(CncRadius.control),
             ),
             // 刀具模型图标（20260923 工单 §3A）：本机适配刀有真实 ToolDef
             // （含环色）→ 带环展示；云端全集刀无环色 → 按刀型绘制、不带环。
@@ -111,7 +111,7 @@ class _BitCard extends StatelessWidget {
                             horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: CncColors.primary.withOpacity(0.14),
-                          borderRadius: BorderRadius.circular(6),
+                          borderRadius: BorderRadius.circular(CncRadius.sm),
                         ),
                         child: Text('本机适配',
                             style: TextStyle(

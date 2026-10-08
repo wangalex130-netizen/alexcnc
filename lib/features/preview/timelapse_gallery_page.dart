@@ -269,7 +269,7 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
                 IconButton(
 
-                  icon: Icon(Symbols.delete, color: CncColors.danger),
+                  icon: Icon(Symbols.delete, color: CncColors.dangerFg),
 
                   onPressed: _selectedIds.isEmpty ? null : _confirmDelete,
 
@@ -429,7 +429,7 @@ class _TimeLapseGalleryPageState extends State<TimeLapseGalleryPage> {
 
         color: CncColors.card,
 
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(CncRadius.card),
 
         border: Border.all(color: selected ? CncColors.primary : CncColors.border, width: selected ? 2 : 1),
 

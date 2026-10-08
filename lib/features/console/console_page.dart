@@ -67,6 +67,8 @@ import '../../services/machines_service.dart';
 import '../auth/login_page.dart';
 
 import '../settings/debug_settings_page.dart';
+import '../../widgets/pressable.dart';
+import '../../widgets/cnc_skeleton.dart';
 
 
 
@@ -923,7 +925,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
   Color _tlColor() {
     // 工单六 §3.2：未开启灰 / 就绪·生成中 blue / 录制中·失败 danger / 已完成 primary。
-    if (_isTlRunning() || _isTlFailed()) return CncColors.danger;
+    if (_isTlRunning() || _isTlFailed()) return CncColors.dangerFg;
     if (_isTlReady()) return CncColors.primary;
     if (_tlJobId != null || _tlArmed) return CncColors.blue;
     return const Color(0xFF8B938E);
@@ -935,7 +937,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
 
     if (_isTlRunning() || _isTlFailed()) {
 
-      return CncColors.danger.withOpacity(0.5);
+      return CncColors.dangerBd.withOpacity(0.5);
 
     }
 
@@ -977,7 +979,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
           style: TextButton.styleFrom(
             backgroundColor: primary ? CncColors.primary : CncColors.card,
             shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10)),
+                borderRadius: BorderRadius.circular(CncRadius.control)),
           ),
           child: Text(label,
               style: TextStyle(
@@ -1071,7 +1073,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
               if (failed) ...[
                 Text('${_tlStatus?['error'] ?? ''}',
                     style:
-                        TextStyle(fontSize: 11, color: CncColors.danger)),
+                        TextStyle(fontSize: 11, color: CncColors.dangerFg)),
                 const SizedBox(height: 10),
                 item(
                     label: knowLabel,
@@ -1388,7 +1390,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
             margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
             decoration: BoxDecoration(
               color: const Color(0xFF111111),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(CncRadius.card),
             ),
             clipBehavior: Clip.antiAlias,
             child: AspectRatio(
@@ -1422,7 +1424,7 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                     padding: const EdgeInsets.symmetric(horizontal: 5),
                     decoration: BoxDecoration(
                       color: Colors.black.withOpacity(0.45),
-                      borderRadius: BorderRadius.circular(999),
+                      borderRadius: BorderRadius.circular(CncRadius.pill),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -1446,14 +1448,14 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 Positioned(
                   top: 10,
                   right: 10,
-                  child: GestureDetector(
+                  child: Pressable(
                     onTap: _showTlMenu,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
                         color: Colors.black.withOpacity(0.6),
-                        borderRadius: BorderRadius.circular(6),
+                        borderRadius: BorderRadius.circular(CncRadius.sm),
                         border: Border.all(color: _tlBorderColor()),
                       ),
                       child: Row(
@@ -1511,91 +1513,182 @@ class _ConsolePageState extends ConsumerState<ConsolePage>
                 children: [
 
           // ---- 功能横幅区（数据流不变；条件态，默认不渲染）----
-          if (!realMode)
+          // P1-2：横幅原本瞬间出现/消失，把整页内容瞬推一屏。
+          // 改为 AnimatedSize + SizedBox.shrink() 占位：高度稳定（占位 0 高
+          // 不推走下方内容），且出现/消失是过渡而非瞬移。
+            // P1-2 注：原用 AnimatedSize + 三元实现淡入淡出，但它在 collection-if 内部多引入了
+            // 一层括号层级，三轮 CI 都在此报错。风险大于收益，此处还原为基线的 if 写法。
+            // 横幅动画若要恢复，应在容器层实现，而非在 collection-if 内部。
+            if (!realMode)
             Container(
+
               margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+
               padding: const EdgeInsets.all(12),
+
               decoration: BoxDecoration(
+
                 color: CncColors.warnBg,
-                borderRadius: BorderRadius.circular(10),
+
+                borderRadius: BorderRadius.circular(CncRadius.control),
+
                 border: Border.all(color: CncColors.warnBd),
+
               ),
+
               child: Column(
+
                 crossAxisAlignment: CrossAxisAlignment.start,
+
                 children: [
+
                   Text('演示模式',
+
                       style: TextStyle(
+
                           fontSize: 12,
+
                           fontWeight: FontWeight.bold,
+
                           color: CncColors.textMain)),
+
                   const SizedBox(height: 4),
+
                   Text(S.simNote,
+
                       style:
+
                           TextStyle(fontSize: 11, color: CncColors.textSub)),
+
                   const SizedBox(height: 8),
+
                   SizedBox(
+
                     width: double.infinity,
+
                     child: FilledButton.icon(
+
                       onPressed: () => Navigator.of(context).push(
+
                         MaterialPageRoute(
+
                             builder: (_) => const DebugSettingsPage()),
+
                       ),
+
                       icon: const Icon(Symbols.tune, size: 16),
+
                       label: const Text('开启真实设备连接',
+
                           style: TextStyle(
+
                               fontSize: 13, fontWeight: FontWeight.bold)),
+
                       style: FilledButton.styleFrom(
+
                         backgroundColor: CncColors.warning,
+
                         foregroundColor: Colors.white,
+
                         padding: const EdgeInsets.symmetric(vertical: 10),
+
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8)),
+
+                            borderRadius: BorderRadius.circular(CncRadius.control)),
+
                       ),
+
                     ),
+
                   ),
+
                 ],
+
               ),
+
             ),
           // 失败/重试提示（昊总 0927 反馈）：不再以横幅插在监控与状态卡
           // 之间——失败态集中由状态卡红态呈现（未能开始 + 原因），且状态卡
           // 行内常驻机器在线 pill，未联网可预判，不再「弹个位置不对的条」。
-          if (job != null && job.completed)
-            GestureDetector(
+          // P1-2：横幅原本瞬间出现/消失，把整页内容瞬推一屏。
+          // 改为 AnimatedSize + SizedBox.shrink() 占位：高度稳定（占位 0 高
+          // 不推走下方内容），且出现/消失是过渡而非瞬移。
+            // P1-2 注：原用 AnimatedSize + 三元实现淡入淡出，但它在 collection-if 内部多引入了
+            // 一层括号层级，三轮 CI 都在此报错。风险大于收益，此处还原为基线的 if 写法。
+            // 横幅动画若要恢复，应在容器层实现，而非在 collection-if 内部。
+            if (job != null && job.completed)
+            Pressable(
+
               // 工单二十：监控页退役，完成横幅点击不再导航（右端 × 可消除）。
+
               onTap: null,
+
               child: Container(
+
                 margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+
                 padding: const EdgeInsets.all(12),
+
                 decoration: BoxDecoration(
+
                   color: CncColors.successBg,
-                  borderRadius: BorderRadius.circular(12),
+
+                  borderRadius: BorderRadius.circular(CncRadius.card),
+
                   border:
+
                       Border.all(color: CncColors.successBd),
+
                 ),
+
                 child: Row(
+
                   children: [
+
                     Icon(Symbols.check_circle,
+
                         size: 18, color: CncColors.successFg),
+
                     const SizedBox(width: 10),
+
                     Expanded(
+
                       child: Text('加工已完成 · ${job.item.title}',
+
                           maxLines: 1,
+
                           overflow: TextOverflow.ellipsis,
+
                           style: TextStyle(
+
                               fontSize: 13,
+
                               fontWeight: FontWeight.bold,
+
                               color: CncColors.textMain)),
+
                     ),
+
                     GestureDetector(
+
                       onTap: () => ref
+
                           .read(activeJobProvider.notifier)
+
                           .dismissCompleted(),
+
                       child: Icon(Symbols.close,
+
                           size: 16, color: CncColors.textSub),
+
                     ),
+
                   ],
+
                 ),
+
               ),
+
             ),
 
           // ---- 状态卡（六态互斥一张卡：雕刻状态唯一入口）----
@@ -1835,7 +1928,7 @@ BoxDecoration _cardDeco() => BoxDecoration(
 
       color: CncColors.card,
 
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(CncRadius.card),
 
       border: Border.all(color: CncColors.border),
 
@@ -1914,11 +2007,11 @@ class _MachinePill extends ConsumerWidget {
       bg = CncColors.panelAlt;
       stateText = '离线';
     } else if (st?.state == MachineState.alarm) {
-      c = CncColors.danger;
+      c = CncColors.dangerFg;
       bg = CncColors.panelAlt;
       stateText = '报警';
     } else if (st?.awaitingConfirm == true) {
-      c = CncColors.warning;
+      c = CncColors.warnFg;
       bg = CncColors.panelAlt;
       stateText = '待确认';
     } else if (st?.state == MachineState.busy ||
@@ -1931,13 +2024,13 @@ class _MachinePill extends ConsumerWidget {
       bg = CncColors.successBg;
       stateText = '在线';
     }
-    return GestureDetector(
+    return Pressable(
       onTap: () => _openMachineSwitcher(context, ref),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
           color: bg,
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(CncRadius.pill),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           Container(
@@ -2077,10 +2170,10 @@ class _MachineSwitchRow extends StatelessWidget {
       dot = CncColors.textSub.withOpacity(.38);
       stateLabel = '离线';
     } else if (st?.state == MachineState.alarm) {
-      dot = CncColors.danger;
+      dot = CncColors.dangerFg;
       stateLabel = '报警';
     } else if (st?.awaitingConfirm == true) {
-      dot = CncColors.warning;
+      dot = CncColors.warnFg;
       stateLabel = '待确认';
     } else if (st?.state == MachineState.busy ||
         st?.state == MachineState.paused) {
@@ -2188,9 +2281,13 @@ class _StatusCard extends StatelessWidget {
     final busy = mode == _StatusMode.busy;
     // 待机器确认：黄底强调（承接被删除的机旁确认横幅视觉权重，工单十八 §2.4）。
     final confirm = mode == _StatusMode.confirming;
-    return GestureDetector(
+    // P1-1：原 decoration 直接换色 => 状态切换硬切；idle<->busy 两棵子树
+    // 高度差约 23px 使其下 5 张卡整体位移。改用 AnimatedContainer + AnimatedSize。
+    return Pressable(
       onTap: onTap,
-      child: Container(
+      child: AnimatedContainer(
+        duration: CncMotion.of(CncMotion.base, CncMotion.reduceOf(context)),
+        curve: CncMotion.curve,
         margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
         padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
         decoration: BoxDecoration(
@@ -2198,22 +2295,39 @@ class _StatusCard extends StatelessWidget {
               ? CncColors.dangerBg
               : confirm
                   ? CncColors.warnBg
-                  : CncColors.card,
-          borderRadius: BorderRadius.circular(12),
+                  : busy
+                      // P1-1/P2-2：加工中用 primary 淡底与「在线绿」区分，
+                      // 客户余光一扫即知在跑，不必读文字。
+                      ? Color.alphaBlend(
+                          CncColors.primary.withOpacity(0.10), CncColors.card)
+                      : CncColors.card,
+          borderRadius: BorderRadius.circular(CncRadius.card),
           border: Border.all(
               color: (alarm || failed)
                   ? CncColors.dangerBd
                   : confirm
                       ? CncColors.warnBd
-                      : CncColors.border),
+                      : busy
+                          // 加工中描边 1.5px，给「在跑」一个明确边界信号。
+                          ? CncColors.primary.withOpacity(0.55)
+                          : CncColors.border,
+              width: busy && !confirm && !alarm && !failed ? 1.5 : 1.0),
         ),
-        child: busy && !alarm ? _busyBody() : _simpleRow(mode),
+        child: AnimatedSize(
+          duration: CncMotion.of(CncMotion.base, CncMotion.reduceOf(context)),
+          curve: CncMotion.curve,
+          alignment: Alignment.topCenter,
+          child: busy && !alarm ? _busyBody(context) : _simpleRow(mode),
+        ),
       ),
     );
   }
 
   /// 加工中态：标题行 + 进度条（高 6）+ 副行（规格 §3 逐值）。
-  Widget _busyBody() {
+  ///
+  /// P1-1 修正：原来没有 context 参数，进度条的 duration 读不到
+  /// MediaQuery 的减动效开关。参数从 build 传入。
+  Widget _busyBody(BuildContext context) {
     // 工单二十 §2.2：作业名上标题行，副行只留剩余时间（监控页退役，
     // 「点击查看详情」随之删除）。
     final sub = etaText.isNotEmpty ? etaText : '剩余时间估算中';
@@ -2245,9 +2359,9 @@ class _StatusCard extends StatelessWidget {
             const SizedBox(width: 8),
             _roundBtn(
               bg: CncColors.dangerBg,
-              border: CncColors.danger,
+              border: CncColors.dangerFg,
               onTap: onStop,
-              child: _StopGlyph(CncColors.danger),
+              child: _StopGlyph(CncColors.dangerFg),
             ),
           ],
         ),
@@ -2258,15 +2372,26 @@ class _StatusCard extends StatelessWidget {
             style: TextStyle(fontSize: 11, color: CncColors.textSub)),
         const SizedBox(height: 7),
         // 进度条：高 4 贴行底、底 panelAlt、填充 primary、圆角 2（工单二十 §2.2）。
-        ClipRRect(
-          borderRadius: BorderRadius.circular(2),
-          child: Container(
-            height: 4,
-            color: CncColors.panelAlt,
-            child: FractionallySizedBox(
-              alignment: Alignment.centerLeft,
-              widthFactor: progressPct.clamp(0, 100) / 100,
-              child: Container(color: CncColors.primary),
+        // P1-1：原 FractionallySizedBox 每 1% 硬跳一格；改 TweenAnimationBuilder
+        // 做 600ms linear 插值，进度推进变成流动而非闪跳。
+        TweenAnimationBuilder<double>(
+          tween: Tween<double>(
+              begin: 0, end: progressPct.clamp(0, 100) / 100),
+          duration: CncMotion.of(const Duration(milliseconds: 600),
+              CncMotion.reduceOf(context)),
+          curve: Curves.linear,
+          builder: (context, v, _) => ClipRRect(
+            borderRadius: BorderRadius.circular(2),
+            child: Container(
+              height: 4,
+              color: CncColors.panelAlt,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: FractionallySizedBox(
+                  widthFactor: v,
+                  child: Container(color: CncColors.primary),
+                ),
+              ),
             ),
           ),
         ),
@@ -2300,16 +2425,16 @@ class _StatusCard extends StatelessWidget {
                     ? '正在传输加工程序…'
                     : '快来开始雕刻吧';
     final Color titleColor = (alarm || failed)
-        ? CncColors.danger
+        ? CncColors.dangerFg
         : confirm
-            ? CncColors.warning
+            ? CncColors.warnFg
             : CncColors.textMain;
     final TextStyle titleStyle = TextStyle(
         fontSize: 13.5, fontWeight: FontWeight.w600, color: titleColor);
     return Row(
       children: [
         if (alarm) ...[
-          Icon(Symbols.warning, size: 15, color: CncColors.danger),
+          Icon(Symbols.warning, size: 15, color: CncColors.dangerFg),
           const SizedBox(width: 5),
         ],
         Expanded(
@@ -2367,7 +2492,7 @@ class _StatusCard extends StatelessWidget {
   /// 暂停/停止小圆钮：34×34（规格 §3）。
   Widget _roundBtn(
       {required Color bg, Color? border, required Widget child, onTap}) {
-    return GestureDetector(
+    return Pressable(
       onTap: onTap,
       child: Container(
         width: 34,
@@ -2473,7 +2598,7 @@ class _SpindleCard extends StatelessWidget {
 
                       style: TextStyle(fontSize: 12, color: CncColors.textSub)),
 
-                  GestureDetector(
+                  Pressable(
 
                     onTap: enabled ? onToggle : null,
 
@@ -2485,9 +2610,9 @@ class _SpindleCard extends StatelessWidget {
 
                         color: spindleOn && enabled ? CncColors.dangerBg : CncColors.panelAlt,
 
-                        border: Border.all(color: spindleOn && enabled ? CncColors.danger : CncColors.border),
+                        border: Border.all(color: spindleOn && enabled ? CncColors.dangerFg : CncColors.border),
 
-                        borderRadius: BorderRadius.circular(6),
+                        borderRadius: BorderRadius.circular(CncRadius.sm),
 
                       ),
 
@@ -2499,7 +2624,7 @@ class _SpindleCard extends StatelessWidget {
 
                           Icon(spindleOn && enabled ? Symbols.stop_circle : Symbols.play_arrow,
 
-                              size: 14, color: spindleOn && enabled ? CncColors.danger : CncColors.textMain),
+                              size: 14, color: spindleOn && enabled ? CncColors.dangerFg : CncColors.textMain),
 
                           const SizedBox(width: 6),
 
@@ -2511,7 +2636,7 @@ class _SpindleCard extends StatelessWidget {
 
                                   fontWeight: FontWeight.bold,
 
-                                  color: spindleOn && enabled ? CncColors.danger : CncColors.textMain)),
+                                  color: spindleOn && enabled ? CncColors.dangerFg : CncColors.textMain)),
 
                         ],
 
@@ -2763,7 +2888,10 @@ class _MachinePickerGateState extends ConsumerState<_MachinePickerGate> {
     if (machines.isEmpty) {
       if (_loading) {
         return Center(
-            child: CircularProgressIndicator(color: CncColors.primary));
+            // P1-4：原为整页居中 spinner（无尺寸/线宽），
+            // 看起来像卡住；改为 3 行骨架，布局高度与真实列表接近，不跳动。
+            child: const CncSkeletonList(rows: 3, showLeading: false),
+            );
       }
       // 态 3：无绑定机器 —— 保留原引导；拉取失败时在底部给一条重试。
       return Column(
@@ -2785,7 +2913,7 @@ class _MachinePickerGateState extends ConsumerState<_MachinePickerGate> {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 11, color: CncColors.danger)),
+                  style: TextStyle(fontSize: 11, color: CncColors.dangerFg)),
             ),
             const SizedBox(height: 6),
             TextButton(onPressed: _ensureLoaded, child: const Text('重试')),
@@ -2841,7 +2969,7 @@ class _MachinePickerGateState extends ConsumerState<_MachinePickerGate> {
                 side: BorderSide(color: CncColors.border),
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
+                    borderRadius: BorderRadius.circular(CncRadius.control)),
               ),
               icon: const Icon(Symbols.qr_code_scanner, size: 18),
               label: const Text('扫码添加新机器'),
@@ -2872,12 +3000,12 @@ class _PickerMachineCard extends StatelessWidget {
     final name = machine.name.isNotEmpty ? machine.name : machine.sn;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(CncRadius.card),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: CncColors.card,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(CncRadius.card),
           border: Border.all(color: CncColors.border),
         ),
         child: Row(children: [

@@ -48,7 +48,11 @@ const int _kBarDurMs = 1350;
 const double _kBarWidth = 140;
 const double _kBarHeight = 2;
 const Color _kBarTrack = Color(0x1AFFFFFF); // 白 10%
-const Color _kBarFill = Color(0xFFF5F5F7); // 白（附录A：品牌全线去绿）
+/// P2-3：原为纯白 #F5F5F7，与 App 内深色画布的桃木强调色零交集 ⇒
+/// 启动屏到首页有一次明显的"色温跳变"，第一印象被削弱。
+/// 进度线是全屏唯一的动态光，改用品牌强调色，让启动屏和 App 是同一套光。
+/// logo 与节奏环仍保持冷白：它们是标识描边，不是光。
+const Color _kBarFill = Color(0xFFD9A96E); // 亮桃木（同 CncColors 深色 primary）
 /// logo 定值：宽 240dp，画布 760x140 等比 → 高 44.2dp。
 const double _kLogoWidth = 240;
 const double _kLogoHeight = 44.2;
@@ -171,7 +175,9 @@ class _SplashOverlayState extends State<SplashOverlay>
           child: GestureDetector(
             onTap: widget.onSkip,
             child: Container(
-              color: const Color(0xFF070708),
+              // P2-3：原为冷黑 #070708，与 App 深色画布 #14110C（暖黑车间）
+              // 差一个色温 ⇒ 启动屏退场时整屏"换了个底"。改为同款暖黑。
+              color: const Color(0xFF14110C),
               alignment: Alignment.center,
               child: Column(
                 mainAxisSize: MainAxisSize.min,

@@ -325,7 +325,7 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
 
               color: CncColors.primary.withOpacity(0.08),
 
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(CncRadius.card),
 
               border: Border.all(color: CncColors.primary.withOpacity(0.25)),
 
@@ -497,7 +497,7 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
 
                 shape: RoundedRectangleBorder(
 
-                    borderRadius: BorderRadius.circular(12)),
+                    borderRadius: BorderRadius.circular(CncRadius.card)),
 
               ),
 
@@ -529,7 +529,7 @@ class _DebugSettingsPageState extends ConsumerState<DebugSettingsPage> {
 
                 shape: RoundedRectangleBorder(
 
-                    borderRadius: BorderRadius.circular(12)),
+                    borderRadius: BorderRadius.circular(CncRadius.card)),
 
               ),
 
@@ -637,15 +637,15 @@ class _PushDebugCardState extends State<_PushDebugCard> {
     final nativeColor = nativeOk
         ? CncColors.primaryInk
         : (nativeBad
-            ? CncColors.danger
+            ? CncColors.dangerFg
             : (_nativeInitLog.startsWith('(未')
                 ? CncColors.textSub
-                : CncColors.warning));
+                : CncColors.warnFg));
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: CncColors.card,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(CncRadius.card),
         border: Border.all(color: CncColors.border),
       ),
       child: Column(
@@ -673,7 +673,7 @@ class _PushDebugCardState extends State<_PushDebugCard> {
           ),
           const SizedBox(height: 8),
           _row('隐私政策', accepted ? '已同意' : '未同意（不会初始化）',
-              accepted ? CncColors.primaryInk : CncColors.danger),
+              accepted ? CncColors.primaryInk : CncColors.dangerFg),
           _row('CID', real ? _cid : (_cid.isEmpty ? '—' : '$_cid（占位）'),
               real ? CncColors.primaryInk : CncColors.textSub),
           _row('诊断(init)', PushService.instance.lastInitDiagnostic,
@@ -682,7 +682,7 @@ class _PushDebugCardState extends State<_PushDebugCard> {
                   ? CncColors.primaryInk
                   : PushService.instance.lastInitDiagnostic
                           .startsWith('getui-init-fail')
-                      ? CncColors.danger
+                      ? CncColors.dangerFg
                       : CncColors.textSub),
           _row('诊断(poll)', PushService.instance.lastPollDiagnostic,
               CncColors.textSub),
@@ -694,7 +694,7 @@ class _PushDebugCardState extends State<_PushDebugCard> {
               _notifySummary.isEmpty ? '—' : _notifySummary,
               _notifySummary.contains('perm=false') ||
                       _notifySummary.contains('init=false')
-                  ? CncColors.danger
+                  ? CncColors.dangerFg
                   : (_notifySummary.contains('showOk=0') &&
                           _notifySummary.contains('showFail=0')
                       ? CncColors.textSub
@@ -707,7 +707,7 @@ class _PushDebugCardState extends State<_PushDebugCard> {
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
                   color: CncColors.bg,
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(CncRadius.control),
                   border: Border.all(color: CncColors.border),
                 ),
                 child: Text('个推 SDK 原生日志：\n$_sdkLog',
@@ -786,9 +786,9 @@ class _DiagnosticCard extends ConsumerWidget {
 
         : conn == LinkState.connecting
 
-            ? CncColors.warning
+            ? CncColors.warnFg
 
-            : CncColors.danger;
+            : CncColors.dangerFg;
 
     return Container(
 
@@ -798,7 +798,7 @@ class _DiagnosticCard extends ConsumerWidget {
 
         color: CncColors.card,
 
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(CncRadius.card),
 
         border: Border.all(color: CncColors.border),
 
@@ -900,7 +900,7 @@ class _DiagnosticCard extends ConsumerWidget {
 
                   style: TextStyle(
 
-                      color: devId.isEmpty ? CncColors.danger : CncColors.textSub,
+                      color: devId.isEmpty ? CncColors.dangerFg : CncColors.textSub,
 
                       fontSize: 12,
 
@@ -946,7 +946,7 @@ class _DiagnosticCard extends ConsumerWidget {
 
                 color: CncColors.dangerBg,
 
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(CncRadius.control),
 
                 border: Border.all(color: CncColors.dangerBd),
 
@@ -956,7 +956,7 @@ class _DiagnosticCard extends ConsumerWidget {
 
                   style: TextStyle(
 
-                      color: CncColors.danger.withOpacity(0.9),
+                      color: CncColors.dangerFg.withOpacity(0.9),
 
                       fontSize: 11)),
 
@@ -994,7 +994,7 @@ class _DiagnosticCard extends ConsumerWidget {
 
                 shape: RoundedRectangleBorder(
 
-                    borderRadius: BorderRadius.circular(10)),
+                    borderRadius: BorderRadius.circular(CncRadius.control)),
 
               ),
 
@@ -1066,7 +1066,7 @@ class _CameraPreset extends StatelessWidget {
 
           shape:
 
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(CncRadius.control)),
 
         ),
 
@@ -1172,7 +1172,7 @@ class _Field extends StatelessWidget {
 
                 border: OutlineInputBorder(
 
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(CncRadius.control),
 
                   borderSide: BorderSide(color: CncColors.border),
 
@@ -1180,7 +1180,7 @@ class _Field extends StatelessWidget {
 
                 enabledBorder: OutlineInputBorder(
 
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(CncRadius.control),
 
                   borderSide: BorderSide(color: CncColors.border),
 
@@ -1188,7 +1188,7 @@ class _Field extends StatelessWidget {
 
                 focusedBorder: OutlineInputBorder(
 
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(CncRadius.control),
 
                   borderSide: BorderSide(color: CncColors.primary),
 

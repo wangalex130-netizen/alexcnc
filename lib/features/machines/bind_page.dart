@@ -299,7 +299,7 @@ class _BindPageState extends ConsumerState<BindPage> {
 
               child: ClipRRect(
 
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(CncRadius.card),
 
                 child: Stack(
 
@@ -325,7 +325,7 @@ class _BindPageState extends ConsumerState<BindPage> {
 
                               color: CncColors.primary, width: 2),
 
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(CncRadius.card),
 
                         ),
 
@@ -411,7 +411,7 @@ class _BindPageState extends ConsumerState<BindPage> {
 
                     border: OutlineInputBorder(
 
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(CncRadius.control),
 
                       borderSide:
 
@@ -439,7 +439,7 @@ class _BindPageState extends ConsumerState<BindPage> {
 
                     style: TextStyle(
 
-                        fontSize: 12, color: CncColors.danger)),
+                        fontSize: 12, color: CncColors.dangerFg)),
 
               ),
 

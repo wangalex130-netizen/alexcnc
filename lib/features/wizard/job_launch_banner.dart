@@ -7,6 +7,7 @@ import '../../app/theme.dart';
 import '../../models/carve_session.dart';
 import '../../services/hardware_service.dart';
 import '../../state/providers.dart';
+import '../../widgets/pressable.dart';
 
 /// 雕刻启动三态横幅（两段式启动，2026-09-02）。
 ///
@@ -69,11 +70,11 @@ class JobLaunchBanner extends ConsumerWidget {
         if (failureOnly) return const SizedBox.shrink();
         title = '开始中';
         detail = '程序已就绪，正在开始雕刻…';
-        color = CncColors.warning;
+        color = CncColors.warnFg;
       case CarveStage.failed:
         title = '没能开始';
         detail = carve.error ?? '请稍后重试';
-        color = CncColors.danger;
+        color = CncColors.dangerFg;
       default:
         return const SizedBox.shrink();
     }
@@ -103,12 +104,12 @@ class JobLaunchBanner extends ConsumerWidget {
         if (failureOnly) return const SizedBox.shrink();
         title = '待确认';
         detail = '请在机器上按开始键确认，确认后才会动刀。';
-        color = CncColors.warning;
+        color = CncColors.warnFg;
         icon = Symbols.front_hand;
       case JobLaunchPhase.failed:
         title = '指令未送达';
         detail = '已重试 ${pending?.retries ?? 0} 次仍无响应，请检查机器是否联网在线。';
-        color = CncColors.danger;
+        color = CncColors.dangerFg;
         icon = Symbols.cloud_off;
       case JobLaunchPhase.dispatched:
         // failureOnly（控制台）：已下发/重试中由状态卡呈现，此处去重。
@@ -149,7 +150,7 @@ class JobLaunchBanner extends ConsumerWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(CncRadius.control),
         border: Border.all(color: color.withOpacity(0.45)),
       ),
       child: Row(
@@ -182,7 +183,7 @@ class JobLaunchBanner extends ConsumerWidget {
             ),
           ),
           if (onClose != null)
-            GestureDetector(
+            Pressable(
               onTap: onClose,
               child: Padding(
                 padding: const EdgeInsets.only(left: 4),

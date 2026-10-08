@@ -11,6 +11,7 @@ import 'package:material_symbols_icons/material_symbols_icons.dart';
 import '../../app/theme.dart';
 import 'payload.dart';
 import 'payload_store.dart';
+import '../../widgets/pressable.dart';
 
 /// 轻量 JSON（Unified Payload v2.3.0）的高程网格解析 + 3D 预览。
 ///
@@ -322,6 +323,14 @@ class _ZGridSurfaceState extends State<ZGridSurface> {
       setState(() {
         if (od != null && od > 0) {
           _zoom = (_zoom * (dist / od)).clamp(0.4, 6.0);
+    // P1-5：_pan 原无任何边界，拖出去就回不来，观感「卡住」。
+    // 按可视区尺寸钳制，留 12% 余量；缩放越大允许平移越远。
+    // context.size 是可空 Size：取不到就不钳制，保持原 pan
+    final _vp = context.size;
+    _pan = Offset(
+      _pan.dx.clamp(-((_vp?.width ?? 0) * _zoom * 0.12), (_vp?.width ?? 0) * _zoom * 0.12),
+      _pan.dy.clamp(-((_vp?.height ?? 0) * _zoom * 0.12), (_vp?.height ?? 0) * _zoom * 0.12),
+    );
         }
         if (om != null) _pan += mid - om;
       });
@@ -446,7 +455,7 @@ class _AxesButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const activeFg = Color(0xFFF8F5F0);
-    return GestureDetector(
+    return Pressable(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: SizedBox(
@@ -570,7 +579,7 @@ class _GuideBubble extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
                 color: paper,
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(CncRadius.control),
                 border: Border.all(color: edge),
                 boxShadow: const [
                   BoxShadow(
@@ -738,7 +747,7 @@ class _ZGridPreviewState extends State<ZGridPreview> {
       return SizedBox(
         height: h,
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(CncRadius.control),
           child: Container(
             color: CncColors.panelAlt,
             child: _body(h),
@@ -1282,10 +1291,14 @@ class _ZGridPainter extends CustomPainter {
     cells.sort((a, b) => b.depth.compareTo(a.depth));
 
     final reliefFill = Paint();
-    final reliefEdge = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.3
-      ..color = const Color(0x14000000);
+    // P1-5：删除逐格描边。同文件 :997 注释已声明「立壁不描边」，
+    // 此处是残留：1600 格 × 2 次 drawPath = 3200 次绘制，
+    // 既产生面片接缝浅线（视觉噪声），又拖慢拖动帧率。
+    //
+    // final reliefEdge = Paint()
+    // ..style = PaintingStyle.stroke
+    // ..strokeWidth = 0.3
+    // ..color = const Color(0x14000000);
     for (final c in cells) {
       final p = Path()
         ..moveTo(c.pa.dx, c.pa.dy)
@@ -1295,7 +1308,7 @@ class _ZGridPainter extends CustomPainter {
         ..close();
       reliefFill.color = c.color;
       canvas.drawPath(p, reliefFill);
-      canvas.drawPath(p, reliefEdge);
+      // canvas.drawPath(p, reliefEdge);
     }
     // 退出「开口裁剪」：巡边外框与坑无关，要按 z=0 平面正常画（不能被裁）
     canvas.restore();

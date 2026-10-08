@@ -99,7 +99,7 @@ class _TaskCard extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: CncColors.card,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(CncRadius.card),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -114,7 +114,7 @@ class _TaskCard extends StatelessWidget {
                     color: CncColors.textMain)),
           const SizedBox(height: 10),
           ClipRRect(
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(CncRadius.pill),
             child: LinearProgressIndicator(
               value: status.progress.clamp(0.0, 1.0),
               minHeight: 5,
@@ -143,7 +143,7 @@ class _InfoCard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       decoration: BoxDecoration(
         color: CncColors.card,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(CncRadius.card),
       ),
       child: Column(children: [
         if (machine.sn.isNotEmpty)
@@ -188,7 +188,7 @@ class _GoConsoleRow extends StatelessWidget {
     final c = enabled ? CncColors.textMain : CncColors.textSub;
     return Material(
       color: enabled ? CncColors.card : CncColors.disabled,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(CncRadius.card),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: enabled ? onTap : null,

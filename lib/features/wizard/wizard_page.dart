@@ -36,6 +36,7 @@ import 'payload.dart';
 import 'payload_store.dart';
 import 'debug_sim.dart';
 import '../../l10n/strings_zh.dart';
+import '../../widgets/pressable.dart';
 
 /// Core 2: 6-step foolproof processing wizard.
 ///
@@ -502,7 +503,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 20, vertical: 14),
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10)),
+                          borderRadius: BorderRadius.circular(CncRadius.control)),
                     ),
                     child: const Text('上一步'),
                   ),
@@ -611,7 +612,7 @@ class _WizardPageState extends ConsumerState<WizardPage> {
     return Padding(
       padding: const EdgeInsets.only(left: 4),
       child: Text(msg,
-          style: t.bodyMedium?.copyWith(color: CncColors.danger)),
+          style: t.bodyMedium?.copyWith(color: CncColors.dangerFg)),
     );
   }
 
@@ -784,7 +785,7 @@ class _StepMaterial extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: CncColors.bg,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(CncRadius.card),
           border: Border.all(color: CncColors.border),
         ),
         child: child,
@@ -949,11 +950,11 @@ class _StepMaterial extends StatelessWidget {
                     fillColor: CncColors.bg,
                     isDense: true,
                     enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(CncRadius.control),
                       borderSide: BorderSide(color: CncColors.border),
                     ),
                     focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(CncRadius.control),
                       borderSide: BorderSide(color: CncColors.primary),
                     ),
                   ),
@@ -1106,12 +1107,12 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
       builder: (ctx) => AlertDialog(
         backgroundColor: CncColors.card,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(CncRadius.card),
           side: BorderSide(color: CncColors.border),
         ),
         title: Row(
           children: [
-            Icon(Symbols.warning_amber, color: CncColors.danger),
+            Icon(Symbols.warning_amber, color: CncColors.dangerFg),
             const SizedBox(width: 8),
             Text('D$slot 已占用',
                 style: TextStyle(
@@ -1212,7 +1213,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: CncColors.card,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(CncRadius.card),
               border: Border.all(color: CncColors.border),
             ),
             child: Column(
@@ -1225,7 +1226,7 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                           horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
                         color: CncColors.primary.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(6),
+                        borderRadius: BorderRadius.circular(CncRadius.sm),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -1306,13 +1307,13 @@ class _StepAtcState extends ConsumerState<_StepAtc> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Symbols.warning, size: 14, color: CncColors.danger),
+                      Icon(Symbols.warning, size: 14, color: CncColors.dangerFg),
                       const SizedBox(width: 4),
                       Expanded(
                         child: Text(
                             'D$slot 被多个工序占用，请为每个工序选择不同刀仓',
                             style: TextStyle(
-                                fontSize: 11, color: CncColors.danger)),
+                                fontSize: 11, color: CncColors.dangerFg)),
                       ),
                     ],
                   ),
@@ -1412,12 +1413,12 @@ class _SlotChip extends StatelessWidget {
       required this.danger,
       required this.onTap});
   @override
-  Widget build(BuildContext context) => GestureDetector(
+  Widget build(BuildContext context) => Pressable(
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(CncRadius.control),
             color: danger
                 ? CncColors.dangerBg
                 : selected
@@ -1437,7 +1438,7 @@ class _SlotChip extends StatelessWidget {
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
                     color: danger
-                        ? CncColors.danger
+                        ? CncColors.dangerFg
                         : selected
                             ? CncColors.primary
                             : CncColors.textMain)),
@@ -1518,7 +1519,7 @@ class _Slot extends StatelessWidget {
                       color: isConfirmed
                           ? CncColors.primary
                           : CncColors.warning,
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(CncRadius.control),
                     ),
                     child: Text('工序${proc + 1}',
                         style: const TextStyle(
@@ -1638,11 +1639,14 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   // —— 标定/G54/巡边 过程状态（对齐双模拟器 v2.0 的 App 侧状态机）——
   bool _g54Written = false; // G54 已写入且绑定当前载荷
   String _g54JobId = ''; // 写入时绑定的 jobId（P4 宁锁勿放）
-  // A-2（09-24）：注释与实现一致 —— 现值 = 收到 framing_done **或（固件未交付
-  // 期间）发布成功**；字段名待固件 C-1 第 1 条书面回复后单点接入。
+  // A-2（09-24 起草，2026-10-07 更正）：固件 1.1.7+ 已交付 framing（cnc_net.c
+  // 命令入口 + framing_task + framing_notify，两包均编入）。现值 = 收到
+  // framing_done 或（MQTT 断线导致命令未达）发布成功；_framingNotSent 仅剩
+  // 「MQTT 断」一种成因，固件不支持分支已不再触发（保留兜底，不删）。
   bool _framingDone = false;
   String? _framingFail; // 巡边被拒绝的原因清单（逐条，不静默）
-  /// _framingFail 的类别：true = 命令根本没发出（MQTT 断 / F2 未交付）；
+  /// _framingFail 的类别：true = 命令根本没发出（仅剩 MQTT 断线一种成因；
+  /// 固件 1.1.7+ 已支持 framing，原「F2 未交付」分支已不触发但兜底保留）；
   /// false = 被业务三锁拒绝（未锁定原点 / 越界 / busy）。两者文案必须分开。
   bool _framingNotSent = false;
 
@@ -2264,7 +2268,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   }
 
   /// A-2（2026-09-24）：机器巡边回执（framing_done / framing_fail）消费。
-  /// 语义分层：预览指令发布成功仍按现状置「已预览」（固件未交付期间不阻塞，
+  /// 语义分层：预览指令发布成功仍按现状置「已预览」（固件未回执期间不阻塞，
   /// 注释与实现一致）；回执到达后在现状之上叠加确认 / 否决——
   ///  - framing_done：确认本轮预览机器已真实执行；
   ///  - framing_fail：机器明确拒绝 ⇒ 撤回预览结论与目视确认，红条带原因。
@@ -2319,7 +2323,8 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         : await ref.read(hardwareServiceProvider).framing(points: pts);
     if (!mounted) return;
     // P5 第三层：**不**拿「命令发出去了」代替「客户已目视确认」。
-    // App 只能确认 framing 指令已发出（固件 F2 未交付时机器可能毫无动作），
+    // App 只能确认 framing 指令已发出（固件 1.1.7+ 已支持 framing；若 MQTT
+    // 断线导致命令未达，机器可能毫无动作），
     // 故「已确认」改由客户在 _safetyTick() 勾选框里自己打勾。失败则撤回既有确认，
     // 避免上一次的确认残留到这一次预览上。
     if (!ok) widget.onSafety(false);
@@ -2448,7 +2453,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
         decoration: BoxDecoration(
           color: ok ? CncColors.successBg : CncColors.warnBg,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(CncRadius.card),
           border: Border.all(
               color: ok ? CncColors.successBd : CncColors.warnBd,
               width: 0.5),
@@ -2603,7 +2608,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     // 标题 13/700；连接圆点 7×7 —— 在线 blue / 离线 textSub / 异常 danger。
     final alarm = st?.state == MachineState.alarm;
     final dotColor = alarm
-        ? CncColors.danger
+        ? CncColors.dangerFg
         : (linked ? CncColors.blue : CncColors.textSub);
     return Container(
       height: 48,
@@ -2613,7 +2618,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         border: Border(bottom: BorderSide(color: CncColors.border)),
       ),
       child: Row(children: [
-        GestureDetector(
+        Pressable(
           behavior: HitTestBehavior.opaque,
           onTap: _busy ? null : widget.onPrev,
           child: Container(
@@ -2622,7 +2627,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
             margin: const EdgeInsets.symmetric(horizontal: 4),
             decoration: BoxDecoration(
               color: CncColors.panelAlt,
-              borderRadius: BorderRadius.circular(9),
+              borderRadius: BorderRadius.circular(CncRadius.control),
             ),
             child: Icon(Symbols.arrow_back_ios_new,
                 size: 14, color: CncColors.textMain),
@@ -2712,7 +2717,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   /// 载体由原手柄条 chip 改为画布右上角浮动键 —— 工单 §3.5）。
   Widget _modeChip() {
     final can3d = _wysiwyg && _grid != null;
-    return GestureDetector(
+    return Pressable(
       onTap: () {
         if (_show3D) {
           setState(() => _show3D = false);
@@ -2724,7 +2729,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
           color: CncColors.card,
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(CncRadius.pill),
           border: Border.all(color: CncColors.blue),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -2811,7 +2816,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         // 工单十六 §1.1：三步进度导航（Stepper）替换三段 tab；收起键保留。
         Row(children: [
           Expanded(child: _stepper()),
-          GestureDetector(
+          Pressable(
             behavior: HitTestBehavior.opaque,
             onTap: () => setState(() => _drawerOpen = false),
             child: Padding(
@@ -2888,7 +2893,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: _ink,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(CncRadius.card),
           ),
           child: Text(labels[i],
               maxLines: 1,
@@ -2924,7 +2929,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           padding: const EdgeInsets.symmetric(horizontal: 14),
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(CncRadius.card),
             border: Border.all(color: CncColors.border),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -2940,7 +2945,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       }
       return SizedBox(
         height: 56,
-        child: GestureDetector(
+        child: Pressable(
           behavior: HitTestBehavior.opaque,
           onTap: done ? () => setState(() => _seg = i) : null,
           child: Center(child: core),
@@ -3121,7 +3126,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
             foregroundColor: _paper,
             disabledForegroundColor: CncColors.textSub,
             shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14)),
+                borderRadius: BorderRadius.circular(CncRadius.card)),
           ),
           icon: Icon(seg == 2 ? Symbols.arrow_forward : Symbols.check,
               size: 14),
@@ -3151,14 +3156,14 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     // 整行热区；勾选框 24dp（选中 = 墨底白✓，弃青绿）+「已目视确认」
     // 14/w600 墨字。名称只写「已目视确认」（文案零解释铁律不变）；
     // 未预览前禁用（现成逻辑零改动）。
-    return GestureDetector(
+    return Pressable(
       onTap: enabled ? () => widget.onSafety(!on) : null,
       child: Container(
         height: 56,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: CncColors.card,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(CncRadius.card),
           border: Border.all(color: CncColors.border),
         ),
         child: Row(children: [
@@ -3167,7 +3172,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
             height: 24,
             decoration: BoxDecoration(
               color: on ? _ink : CncColors.card,
-              borderRadius: BorderRadius.circular(7),
+              borderRadius: BorderRadius.circular(CncRadius.control),
               border: Border.all(
                   width: 1.5, color: on ? _ink : CncColors.border),
             ),
@@ -3193,14 +3198,14 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
   /// 未选 = 纸白底 + 1dp border + textSub。圆料直径由取点两点距离决定（现成）。
   Widget _shapeCard(String label, bool active, VoidCallback? onTap,
           {required IconData icon}) =>
-      GestureDetector(
+      Pressable(
         onTap: onTap,
         child: Container(
           width: 156,
           height: 56,
           decoration: BoxDecoration(
             color: CncColors.card,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(CncRadius.card),
             border: Border.all(
                 width: active ? 1.5 : 1,
                 color: active ? CncColors.textMain : CncColors.border),
@@ -3234,7 +3239,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       ]);
 
   Widget _stepPill(String label, bool active, VoidCallback? onTap) =>
-      GestureDetector(
+      Pressable(
         onTap: onTap,
         child: Container(
           width: 70,
@@ -3243,7 +3248,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: CncColors.card,
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(CncRadius.pill),
             border: Border.all(
                 width: active ? 1.5 : 1,
                 color: active ? CncColors.textMain : CncColors.border),
@@ -3268,7 +3273,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: CncColors.card,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(CncRadius.control),
         border: Border.all(color: CncColors.border),
       ),
       child: Row(children: [
@@ -3296,14 +3301,14 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     final fg = enabled ? CncColors.textMain : CncColors.textSub;
     return Material(
       color: CncColors.card,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(CncRadius.card),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(CncRadius.card),
         child: Container(
           height: 52,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(CncRadius.card),
             border: Border.all(
                 width: enabled ? 1.5 : 1,
                 color: enabled ? CncColors.textMain : CncColors.border),
@@ -3414,7 +3419,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
     }
     if (_show3D && _grid != null && m != null) {
       return ClipRRect(
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(CncRadius.control),
         child: Container(
           color: CncColors.panelAlt,
           child: LayoutBuilder(
@@ -3449,7 +3454,7 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
       );
     }
     return ClipRRect(
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(CncRadius.control),
       child: OriginCanvas(
         bedW: _bedW,
         bedH: _bedH,
@@ -3635,13 +3640,13 @@ class _StepOriginState extends ConsumerState<_StepOrigin>
         Offset(r.center.dx - _w / 2, r.center.dy - _h / 2));
   }
 
-  Widget _pill(String text, bool active, VoidCallback? onTap) => GestureDetector(
+  Widget _pill(String text, bool active, VoidCallback? onTap) => Pressable(
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
             color: active ? CncColors.primary.withOpacity(0.14) : CncColors.bg,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(CncRadius.control),
             border: Border.all(
                 color: active ? CncColors.primary : CncColors.border),
           ),
@@ -3661,14 +3666,14 @@ class _StepChip extends StatelessWidget {
   const _StepChip(
       {required this.label, required this.active, required this.onTap});
   @override
-  Widget build(BuildContext context) => GestureDetector(
+  Widget build(BuildContext context) => Pressable(
         onTap: onTap,
         child: Container(
           margin: const EdgeInsets.only(bottom: 4),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
             color: active ? CncColors.primary : CncColors.panelAlt,
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(CncRadius.sm),
             border: Border.all(
                 color: active ? CncColors.primary : CncColors.border),
           ),
@@ -3729,7 +3734,7 @@ class _BedPainter extends CustomPainter {
     final ph = partH * sy;
 
     if (originSet) {
-      final boxColor = overflow ? CncColors.danger : CncColors.primary;
+      final boxColor = overflow ? CncColors.dangerFg : CncColors.primary;
       // 图纸轮廓填充
       canvas.drawRect(
         Rect.fromLTWH(px, py - ph, pw, ph),
@@ -3873,7 +3878,7 @@ class _StepLeveling extends StatelessWidget {
             return Expanded(
               child: Padding(
                 padding: EdgeInsets.only(right: i < modes.length - 1 ? 8 : 0),
-                child: GestureDetector(
+                child: Pressable(
                   onTap: enabled ? () => onMode(i) : null,
                   child: Opacity(
                     opacity: enabled ? 1.0 : 0.45,
@@ -3883,7 +3888,7 @@ class _StepLeveling extends StatelessWidget {
                       // 墨字 w600；弃 primary 绿描边浅绿底。
                       decoration: BoxDecoration(
                         color: sel ? _paperLv : CncColors.bg,
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(CncRadius.control),
                         border: Border.all(
                             width: sel ? 1.5 : 1.0,
                             color: sel ? _inkLv : CncColors.border),
@@ -3909,7 +3914,7 @@ class _StepLeveling extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: CncColors.bg,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(CncRadius.control),
             border: Border.all(color: CncColors.border),
           ),
           child: Column(
@@ -3927,7 +3932,7 @@ class _StepLeveling extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: CncColors.card,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(CncRadius.control),
             border: Border.all(color: CncColors.border),
           ),
           child: Column(
@@ -4227,7 +4232,7 @@ class _ReadyPhase extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: CncColors.card,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(CncRadius.control),
             border: Border.all(color: CncColors.border),
           ),
           child: Column(

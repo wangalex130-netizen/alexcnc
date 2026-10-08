@@ -126,7 +126,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
             color: CncColors.panelAlt,
 
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(CncRadius.card),
 
             border: Border.all(color: CncColors.border),
 
@@ -767,11 +767,11 @@ class _MessagesSheetState extends ConsumerState<_MessagesSheet> {
 
     final iconColor = m.isAlarm
 
-        ? CncColors.danger
+        ? CncColors.dangerFg
 
         : m.isWarn
 
-            ? CncColors.warning
+            ? CncColors.warnFg
 
             : CncColors.primary;
 
@@ -785,7 +785,7 @@ class _MessagesSheetState extends ConsumerState<_MessagesSheet> {
 
         color: CncColors.bg,
 
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(CncRadius.sm),
 
         border: Border(
 
@@ -793,11 +793,11 @@ class _MessagesSheetState extends ConsumerState<_MessagesSheet> {
 
                 color: m.isAlarm
 
-                    ? CncColors.danger
+                    ? CncColors.dangerBd
 
                     : m.isWarn
 
-                        ? CncColors.warning
+                        ? CncColors.warnBd
 
                         : CncColors.primary,
 

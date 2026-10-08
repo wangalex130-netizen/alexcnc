@@ -257,7 +257,7 @@ class _TimeLapseVideoPageState extends State<TimeLapseVideoPage> {
 
                     shape: RoundedRectangleBorder(
 
-                        borderRadius: BorderRadius.circular(12)),
+                        borderRadius: BorderRadius.circular(CncRadius.card)),
 
                   ),
 

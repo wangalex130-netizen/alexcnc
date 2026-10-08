@@ -181,7 +181,7 @@ class JogKeyState extends State<JogKey> {
   @override
   Widget build(BuildContext context) {
     // 危险动作（软复位 / 解锁）用红色描边+红字，与移动键在视觉上区分开。
-    final accent = widget.danger ? CncColors.danger : CncColors.primary;
+    final accent = widget.danger ? CncColors.dangerFg : CncColors.primary;
     return GestureDetector(
           // 只用 tap 三件套，**刻意不注册 onLongPressEnd**：
           // 一旦存在 LongPress 识别器，它会在 500ms 后赢得手势竞技场，
@@ -211,7 +211,7 @@ class JogKeyState extends State<JogKey> {
                   child: DecoratedBox(
                     decoration: BoxDecoration(
                       color: CncColors.textMain.withOpacity(0.22),
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(CncRadius.card),
                     ),
                   ),
                 ),
@@ -224,11 +224,11 @@ class JogKeyState extends State<JogKey> {
                   ? null
                   : BoxDecoration(
                 color: _holding ? accent.withOpacity(0.22) : CncColors.panelAlt,
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: BorderRadius.circular(CncRadius.sm),
                 border: Border.all(
                     color: _holding
                         ? accent
-                        : (widget.danger ? CncColors.danger : CncColors.border)),
+                        : (widget.danger ? CncColors.dangerFg : CncColors.border)),
               ),
               child: Center(
                 child: widget.child ??
@@ -237,7 +237,7 @@ class JogKeyState extends State<JogKey> {
                           fontSize: 13,
                           fontWeight: FontWeight.bold,
                           color: widget.danger
-                              ? CncColors.danger
+                              ? CncColors.dangerFg
                               : CncColors.textMain)),
               ),
             ),

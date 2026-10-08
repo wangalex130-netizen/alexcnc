@@ -11,6 +11,7 @@ import '../../state/providers.dart';
 import '../../widgets/cnc_line_icons.dart';
 import '../../widgets/cnc_switch.dart';
 import '../../widgets/tool_icon.dart';
+import '../../widgets/pressable.dart';
 
 /// 工单十二（20260926 v4.7）控制台新卡组 —— 式样真相源 = 工单 §2。
 ///
@@ -66,14 +67,14 @@ class ConsoleMoveCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fg = enabled ? CncColors.textMain : CncColors.textSub;
-    return GestureDetector(
+    return Pressable(
       onTap: enabled ? onTap : null,
       child: Container(
         width: 158,
         height: 156,
         decoration: BoxDecoration(
           color: enabled ? CncColors.card : CncColors.disabled,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(CncRadius.card),
           border: Border.all(color: CncColors.border),
         ),
         child: Column(
@@ -127,14 +128,14 @@ class ConsoleSpindleCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fg = enabled ? CncColors.textMain : CncColors.textSub;
-    return GestureDetector(
+    return Pressable(
       onTap: enabled ? onTap : null,
       child: Container(
         width: double.infinity, // 右列 Expanded 内需撑满 158dp
         height: 72,
         decoration: BoxDecoration(
           color: enabled ? CncColors.card : CncColors.disabled,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(CncRadius.card),
           border: Border.all(color: CncColors.border),
         ),
         child: Column(
@@ -177,14 +178,14 @@ class ConsoleLaserCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return Pressable(
       onTap: enabled ? onTap : null,
       child: Container(
         width: double.infinity, // 右列 Expanded 内需撑满 158dp
         height: 72,
         decoration: BoxDecoration(
           color: enabled ? CncColors.card : CncColors.disabled,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(CncRadius.card),
           border: Border.all(color: CncColors.border),
         ),
         child: statusLine == null
@@ -296,7 +297,7 @@ class _ConsoleToolMagazineCardState
         ),
       );
     }
-    return GestureDetector(
+    return Pressable(
       behavior: HitTestBehavior.opaque,
       onTap: () {
         if (!en || def == null) return; // 加工中禁弹；空仓无名称可弹
@@ -372,7 +373,7 @@ class _ConsoleToolMagazineCardState
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
             color: CncColors.card,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(CncRadius.control),
             border: Border.all(color: CncColors.border),
           ),
           child: Text(
@@ -424,7 +425,7 @@ class _ConsoleToolMagazineCardState
       return Stack(
         clipBehavior: Clip.none,
         children: [
-          GestureDetector(
+          Pressable(
             onTap: () {
               if (_bubble != null) setState(() => _bubble = null); // 点空白收起
             },
@@ -433,7 +434,7 @@ class _ConsoleToolMagazineCardState
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: en ? CncColors.card : CncColors.disabled,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(CncRadius.card),
                 border: Border.all(color: CncColors.border),
               ),
               child: Row(
@@ -471,7 +472,7 @@ class _ConsoleToolMagazineCardState
                   ],
                   const SizedBox(width: 8),
                   // 进入标志：› → 现有 ToolMagazineEditor 弹层
-                  GestureDetector(
+                  Pressable(
                     onTap: en ? widget.onEnterEditor : null,
                     behavior: HitTestBehavior.opaque,
                     child: SizedBox(
@@ -562,7 +563,7 @@ class ConsoleAccessoryCard extends StatelessWidget {
       height: 48,
       decoration: BoxDecoration(
         color: en ? CncColors.panelAlt : CncColors.disabled,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(CncRadius.control),
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -599,7 +600,7 @@ class ConsoleAccessoryCard extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: enabled ? CncColors.card : CncColors.disabled,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(CncRadius.card),
         border: Border.all(color: CncColors.border),
       ),
       child: Row(

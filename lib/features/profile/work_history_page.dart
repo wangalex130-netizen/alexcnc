@@ -7,6 +7,7 @@ import '../../app/theme.dart';
 import '../../models/work_record.dart';
 import '../../state/providers.dart';
 import '../../widgets/cnc_switch.dart';
+import '../../widgets/cnc_skeleton.dart';
 
 /// 雕刻历史（工作记录）。
 ///
@@ -478,9 +479,9 @@ class _RecordCard extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 10),
         decoration: BoxDecoration(
           color: CncColors.dangerBg,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(CncRadius.card),
         ),
-        child: Icon(Symbols.delete, color: CncColors.danger, size: 20),
+        child: Icon(Symbols.delete, color: CncColors.dangerFg, size: 20),
       ),
       confirmDismiss: (_) async {
         return await showDialog<bool>(
@@ -500,7 +501,7 @@ class _RecordCard extends StatelessWidget {
                   TextButton(
                     onPressed: () => Navigator.pop(context, true),
                     child: Text('删除',
-                        style: TextStyle(color: CncColors.danger)),
+                        style: TextStyle(color: CncColors.dangerFg)),
                   ),
                 ],
               ),
@@ -513,7 +514,7 @@ class _RecordCard extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
         decoration: BoxDecoration(
           color: CncColors.card,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(CncRadius.card),
           border: Border.all(color: CncColors.border),
         ),
         child: Row(
@@ -582,31 +583,28 @@ class _Skeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget bar(double w) => Container(
-          width: w,
-          height: 12,
-          decoration: BoxDecoration(
-            color: CncColors.border,
-            borderRadius: BorderRadius.circular(6),
-          ),
-        );
+    // P1-4：原实现是 6 条**静态**灰条（固定 150/90 宽、CncColors.border），
+    // 加载时看起来像「坏了」。现改为呼吸骨架，并让宽度逐行递减，
+    // 避免读起来像等宽栅格。行数仍为 6，保持列表高度稳定不跳动。
+  Widget bar(double w) => CncSkeletonBox(width: w, height: 12);
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
       itemCount: 6,
-      itemBuilder: (_, __) => Container(
+      itemBuilder: (_, i) => Container(
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
         decoration: BoxDecoration(
           color: CncColors.card,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(CncRadius.card),
           border: Border.all(color: CncColors.border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            bar(150),
+            // 逐行递减：150 / 118 / 134 / 104 / 126 / 96
+            bar(150.0 - (i %3) * 16 - (i.isEven ? 0 : 8)),
             const SizedBox(height: 10),
-            bar(90),
+            bar(90.0 - (i % 2) * 12),
           ],
         ),
       ),

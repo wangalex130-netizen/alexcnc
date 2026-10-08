@@ -12,6 +12,7 @@ import '../../app/theme.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import 'package:http/http.dart' as http;
+import '../../widgets/pressable.dart';
 
 
 
@@ -483,7 +484,7 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
 
           // 用户场景下，遮罩显示播放圆按钮，点击后才真正开始拉流。
 
-          GestureDetector(
+          Pressable(
 
             onTap: () {
 
@@ -531,7 +532,7 @@ class _MjpegStreamPlayerState extends State<MjpegStreamPlayer> {
 
                     Icon(Symbols.error,
 
-                        size: 36, color: CncColors.danger),
+                        size: 36, color: CncColors.dangerFg),
 
                     const SizedBox(height: 10),
 
