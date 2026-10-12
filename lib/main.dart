@@ -3,29 +3,42 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'app/app.dart';
 import 'features/profile/settings_page.dart' show kStartupTabKey;
 import 'features/shell/app_shell.dart' show StartupPrefs;
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  // 让内容全屏绘制到系统栏下方，状态栏透明、图标白色；
-  // 各页面自行用 SafeArea 避开状态栏/手势条，避免顶部图标遮挡 APP。
-  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-  // 状态栏图标颜色**不能在此硬编码**：硬编码为 dark 时，一旦切到深色主题，
-  // 深色底 + 深色图标 => 状态栏时间/电量看不见（客户可见缺陷 F-03）。
-  // 改为「亮底用深色图标、暗底用浅色图标」，由 AlexCncApp 在 MaterialApp 的
-  // builder 里按**当前实际生效的 Brightness** 下发（见 app/app.dart）。
-  applySystemBars(Brightness.light);
-  // 工单二十一 §2.8：启动首选项在首帧前读好（native splash 覆盖期，零闪烁）。
-  try {
-    final sp = await SharedPreferences.getInstance();
-    StartupPrefs.tab = sp.getString(kStartupTabKey) ?? 'devices';
-  } catch (_) {
-    // 偏好读取失败按默认「设备」走，不阻塞启动。
-  }
-  runApp(const ProviderScope(child: AlexCncApp()));
+  // A3（2026-10-12）：Sentry 崩溃监控初始化。DSN 未注入（本地跑 / CI 未配置
+  // SENTRY_DSN Secret）时 SDK 为 no-op，行为与接入前完全一致；原 main 的全部
+  // 初始化语句原样搬入 appRunner，顺序一处未动。
+  await SentryFlutter.init(
+    (options) {
+      options.dsn = const String.fromEnvironment('SENTRY_DSN');
+      // 只收崩溃/错误事件，不收性能追踪（免费档 5k 事件/月，省配额）。
+      options.tracesSampleRate = 0.0;
+    },
+    appRunner: () async {
+    WidgetsFlutterBinding.ensureInitialized();
+    // 让内容全屏绘制到系统栏下方，状态栏透明、图标白色；
+    // 各页面自行用 SafeArea 避开状态栏/手势条，避免顶部图标遮挡 APP。
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    // 状态栏图标颜色**不能在此硬编码**：硬编码为 dark 时，一旦切到深色主题，
+    // 深色底 + 深色图标 => 状态栏时间/电量看不见（客户可见缺陷 F-03）。
+    // 改为「亮底用深色图标、暗底用浅色图标」，由 AlexCncApp 在 MaterialApp 的
+    // builder 里按**当前实际生效的 Brightness** 下发（见 app/app.dart）。
+    applySystemBars(Brightness.light);
+    // 工单二十一 §2.8：启动首选项在首帧前读好（native splash 覆盖期，零闪烁）。
+    try {
+      final sp = await SharedPreferences.getInstance();
+      StartupPrefs.tab = sp.getString(kStartupTabKey) ?? 'devices';
+    } catch (_) {
+      // 偏好读取失败按默认「设备」走，不阻塞启动。
+    }
+    runApp(const ProviderScope(child: AlexCncApp()));
+    },
+  );
 }
 
 /// 按当前亮度下发系统栏图标颜色：浅色主题用深色图标，深色主题用浅色图标。

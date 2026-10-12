@@ -210,6 +210,12 @@ jobs:
           LAB_CAMERA_USER: ${{ secrets.LAB_CAMERA_USER }}
           LAB_CAMERA_PASS: ${{ secrets.LAB_CAMERA_PASS }}
           LAB_RELAY_TOKEN: ${{ secrets.LAB_RELAY_TOKEN }}
+          # A3（2026-10-12）：Sentry 崩溃监控。DSN 注入 App；AUTH_TOKEN/ORG/PROJECT
+          # 只给 CI 上传符号用，绝不进 App 的任何 dart-define。
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
 
         run: |
 
@@ -287,6 +293,11 @@ jobs:
             fi
             if [ -n "${LAB_RELAY_TOKEN}" ]; then
               DEFINE_ARGS="$DEFINE_ARGS --dart-define=CAMERA_RELAY_TOKEN=${LAB_RELAY_TOKEN}"
+            fi
+            # A3（2026-10-12）：Sentry DSN。Secret 未配置时不注入 ——
+            # String.fromEnvironment 未提供时回默认空串，SDK no-op。
+            if [ -n "${SENTRY_DSN}" ]; then
+              DEFINE_ARGS="$DEFINE_ARGS --dart-define=SENTRY_DSN=${SENTRY_DSN}"
             fi
             echo "### DEFINE: dart-define injected (values hidden)" >> "$LOG"
 
@@ -434,6 +445,25 @@ jobs:
           if-no-files-found: warn
 
 
+
+      - name: Upload debug symbols to Sentry
+        # A3（2026-10-12）：把 --split-debug-info 落盘的符号传 Sentry 后台，
+        # 混淆崩溃堆栈才能还原成可读。三个 Secret 任一未配置则整步跳过；
+        # 上传失败不阻断发版（同 artifact 策略）。
+        if: steps.build.outputs.code == '0'
+        continue-on-error: true
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        run: |
+          if [ -z "${SENTRY_AUTH_TOKEN}" ] || [ -z "${SENTRY_ORG}" ] || [ -z "${SENTRY_PROJECT}" ]; then
+            echo "### SENTRY_SKIP: secrets not configured"
+            exit 0
+          fi
+          curl -sL https://sentry.io/get-cli/ | bash
+          sentry-cli upload-dif --org "${SENTRY_ORG}" --project "${SENTRY_PROJECT}" build/symbols/
+          echo "### SENTRY_SYMBOLS_UPLOADED"
 
       - name: Publish APK release
 
