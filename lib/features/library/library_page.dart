@@ -1054,6 +1054,17 @@ class _InspirationSliver extends StatelessWidget {
                     contentPadding: const EdgeInsets.symmetric(vertical: 8),
 
                     border: InputBorder.none,
+                    ★ 2026-10-04 真修（2026-10-12 从 ui3.0 还原：10-08 合并时本文件该修复被旧版覆盖）：
+                    InputDecoration 有五个边框字段，只写 border 不会覆盖其余四个，
+                    它们会继承全局 inputDecorationTheme（filled + panelAlt 米色底 +
+                    focusedBorder 深海墨 1.5px）⇒ 鸿蒙 6 / 卓易通上表现为
+                    「输入框内米色块 + 大黑框」。五个槽位全关，视觉完全交给外层 Container。
+                    filled: false,
+                    fillColor: Colors.transparent,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    errorBorder: InputBorder.none,
+                    focusedErrorBorder: InputBorder.none,
 
                     suffixIcon: keyword.isEmpty
 
