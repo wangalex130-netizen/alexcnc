@@ -30,11 +30,11 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
-        // libvlc-all 自带 4 种 ABI 的 .so，占了 APK 绝大部分体积。
-        // 真机只需要这两种；去掉 x86/x86_64 后安装包大约减半。
-        ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
-        }
+        // 【2026-10-12 移除】ndk.abiFilters 与 CI 的 --split-per-abi 冲突：
+        // EvalIssueException: 'armeabi-v7a,arm64-v8a' in ndk abiFilters cannot
+        // be present when splits abi filters are set（run#496 attempt2 实证）。
+        // 原「去掉 x86/x86_64 给 libVLC 瘦身」的目标由
+        // --target-platform=android-arm64,android-arm + --split-per-abi 达成。
 
         // ===================================================================
         // 个推（GeTui）推送：manifest 占位符（三件套）。
