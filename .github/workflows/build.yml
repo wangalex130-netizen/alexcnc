@@ -304,6 +304,9 @@ jobs:
             case "$APP_BUILD" in
               ''|*[!0-9]*) APP_BUILD=0 ;;
             esac
+            # 2026-10-12 工单 A9 联动：versionCode 已改用 CI 运行号（--build-number），
+            # 这里让 App 内显示的构建号与真 versionCode 一致，否则调试页与系统版本号对不上。
+            APP_BUILD="${GITHUB_RUN_NUMBER}"
             if [ -n "$APP_VER" ]; then
               DEFINE_ARGS="$DEFINE_ARGS --dart-define=APP_VERSION=${APP_VER} --dart-define=APP_BUILD_NUMBER=${APP_BUILD}"
             fi
@@ -324,7 +327,20 @@ jobs:
 
             echo "=== flutter build apk --release ===" >> "$LOG"
 
-            flutter build apk --release --verbose $DEFINE_ARGS >> "$LOG" 2>&1
+            # 2026-10-12 A类工单 A1+A2+A9：
+            # A1 --split-per-abi 按 ABI 分包（129MB 合包 -> arm64 约 66MB），
+            #    显式列 target-platform 防止 x86_64 混入（gradle abiFilters 只管打包不管 split）。
+            # A2 --obfuscate Dart 层混淆 + 符号落盘 build/symbols（与 R8/minify 无关，
+            #    android/app/build.gradle.kts 的 isMinifyEnabled=false 是 libVLC JNI 修复，严禁动）。
+            # A9 --build-number=RUN_NUMBER：pubspec +1 从未递增，每次 CI 运行号天然唯一，
+            #    杜绝「装旧包/OTA 认旧版」。versionCode 随构建单调递增，老包可覆盖升级。
+            flutter build apk --release --verbose \
+              --target-platform=android-arm64,android-arm \
+              --split-per-abi \
+              --build-number="${GITHUB_RUN_NUMBER}" \
+              --obfuscate \
+              --split-debug-info=build/symbols \
+              $DEFINE_ARGS >> "$LOG" 2>&1
 
             BUILD=$?
 
@@ -334,11 +350,11 @@ jobs:
 
           # APK 指纹（2026-09-10）：判断「联调包 vs 正式包」是否真的不同，
           # 免得为了确认差异去下载 130MB。只打印大小与前 16 位哈希。
+          # 2026-10-12 工单 A1：split-per-abi 后产物为多 APK，循环打印全部指纹。
           if [ "$BUILD" = "0" ]; then
-            APKP=build/app/outputs/flutter-apk/app-release.apk
-            if [ -f "$APKP" ]; then
-              echo "### APK_DIAG size=$(stat -c %s "$APKP") sha16=$(sha256sum "$APKP" | cut -c1-16)"
-            fi
+            for APKP in build/app/outputs/flutter-apk/app-*-release.apk; do
+              [ -f "$APKP" ] && echo "### APK_DIAG $APKP size=$(stat -c %s "$APKP") sha16=$(sha256sum "$APKP" | cut -c1-16)"
+            done
           fi
 
 
@@ -396,7 +412,26 @@ jobs:
 
           name: alexcnc-app
 
-          path: build/app/outputs/flutter-apk/app-release.apk
+          # 2026-10-12 工单 A1：split-per-abi 后为多 APK，artifact 收全部 ABI。
+          path: build/app/outputs/flutter-apk/app-*-release.apk
+
+      - name: Upload dart debug symbols
+
+        # 2026-10-12 工单 A2 配套：--split-debug-info 落盘的符号文件，
+        # 用于把混淆后的崩溃堆栈还原成人类可读。artifact 失败不阻断发版（同上策略）。
+        if: steps.build.outputs.code == '0'
+
+        continue-on-error: true
+
+        uses: actions/upload-artifact@v4
+
+        with:
+
+          name: dart-symbols-${{ github.sha }}
+
+          path: build/symbols/
+
+          if-no-files-found: warn
 
 
 
@@ -420,17 +455,26 @@ jobs:
           fi
           echo "RELEASE_TAG=$TAG"
 
-          APK=build/app/outputs/flutter-apk/app-release.apk
+          # 2026-10-12 工单 A1：split-per-abi 后为多 APK，按 ABI 收集上传；
+          # 兜底：若未来退回合包模式，回退单 APK 路径。
+          APKS=""
+          for f in build/app/outputs/flutter-apk/app-arm64-v8a-release.apk build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk; do
+            [ -f "$f" ] && APKS="$APKS $f"
+          done
+          echo "### RELEASE_APKS:$APKS"
+          if [ -z "$APKS" ]; then
+            APKS=" build/app/outputs/flutter-apk/app-release.apk"
+          fi
 
           if gh release view "$TAG" >/dev/null 2>&1; then
 
             echo "release $TAG already exists - upload with --clobber"
 
-            gh release upload "$TAG" "$APK" --clobber || echo "upload failed (non-fatal)"
+            gh release upload "$TAG" $APKS --clobber || echo "upload failed (non-fatal)"
 
           else
 
-            gh release create "$TAG" "$APK" --title "Smart CNC Pro APK" --notes "Automated build from ${{ github.sha }}" || echo "release create failed (non-fatal)"
+            gh release create "$TAG" $APKS --title "Smart CNC Pro APK" --notes "Automated build from ${{ github.sha }}。手机装 arm64 版（绝大多数手机）；很老的安卓机才装 v7a 版。" || echo "release create failed (non-fatal)"
 
           fi
 
